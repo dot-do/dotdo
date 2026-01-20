@@ -9,6 +9,7 @@ export {
   getAllResources,
   clearRegistry,
   type ResourceDefinition,
+  type ResourceFields,
   type FieldDef,
   type RelationDef,
   type ActionDef,

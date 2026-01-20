@@ -164,10 +164,64 @@ function getProviderFromModel(model: string): Provider {
 }
 
 /**
+ * Check if an error is a module not found error
+ */
+function isModuleNotFoundError(error: unknown): boolean {
+  if (error instanceof Error) {
+    // Node.js/Vite MODULE_NOT_FOUND error codes
+    if ('code' in error && (
+      error.code === 'MODULE_NOT_FOUND' ||
+      error.code === 'ERR_MODULE_NOT_FOUND'
+    )) {
+      return true
+    }
+    // Bundler/ESM import errors - various message formats
+    if (error.message.includes('Cannot find module') ||
+        error.message.includes('Cannot find package') ||
+        error.message.includes('Failed to resolve') ||
+        error.message.includes('Cannot resolve module') ||
+        error.message.includes('Failed to load url')) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Create a mock LanguageModel for testing when ai-providers is not installed.
+ *
+ * IMPORTANT: This should only be used when the ai-providers module is genuinely
+ * not available (development/testing without the optional dependency).
+ * Real errors from ai-providers should propagate to the caller.
+ */
+function createMockModel(modelId: string): LanguageModel {
+  return {
+    provider: 'mock',
+    modelId,
+    specificationVersion: 'v1',
+    async doGenerate(options: any) {
+      return {
+        text: `Mock response for model: ${modelId}`,
+        finishReason: 'stop' as const,
+        usage: { promptTokens: 10, completionTokens: 20 },
+      }
+    },
+    async doStream(options: any) {
+      return {
+        stream: (async function* () {
+          yield { type: 'text-delta' as const, textDelta: 'Mock response' }
+          yield { type: 'finish' as const, finishReason: 'stop' as const, usage: { promptTokens: 10, completionTokens: 20 } }
+        })(),
+      }
+    },
+  } as unknown as LanguageModel
+}
+
+/**
  * Resolve model string to LanguageModel instance
  *
- * This is a placeholder that will be properly implemented when
- * ai-providers integration is complete. For now, it returns a mock.
+ * Uses ai-providers when available, falls back to mock only when the module
+ * is not installed. Real errors (auth failures, API errors, etc.) are propagated.
  */
 async function resolveModel(modelArg: string | LanguageModel): Promise<LanguageModel> {
   // Already a LanguageModel instance
@@ -178,33 +232,20 @@ async function resolveModel(modelArg: string | LanguageModel): Promise<LanguageM
   // Resolve alias
   const resolvedModel = resolveModelAlias(modelArg)
 
-  // Try to use ai-providers if available, otherwise create a mock model
+  // Try to use ai-providers if available
   try {
     const aiProviders = await import('ai-providers')
-    return aiProviders.model(resolvedModel)
+    // This may throw errors (auth, config, etc.) - let them propagate!
+    return await aiProviders.model(resolvedModel)
   } catch (e) {
-    // Fallback: create a mock LanguageModel for testing
-    // In production, ai-providers should be available
-    return {
-      provider: 'mock',
-      modelId: resolvedModel,
-      specificationVersion: 'v1',
-      async doGenerate(options: any) {
-        return {
-          text: `Mock response for model: ${resolvedModel}`,
-          finishReason: 'stop' as const,
-          usage: { promptTokens: 10, completionTokens: 20 },
-        }
-      },
-      async doStream(options: any) {
-        return {
-          stream: (async function* () {
-            yield { type: 'text-delta' as const, textDelta: 'Mock response' }
-            yield { type: 'finish' as const, finishReason: 'stop' as const, usage: { promptTokens: 10, completionTokens: 20 } }
-          })(),
-        }
-      },
-    } as unknown as LanguageModel
+    // Only use mock model if ai-providers module is not installed
+    // This allows tests to run without the optional dependency
+    if (isModuleNotFoundError(e)) {
+      return createMockModel(resolvedModel)
+    }
+    // Re-throw real errors (authentication, configuration, API errors, etc.)
+    // These should not be masked by the mock fallback
+    throw e
   }
 }
 
@@ -447,6 +488,19 @@ export interface EmbedTextOptions {
 }
 
 /**
+ * Generate mock embeddings for testing when ai-providers is not installed.
+ * Returns deterministic mock embeddings based on text length.
+ */
+function generateMockEmbedding(text: string, dimensions: number = 1536): number[] {
+  // Use a simple deterministic algorithm based on text
+  // This ensures tests get consistent results
+  const seed = text.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+  return Array.from({ length: dimensions }, (_, i) =>
+    Math.sin(seed * (i + 1) * 0.001) * 0.5
+  )
+}
+
+/**
  * Generate embeddings for text
  *
  * @example
@@ -468,18 +522,26 @@ export async function embedText(
   let model: EmbeddingModel | null = null
   try {
     const aiProviders = await import('ai-providers')
-    model = aiProviders.embeddingModel(modelName)
+    // This may throw errors (auth, config, etc.) - let them propagate!
+    model = await aiProviders.embeddingModel(modelName)
   } catch (e) {
-    // Will use mock implementation below
-    model = null
+    // Only use mock embeddings if ai-providers module is not installed
+    // This allows tests to run without the optional dependency
+    if (isModuleNotFoundError(e)) {
+      model = null
+    } else {
+      // Re-throw real errors (authentication, configuration, API errors, etc.)
+      // These should not be masked by the mock fallback
+      throw e
+    }
   }
 
-  // If ai-providers is not available, return mock embeddings
+  // If ai-providers is not available (module not installed), return mock embeddings
   if (model === null) {
     if (typeof text === 'string') {
-      return Array.from({ length: 1536 }, () => Math.random())
+      return generateMockEmbedding(text, options?.dimensions)
     }
-    return text.map(() => Array.from({ length: 1536 }, () => Math.random()))
+    return text.map((t) => generateMockEmbedding(t, options?.dimensions))
   }
 
   // Use real AI SDK with the model

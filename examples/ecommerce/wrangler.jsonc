@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ecommerce-example",
+  "main": "index.ts",
+  "compatibility_date": "2024-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Objects
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ECOMMERCE",
+        "class_name": "EcommerceDO"
+      }
+    ]
+  },
+
+  // Migrations for DO
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["EcommerceDO"]
+    }
+  ],
+
+  // Development settings
+  "dev": {
+    "port": 8787,
+    "local_protocol": "http"
+  }
+}

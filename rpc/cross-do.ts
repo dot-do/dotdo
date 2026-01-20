@@ -2,6 +2,7 @@
 // Provides typed RPC between DOs with stub caching and connection pooling
 
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
+import { RPCError, RPCErrorCode, isSerializedError, deserializeError } from './errors'
 
 // Re-export for convenience
 export { generateCorrelationId, CORRELATION_ID_HEADER }
@@ -169,7 +170,28 @@ export function createCrossDOClient<T extends object>(
           const response = await stub.fetch(url, { ...init, headers })
           if (!response.ok) {
             const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
-            throw new Error(`Cross-DO fetch error: ${response.status} [${responseCorrelationId}]`)
+            const errorBody = await response.json().catch(() => null)
+
+            // If the response is a structured error, deserialize it
+            if (errorBody && isSerializedError(errorBody)) {
+              const deserializedError = deserializeError(errorBody)
+              // Add correlation ID to error details if it's an RPCError
+              if (deserializedError instanceof RPCError) {
+                throw new RPCError(
+                  deserializedError.code,
+                  deserializedError.message,
+                  { ...deserializedError.details, correlationId: responseCorrelationId }
+                )
+              }
+              throw deserializedError
+            }
+
+            // Fallback: create an RPCError with the HTTP status
+            throw new RPCError(
+              RPCErrorCode.INTERNAL_ERROR,
+              errorBody?.message || `Cross-DO fetch error: ${response.status}`,
+              { status: response.status, correlationId: responseCorrelationId, ...errorBody }
+            )
           }
           return response.json()
         }
@@ -199,7 +221,28 @@ export function createCrossDOClient<T extends object>(
 
         if (!response.ok) {
           const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
-          throw new Error(`Cross-DO RPC error: ${response.status} [${responseCorrelationId}]`)
+          const errorBody = await response.json().catch(() => null)
+
+          // If the response is a structured error, deserialize it
+          if (errorBody && isSerializedError(errorBody)) {
+            const deserializedError = deserializeError(errorBody)
+            // Add correlation ID to error details if it's an RPCError
+            if (deserializedError instanceof RPCError) {
+              throw new RPCError(
+                deserializedError.code,
+                deserializedError.message,
+                { ...deserializedError.details, correlationId: responseCorrelationId }
+              )
+            }
+            throw deserializedError
+          }
+
+          // Fallback: create an RPCError with the HTTP status
+          throw new RPCError(
+            RPCErrorCode.INTERNAL_ERROR,
+            errorBody?.message || `Cross-DO RPC error: ${response.status}`,
+            { status: response.status, correlationId: responseCorrelationId, method: prop, ...errorBody }
+          )
         }
 
         return response.json()

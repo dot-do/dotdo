@@ -11,6 +11,9 @@ import {
   deserializeError,
   serializeUnknownError,
   getErrorMessage,
+  CircuitOpenError,
+  isCircuitOpenError,
+  RetryWithCircuitBreaker,
 } from '../errors'
 
 describe('RPCError', () => {
@@ -91,9 +94,14 @@ describe('isRetryableError', () => {
     expect(isRetryableError(invalidError)).toBe(false)
   })
 
-  it('should not retry CIRCUIT_OPEN errors', () => {
+  it('should retry CIRCUIT_OPEN errors (circuit may transition to half-open)', () => {
     const circuitError = new RPCError(RPCErrorCode.CIRCUIT_OPEN, 'Circuit open')
-    expect(isRetryableError(circuitError)).toBe(false)
+    expect(isRetryableError(circuitError)).toBe(true)
+  })
+
+  it('should retry CircuitOpenError', () => {
+    const circuitError = new CircuitOpenError('Circuit breaker is open')
+    expect(isRetryableError(circuitError)).toBe(true)
   })
 
   it('should handle non-RPCError instances', () => {
@@ -305,7 +313,7 @@ describe('CircuitBreaker', () => {
 
     expect(breaker.getState()).toBe(CircuitState.OPEN)
 
-    // Next request should fail immediately without calling fn
+    // Next request should fail immediately without calling fn (CircuitOpenError)
     await expect(breaker.execute(fn)).rejects.toThrow('Circuit breaker is open')
     expect(fn).toHaveBeenCalledTimes(2) // Not called on 3rd attempt
   })
@@ -669,5 +677,309 @@ describe('getErrorMessage', () => {
 
   it('should convert object to string', () => {
     expect(getErrorMessage({ foo: 'bar' })).toBe('[object Object]')
+  })
+})
+
+describe('CircuitOpenError', () => {
+  it('should create a circuit open error with CIRCUIT_OPEN code', () => {
+    const error = new CircuitOpenError('Circuit breaker is open')
+
+    expect(error).toBeInstanceOf(RPCError)
+    expect(error).toBeInstanceOf(CircuitOpenError)
+    expect(error.code).toBe(RPCErrorCode.CIRCUIT_OPEN)
+    expect(error.message).toBe('Circuit breaker is open')
+    expect(error.name).toBe('CircuitOpenError')
+    expect(error.httpStatus).toBe(503)
+  })
+
+  it('should create error with metrics using static factory', () => {
+    const error = CircuitOpenError.withMetrics({
+      consecutiveFailures: 5,
+      lastFailureTime: Date.now() - 10000,
+      resetTimeMs: 30000,
+    })
+
+    expect(error).toBeInstanceOf(CircuitOpenError)
+    expect(error.code).toBe(RPCErrorCode.CIRCUIT_OPEN)
+    expect(error.details).toHaveProperty('consecutiveFailures', 5)
+    expect(error.details).toHaveProperty('lastFailureTime')
+    expect(error.details).toHaveProperty('retryAfter')
+  })
+
+  it('should be detected by isCircuitOpenError type guard', () => {
+    const circuitError = new CircuitOpenError('Circuit open')
+    const otherError = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Other error')
+
+    expect(isCircuitOpenError(circuitError)).toBe(true)
+    expect(isCircuitOpenError(otherError)).toBe(false)
+    expect(isCircuitOpenError(new Error('Generic'))).toBe(false)
+  })
+
+  it('should serialize and deserialize correctly', () => {
+    const original = new CircuitOpenError('Circuit is open', {
+      consecutiveFailures: 5,
+      retryAfter: 20,
+    })
+
+    const serialized = serializeError(original)
+    const deserialized = deserializeError(serialized)
+
+    expect(deserialized).toBeInstanceOf(CircuitOpenError)
+    expect(deserialized.code).toBe(RPCErrorCode.CIRCUIT_OPEN)
+    expect(deserialized.message).toBe('Circuit is open')
+    expect(deserialized.details).toEqual({ consecutiveFailures: 5, retryAfter: 20 })
+  })
+})
+
+describe('RetryWithCircuitBreaker', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  it('should succeed on first attempt', async () => {
+    const resilient = new RetryWithCircuitBreaker({
+      retry: { maxRetries: 3, initialDelay: 100 },
+      circuitBreaker: { failureThreshold: 5, timeout: 30000 },
+    })
+
+    const fn = vi.fn().mockResolvedValue('success')
+    const result = await resilient.execute(fn)
+
+    expect(result).toBe('success')
+    expect(fn).toHaveBeenCalledTimes(1)
+    expect(resilient.getState()).toBe(CircuitState.CLOSED)
+  })
+
+  it('should retry on transient failures then succeed', async () => {
+    const resilient = new RetryWithCircuitBreaker({
+      retry: { maxRetries: 3, initialDelay: 100, jitter: false },
+      circuitBreaker: { failureThreshold: 5, timeout: 30000 },
+    })
+
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Network failed'))
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.TIMEOUT, 'Timeout'))
+      .mockResolvedValue('success')
+
+    const promise = resilient.execute(fn)
+    await vi.runAllTimersAsync()
+    const result = await promise
+
+    expect(result).toBe('success')
+    expect(fn).toHaveBeenCalledTimes(3)
+    expect(resilient.getState()).toBe(CircuitState.CLOSED)
+    expect(resilient.getMetrics().totalRetryAttempts).toBe(2)
+  })
+
+  it('should open circuit after consecutive failures exceed threshold', async () => {
+    const resilient = new RetryWithCircuitBreaker({
+      retry: { maxRetries: 0, initialDelay: 100 }, // No retries to simplify test
+      circuitBreaker: { failureThreshold: 3, timeout: 30000 },
+    })
+
+    const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Service failed')
+    const fn = vi.fn().mockRejectedValue(error)
+
+    // Trigger 3 failures to open the circuit
+    for (let i = 0; i < 3; i++) {
+      await expect(resilient.execute(fn)).rejects.toThrow('Service failed')
+    }
+
+    expect(resilient.getState()).toBe(CircuitState.OPEN)
+
+    // Next request should fail immediately with CircuitOpenError
+    await expect(resilient.execute(fn)).rejects.toThrow('Circuit breaker is open')
+    expect(fn).toHaveBeenCalledTimes(3) // Not called on 4th attempt
+  })
+
+  it('should transition to half-open after timeout', async () => {
+    const resilient = new RetryWithCircuitBreaker({
+      retry: { maxRetries: 0, initialDelay: 100 },
+      circuitBreaker: { failureThreshold: 2, successThreshold: 1, timeout: 5000 },
+    })
+
+    const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Service failed')
+
+    // Open the circuit
+    await expect(resilient.execute(() => Promise.reject(error))).rejects.toThrow()
+    await expect(resilient.execute(() => Promise.reject(error))).rejects.toThrow()
+    expect(resilient.getState()).toBe(CircuitState.OPEN)
+
+    // Advance time past timeout
+    await vi.advanceTimersByTimeAsync(5000)
+
+    // Execute a successful request to transition to half-open
+    const successFn = vi.fn().mockResolvedValue('recovered')
+    const result = await resilient.execute(successFn)
+
+    expect(result).toBe('recovered')
+    // With successThreshold=1, one success should close the circuit
+    expect(resilient.getState()).toBe(CircuitState.CLOSED)
+  })
+
+  it('should reopen circuit on failure in half-open state', async () => {
+    const resilient = new RetryWithCircuitBreaker({
+      retry: { maxRetries: 0, initialDelay: 100 },
+      circuitBreaker: { failureThreshold: 2, successThreshold: 2, timeout: 5000 },
+    })
+
+    const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Service failed')
+
+    // Open the circuit
+    await expect(resilient.execute(() => Promise.reject(error))).rejects.toThrow()
+    await expect(resilient.execute(() => Promise.reject(error))).rejects.toThrow()
+
+    // Wait for half-open transition
+    await vi.advanceTimersByTimeAsync(5000)
+
+    // Execute successful request (circuit transitions to half-open)
+    const successFn = vi.fn().mockResolvedValue('ok')
+    await resilient.execute(successFn)
+    expect(resilient.getState()).toBe(CircuitState.HALF_OPEN)
+
+    // Fail in half-open - should reopen
+    await expect(resilient.execute(() => Promise.reject(error))).rejects.toThrow()
+    expect(resilient.getState()).toBe(CircuitState.OPEN)
+  })
+
+  it('should invoke onStateChange callback on state transitions', async () => {
+    const stateChanges: Array<{ state: CircuitState; failures: number }> = []
+
+    const resilient = new RetryWithCircuitBreaker({
+      retry: { maxRetries: 0, initialDelay: 100 },
+      circuitBreaker: { failureThreshold: 2, timeout: 5000 },
+      onStateChange: (state, metrics) => {
+        stateChanges.push({ state, failures: metrics.consecutiveFailures })
+      },
+    })
+
+    const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Service failed')
+
+    // Trigger failures to open circuit
+    await expect(resilient.execute(() => Promise.reject(error))).rejects.toThrow()
+    await expect(resilient.execute(() => Promise.reject(error))).rejects.toThrow()
+
+    // State should have changed to OPEN
+    expect(stateChanges.some((c) => c.state === CircuitState.OPEN)).toBe(true)
+
+    // Wait for half-open
+    await vi.advanceTimersByTimeAsync(5000)
+
+    // Execute to trigger half-open check
+    const successFn = vi.fn().mockResolvedValue('ok')
+    await resilient.execute(successFn)
+
+    // Should see HALF_OPEN transition
+    expect(stateChanges.some((c) => c.state === CircuitState.HALF_OPEN)).toBe(true)
+  })
+
+  it('should provide combined metrics', async () => {
+    const resilient = new RetryWithCircuitBreaker({
+      retry: { maxRetries: 2, initialDelay: 100, jitter: false },
+      circuitBreaker: { failureThreshold: 5, timeout: 30000 },
+    })
+
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Fail'))
+      .mockResolvedValue('success')
+
+    const promise = resilient.execute(fn)
+    await vi.runAllTimersAsync()
+    await promise
+
+    const metrics = resilient.getMetrics()
+
+    expect(metrics).toHaveProperty('state', CircuitState.CLOSED)
+    expect(metrics).toHaveProperty('totalRequests')
+    expect(metrics).toHaveProperty('successfulRequests')
+    expect(metrics).toHaveProperty('failedRequests')
+    expect(metrics).toHaveProperty('consecutiveFailures')
+    expect(metrics).toHaveProperty('totalRetryAttempts')
+    expect(metrics).toHaveProperty('lastRetryDelayMs')
+    expect(metrics.totalRetryAttempts).toBeGreaterThan(0)
+  })
+
+  it('should reset all state', async () => {
+    const resilient = new RetryWithCircuitBreaker({
+      retry: { maxRetries: 0 },
+      circuitBreaker: { failureThreshold: 2, timeout: 5000 },
+    })
+
+    const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Service failed')
+
+    // Open the circuit
+    await expect(resilient.execute(() => Promise.reject(error))).rejects.toThrow()
+    await expect(resilient.execute(() => Promise.reject(error))).rejects.toThrow()
+    expect(resilient.getState()).toBe(CircuitState.OPEN)
+
+    // Reset
+    resilient.reset()
+
+    expect(resilient.getState()).toBe(CircuitState.CLOSED)
+    expect(resilient.getMetrics().totalRetryAttempts).toBe(0)
+    expect(resilient.getMetrics().consecutiveFailures).toBe(0)
+    expect(resilient.isAllowingRequests()).toBe(true)
+  })
+
+  it('should report isAllowingRequests correctly', async () => {
+    const resilient = new RetryWithCircuitBreaker({
+      retry: { maxRetries: 0 },
+      circuitBreaker: { failureThreshold: 2, timeout: 5000 },
+    })
+
+    // Initially allowing
+    expect(resilient.isAllowingRequests()).toBe(true)
+
+    const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Service failed')
+
+    // Open the circuit
+    await expect(resilient.execute(() => Promise.reject(error))).rejects.toThrow()
+    await expect(resilient.execute(() => Promise.reject(error))).rejects.toThrow()
+
+    // Not allowing when open
+    expect(resilient.isAllowingRequests()).toBe(false)
+
+    // After timeout, should allow (half-open)
+    await vi.advanceTimersByTimeAsync(5000)
+
+    // Execute to trigger state check
+    const successFn = vi.fn().mockResolvedValue('ok')
+    await resilient.execute(successFn)
+
+    expect(resilient.isAllowingRequests()).toBe(true)
+  })
+
+  it('should not retry non-retryable errors', async () => {
+    const resilient = new RetryWithCircuitBreaker({
+      retry: { maxRetries: 3, initialDelay: 100 },
+      circuitBreaker: { failureThreshold: 5, timeout: 30000 },
+    })
+
+    const error = new RPCError(RPCErrorCode.NOT_FOUND, 'Resource not found')
+    const fn = vi.fn().mockRejectedValue(error)
+
+    await expect(resilient.execute(fn)).rejects.toThrow('Resource not found')
+
+    expect(fn).toHaveBeenCalledTimes(1) // No retries for NOT_FOUND
+  })
+
+  it('should use default jitter for distributed systems', async () => {
+    const resilient = new RetryWithCircuitBreaker({
+      retry: { maxRetries: 1, initialDelay: 100 },
+      // jitter defaults to true
+    })
+
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Fail'))
+      .mockResolvedValue('success')
+
+    const promise = resilient.execute(fn)
+    await vi.runAllTimersAsync()
+    await promise
+
+    // Delay should include jitter (100ms + up to 25%)
+    const metrics = resilient.getMetrics()
+    expect(metrics.lastRetryDelayMs).toBeGreaterThanOrEqual(100)
+    expect(metrics.lastRetryDelayMs).toBeLessThanOrEqual(125)
   })
 })

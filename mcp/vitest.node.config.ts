@@ -5,15 +5,22 @@
  * These tests don't require Workers runtime or DO bindings.
  *
  * Usage:
- *   npx vitest --config mcp/vitest.node.config.ts run tests/sandbox-limits.test.ts
+ *   cd mcp && npx vitest --config vitest.node.config.ts run
+ *   # OR from root:
+ *   npx vitest run mcp/tests --config mcp/vitest.node.config.ts
  *
  * @module mcp/vitest.node.config
  */
 
 import { defineConfig } from 'vitest/config'
+import { fileURLToPath } from 'url'
+import { dirname, resolve } from 'path'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
   test: {
+    root: resolve(__dirname),
     include: [
       'tests/sandbox*.test.ts',
     ],

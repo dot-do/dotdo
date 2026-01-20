@@ -294,6 +294,41 @@ export class ServiceUnavailableError extends RPCError {
   }
 }
 
+/**
+ * Circuit breaker open error (503)
+ * Thrown when the circuit breaker is in open state and rejecting requests.
+ * This error is retryable - the circuit may transition to half-open after the timeout.
+ */
+export class CircuitOpenError extends RPCError {
+  constructor(
+    message = 'Circuit breaker is open',
+    details?: Record<string, unknown>,
+    options?: RPCErrorOptions
+  ) {
+    super(RPCErrorCode.CIRCUIT_OPEN, message, details, options)
+    this.name = 'CircuitOpenError'
+  }
+
+  /**
+   * Create a CircuitOpenError with metrics about the circuit state
+   */
+  static withMetrics(metrics: {
+    consecutiveFailures: number
+    lastFailureTime: number | null
+    resetTimeMs?: number
+  }): CircuitOpenError {
+    const retryAfter =
+      metrics.lastFailureTime && metrics.resetTimeMs
+        ? Math.max(0, Math.ceil((metrics.lastFailureTime + metrics.resetTimeMs - Date.now()) / 1000))
+        : undefined
+    return new CircuitOpenError('Circuit breaker is open - service is experiencing failures', {
+      consecutiveFailures: metrics.consecutiveFailures,
+      lastFailureTime: metrics.lastFailureTime,
+      retryAfter,
+    })
+  }
+}
+
 // ============================================================================
 // Type Guards
 // ============================================================================
@@ -331,6 +366,13 @@ export function isAuthenticationError(error: unknown): error is AuthenticationEr
  */
 export function isAuthorizationError(error: unknown): error is AuthorizationError {
   return error instanceof AuthorizationError
+}
+
+/**
+ * Check if an error is a CircuitOpenError
+ */
+export function isCircuitOpenError(error: unknown): error is CircuitOpenError {
+  return error instanceof CircuitOpenError
 }
 
 /**
@@ -432,6 +474,7 @@ const ERROR_REGISTRY: Record<string, RPCErrorSubclassConstructor> = {
   NetworkError,
   InternalError,
   ServiceUnavailableError,
+  CircuitOpenError,
 }
 
 /**
@@ -517,6 +560,57 @@ export function getErrorMessage(error: unknown): string {
     return error.message
   }
   return String(error)
+}
+
+/**
+ * Type guard to check if an object is a SerializedError
+ *
+ * This is useful when receiving error responses from cross-DO RPC calls
+ * to determine if the response body contains a structured error that can
+ * be deserialized back into an RPCError.
+ *
+ * @example
+ * ```typescript
+ * const errorBody = await response.json().catch(() => null)
+ * if (errorBody && isSerializedError(errorBody)) {
+ *   throw deserializeError(errorBody)
+ * }
+ * ```
+ */
+export function isSerializedError(value: unknown): value is SerializedError {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const obj = value as Record<string, unknown>
+
+  // Must have a message (required for all errors)
+  if (typeof obj.message !== 'string') {
+    return false
+  }
+
+  // Must have either 'type' or 'name' (for error class identification)
+  const hasType = typeof obj.type === 'string'
+  const hasName = typeof obj.name === 'string'
+  if (!hasType && !hasName) {
+    return false
+  }
+
+  // Optional fields must be correct types if present
+  if (obj.code !== undefined && typeof obj.code !== 'string') {
+    return false
+  }
+  if (obj.httpStatus !== undefined && typeof obj.httpStatus !== 'number') {
+    return false
+  }
+  if (obj.details !== undefined && typeof obj.details !== 'object') {
+    return false
+  }
+  if (obj.stack !== undefined && typeof obj.stack !== 'string') {
+    return false
+  }
+
+  return true
 }
 
 /**
@@ -610,9 +704,10 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
       // Calculate delay with exponential backoff
       let delay = Math.min(initialDelay * Math.pow(backoffFactor, attempt - 1), maxDelay)
 
-      // Add jitter if requested
+      // Add jitter if requested (0-25% added to prevent thundering herd)
       if (jitter) {
-        delay = delay * (0.5 + Math.random() * 0.5)
+        const jitterFactor = 0.25
+        delay = delay * (1 + Math.random() * jitterFactor)
       }
 
       // Wait before retrying
@@ -700,10 +795,10 @@ export class CircuitBreaker {
     // Reject immediately if circuit is open
     if (this.state === CircuitState.OPEN) {
       this.failedRequests++
-      throw new ServiceUnavailableError('Circuit breaker is open', {
-        state: this.state,
-        failures: this.consecutiveFailures,
+      throw CircuitOpenError.withMetrics({
+        consecutiveFailures: this.consecutiveFailures,
         lastFailureTime: this.lastFailureTime,
+        resetTimeMs: this.timeout,
       })
     }
 
@@ -819,5 +914,204 @@ export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Pr
     return await Promise.race([promise, timeoutPromise])
   } finally {
     clearTimeout(timeoutHandle!)
+  }
+}
+
+// ============================================================================
+// Retry with Circuit Breaker
+// ============================================================================
+
+/**
+ * Options for retry with circuit breaker
+ */
+export interface RetryWithCircuitBreakerOptions {
+  /** Retry options */
+  retry?: RetryOptions
+  /** Circuit breaker options */
+  circuitBreaker?: CircuitBreakerOptions
+  /** Optional callback for observing state transitions */
+  onStateChange?: (newState: CircuitState, metrics: CircuitMetrics) => void
+}
+
+/**
+ * Combined retry and circuit breaker metrics
+ */
+export interface RetryCircuitBreakerMetrics extends CircuitMetrics {
+  /** Total number of retry attempts across all requests */
+  totalRetryAttempts: number
+  /** Last retry delay used */
+  lastRetryDelayMs: number | null
+}
+
+/**
+ * Combines retry with exponential backoff and circuit breaker patterns.
+ *
+ * This class provides a robust error handling strategy for distributed systems:
+ * - Retries transient failures with exponential backoff and jitter
+ * - Opens circuit after consecutive failures to fail fast
+ * - Transitions to half-open state after timeout to test recovery
+ * - Closes circuit after successful requests in half-open state
+ *
+ * The circuit breaker wraps the retry logic, so:
+ * 1. If circuit is OPEN, requests fail immediately with CircuitOpenError
+ * 2. If circuit is CLOSED or HALF_OPEN, retries are attempted
+ * 3. After all retries fail, failure is recorded and circuit may open
+ *
+ * @example
+ * ```typescript
+ * const resilientClient = new RetryWithCircuitBreaker({
+ *   retry: {
+ *     maxRetries: 3,
+ *     initialDelay: 100,
+ *     maxDelay: 5000,
+ *     jitter: true,
+ *   },
+ *   circuitBreaker: {
+ *     failureThreshold: 5,
+ *     successThreshold: 2,
+ *     timeout: 30000, // 30 seconds
+ *   },
+ *   onStateChange: (state, metrics) => {
+ *     console.log(`Circuit state changed to ${state}`, metrics)
+ *   },
+ * })
+ *
+ * // Use for RPC calls
+ * const result = await resilientClient.execute(() => rpcClient.someMethod())
+ * ```
+ */
+export class RetryWithCircuitBreaker {
+  private readonly circuitBreaker: CircuitBreaker
+  private readonly retryOptions: Required<RetryOptions>
+  private readonly onStateChange?: (newState: CircuitState, metrics: CircuitMetrics) => void
+  private lastState: CircuitState = CircuitState.CLOSED
+  private totalRetryAttempts = 0
+  private lastRetryDelayMs: number | null = null
+
+  constructor(options: RetryWithCircuitBreakerOptions = {}) {
+    this.circuitBreaker = new CircuitBreaker(options.circuitBreaker)
+    this.retryOptions = {
+      maxRetries: options.retry?.maxRetries ?? 3,
+      initialDelay: options.retry?.initialDelay ?? 1000,
+      backoffFactor: options.retry?.backoffFactor ?? 2,
+      maxDelay: options.retry?.maxDelay ?? 30000,
+      jitter: options.retry?.jitter ?? true, // Default to true for distributed systems
+    }
+    this.onStateChange = options.onStateChange
+  }
+
+  /**
+   * Execute a function with retry and circuit breaker protection
+   */
+  async execute<T>(fn: () => Promise<T>): Promise<T> {
+    // Check for state change before execution
+    this.checkStateChange()
+
+    try {
+      // Circuit breaker wraps the retry logic
+      const result = await this.circuitBreaker.execute(async () => {
+        return this.executeWithRetry(fn)
+      })
+      // Check for state change after success
+      this.checkStateChange()
+      return result
+    } catch (error) {
+      // Check for state change after failure (circuit may have opened)
+      this.checkStateChange()
+      throw error
+    }
+  }
+
+  /**
+   * Internal retry logic with exponential backoff
+   */
+  private async executeWithRetry<T>(fn: () => Promise<T>): Promise<T> {
+    const { maxRetries, initialDelay, backoffFactor, maxDelay, jitter } = this.retryOptions
+
+    let lastError: unknown
+    let attempt = 0
+
+    while (attempt <= maxRetries) {
+      try {
+        const result = await fn()
+        // Check for state change after success
+        this.checkStateChange()
+        return result
+      } catch (error) {
+        lastError = error
+        attempt++
+        this.totalRetryAttempts++
+
+        // Don't retry if not retryable or if we've exhausted retries
+        if (!isRetryableError(error) || attempt > maxRetries) {
+          // Check for state change after final failure
+          this.checkStateChange()
+          throw error
+        }
+
+        // Calculate delay with exponential backoff
+        let delay = Math.min(initialDelay * Math.pow(backoffFactor, attempt - 1), maxDelay)
+
+        // Add jitter if requested (0-25% added to prevent thundering herd)
+        if (jitter) {
+          const jitterFactor = 0.25
+          delay = delay * (1 + Math.random() * jitterFactor)
+        }
+
+        this.lastRetryDelayMs = delay
+
+        // Wait before retrying
+        await new Promise((resolve) => setTimeout(resolve, delay))
+      }
+    }
+
+    throw lastError
+  }
+
+  /**
+   * Check and notify state changes
+   */
+  private checkStateChange(): void {
+    const currentState = this.circuitBreaker.getState()
+    if (currentState !== this.lastState) {
+      this.lastState = currentState
+      this.onStateChange?.(currentState, this.circuitBreaker.getMetrics())
+    }
+  }
+
+  /**
+   * Get current circuit state
+   */
+  getState(): CircuitState {
+    return this.circuitBreaker.getState()
+  }
+
+  /**
+   * Get combined metrics
+   */
+  getMetrics(): RetryCircuitBreakerMetrics {
+    return {
+      ...this.circuitBreaker.getMetrics(),
+      totalRetryAttempts: this.totalRetryAttempts,
+      lastRetryDelayMs: this.lastRetryDelayMs,
+    }
+  }
+
+  /**
+   * Manually reset the circuit breaker and retry metrics
+   */
+  reset(): void {
+    this.circuitBreaker.reset()
+    this.totalRetryAttempts = 0
+    this.lastRetryDelayMs = null
+    this.lastState = CircuitState.CLOSED
+  }
+
+  /**
+   * Check if circuit is currently allowing requests
+   */
+  isAllowingRequests(): boolean {
+    const state = this.circuitBreaker.getState()
+    return state === CircuitState.CLOSED || state === CircuitState.HALF_OPEN
   }
 }

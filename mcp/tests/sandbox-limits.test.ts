@@ -406,4 +406,273 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
       expect(result.error).toContain('Memory limit exceeded')
     })
   })
+
+  describe('Rate Limiting', () => {
+    let rateLimiter: RateLimiter
+
+    beforeEach(() => {
+      rateLimiter = new RateLimiter({ maxRequests: 5, windowMs: 1000 })
+    })
+
+    it('should have sensible default rate limits', () => {
+      expect(DEFAULT_RATE_LIMIT.maxRequests).toBe(100)
+      expect(DEFAULT_RATE_LIMIT.windowMs).toBe(60000)
+    })
+
+    it('should allow requests within limit', () => {
+      const result1 = rateLimiter.tryAcquire('client1')
+      expect(result1.allowed).toBe(true)
+      expect(result1.remaining).toBe(4)
+
+      const result2 = rateLimiter.tryAcquire('client1')
+      expect(result2.allowed).toBe(true)
+      expect(result2.remaining).toBe(3)
+    })
+
+    it('should block requests when limit exceeded', () => {
+      // Make 5 requests
+      for (let i = 0; i < 5; i++) {
+        const result = rateLimiter.tryAcquire('client1')
+        expect(result.allowed).toBe(true)
+      }
+
+      // 6th request should be blocked
+      const blocked = rateLimiter.tryAcquire('client1')
+      expect(blocked.allowed).toBe(false)
+      expect(blocked.remaining).toBe(0)
+    })
+
+    it('should track clients independently', () => {
+      // Fill up client1
+      for (let i = 0; i < 5; i++) {
+        rateLimiter.tryAcquire('client1')
+      }
+
+      // client1 should be blocked
+      const client1 = rateLimiter.tryAcquire('client1')
+      expect(client1.allowed).toBe(false)
+
+      // client2 should still be allowed
+      const client2 = rateLimiter.tryAcquire('client2')
+      expect(client2.allowed).toBe(true)
+    })
+
+    it('should reset after window expires', async () => {
+      // Fill up the limit
+      for (let i = 0; i < 5; i++) {
+        rateLimiter.tryAcquire('client1')
+      }
+
+      // Should be blocked
+      expect(rateLimiter.check('client1').allowed).toBe(false)
+
+      // Wait for window to expire
+      await new Promise(resolve => setTimeout(resolve, 1100))
+
+      // Should be allowed again
+      const result = rateLimiter.check('client1')
+      expect(result.allowed).toBe(true)
+    })
+
+    it('should provide accurate resetMs', () => {
+      rateLimiter.tryAcquire('client1')
+      const result = rateLimiter.check('client1')
+
+      // Reset should be close to windowMs
+      expect(result.resetMs).toBeGreaterThan(0)
+      expect(result.resetMs).toBeLessThanOrEqual(1000)
+    })
+
+    it('should reset client limits when reset is called', () => {
+      for (let i = 0; i < 5; i++) {
+        rateLimiter.tryAcquire('client1')
+      }
+      expect(rateLimiter.check('client1').allowed).toBe(false)
+
+      rateLimiter.reset('client1')
+      expect(rateLimiter.check('client1').allowed).toBe(true)
+    })
+  })
+
+  describe('Concurrency Limiting', () => {
+    let concurrencyLimiter: ConcurrencyLimiter
+
+    beforeEach(() => {
+      concurrencyLimiter = new ConcurrencyLimiter({ maxConcurrent: 3 })
+    })
+
+    afterEach(() => {
+      concurrencyLimiter.resetAll()
+    })
+
+    it('should have sensible default concurrency limits', () => {
+      expect(DEFAULT_CONCURRENCY_LIMIT.maxConcurrent).toBe(5)
+    })
+
+    it('should allow operations within limit', () => {
+      expect(concurrencyLimiter.tryAcquire('client1')).toBe(true)
+      expect(concurrencyLimiter.getActiveCount('client1')).toBe(1)
+
+      expect(concurrencyLimiter.tryAcquire('client1')).toBe(true)
+      expect(concurrencyLimiter.getActiveCount('client1')).toBe(2)
+    })
+
+    it('should block when concurrent limit reached', () => {
+      // Acquire 3 slots
+      expect(concurrencyLimiter.tryAcquire('client1')).toBe(true)
+      expect(concurrencyLimiter.tryAcquire('client1')).toBe(true)
+      expect(concurrencyLimiter.tryAcquire('client1')).toBe(true)
+
+      // 4th should fail
+      expect(concurrencyLimiter.tryAcquire('client1')).toBe(false)
+      expect(concurrencyLimiter.getActiveCount('client1')).toBe(3)
+    })
+
+    it('should allow after release', () => {
+      // Fill up slots
+      for (let i = 0; i < 3; i++) {
+        concurrencyLimiter.tryAcquire('client1')
+      }
+
+      // Should be blocked
+      expect(concurrencyLimiter.tryAcquire('client1')).toBe(false)
+
+      // Release one
+      concurrencyLimiter.release('client1')
+      expect(concurrencyLimiter.getActiveCount('client1')).toBe(2)
+
+      // Should be allowed now
+      expect(concurrencyLimiter.tryAcquire('client1')).toBe(true)
+    })
+
+    it('should track clients independently', () => {
+      // Fill up client1
+      for (let i = 0; i < 3; i++) {
+        concurrencyLimiter.tryAcquire('client1')
+      }
+
+      // client1 blocked
+      expect(concurrencyLimiter.tryAcquire('client1')).toBe(false)
+
+      // client2 should be allowed
+      expect(concurrencyLimiter.tryAcquire('client2')).toBe(true)
+    })
+
+    it('should process waiting queue on release', async () => {
+      // Fill up slots
+      for (let i = 0; i < 3; i++) {
+        concurrencyLimiter.tryAcquire('client1')
+      }
+
+      // Start waiting for a slot
+      let acquired = false
+      const waitPromise = concurrencyLimiter.acquire('client1', 5000).then(() => {
+        acquired = true
+      })
+
+      // Should be waiting
+      expect(acquired).toBe(false)
+      expect(concurrencyLimiter.getWaitingCount('client1')).toBe(1)
+
+      // Release a slot
+      concurrencyLimiter.release('client1')
+
+      // Wait for promise to resolve
+      await waitPromise
+      expect(acquired).toBe(true)
+      expect(concurrencyLimiter.getWaitingCount('client1')).toBe(0)
+    })
+
+    it('should timeout when waiting too long', async () => {
+      // Fill up slots
+      for (let i = 0; i < 3; i++) {
+        concurrencyLimiter.tryAcquire('client1')
+      }
+
+      // Try to acquire with short timeout
+      await expect(
+        concurrencyLimiter.acquire('client1', 100)
+      ).rejects.toThrow(/Concurrency limit timeout/)
+    })
+  })
+
+  describe('Combined Resource Enforcer', () => {
+    let enforcer: SandboxResourceEnforcer
+
+    beforeEach(() => {
+      enforcer = new SandboxResourceEnforcer(
+        { maxRequests: 5, windowMs: 1000 },
+        { maxConcurrent: 2 }
+      )
+    })
+
+    afterEach(() => {
+      enforcer.resetAll()
+    })
+
+    it('should enforce both rate and concurrency limits', async () => {
+      // Acquire two concurrent slots
+      const slot1 = await enforcer.acquire('client1')
+      const slot2 = await enforcer.acquire('client1')
+
+      // Third should fail on concurrency
+      await expect(
+        enforcer.acquire('client1', false)
+      ).rejects.toThrow(/Concurrency limit exceeded/)
+
+      // Release slots
+      slot1.release()
+      slot2.release()
+    })
+
+    it('should check rate limit before concurrency', async () => {
+      // Use up rate limit
+      for (let i = 0; i < 5; i++) {
+        const slot = await enforcer.acquire('client1')
+        slot.release()
+      }
+
+      // Next should fail on rate limit, not concurrency
+      await expect(
+        enforcer.acquire('client1')
+      ).rejects.toThrow(/Rate limit exceeded/)
+    })
+
+    it('should allow waiting for concurrency slot', async () => {
+      // Fill concurrency
+      const slot1 = await enforcer.acquire('client1')
+      const slot2 = await enforcer.acquire('client1')
+
+      // Start waiting
+      let acquired = false
+      const waitPromise = enforcer.acquire('client1', true, 5000).then((slot) => {
+        acquired = true
+        slot.release()
+      })
+
+      // Not yet
+      expect(acquired).toBe(false)
+
+      // Release a slot
+      slot1.release()
+
+      // Should acquire now
+      await waitPromise
+      expect(acquired).toBe(true)
+
+      // Cleanup
+      slot2.release()
+    })
+
+    it('should return release function', async () => {
+      const { release } = await enforcer.acquire('client1')
+      expect(typeof release).toBe('function')
+
+      const limiter = enforcer.getConcurrencyLimiter()
+      expect(limiter.getActiveCount('client1')).toBe(1)
+
+      release()
+      expect(limiter.getActiveCount('client1')).toBe(0)
+    })
+  })
 })

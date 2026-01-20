@@ -1,13 +1,33 @@
 // Events/Actions storage - immutable event log
+// Generic types added per do-jqrj
 
-export interface Event {
+import type { StorableData, JsonValue } from './types'
+
+/**
+ * Base Event interface with system fields
+ * P extends JsonValue for user-defined payload type
+ */
+export interface BaseEvent {
   $id: string
   type: string
-  payload: unknown
   $timestamp: number
   source?: string      // Who emitted (thing $id, system, etc.)
   correlationId?: string // For tracing related events
 }
+
+/**
+ * Event type combining system fields with typed payload
+ * Use Event<P> for typed event storage
+ */
+export interface Event<P extends JsonValue = JsonValue> extends BaseEvent {
+  payload: P
+}
+
+/**
+ * Input type for emitting an Event (excludes auto-generated fields)
+ */
+export type EventInput<P extends JsonValue = JsonValue> =
+  Omit<Event<P>, '$id' | '$timestamp'>
 
 /**
  * Retention policy for event storage
@@ -40,9 +60,10 @@ export interface CleanupResult {
 
 /**
  * Dead letter queue entry for failed events
+ * P extends JsonValue for typed payload
  */
-export interface DLQEntry {
-  event: Event
+export interface DLQEntry<P extends JsonValue = JsonValue> {
+  event: Event<P>
   attempts: number
   lastError: string
   timestamp: number
@@ -51,13 +72,14 @@ export interface DLQEntry {
 
 /**
  * Validation failure entry
+ * P extends JsonValue for typed payload
  */
-export interface ValidationFailure {
+export interface ValidationFailure<P extends JsonValue = JsonValue> {
   type: string
-  payload: unknown
+  payload: P
   error: string
   timestamp: number
-  details?: Record<string, unknown>
+  details?: Record<string, JsonValue>
 }
 
 /**
@@ -97,11 +119,15 @@ export interface DurabilityConfig {
   timeout?: number
 }
 
-export interface EventsStore {
-  emit(event: Omit<Event, '$id' | '$timestamp'>): Promise<Event>
-  get(id: string): Promise<Event | null>
-  query(options?: EventQueryOptions): Promise<Event[]>
-  subscribe(handler: (event: Event) => void): () => void
+/**
+ * EventsStore interface with generic type parameter
+ * P defaults to JsonValue for backward compatibility
+ */
+export interface EventsStore<P extends JsonValue = JsonValue> {
+  emit(event: EventInput<P>): Promise<Event<P>>
+  get(id: string): Promise<Event<P> | null>
+  query(options?: EventQueryOptions): Promise<Event<P>[]>
+  subscribe(handler: (event: Event<P>) => void): () => void
 
   // Retention policy methods
   setRetentionPolicy(policy: RetentionPolicy): Promise<void>
@@ -111,15 +137,15 @@ export interface EventsStore {
   getStorageUsage(): Promise<StorageUsage>
 
   // Dead letter queue methods
-  addToDeadLetterQueue(entry: Omit<DLQEntry, 'timestamp'>): void
-  getDeadLetterQueue(): DLQEntry[]
-  queryDeadLetterQueue(options?: DLQQueryOptions): DLQEntry[]
+  addToDeadLetterQueue(entry: Omit<DLQEntry<P>, 'timestamp'>): void
+  getDeadLetterQueue(): DLQEntry<P>[]
+  queryDeadLetterQueue(options?: DLQQueryOptions): DLQEntry<P>[]
   removeFromDeadLetterQueue(eventId: string): boolean
-  replayDeadLetterQueue(options?: DLQQueryOptions): Promise<Event[]>
+  replayDeadLetterQueue(options?: DLQQueryOptions): Promise<Event<P>[]>
 
   // Validation failure tracking
-  addValidationFailure(failure: Omit<ValidationFailure, 'timestamp'>): void
-  queryValidationFailures(options?: { type?: string }): ValidationFailure[]
+  addValidationFailure(failure: Omit<ValidationFailure<P>, 'timestamp'>): void
+  queryValidationFailures(options?: { type?: string }): ValidationFailure<P>[]
 
   // Retry status tracking
   setEventRetryStatus(eventId: string, status: EventRetryStatus): void
@@ -156,16 +182,20 @@ function estimateEventSize(event: Event): number {
   return JSON.stringify(event).length * 2 // UTF-16 encoding estimate
 }
 
-export function createEventsStore(): EventsStore {
-  const events: Event[] = []
-  const subscribers = new Set<(event: Event) => void>()
+/**
+ * Create an in-memory EventsStore with generic type parameter
+ * P defaults to JsonValue for backward compatibility
+ */
+export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStore<P> {
+  const events: Event<P>[] = []
+  const subscribers = new Set<(event: Event<P>) => void>()
   let retentionPolicy: RetentionPolicy | undefined
 
   // Dead letter queue storage
-  const deadLetterQueue: DLQEntry[] = []
+  const deadLetterQueue: DLQEntry<P>[] = []
 
   // Validation failure storage
-  const validationFailures: ValidationFailure[] = []
+  const validationFailures: ValidationFailure<P>[] = []
 
   // Event retry status tracking
   const eventRetryStatus = new Map<string, EventRetryStatus>()
@@ -181,8 +211,8 @@ export function createEventsStore(): EventsStore {
   return {
     async emit(data) {
       // Allow timestamp override for testing purposes
-      const providedTimestamp = (data as any).$timestamp
-      const event: Event = {
+      const providedTimestamp = (data as { $timestamp?: number }).$timestamp
+      const event: Event<P> = {
         ...data,
         $id: generateEventId(),
         $timestamp: typeof providedTimestamp === 'number' ? providedTimestamp : Date.now()

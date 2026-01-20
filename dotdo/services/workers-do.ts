@@ -277,8 +277,10 @@ export class WorkersDoClient {
           break
         }
 
-        // Exponential backoff with jitter
-        const delay = this.retryBaseDelay * Math.pow(2, attempt) * (0.5 + Math.random() * 0.5)
+        // Exponential backoff with jitter (0-25% added to prevent thundering herd)
+        const baseExponentialDelay = this.retryBaseDelay * Math.pow(2, attempt)
+        const jitterFactor = 0.25
+        const delay = baseExponentialDelay * (1 + Math.random() * jitterFactor)
         await sleep(delay)
       }
     }

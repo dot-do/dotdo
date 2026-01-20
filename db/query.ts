@@ -1,11 +1,90 @@
 // Query Interface - fluent QueryBuilder for Things
 // Implements SQL WHERE clause generation to prevent client-side filtering (do-5k2l)
 // Implements JOIN support for relationship traversal (do-zt9t)
+// Implements bounded queries to prevent unbounded result sets (do-bgr1)
 
 import type { Thing, ThingsStore } from './things'
 import type { RelationshipsStore } from './relationships'
 import type { JsonValue, StorableData } from './types'
 import { ValidationError } from '../rpc/errors'
+
+// ============================================================
+// Query Limits Configuration (do-bgr1)
+// Configurable defaults with warnings for large result sets
+// ============================================================
+
+/**
+ * Default limits for query operations
+ * These can be overridden via QueryLimitsConfig
+ */
+export const DEFAULT_QUERY_LIMITS = {
+  /** Default limit for main query results */
+  DEFAULT_LIMIT: 100,
+  /** Default limit for JOIN operations per source entity */
+  DEFAULT_JOIN_LIMIT: 50,
+  /** Maximum allowed limit (hard cap) */
+  MAX_LIMIT: 10000,
+  /** Threshold at which to emit a warning */
+  WARNING_THRESHOLD: 500,
+  /** Default limit for fallback in-memory queries */
+  FALLBACK_QUERY_LIMIT: 1000,
+} as const
+
+/**
+ * Configurable query limits
+ */
+export interface QueryLimitsConfig {
+  defaultLimit?: number
+  defaultJoinLimit?: number
+  maxLimit?: number
+  warningThreshold?: number
+  /** Optional callback for warnings */
+  onWarning?: (message: string, context: { operation: string; requested: number; actual: number }) => void
+}
+
+// Global limits configuration (can be updated via configureQueryLimits)
+let queryLimitsConfig: QueryLimitsConfig = {}
+
+/**
+ * Configure global query limits
+ */
+export function configureQueryLimits(config: QueryLimitsConfig): void {
+  queryLimitsConfig = { ...queryLimitsConfig, ...config }
+}
+
+/**
+ * Get current query limits
+ */
+export function getQueryLimits(): Required<Omit<QueryLimitsConfig, 'onWarning'>> & { onWarning?: QueryLimitsConfig['onWarning'] } {
+  return {
+    defaultLimit: queryLimitsConfig.defaultLimit ?? DEFAULT_QUERY_LIMITS.DEFAULT_LIMIT,
+    defaultJoinLimit: queryLimitsConfig.defaultJoinLimit ?? DEFAULT_QUERY_LIMITS.DEFAULT_JOIN_LIMIT,
+    maxLimit: queryLimitsConfig.maxLimit ?? DEFAULT_QUERY_LIMITS.MAX_LIMIT,
+    warningThreshold: queryLimitsConfig.warningThreshold ?? DEFAULT_QUERY_LIMITS.WARNING_THRESHOLD,
+    onWarning: queryLimitsConfig.onWarning,
+  }
+}
+
+/**
+ * Clamp a limit to the configured max and warn if approaching threshold
+ */
+function clampAndWarnLimit(requested: number | undefined, operation: string, defaultLimit: number): number {
+  const limits = getQueryLimits()
+  const effectiveLimit = requested ?? defaultLimit
+
+  // Clamp to max
+  const clampedLimit = Math.min(effectiveLimit, limits.maxLimit)
+
+  // Warn if approaching threshold
+  if (clampedLimit >= limits.warningThreshold && limits.onWarning) {
+    limits.onWarning(
+      `Large query detected: ${operation} requesting ${clampedLimit} results (threshold: ${limits.warningThreshold})`,
+      { operation, requested: effectiveLimit, actual: clampedLimit }
+    )
+  }
+
+  return clampedLimit
+}
 
 // Supported SQL operators for WHERE clauses
 export type WhereOperator =
@@ -81,6 +160,23 @@ export interface ThingWithJoins extends Thing {
   _joined?: Record<string, Thing[]>
 }
 
+/**
+ * Paginated query result with cursor-based pagination
+ */
+export interface PaginatedQueryResult<T extends ThingWithJoins = ThingWithJoins> {
+  results: T[]
+  cursor?: string
+  hasMore: boolean
+}
+
+/**
+ * Options for paginated execution
+ */
+export interface PaginatedExecuteOptions {
+  limit?: number
+  cursor?: string
+}
+
 export interface QueryBuilder<T extends StorableData = StorableData> {
   type(type: string): QueryBuilder<T>
   where(field: string, value: JsonValue): QueryBuilder<T>
@@ -105,6 +201,7 @@ export interface QueryBuilder<T extends StorableData = StorableData> {
 
   // Execute
   execute(): Promise<ThingWithJoins[]>
+  executePaginated(options?: PaginatedExecuteOptions): Promise<PaginatedQueryResult>
   first(): Promise<ThingWithJoins | null>
   count(): Promise<number>
 
@@ -462,10 +559,15 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
       if (sqlStore.queryWithConditions) {
         results = await sqlStore.queryWithConditions(options)
       } else {
-        // Fallback: In-memory filtering
+        // Fallback: In-memory filtering with bounded limit (do-bgr1)
+        const fallbackLimit = clampAndWarnLimit(
+          DEFAULT_QUERY_LIMITS.FALLBACK_QUERY_LIMIT,
+          'fallback-query',
+          DEFAULT_QUERY_LIMITS.FALLBACK_QUERY_LIMIT
+        )
         results = await store.list({
           type: options.type,
-          limit: 1000
+          limit: fallbackLimit
         })
 
         // Apply whereConditions
@@ -493,9 +595,9 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
           })
         }
 
-        // Apply pagination
+        // Apply pagination with bounded limits (do-bgr1)
         const offset = options.offset || 0
-        const limit = options.limit || 100
+        const limit = clampAndWarnLimit(options.limit, 'execute-pagination', getQueryLimits().defaultLimit)
         results = results.slice(offset, offset + limit)
 
         // Apply projection
@@ -559,8 +661,13 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
         // Handle RIGHT JOINs: include unmatched target entities
         if (rightJoins.length > 0) {
           for (const rightJoin of rightJoins) {
-            // Find all target entities that weren't matched
-            const targetThings = await store.list({ type: rightJoin.targetType, limit: 1000 })
+            // Find all target entities that weren't matched (bounded limit, do-bgr1)
+            const rightJoinLimit = clampAndWarnLimit(
+              rightJoin.options?.limit,
+              'right-join-target-fetch',
+              getQueryLimits().defaultJoinLimit
+            )
+            const targetThings = await store.list({ type: rightJoin.targetType, limit: rightJoinLimit })
             const matchedTargetIds = new Set<string>()
 
             // Collect all matched target IDs from the current results
@@ -597,7 +704,13 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
         // Handle FULL OUTER JOINs: include unmatched on both sides
         if (fullJoins.length > 0) {
           for (const fullJoin of fullJoins) {
-            const targetThings = await store.list({ type: fullJoin.targetType, limit: 1000 })
+            // Bounded limit for full join target fetch (do-bgr1)
+            const fullJoinLimit = clampAndWarnLimit(
+              fullJoin.options?.limit,
+              'full-join-target-fetch',
+              getQueryLimits().defaultJoinLimit
+            )
+            const targetThings = await store.list({ type: fullJoin.targetType, limit: fullJoinLimit })
             const matchedTargetIds = new Set<string>()
 
             // Collect all matched target IDs
@@ -650,8 +763,14 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
         return sqlStore.countWithConditions(options)
       }
 
+      // Use bounded max limit for count fallback (do-bgr1)
       const originalLimit = options.limit
-      options.limit = 10000
+      const countLimit = clampAndWarnLimit(
+        getQueryLimits().maxLimit,
+        'count-fallback',
+        getQueryLimits().maxLimit
+      )
+      options.limit = countLimit
       const results = await builder.execute()
       options.limit = originalLimit
       return results.length

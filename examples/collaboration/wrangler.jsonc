@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "collaboration-example",
+  "main": "index.ts",
+  "compatibility_date": "2024-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Objects
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "COLLABORATION",
+        "class_name": "CollaborationDO"
+      }
+    ]
+  },
+
+  // Migrations for DO
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["CollaborationDO"]
+    }
+  ],
+
+  // Development settings
+  "dev": {
+    "port": 8788,
+    "local_protocol": "http"
+  }
+}

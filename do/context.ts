@@ -5,6 +5,11 @@ import { createEveryProxy, type ScheduleRegistration } from './schedule'
 import { createOnProxy, matchHandlers, invokeHandlers, type OnProxy, type EventHandler, type RetryOptions } from './on'
 import { createDOStub } from '../rpc/client'
 import { RPCError, RPCErrorCode, NotFoundError, TimeoutError, InternalError, ValidationError, isRetryableError } from '../rpc/errors'
+import {
+  type FireAndForgetErrorStore,
+  createInMemoryErrorStore,
+  extractErrorInfo
+} from './fire-and-forget-errors'
 
 /**
  * A proxy type representing a DO stub that intercepts method calls
@@ -43,6 +48,7 @@ export interface WorkflowContext {
   _schedules: Map<string, ScheduleRegistration>
   _stubCache: Map<string, DOStubProxy>
   _env: unknown
+  _fireAndForgetErrors: FireAndForgetErrorStore
 }
 
 export type $ = WorkflowContext
@@ -64,12 +70,14 @@ type EveryProxy = {
 
 export function createContext(
   state: DurableObjectState,
-  env: unknown
+  env: unknown,
+  options?: { errorStore?: FireAndForgetErrorStore }
 ): WorkflowContext {
   const events = createEventsStore()
   const handlers = new Map<string, EventHandler[]>()
   const schedules = new Map<string, ScheduleRegistration>()
   const stubCache = new Map<string, DOStubProxy>()
+  const fireAndForgetErrors = options?.errorStore ?? createInMemoryErrorStore()
 
   // Helper function to process an event (invoke handlers with retry logic)
   async function processEvent(emitted: Event, eventType: string, payload: unknown): Promise<void> {

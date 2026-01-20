@@ -377,4 +377,39 @@ export const coreMigrations: Migration[] = [
       DROP TABLE IF EXISTS audit_logs;
     `,
   }),
+  // Fire-and-forget error tracking (do-9bmr)
+  createMigration({
+    version: 5,
+    name: 'create_fire_and_forget_errors_table',
+    up: `
+      CREATE TABLE IF NOT EXISTS fire_and_forget_errors (
+        id TEXT PRIMARY KEY,
+        operation TEXT NOT NULL,
+        event_type TEXT,
+        handler_index INTEGER,
+        message TEXT NOT NULL,
+        stack TEXT,
+        error_type TEXT NOT NULL,
+        retriable INTEGER NOT NULL DEFAULT 0,
+        context TEXT,
+        timestamp INTEGER NOT NULL,
+        attempts INTEGER,
+        recovered INTEGER NOT NULL DEFAULT 0,
+        recovered_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_ffe_timestamp ON fire_and_forget_errors(timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_ffe_operation ON fire_and_forget_errors(operation);
+      CREATE INDEX IF NOT EXISTS idx_ffe_event_type ON fire_and_forget_errors(event_type);
+      CREATE INDEX IF NOT EXISTS idx_ffe_error_type ON fire_and_forget_errors(error_type);
+      CREATE INDEX IF NOT EXISTS idx_ffe_recovered ON fire_and_forget_errors(recovered);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_ffe_recovered;
+      DROP INDEX IF EXISTS idx_ffe_error_type;
+      DROP INDEX IF EXISTS idx_ffe_event_type;
+      DROP INDEX IF EXISTS idx_ffe_operation;
+      DROP INDEX IF EXISTS idx_ffe_timestamp;
+      DROP TABLE IF EXISTS fire_and_forget_errors;
+    `,
+  }),
 ]

@@ -1,0 +1,41 @@
+{
+  "name": "@dotdo/testing",
+  "version": "0.1.0",
+  "description": "Test utilities and custom assertion helpers for dotdo entities",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./assertions": {
+      "types": "./dist/assertions.d.ts",
+      "import": "./dist/assertions.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "dotdo",
+    "testing",
+    "vitest",
+    "assertions",
+    "matchers"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "vitest": ">=1.0.0"
+  },
+  "dependencies": {
+    "@dotdo/db": "workspace:*"
+  }
+}

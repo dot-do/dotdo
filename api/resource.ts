@@ -101,22 +101,32 @@ export interface RouteDefinitions {
   relations?: Record<string, { method: 'GET'; path: string }>
 }
 
+// Type-safe field definitions that match the resource data type
+// When T is provided, fields must be a subset of T's keys (excluding $id)
+// When T is StorableData (default), any field names are allowed
+export type ResourceFields<T extends StorableData = StorableData> =
+  T extends StorableData
+    ? keyof T extends string
+      ? { [K in Exclude<keyof T, '$id'>]?: FieldDef } & Record<string, FieldDef>
+      : Record<string, FieldDef>
+    : Record<string, FieldDef>
+
 // Resource Definition
 export interface ResourceDefinition<T extends StorableData = StorableData> {
   name: string
-  fields: Record<string, FieldDef>
-  schema: z.ZodType
+  fields: ResourceFields<T>
+  schema: z.ZodType<T>
   relations?: Record<string, RelationDef>
   actions?: Record<string, ActionDef>
   hooks?: HookDef<T>
   computed?: ComputedFieldDef<T>
-  routes: RouteDefinitions
+  routes?: RouteDefinitions
 }
 
 // Resource Builder (Fluent API)
 export class ResourceBuilder<T extends StorableData = StorableData> {
   private name: string
-  private _fields: Record<string, FieldDef> = {}
+  private _fields: ResourceFields<T> = {} as ResourceFields<T>
   private _relations?: Record<string, RelationDef>
   private _actions?: Record<string, ActionDef>
   private _hooks?: HookDef<T>
@@ -126,7 +136,7 @@ export class ResourceBuilder<T extends StorableData = StorableData> {
     this.name = name
   }
 
-  fields(fields: Record<string, FieldDef>): this {
+  fields(fields: ResourceFields<T>): this {
     this._fields = fields
     return this
   }
@@ -152,13 +162,13 @@ export class ResourceBuilder<T extends StorableData = StorableData> {
   }
 
   build(): ResourceDefinition<T> {
-    const schema = buildZodSchema(this._fields)
+    const schema = buildZodSchema(this._fields as Record<string, FieldDef>)
     const routes = generateRoutes(this.name, this._actions, this._relations)
 
     const definition: ResourceDefinition<T> = {
       name: this.name,
       fields: this._fields,
-      schema,
+      schema: schema as z.ZodType<T>,
       routes,
     }
 
@@ -361,7 +371,7 @@ function generateRoutes(
 const resourceRegistry: Map<string, ResourceDefinition<StorableData>> = new Map()
 
 function registerResource<T extends StorableData>(name: string, definition: ResourceDefinition<T>): void {
-  resourceRegistry.set(name, definition as ResourceDefinition<StorableData>)
+  resourceRegistry.set(name, definition as unknown as ResourceDefinition<StorableData>)
 }
 
 export function getResource(name: string): ResourceDefinition<StorableData> | undefined {

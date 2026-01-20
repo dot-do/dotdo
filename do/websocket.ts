@@ -5,8 +5,10 @@
  * - WebSocket connection handling and upgrade
  * - Message routing to handlers
  * - Broadcast to multiple connections
- * - Connection state management
+ * - Connection state management with proper isolation
  * - Heartbeat/ping-pong support
+ * - Connection lifecycle events (connect, disconnect)
+ * - Reconnection handling with connection IDs
  */
 
 // ============================================================================
@@ -20,6 +22,24 @@ export interface WebSocketMessage {
 
 export type WebSocketHandler = (ws: WebSocket, data: unknown) => void | Promise<void>
 
+/**
+ * Connection lifecycle event handler
+ */
+export type ConnectionHandler = (ws: WebSocket, connectionId: string, metadata: ConnectionMetadata) => void | Promise<void>
+
+/**
+ * Metadata associated with each WebSocket connection
+ */
+export interface ConnectionMetadata {
+  connectionId: string
+  tags: string[]
+  hibernatable: boolean
+  connectedAt: number
+  lastActivityAt: number
+  reconnectCount: number
+  clientId?: string | undefined // Optional client identifier for reconnection tracking
+}
+
 export interface BroadcastResult {
   sent: number
   failed: number
@@ -31,45 +51,106 @@ export interface BroadcastResult {
 
 /**
  * WebSocketManager handles WebSocket connections, message routing, and broadcasts
+ * with proper state isolation between connections
  */
 export class WebSocketManager {
-  private websocketTags = new Map<WebSocket, string[]>()
-  private hibernatableWebSockets = new Set<WebSocket>()
-  private lastWebSocketTags: string[] = []
-  private lastWebSocketHibernatable = false
+  // Per-connection metadata storage (replaces separate maps for better isolation)
+  private connections = new Map<WebSocket, ConnectionMetadata>()
+
+  // Message handlers by event type
   private handlers = new Map<string, Set<WebSocketHandler>>()
-  private lastPongTimes = new Map<WebSocket, number>()
+
+  // Connection lifecycle handlers
+  private connectHandlers = new Set<ConnectionHandler>()
+  private disconnectHandlers = new Set<ConnectionHandler>()
+
+  // Track client IDs for reconnection detection
+  private clientConnections = new Map<string, WebSocket>()
+
+  // Counter for generating unique connection IDs
+  private connectionCounter = 0
+
+  // Legacy compatibility - tracks last connected WebSocket for RPC scenarios
+  private lastConnectionId: string | null = null
+
+  /**
+   * Generate a unique connection ID
+   */
+  private generateConnectionId(): string {
+    this.connectionCounter++
+    return `conn_${Date.now().toString(36)}_${this.connectionCounter.toString(36)}`
+  }
 
   /**
    * Handle WebSocket upgrade and connection setup
    * @param ctx The Durable Object state
    * @param tags Tags to attach to this WebSocket connection
    * @param hibernatable Whether this WebSocket supports hibernation
+   * @param clientId Optional client ID for reconnection tracking
    * @returns Response with 101 status and WebSocket
    */
   handleWebSocketUpgrade(
     ctx: DurableObjectState,
     tags: string[],
-    hibernatable: boolean
+    hibernatable: boolean,
+    clientId?: string
   ): Response {
     const pair = new WebSocketPair()
-    const [client, server] = Object.values(pair)
+    // WebSocketPair is a typed object with [0] and [1] properties
+    // Use direct property access to get proper typing
+    const client: WebSocket = pair[0]
+    const server: WebSocket = pair[1]
+
+    // Handle reconnection - clean up old connection for same client
+    let reconnectCount = 0
+    if (clientId) {
+      const existingWs = this.clientConnections.get(clientId)
+      if (existingWs) {
+        const existingMetadata = this.connections.get(existingWs)
+        if (existingMetadata) {
+          reconnectCount = existingMetadata.reconnectCount + 1
+        }
+        // Clean up old connection
+        this.cleanupWebSocket(existingWs)
+        try {
+          existingWs.close(1000, 'Reconnected from another connection')
+        } catch {
+          // Ignore close errors on stale connections
+        }
+      }
+    }
 
     // Accept WebSocket with optional hibernation support
     if (hibernatable) {
       ctx.acceptWebSocket(server, ['hibernatable'])
-      this.hibernatableWebSockets.add(server)
     } else {
       ctx.acceptWebSocket(server)
     }
 
-    // Track WebSocket metadata
-    this.websocketTags.set(server, tags)
-    this.lastWebSocketTags = tags
-    this.lastWebSocketHibernatable = hibernatable
+    // Create isolated connection metadata
+    const connectionId = this.generateConnectionId()
+    const now = Date.now()
+    const metadata: ConnectionMetadata = {
+      connectionId,
+      tags: [...tags], // Clone to prevent external mutation
+      hibernatable,
+      connectedAt: now,
+      lastActivityAt: now,
+      reconnectCount,
+      clientId,
+    }
 
-    // Initialize pong time
-    this.lastPongTimes.set(server, Date.now())
+    // Store connection metadata
+    this.connections.set(server, metadata)
+    this.lastConnectionId = connectionId
+
+    // Track client connection for reconnection detection
+    if (clientId) {
+      this.clientConnections.set(clientId, server)
+    }
+
+    // Notify connect handlers asynchronously
+    this.notifyConnectHandlers(server, connectionId, metadata)
 
     // Cloudflare Workers ResponseInit supports status 101 and webSocket property
     // See: @cloudflare/workers-types ResponseInit interface
@@ -80,25 +161,123 @@ export class WebSocketManager {
   }
 
   /**
-   * Get the tags attached to the last connected WebSocket
-   * Note: WebSocket objects cannot be passed via RPC, so we use the last connected WebSocket's tags
+   * Notify all registered connect handlers
    */
-  getWebSocketTags(_ws?: WebSocket): string[] {
-    return this.lastWebSocketTags
+  private async notifyConnectHandlers(ws: WebSocket, connectionId: string, metadata: ConnectionMetadata): Promise<void> {
+    for (const handler of this.connectHandlers) {
+      try {
+        await handler(ws, connectionId, metadata)
+      } catch (err) {
+        console.error('[WebSocketManager] Connect handler error:', err)
+      }
+    }
   }
 
   /**
-   * Check if the last connected WebSocket supports hibernation
+   * Notify all registered disconnect handlers
    */
-  isWebSocketHibernatable(_ws?: WebSocket): boolean {
-    return this.lastWebSocketHibernatable
+  private async notifyDisconnectHandlers(ws: WebSocket, connectionId: string, metadata: ConnectionMetadata): Promise<void> {
+    for (const handler of this.disconnectHandlers) {
+      try {
+        await handler(ws, connectionId, metadata)
+      } catch (err) {
+        console.error('[WebSocketManager] Disconnect handler error:', err)
+      }
+    }
+  }
+
+  /**
+   * Register a handler for connection events
+   */
+  onConnect(handler: ConnectionHandler): void {
+    this.connectHandlers.add(handler)
+  }
+
+  /**
+   * Remove a connection event handler
+   */
+  offConnect(handler: ConnectionHandler): void {
+    this.connectHandlers.delete(handler)
+  }
+
+  /**
+   * Register a handler for disconnection events
+   */
+  onDisconnect(handler: ConnectionHandler): void {
+    this.disconnectHandlers.add(handler)
+  }
+
+  /**
+   * Remove a disconnection event handler
+   */
+  offDisconnect(handler: ConnectionHandler): void {
+    this.disconnectHandlers.delete(handler)
+  }
+
+  /**
+   * Get connection metadata for a specific WebSocket
+   */
+  getConnectionMetadata(ws: WebSocket): ConnectionMetadata | undefined {
+    return this.connections.get(ws)
+  }
+
+  /**
+   * Get the tags attached to the last connected WebSocket
+   * Note: WebSocket objects cannot be passed via RPC, so we use the last connected WebSocket's tags
+   * @deprecated Use getConnectionMetadata(ws).tags instead for proper isolation
+   */
+  getWebSocketTags(ws?: WebSocket): string[] {
+    if (ws) {
+      const metadata = this.connections.get(ws)
+      return metadata?.tags ?? []
+    }
+    // Legacy: find connection by last connection ID
+    for (const [, metadata] of this.connections) {
+      if (metadata.connectionId === this.lastConnectionId) {
+        return metadata.tags
+      }
+    }
+    return []
+  }
+
+  /**
+   * Check if a WebSocket supports hibernation
+   * @deprecated Use getConnectionMetadata(ws).hibernatable instead for proper isolation
+   */
+  isWebSocketHibernatable(ws?: WebSocket): boolean {
+    if (ws) {
+      const metadata = this.connections.get(ws)
+      return metadata?.hibernatable ?? false
+    }
+    // Legacy: find connection by last connection ID
+    for (const [, metadata] of this.connections) {
+      if (metadata.connectionId === this.lastConnectionId) {
+        return metadata.hibernatable
+      }
+    }
+    return false
   }
 
   /**
    * Get tags for a specific WebSocket
    */
   getTagsForWebSocket(ws: WebSocket): string[] {
-    return this.websocketTags.get(ws) ?? []
+    const metadata = this.connections.get(ws)
+    return metadata?.tags ?? []
+  }
+
+  /**
+   * Get connection ID for a specific WebSocket
+   */
+  getConnectionId(ws: WebSocket): string | undefined {
+    return this.connections.get(ws)?.connectionId
+  }
+
+  /**
+   * Get WebSocket by client ID (for reconnection scenarios)
+   */
+  getWebSocketByClientId(clientId: string): WebSocket | undefined {
+    return this.clientConnections.get(clientId)
   }
 
   /**
@@ -133,18 +312,35 @@ export class WebSocketManager {
 
   /**
    * Clean up WebSocket tracking when connection closes or errors
+   * Notifies disconnect handlers and removes all connection state
    */
   cleanupWebSocket(ws: WebSocket): void {
-    this.websocketTags.delete(ws)
-    this.hibernatableWebSockets.delete(ws)
-    this.lastPongTimes.delete(ws)
+    const metadata = this.connections.get(ws)
+
+    if (metadata) {
+      // Clean up client ID tracking
+      if (metadata.clientId) {
+        const currentWs = this.clientConnections.get(metadata.clientId)
+        // Only remove if this is still the current connection for this client
+        if (currentWs === ws) {
+          this.clientConnections.delete(metadata.clientId)
+        }
+      }
+
+      // Notify disconnect handlers
+      this.notifyDisconnectHandlers(ws, metadata.connectionId, metadata)
+
+      // Remove connection metadata
+      this.connections.delete(ws)
+    }
   }
 
   /**
    * Check if a WebSocket is hibernatable
    */
   isHibernatable(ws: WebSocket): boolean {
-    return this.hibernatableWebSockets.has(ws)
+    const metadata = this.connections.get(ws)
+    return metadata?.hibernatable ?? false
   }
 
   /**
@@ -169,8 +365,15 @@ export class WebSocketManager {
   /**
    * Handle incoming WebSocket message
    * Routes to appropriate handlers based on message type
+   * Updates connection activity timestamp
    */
   async handleMessage(ws: WebSocket, message: ArrayBuffer | string): Promise<void> {
+    // Update last activity time
+    const metadata = this.connections.get(ws)
+    if (metadata) {
+      metadata.lastActivityAt = Date.now()
+    }
+
     // Handle binary messages
     if (message instanceof ArrayBuffer) {
       const binaryHandlers = this.handlers.get('binary') || new Set()
@@ -205,7 +408,7 @@ export class WebSocketManager {
 
     // Handle pong messages (for heartbeat)
     if (msg.type === 'pong') {
-      this.lastPongTimes.set(ws, Date.now())
+      // Update activity on pong
       return
     }
 
@@ -234,38 +437,45 @@ export class WebSocketManager {
   }
 
   /**
-   * Get last pong time for a WebSocket
+   * Get last activity time for a WebSocket (replaces lastPongTimes)
    */
   getLastPong(ws: WebSocket): number {
-    return this.lastPongTimes.get(ws) || 0
+    const metadata = this.connections.get(ws)
+    return metadata?.lastActivityAt || 0
   }
 
   /**
-   * Set last pong time for a WebSocket (for testing)
+   * Set last activity time for a WebSocket (for testing)
    */
   setLastPong(ws: WebSocket, time: number): void {
-    this.lastPongTimes.set(ws, time)
+    const metadata = this.connections.get(ws)
+    if (metadata) {
+      metadata.lastActivityAt = time
+    }
   }
 
   /**
-   * Check if a connection is stale (hasn't responded to ping in timeout ms)
+   * Check if a connection is stale (no activity in timeout ms)
    */
   isStale(ws: WebSocket, timeout: number): boolean {
-    const lastPong = this.lastPongTimes.get(ws) || 0
-    return Date.now() - lastPong > timeout
+    const metadata = this.connections.get(ws)
+    if (!metadata) return true // Unknown connection is stale
+    return Date.now() - metadata.lastActivityAt > timeout
   }
 
   /**
    * Close all stale connections
    */
   closeStaleConnections(timeout: number): void {
-    for (const [ws, lastPong] of this.lastPongTimes.entries()) {
-      if (Date.now() - lastPong > timeout) {
+    const now = Date.now()
+    for (const [ws, metadata] of this.connections.entries()) {
+      if (now - metadata.lastActivityAt > timeout) {
         try {
           ws.close(1000, 'Connection timeout')
         } catch (err) {
           console.warn('[WebSocketManager] Error closing stale connection:', err)
         }
+        this.cleanupWebSocket(ws)
       }
     }
   }
@@ -286,6 +496,7 @@ export class WebSocketManager {
           } catch {
             // Ignore errors
           }
+          this.cleanupWebSocket(ws)
         } else {
           this.sendPing(ws)
         }
@@ -372,5 +583,88 @@ export class WebSocketManager {
     }
 
     return { sent, failed }
+  }
+
+  /**
+   * Get all active connections with their metadata
+   * Useful for debugging and monitoring
+   */
+  getAllConnections(): Array<{ ws: WebSocket; metadata: ConnectionMetadata }> {
+    return Array.from(this.connections.entries()).map(([ws, metadata]) => ({
+      ws,
+      metadata: { ...metadata }, // Clone to prevent mutation
+    }))
+  }
+
+  /**
+   * Get connections filtered by tag
+   */
+  getConnectionsByTag(tag: string): Array<{ ws: WebSocket; metadata: ConnectionMetadata }> {
+    return this.getAllConnections().filter(
+      ({ metadata }) => metadata.tags.includes(tag)
+    )
+  }
+
+  /**
+   * Check if a connection is tracked by this manager
+   */
+  hasConnection(ws: WebSocket): boolean {
+    return this.connections.has(ws)
+  }
+
+  /**
+   * Update tags for an existing connection
+   */
+  updateConnectionTags(ws: WebSocket, tags: string[]): boolean {
+    const metadata = this.connections.get(ws)
+    if (!metadata) return false
+    metadata.tags = [...tags]
+    return true
+  }
+
+  /**
+   * Add a tag to an existing connection
+   */
+  addConnectionTag(ws: WebSocket, tag: string): boolean {
+    const metadata = this.connections.get(ws)
+    if (!metadata) return false
+    if (!metadata.tags.includes(tag)) {
+      metadata.tags.push(tag)
+    }
+    return true
+  }
+
+  /**
+   * Remove a tag from an existing connection
+   */
+  removeConnectionTag(ws: WebSocket, tag: string): boolean {
+    const metadata = this.connections.get(ws)
+    if (!metadata) return false
+    const index = metadata.tags.indexOf(tag)
+    if (index !== -1) {
+      metadata.tags.splice(index, 1)
+    }
+    return true
+  }
+
+  /**
+   * Set a client ID for an existing connection (for reconnection tracking)
+   */
+  setClientId(ws: WebSocket, clientId: string): boolean {
+    const metadata = this.connections.get(ws)
+    if (!metadata) return false
+
+    // Clean up old client ID mapping
+    if (metadata.clientId) {
+      const oldWs = this.clientConnections.get(metadata.clientId)
+      if (oldWs === ws) {
+        this.clientConnections.delete(metadata.clientId)
+      }
+    }
+
+    // Set new client ID
+    metadata.clientId = clientId
+    this.clientConnections.set(clientId, ws)
+    return true
   }
 }

@@ -37,6 +37,22 @@ export default defineConfig({
         minThreads: 1,
         maxThreads: 1
       }
-    }
+    },
+
+    // Coverage configuration
+    // Note: E2E tests typically don't measure coverage as they test external services
+    // but we include it for consistency. Coverage may be low as E2E tests external APIs.
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      include: ['src/**/*.ts'],
+      exclude: ['**/*.test.ts', '**/__tests__/**', '**/node_modules/**'],
+      thresholds: {
+        statements: 65,
+        branches: 60,
+        functions: 60,
+        lines: 65,
+      },
+    },
   }
 })

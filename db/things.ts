@@ -1,26 +1,57 @@
 // Things CRUD - see do-7rf.4.1
+// Generic types added per do-jqrj
 
-export interface Thing {
+import type { StorableData, JsonValue } from './types'
+
+/**
+ * Base Thing interface with system fields
+ * T extends StorableData for user-defined properties
+ */
+export interface BaseThing {
   $id: string
   $type: string
   $createdAt: number
   $updatedAt: number
-  [key: string]: unknown
 }
 
-export interface BulkUpdateItem {
+/**
+ * Thing type combining system fields with user data
+ * Use Thing<T> for typed entity storage
+ */
+export type Thing<T extends StorableData = StorableData> = BaseThing & T
+
+/**
+ * Input type for creating a Thing (excludes auto-generated fields)
+ */
+export type ThingInput<T extends StorableData = StorableData> =
+  Omit<BaseThing, '$id' | '$createdAt' | '$updatedAt'> & T
+
+/**
+ * Input type for updating a Thing (excludes immutable fields)
+ */
+export type ThingUpdate<T extends StorableData = StorableData> =
+  Partial<Omit<T, '$id' | '$type'>>
+
+/**
+ * Bulk update item with generic support
+ */
+export interface BulkUpdateItem<T extends StorableData = StorableData> {
   id: string
-  data: Partial<Omit<Thing, '$id' | '$type'>>
+  data: ThingUpdate<T>
 }
 
-export interface ThingsStore {
-  create(thing: Omit<Thing, '$id' | '$createdAt' | '$updatedAt'>): Promise<Thing>
-  get(id: string): Promise<Thing | null>
-  update(id: string, data: Partial<Omit<Thing, '$id' | '$type'>>): Promise<Thing>
+/**
+ * ThingsStore interface with generic type parameter
+ * T defaults to StorableData for backward compatibility
+ */
+export interface ThingsStore<T extends StorableData = StorableData> {
+  create<D extends Partial<T> & { $type: string }>(data: D): Promise<Thing<T> & D>
+  get(id: string): Promise<Thing<T> | null>
+  update<U extends ThingUpdate<T>>(id: string, data: U): Promise<Thing<T>>
   delete(id: string): Promise<void>
-  list(options?: { type?: string; limit?: number; offset?: number }): Promise<Thing[]>
-  bulkCreate(things: Omit<Thing, '$id' | '$createdAt' | '$updatedAt'>[]): Promise<Thing[]>
-  bulkUpdate(items: BulkUpdateItem[]): Promise<Thing[]>
+  list(options?: { type?: string; limit?: number; offset?: number }): Promise<Thing<T>[]>
+  bulkCreate<D extends Partial<T> & { $type: string }>(things: D[]): Promise<(Thing<T> & D)[]>
+  bulkUpdate(items: BulkUpdateItem<T>[]): Promise<Thing<T>[]>
   bulkDelete(ids: string[]): Promise<void>
 }
 

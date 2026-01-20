@@ -60,6 +60,7 @@ export default defineConfig({
       'e2e/tests/**/*.test.ts',
       'apps/**/tests/**/*.test.ts',
       'tests/benchmarks/**/*.test.ts',
+      'testing/**/*.test.ts',
     ],
 
     exclude: defaultExcludes,
@@ -67,5 +68,33 @@ export default defineConfig({
     // Reasonable timeouts for Node tests
     testTimeout: 10_000,
     hookTimeout: 10_000,
+
+    // Coverage configuration
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      include: [
+        'auth/src/**/*.ts',
+        'ai/src/**/*.ts',
+        'rpc/src/**/*.ts',
+        'dotdo/src/**/*.ts',
+        'apps/**/src/**/*.ts',
+      ],
+      exclude: [
+        '**/*.test.ts',
+        '**/__tests__/**',
+        '**/node_modules/**',
+        '**/.worktrees/**',
+        '**/primitives/**',
+        '**/dist/**',
+        '**/build/**',
+      ],
+      thresholds: {
+        statements: 65,
+        branches: 60,
+        functions: 60,
+        lines: 65,
+      },
+    },
   },
 })

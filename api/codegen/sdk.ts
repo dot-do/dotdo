@@ -1,5 +1,6 @@
 // SDK code generation from resource definitions
 import type { ResourceDefinition } from '../resource'
+import type { StorableData } from '../../db'
 import type { ZodType, ZodObject, ZodTypeAny } from 'zod'
 
 export interface SDKGeneratorOptions {
@@ -11,8 +12,8 @@ export interface SDKGeneratorOptions {
 /**
  * SDK Generator class - generates TypeScript client SDK from resource definitions
  */
-export class SDKGenerator {
-  constructor(private resources: ResourceDefinition<any>[]) {}
+export class SDKGenerator<T extends StorableData = StorableData> {
+  constructor(private resources: ResourceDefinition<T>[]) {}
 
   /**
    * Generate TypeScript interfaces from Zod schemas
@@ -139,7 +140,7 @@ ${this.resources.map(r => `    ${r.name}: ${this.generateResourceProxy(r)}`).joi
    * Generate methods for a specific resource
    * This includes CRUD methods at collection level, plus documentation/reference to instance methods
    */
-  generateMethods(resource: ResourceDefinition<any>): string {
+  generateMethods(resource: ResourceDefinition<T>): string {
     const resourceName = resource.name
     const typeName = this.capitalize(this.singular(resourceName))
     const methods: string[] = []
@@ -223,7 +224,7 @@ ${this.resources.map(r => `    ${r.name}: ${this.generateResourceProxy(r)}`).joi
   /**
    * Generate a resource proxy function that supports both collection and instance methods
    */
-  private generateResourceProxy(resource: ResourceDefinition<any>): string {
+  private generateResourceProxy(resource: ResourceDefinition<T>): string {
     const resourceName = resource.name
     const typeName = this.capitalize(this.singular(resourceName))
 
@@ -382,11 +383,11 @@ ${instanceMethods.join(',\n')}
  * @param resources - Array of resource definitions
  * @param options - Generation options
  */
-export function generateSDK(
-  resources: ResourceDefinition<any>[],
+export function generateSDK<T extends StorableData = StorableData>(
+  resources: ResourceDefinition<T>[],
   options?: SDKGeneratorOptions
 ): string {
-  const generator = new SDKGenerator(resources)
+  const generator = new SDKGenerator<T>(resources)
   const code = generator.generate()
 
   if (options?.output === 'file' && options.filePath) {

@@ -9,6 +9,7 @@ This directory contains example applications demonstrating dotdo capabilities wi
 | [todo-app](./todo-app) | Simple CRUD todo list | DO storage, Hono routing, SQLite |
 | [auth-api](./auth-api) | JWT authentication API | Password hashing, JWT tokens, protected routes |
 | [realtime-chat](./realtime-chat) | WebSocket chat rooms | Real-time messaging, hibernation, broadcast |
+| [dashboard](./dashboard) | Operator dashboard | DO monitoring, metrics, events, state inspection |
 
 ## Quick Start
 

@@ -5,5 +5,19 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.{ts,tsx}'],
+
+    // Coverage configuration
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      include: ['src/**/*.ts', 'src/**/*.tsx'],
+      exclude: ['**/*.test.ts', '**/*.test.tsx', '**/__tests__/**', '**/node_modules/**'],
+      thresholds: {
+        statements: 65,
+        branches: 60,
+        functions: 60,
+        lines: 65,
+      },
+    },
   },
 })

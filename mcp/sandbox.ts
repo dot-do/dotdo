@@ -74,7 +74,7 @@ export interface SandboxResult {
   value?: unknown
   error?: string
   duration: number
-  logs?: Array<{ level: string; message: string; args: unknown[] }>
+  logs?: Array<{ level: string; message: string; timestamp?: number }>
   /** Resource usage statistics */
   resourceUsage?: ResourceUsage
 }
