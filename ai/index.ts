@@ -94,3 +94,14 @@ export {
   complete,
   chat,
 } from './ai-core'
+
+// Export request-scoped context for proper isolation
+// Use these instead of globalTracker to avoid state leakage between requests
+export {
+  createRequestContext,
+  runWithContext,
+  getCurrentContext,
+  getOrCreateContext,
+  type RequestContext,
+  type ProviderConfig as RequestProviderConfig,
+} from './context'
