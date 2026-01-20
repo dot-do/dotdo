@@ -21,10 +21,14 @@ export {
   RateLimiter,
   ConcurrencyLimiter,
   SandboxResourceEnforcer,
-  getGlobalResourceEnforcer,
-  setGlobalResourceEnforcer,
   createScopedResourceEnforcer
 } from './sandbox'
+
+/**
+ * @deprecated Use `createScopedResourceEnforcer()` instead. Global state leaks between requests.
+ * @see createScopedResourceEnforcer
+ */
+export { getGlobalResourceEnforcer, setGlobalResourceEnforcer } from './sandbox'
 export type {
   Sandbox,
   SandboxOptions,

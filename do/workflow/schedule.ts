@@ -22,6 +22,32 @@ export interface ScheduleInterval {
   natural?: string
 }
 
+/**
+ * ScheduleRegistration - Handler registration for recurring schedules
+ *
+ * IMPORTANT: The 'handler' field is NOT serialized to storage
+ *
+ * ScheduleRegistration is stored in WorkflowContext._schedules, which is an in-memory Map.
+ * This is intentional because:
+ *
+ * 1. Handler functions cannot be reliably serialized to JSON
+ * 2. Recurring schedules are re-registered on every DO instantiation
+ *   - The schedule DSL ($.every.Monday.at9am()) is called in DO constructor/initialization
+ *   - This re-populates _schedules with fresh handler references
+ * 3. Only the alarm timing metadata (AlarmMetadata) is persisted to storage
+ *
+ * When a DO restarts:
+ * 1. The DO initialization code re-runs (fixtures, initSchedules(), etc.)
+ * 2. $.every.Monday.at9am(handler) is called again
+ * 3. This re-registers the handler in _schedules
+ * 4. When the alarm fires, executeSchedules() finds the handler and executes it
+ * 5. Alarm metadata is updated and persisted
+ *
+ * This design ensures that recurring schedules "just work" across restarts without
+ * needing to serialize functions or rebuild complex handler references.
+ *
+ * See do/workflow/alarm.ts for serialization details and limitations.
+ */
 export interface ScheduleRegistration {
   interval: ScheduleInterval
   handler: ScheduleHandler

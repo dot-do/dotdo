@@ -14,7 +14,8 @@ import {
   ValidationError,
   InternalError,
   AuthorizationError,
-  serializeError,
+  serializeErrorResponse,
+  createErrorResponse,
   isRPCError,
 } from './errors'
 import {
@@ -289,20 +290,20 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
         const validation = validateMethodPath(request.method)
         if (!validation.valid) {
           const error = new ValidationError(validation.error, { method: request.method })
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus as ContentfulStatusCode)
+          return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
         }
 
         // Check for private methods in initial call
         if (hasPrivateSegment(request.method)) {
           const error = createMethodNotAllowedError()
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus as ContentfulStatusCode)
+          return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
         }
 
         // Check whitelist for initial method
         if (currentWhitelist !== undefined) {
           if (!matchesWhitelist(request.method, currentWhitelist)) {
             const error = createMethodNotAllowedError()
-            return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus as ContentfulStatusCode)
+            return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
           }
         }
 
@@ -314,23 +315,16 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
             `Pipeline step ${response.error.stepIndex} failed: ${response.error.message}`,
             { stepIndex: response.error.stepIndex, code: response.error.code }
           )
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId, ...response.error }, error.httpStatus as ContentfulStatusCode)
+          return c.json({ ...createErrorResponse(error, correlationId), ...response.error }, error.httpStatus as ContentfulStatusCode)
         }
 
         return c.json(response)
       } catch (error) {
-        if (isRPCError(error)) {
-          return c.json(
-            { ...serializeError(error, { includeStack: false }), correlationId },
-            error.httpStatus as ContentfulStatusCode
-          )
-        }
-
-        const wrappedError = InternalError.wrap(error)
-        return c.json(
-          { ...serializeError(wrappedError, { includeStack: false }), correlationId },
-          wrappedError.httpStatus as ContentfulStatusCode
-        )
+        const { serialized, statusCode } = serializeErrorResponse(error, {
+          includeStack: false,
+          correlationId,
+        })
+        return c.json(serialized, statusCode as ContentfulStatusCode)
       }
     })
   }
@@ -433,20 +427,11 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       const result = await (fn as (...args: unknown[]) => unknown).apply(current, args)
       return c.json(result)
     } catch (error) {
-      // If it's already an RPCError, serialize it with its proper status code
-      if (isRPCError(error)) {
-        return c.json(
-          { ...serializeError(error, { includeStack: false }), correlationId },
-          error.httpStatus as ContentfulStatusCode
-        )
-      }
-
-      // Wrap unknown errors in InternalError
-      const wrappedError = InternalError.wrap(error)
-      return c.json(
-        { ...serializeError(wrappedError, { includeStack: false }), correlationId },
-        wrappedError.httpStatus as ContentfulStatusCode
-      )
+      const { serialized, statusCode } = serializeErrorResponse(error, {
+        includeStack: false,
+        correlationId,
+      })
+      return c.json(serialized, statusCode as ContentfulStatusCode)
     }
   })
 

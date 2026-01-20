@@ -337,7 +337,8 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
       })
     },
 
-    // getMany implementation for SQLite (do-8m4e)
+    // getMany implementation for SQLite (do-8m4e, do-6dc7.14)
+    // Optimized to use single query with IN clause instead of N+1 queries
     async getMany(ids: string[]): Promise<Map<string, Thing>> {
       if (ids.length === 0) {
         return new Map()
@@ -345,13 +346,23 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
 
       const result = new Map<string, Thing>()
 
-      // SQLite doesn't support array binding, so we fetch individually
-      // This could be optimized with IN clause for larger batches
-      for (const id of ids) {
-        const thing = await this.get(id)
-        if (thing) {
-          result.set(id, thing)
+      // Use IN clause with dynamically generated placeholders
+      // This fetches all items in a single query instead of N queries
+      const placeholders = ids.map(() => '?').join(', ')
+      const query = `SELECT id, type, data, created_at, updated_at FROM things WHERE id IN (${placeholders})`
+
+      const queryResult = await sql.prepare(query).bind(...ids).all()
+
+      for (const row of queryResult.results) {
+        const customData = JSON.parse(row.data as string)
+        const thing: Thing = {
+          $id: row.id as string,
+          $type: row.type as string,
+          $createdAt: row.created_at as number,
+          $updatedAt: row.updated_at as number,
+          ...customData
         }
+        result.set(thing.$id, thing)
       }
 
       return result

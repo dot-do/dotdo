@@ -247,6 +247,11 @@ describe('retryWithBackoff', () => {
   })
 })
 
+/**
+ * CircuitBreaker Test Suite
+ * Tests all state transitions (CLOSED -> OPEN -> HALF_OPEN -> CLOSED),
+ * metrics tracking, threshold behavior, and reset functionality.
+ */
 describe('CircuitBreaker', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -789,6 +794,17 @@ describe('CircuitOpenError', () => {
   })
 })
 
+/**
+ * RetryWithCircuitBreaker Test Suite
+ * Tests combined retry and circuit breaker behavior including:
+ * - Exponential backoff with jitter
+ * - Circuit state transitions (CLOSED -> OPEN -> HALF_OPEN -> CLOSED)
+ * - onStateChange callbacks
+ * - Integrated metrics (retry attempts + circuit breaker state)
+ * - Retry logic within circuit breaker context
+ * - isAllowingRequests() state checks
+ * - Reset functionality for both retry and circuit breaker state
+ */
 describe('RetryWithCircuitBreaker', () => {
   beforeEach(() => {
     vi.useFakeTimers()

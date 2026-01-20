@@ -29,9 +29,14 @@ import {
   type StorableData,
   type BulkUpdateItem,
   type SqlStorage,
+  type EventInput,
+  type JsonValue,
   defaultAuditConfig,
   maskSensitiveFields
 } from '@dotdo/db'
+import { createLogger } from '@dotdo/utils'
+
+const logger = createLogger('[EntityManager]')
 
 /**
  * Options for EntityManager

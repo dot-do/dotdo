@@ -45,6 +45,32 @@ export interface OneTimeAlarm {
 
 /**
  * Alarm store interface for persistence
+ *
+ * LIMITATION: oneTimeHandlers cannot survive serialization
+ *
+ * The AlarmStore contains three maps:
+ *
+ * 1. alarms: Recurring schedule metadata - PERSISTED to storage
+ *    - Contains timing info and interval config
+ *    - Handlers are re-registered in DO._schedules on restart
+ *    - SAFE: Works across DO restarts
+ *
+ * 2. oneTimeAlarms: One-time alarm metadata - PERSISTED to storage
+ *    - Contains execution time and a handler reference ID
+ *    - Handlers are NOT persisted (functions can't be serialized)
+ *    - UNSAFE: Handlers are lost on DO restart
+ *
+ * 3. oneTimeHandlers: In-memory handler references - NOT persisted
+ *    - Maps handler ID to actual function
+ *    - Lost when DO stops and restarted empty
+ *    - If a one-time alarm fires after restart, no handler exists
+ *
+ * CONSEQUENCE:
+ * One-time alarms scheduled with scheduleOneTimeAlarm() will silently fail
+ * if the DO restarts before the alarm executes. The alarm metadata will be
+ * restored from storage, but when it fires, there will be no handler to execute.
+ *
+ * See serializeAlarmStore() and deserializeAlarmStore() documentation for details.
  */
 export interface AlarmStore {
   alarms: Map<string, AlarmMetadata>
@@ -340,6 +366,35 @@ export function calculateNextAlarmTime(
 
 /**
  * Serialize alarm store for persistence
+ *
+ * LIMITATION: Handler function references are NOT serialized
+ *
+ * This function serializes only the alarm metadata (timing, interval config, schedule IDs).
+ * The actual handler functions stored in store.oneTimeHandlers are NOT persisted because:
+ *
+ * 1. JavaScript functions cannot be reliably serialized to JSON
+ * 2. Durable Object storage uses JSON serialization internally
+ * 3. Function references would be lost across DO restarts/migrations
+ *
+ * IMPLICATIONS:
+ * - Recurring schedules ($.every.Monday.at9am()) WILL work after restart because:
+ *   - They're registered in the WorkflowContext._schedules Map on every instantiation
+ *   - When the DO restarts, the schedule DSL is re-executed (handlers re-registered)
+ *   - The alarm timing metadata is restored, and handlers are re-attached
+ *
+ * - One-time alarms (scheduleOneTimeAlarm()) WILL NOT work after restart because:
+ *   - The handler function reference is stored only in store.oneTimeHandlers (in-memory)
+ *   - When deserialized, store.oneTimeAlarms has the timing but store.oneTimeHandlers is empty
+ *   - When the alarm fires, executeOneTimeAlarms() finds no handler and silently skips it
+ *   - This is a silent failure - the alarm executes but does nothing
+ *
+ * WORKAROUND for critical one-time alarms:
+ * - Re-register the handler in the DO constructor or initialization code
+ * - Use a persistent scheduler abstraction that stores intent, not implementation
+ * - Consider using recurring schedules with filtering instead of one-time alarms
+ *
+ * @param store - The alarm store with alarms and metadata
+ * @returns Serialized alarm data (handler functions omitted)
  */
 export function serializeAlarmStore(store: AlarmStore): {
   alarms: AlarmMetadata[]
@@ -353,6 +408,20 @@ export function serializeAlarmStore(store: AlarmStore): {
 
 /**
  * Deserialize alarm store from persistence
+ *
+ * LIMITATION: Handler function references are NOT restored
+ *
+ * This function restores alarm metadata from storage but CANNOT restore handler functions.
+ * The oneTimeHandlers Map remains empty after deserialization, which means:
+ *
+ * - One-time alarms will be scheduled but their handlers will not execute
+ * - This is a "silent failure" scenario - no error is raised
+ * - Recurring schedules are unaffected (handlers are re-registered on DO instantiation)
+ *
+ * See serializeAlarmStore() documentation for context and workarounds.
+ *
+ * @param data - Serialized alarm data from storage
+ * @param store - The alarm store to populate with deserialized data
  */
 export function deserializeAlarmStore(
   data: { alarms?: AlarmMetadata[]; oneTimeAlarms?: OneTimeAlarm[] } | null | undefined,
@@ -369,6 +438,8 @@ export function deserializeAlarmStore(
   if (data.oneTimeAlarms) {
     for (const alarm of data.oneTimeAlarms) {
       store.oneTimeAlarms.set(alarm.id, alarm)
+      // NOTE: store.oneTimeHandlers will NOT have an entry for this alarm.id
+      // This means when the alarm fires, executeOneTimeAlarms() will silently skip it
     }
   }
 }

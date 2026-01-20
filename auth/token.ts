@@ -78,7 +78,14 @@ function parseCookies(cookieHeader: string): Record<string, string> {
   for (const cookie of cookieHeader.split(';')) {
     const [name, ...rest] = cookie.split('=')
     if (name && rest.length > 0) {
-      cookies[name.trim()] = rest.join('=').trim()
+      const value = rest.join('=').trim()
+      // Decode URL-encoded cookie values
+      try {
+        cookies[name.trim()] = decodeURIComponent(value)
+      } catch {
+        // If decoding fails, use the original value
+        cookies[name.trim()] = value
+      }
     }
   }
   return cookies

@@ -121,3 +121,67 @@ export {
   getOrCreateContext,
   type RequestContext,
 } from './context'
+
+// ============================================================================
+// Export batching utilities from ai-functions (primitives)
+// These provide automatic batch processing for AI operations
+// ============================================================================
+
+export {
+  BatchQueue,
+  BatchMapPromise,
+  createBatch,
+  createBatchMap,
+  deferToBatch,
+  getBatchAdapter,
+  registerBatchAdapter,
+  isBatchMode,
+  isBatchMapPromise,
+  withBatchQueue,
+  BATCH_MODE_SYMBOL,
+  BATCH_MAP_SYMBOL,
+  type BatchQueueMode,
+  type BatchProvider,
+  type BatchStatus,
+  type BatchItem,
+  type BatchJob,
+  type BatchResult,
+  type BatchSubmitResult,
+  type BatchAdapter,
+  type BatchQueueOptions,
+  type DeferredOptions,
+  type CapturedOperation,
+  type BatchMapOptions,
+} from 'ai-functions'
+
+// ============================================================================
+// Re-export from ai-providers (primitives submodule)
+// These provide unified AI provider registry with Cloudflare AI Gateway support
+// ============================================================================
+
+// Registry functions for unified provider access
+export {
+  createRegistry,
+  getRegistry,
+  configureRegistry,
+  DIRECT_PROVIDERS,
+  type DirectProvider,
+  type ProviderConfig as AIProvidersConfig,
+} from 'ai-providers'
+
+// llm.do WebSocket transport for persistent connections
+export {
+  LLM,
+  getLLM,
+  createLLMFetch,
+  type LLMConfig,
+  type UniversalRequest,
+  type UniversalCreated,
+  type UniversalStream,
+  type UniversalDone,
+  type UniversalError,
+  type GatewayMessage,
+} from 'ai-providers'
+
+// Re-export AI SDK types from ai-providers for convenience
+export type { Provider as AIProvider, ProviderRegistryProvider } from 'ai-providers'

@@ -494,7 +494,13 @@ let globalEnforcer: SandboxResourceEnforcer | null = null
 
 /**
  * Get or create the global resource enforcer
- * @deprecated Use createScopedResourceEnforcer instead - global state leaks between requests
+ *
+ * @deprecated Use `createScopedResourceEnforcer()` instead. This global enforcer causes
+ * state leakage between requests in Worker environments, as documented in do-1oer.
+ * Each request or DO operation should create its own scoped instance via
+ * `createScopedResourceEnforcer(rateLimitConfig?, concurrencyConfig?)`.
+ *
+ * @see createScopedResourceEnforcer
  */
 export function getGlobalResourceEnforcer(): SandboxResourceEnforcer {
   if (!globalEnforcer) {
@@ -505,7 +511,13 @@ export function getGlobalResourceEnforcer(): SandboxResourceEnforcer {
 
 /**
  * Set a custom global resource enforcer (useful for testing)
- * @deprecated Use createScopedResourceEnforcer instead - global state leaks between requests
+ *
+ * @deprecated Use `createScopedResourceEnforcer()` instead. This global enforcer causes
+ * state leakage between requests in Worker environments, as documented in do-1oer.
+ * Each request or DO operation should create its own scoped instance via
+ * `createScopedResourceEnforcer(rateLimitConfig?, concurrencyConfig?)`.
+ *
+ * @see createScopedResourceEnforcer
  */
 export function setGlobalResourceEnforcer(enforcer: SandboxResourceEnforcer | null): void {
   globalEnforcer = enforcer

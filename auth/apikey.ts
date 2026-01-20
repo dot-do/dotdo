@@ -107,6 +107,30 @@ export interface RateLimitWindow {
 }
 
 /**
+ * Storage interface for API key persistence.
+ * This follows the ThingsStore pattern from @dotdo/db but is defined here
+ * to avoid circular dependencies.
+ */
+export interface ApiKeyStore {
+  create<D extends { $type: string }>(data: D): Promise<D & { $id: string; $createdAt: number; $updatedAt: number }>
+  get(id: string): Promise<{ $id: string; $type: string; $createdAt: number; $updatedAt: number; [key: string]: unknown } | null>
+  update(id: string, data: Record<string, unknown>): Promise<{ $id: string; $type: string; [key: string]: unknown }>
+  list(options?: { type?: string }): Promise<Array<{ $id: string; $type: string; [key: string]: unknown }>>
+}
+
+/**
+ * Options for creating an ApiKeyManager
+ */
+export interface ApiKeyManagerOptions {
+  /**
+   * Optional storage for persisting API keys.
+   * When provided, keys are stored in the ThingsStore (SQLite-backed in DO context).
+   * When omitted, keys are stored in memory only.
+   */
+  store?: ApiKeyStore
+}
+
+/**
  * API Key Manager - handles full API key lifecycle.
  *
  * Manages creation, validation, rotation, and revocation of API keys.
