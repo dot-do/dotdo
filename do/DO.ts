@@ -1,4 +1,12 @@
-// Base DO class - THE Durable Object for Digital Objects
+/**
+ * @dotdo/do - THE Durable Object for Digital Objects
+ *
+ * This module provides the base DO class that serves as the foundation for building
+ * Durable Objects with built-in entity storage, event handling, WebSocket support,
+ * and scheduling capabilities.
+ *
+ * @module @dotdo/do
+ */
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
@@ -44,10 +52,59 @@ export interface DOEnv {
  */
 export type DOEnvWithDynamic = DOEnv & Record<string, unknown>
 
+/**
+ * Options for configuring a DO instance.
+ */
 export interface DOOptions {
+  /** Whether to enable CORS middleware. Defaults to true. */
   cors?: boolean
 }
 
+/**
+ * The base DO class - THE Durable Object for Digital Objects.
+ *
+ * DO = Durable Object = Digital Object
+ *
+ * This class provides a complete foundation for building Durable Objects with:
+ * - **Entity Storage**: Built-in Things, Events, and Relationships stores with SQLite persistence
+ * - **Workflow Context ($)**: Fluent API for event handlers, scheduling, and cross-DO RPC
+ * - **WebSocket Support**: Real-time communication with connection management
+ * - **Integration Registry**: Third-party service integrations
+ * - **Audit Logging**: Automatic tracking of entity changes
+ *
+ * @example
+ * ```typescript
+ * import { DO } from '@dotdo/do'
+ *
+ * class MyDO extends DO {
+ *   constructor(state: DurableObjectState, env: Env) {
+ *     super(state, env)
+ *
+ *     // Register event handlers using WorkflowContext ($)
+ *     this.$.on.Customer.signup(async (event) => {
+ *       await this.$.send({ type: 'welcome-email', payload: event.payload })
+ *     })
+ *
+ *     // Schedule recurring tasks
+ *     this.$.every.day.at('9am')(async () => {
+ *       await this.generateDailyReport()
+ *     })
+ *   }
+ *
+ *   // Add custom routes
+ *   protected routes(app: Hono): void {
+ *     app.get('/customers', async (c) => {
+ *       const customers = await this.things.list({ type: 'Customer' })
+ *       return c.json(customers)
+ *     })
+ *   }
+ * }
+ * ```
+ *
+ * @see {@link WorkflowContext} for the $ API documentation
+ * @see {@link ThingsStore} for entity CRUD operations
+ * @see {@link EventsStore} for event emission and querying
+ */
 export class DO implements DurableObject {
   protected app: Hono
   protected state: DurableObjectState
