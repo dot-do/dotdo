@@ -12,8 +12,20 @@ import type { BatchRPCCall, BatchRPCResult, BatchRPCResponse } from '../rpc/batc
 import { logRPCError } from '../rpc/logging'
 import { CORRELATION_ID_HEADER, generateCorrelationId } from '../rpc/client'
 import { createLogger } from '../utils/logger'
+import {
+  createAlarmStore,
+  executeSchedules,
+  executeOneTimeAlarms,
+  calculateNextAlarmTime,
+  serializeAlarmStore,
+  deserializeAlarmStore,
+  type AlarmStore,
+} from './workflow/alarm'
 
 const logger = createLogger('[DO]')
+
+/** Storage key for persisted alarm metadata */
+const ALARM_STORAGE_KEY = '_alarms'
 
 /**
  * Base environment interface for DO instances.
@@ -44,6 +56,8 @@ export class DO implements DurableObject {
   private entityManager: EntityManager
   private websocketManager: WebSocketManager
   private _integrations: IntegrationRegistry
+  private alarmStore: AlarmStore
+  private alarmInitialized = false
 
   constructor(state: DurableObjectState, env: DOEnv, options: DOOptions = {}) {
     this.state = state
@@ -53,6 +67,7 @@ export class DO implements DurableObject {
     this.entityManager = new EntityManager({ state })
     this.websocketManager = new WebSocketManager()
     this._integrations = new IntegrationRegistry()
+    this.alarmStore = createAlarmStore()
 
     // Initialize WorkflowContext ($) for event handlers, scheduling, and cross-DO RPC
     // This provides the fluent API: $.send(), $.try(), $.do(), $.on.*, $.every.*
@@ -270,9 +285,148 @@ export class DO implements DurableObject {
     return this.app.fetch(request)
   }
 
-  // Alarm handler (for scheduling)
+  /**
+   * Alarm handler - processes scheduled work from $.every DSL
+   *
+   * This method is called by the Durable Object runtime when an alarm fires.
+   * It executes all registered schedule handlers and one-time alarms,
+   * then re-schedules recurring alarms.
+   *
+   * Subclasses can override this method but should call super.alarm()
+   * to ensure scheduled work is processed.
+   */
   async alarm(): Promise<void> {
-    // Override in subclass or use $ scheduling
+    // Initialize alarm state if needed (restore from storage)
+    await this.initializeAlarms()
+
+    const schedules = this.$._schedules
+
+    // Execute all registered schedules
+    const scheduleResults = await executeSchedules(schedules, this.alarmStore)
+
+    // Log any errors (but continue processing)
+    for (const result of scheduleResults) {
+      if (!result.success && result.error) {
+        logger.error(`Schedule "${result.id}" failed:`, result.error.message)
+      }
+    }
+
+    // Execute one-time alarms
+    const oneTimeResults = await executeOneTimeAlarms(this.alarmStore)
+
+    for (const result of oneTimeResults) {
+      if (!result.success && result.error) {
+        logger.error(`One-time alarm "${result.id}" failed:`, result.error.message)
+      }
+    }
+
+    // Persist alarm state
+    await this.persistAlarmState()
+
+    // Re-schedule next alarm for recurring schedules
+    await this.scheduleNextAlarm()
+  }
+
+  /**
+   * Initialize alarms from storage (for DO restart recovery)
+   */
+  private async initializeAlarms(): Promise<void> {
+    if (this.alarmInitialized) return
+    this.alarmInitialized = true
+
+    try {
+      const stored = await this.state.storage.get<ReturnType<typeof serializeAlarmStore>>(ALARM_STORAGE_KEY)
+      if (stored) {
+        deserializeAlarmStore(stored, this.alarmStore)
+      }
+    } catch (error) {
+      logger.error('Failed to restore alarm state:', error)
+    }
+  }
+
+  /**
+   * Persist alarm state to storage
+   */
+  private async persistAlarmState(): Promise<void> {
+    try {
+      const data = serializeAlarmStore(this.alarmStore)
+      await this.state.storage.put(ALARM_STORAGE_KEY, data)
+    } catch (error) {
+      logger.error('Failed to persist alarm state:', error)
+    }
+  }
+
+  /**
+   * Schedule the next alarm based on registered schedules
+   */
+  protected async scheduleNextAlarm(): Promise<void> {
+    const schedules = this.$._schedules
+
+    if (schedules.size === 0 && this.alarmStore.oneTimeAlarms.size === 0) {
+      return // No schedules to set alarm for
+    }
+
+    const nextTime = calculateNextAlarmTime(schedules, this.alarmStore)
+
+    if (nextTime !== null) {
+      try {
+        await this.state.storage.setAlarm(nextTime)
+      } catch (error) {
+        logger.error('Failed to set alarm:', error)
+      }
+    }
+  }
+
+  /**
+   * Schedule a one-time alarm to execute a handler after a delay
+   *
+   * @param delayMs - Delay in milliseconds before execution
+   * @param handler - The handler function to execute
+   * @returns Promise that resolves when alarm is scheduled
+   */
+  protected async scheduleOneTimeAlarm(delayMs: number, handler: () => Promise<void>): Promise<void> {
+    await this.initializeAlarms()
+
+    const id = `one-time-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const runAt = Date.now() + delayMs
+
+    // Store the alarm metadata
+    this.alarmStore.oneTimeAlarms.set(id, {
+      id,
+      runAt,
+      handlerRef: id,
+    })
+
+    // Store the handler reference (in-memory only)
+    this.alarmStore.oneTimeHandlers.set(id, handler)
+
+    // Persist and schedule
+    await this.persistAlarmState()
+    await this.scheduleNextAlarm()
+  }
+
+  /**
+   * Clear all alarms (both recurring and one-time)
+   */
+  protected async clearAllAlarms(): Promise<void> {
+    // Clear alarm store
+    this.alarmStore.alarms.clear()
+    this.alarmStore.oneTimeAlarms.clear()
+    this.alarmStore.oneTimeHandlers.clear()
+
+    // Delete the alarm
+    try {
+      await this.state.storage.deleteAlarm()
+    } catch (error) {
+      logger.error('Failed to delete alarm:', error)
+    }
+
+    // Clear persisted state
+    try {
+      await this.state.storage.delete(ALARM_STORAGE_KEY)
+    } catch (error) {
+      logger.error('Failed to clear alarm storage:', error)
+    }
   }
 
   // WebSocket handlers - Override in subclass for custom behavior

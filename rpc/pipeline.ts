@@ -584,6 +584,7 @@ async function executeSteps(
   // Navigate to the method
   for (let i = 0; i < methodParts.length - 1; i++) {
     const part = methodParts[i]
+    if (part === undefined) continue
     if (!current || typeof current !== 'object') {
       const error = new Error(`Cannot access ${part} on ${typeof current}`) as Error & { stepIndex: number }
       error.stepIndex = -1
@@ -594,6 +595,11 @@ async function executeSteps(
 
   // Get and execute the final method
   const methodName = methodParts[methodParts.length - 1]
+  if (methodName === undefined) {
+    const error = new Error(`Method ${method} not found`) as Error & { stepIndex: number }
+    error.stepIndex = -1
+    throw error
+  }
   if (!current || typeof current !== 'object') {
     const error = new Error(`Method ${method} not found`) as Error & { stepIndex: number }
     error.stepIndex = -1

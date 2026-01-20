@@ -177,7 +177,7 @@ export class RateLimiter {
   private initialized = false
 
   constructor(config: RateLimitConfig) {
-    this.config = {
+    const internalConfig: InternalRateLimitConfig = {
       keyStrategy: config.keyStrategy,
       defaultTier: config.defaultTier ?? 'free',
       tiers: { ...DEFAULT_TIERS, ...config.tiers },
@@ -186,8 +186,11 @@ export class RateLimiter {
       failOpen: config.failOpen ?? true,
       windowStrategy: config.windowStrategy ?? 'sliding',
       skipPaths: config.skipPaths ?? [],
-      storage: config.storage,
     }
+    if (config.storage !== undefined) {
+      internalConfig.storage = config.storage
+    }
+    this.config = internalConfig
 
     // Validate tiers
     if (!this.config.tiers[this.config.defaultTier]) {
@@ -679,7 +682,18 @@ export class RateLimiter {
     if (context?.tenantId) {
       const tenantOverride = this.config.tenantOverrides[context.tenantId]
       if (tenantOverride) {
-        return { ...baseTier, name: tenantOverride.name ?? baseTier.name, requestsPerWindow: tenantOverride.requestsPerWindow ?? baseTier.requestsPerWindow, windowMs: tenantOverride.windowMs ?? baseTier.windowMs, burstCapacity: tenantOverride.burstCapacity ?? baseTier.burstCapacity }
+        const result: RateLimitTier = {
+          ...baseTier,
+          name: tenantOverride.name ?? baseTier.name,
+          requestsPerWindow: tenantOverride.requestsPerWindow ?? baseTier.requestsPerWindow,
+          windowMs: tenantOverride.windowMs ?? baseTier.windowMs,
+        }
+        if (tenantOverride.burstCapacity !== undefined) {
+          result.burstCapacity = tenantOverride.burstCapacity
+        } else if (baseTier.burstCapacity !== undefined) {
+          result.burstCapacity = baseTier.burstCapacity
+        }
+        return result
       }
     }
 
@@ -687,7 +701,18 @@ export class RateLimiter {
     if (context?.userId) {
       const userOverride = this.config.userOverrides[context.userId]
       if (userOverride) {
-        return { ...baseTier, name: userOverride.name ?? baseTier.name, requestsPerWindow: userOverride.requestsPerWindow ?? baseTier.requestsPerWindow, windowMs: userOverride.windowMs ?? baseTier.windowMs, burstCapacity: userOverride.burstCapacity ?? baseTier.burstCapacity }
+        const result: RateLimitTier = {
+          ...baseTier,
+          name: userOverride.name ?? baseTier.name,
+          requestsPerWindow: userOverride.requestsPerWindow ?? baseTier.requestsPerWindow,
+          windowMs: userOverride.windowMs ?? baseTier.windowMs,
+        }
+        if (userOverride.burstCapacity !== undefined) {
+          result.burstCapacity = userOverride.burstCapacity
+        } else if (baseTier.burstCapacity !== undefined) {
+          result.burstCapacity = baseTier.burstCapacity
+        }
+        return result
       }
     }
 
@@ -724,17 +749,20 @@ export class RateLimiter {
     const now = Date.now()
     const resetAt = Math.ceil((now + 60000) / 1000)
 
-    return {
+    const result: RateLimitResult = {
       allowed,
       statusCode: allowed ? 200 : 429,
       remaining: allowed ? 100 : 0,
       limit: 100,
       resetAt,
       headers: this.buildHeaders(100, allowed ? 100 : 0, resetAt),
-      error: allowed ? undefined : { code: 'STORAGE_ERROR', message: 'Rate limit storage unavailable' },
       key: 'unknown',
       tier: this.config.defaultTier,
     }
+    if (!allowed) {
+      result.error = { code: 'STORAGE_ERROR', message: 'Rate limit storage unavailable' }
+    }
+    return result
   }
 
   /**
@@ -887,7 +915,13 @@ export function rateLimitMiddleware(config: RateLimitConfig): MiddlewareHandler 
     const userId = c.get('userId') as string | undefined
     const tier = c.get('tier') as string | undefined
 
-    const result = await rateLimiter.check(c.req.raw, { tenantId, userId, tier })
+    // Build check context with only defined values
+    const checkContext: { tenantId?: string; userId?: string; tier?: string } = {}
+    if (tenantId !== undefined) checkContext.tenantId = tenantId
+    if (userId !== undefined) checkContext.userId = userId
+    if (tier !== undefined) checkContext.tier = tier
+
+    const result = await rateLimiter.check(c.req.raw, checkContext)
 
     // Set rate limit headers on context
     for (const [key, value] of Object.entries(result.headers)) {
@@ -896,12 +930,15 @@ export function rateLimitMiddleware(config: RateLimitConfig): MiddlewareHandler 
 
     // If rate limited, return 429 response with standard RPCError format
     if (!result.allowed) {
-      const rateLimitError = RateLimitError.exceeded({
+      const errorDetails: { limit: number; window: string; retryAfter?: number } = {
         limit: result.limit,
         window: `${Math.round(60000 / 1000)}s`, // Assumes 60s window, could be configurable
-        retryAfter: result.retryAfter,
-      })
-      return c.json(rateLimitError.toJSON(), rateLimitError.httpStatus)
+      }
+      if (result.retryAfter !== undefined) {
+        errorDetails.retryAfter = result.retryAfter
+      }
+      const rateLimitError = RateLimitError.exceeded(errorDetails)
+      return c.json(rateLimitError.toJSON(), rateLimitError.httpStatus as 429)
     }
 
     // Store rate limit info in context for downstream use

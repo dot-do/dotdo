@@ -69,3 +69,18 @@ export {
   type EventEmitListener,
   type EventSystemOptions,
 } from './event-system'
+
+// Alarm scheduling utilities (do-14y8)
+export {
+  createAlarmStore,
+  calculateNextRunTime,
+  calculateNextCronTime,
+  executeSchedules,
+  executeOneTimeAlarms,
+  calculateNextAlarmTime,
+  serializeAlarmStore,
+  deserializeAlarmStore,
+  type AlarmMetadata,
+  type OneTimeAlarm,
+  type AlarmStore,
+} from './alarm'

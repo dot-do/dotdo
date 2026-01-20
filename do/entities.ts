@@ -1,5 +1,6 @@
 // Entity Management - Integration of db stores into DO class
 // See do-7rf.6.5 and do-xebw (audit logging)
+// SQLite storage integration added per do-8m4e
 
 import {
   createThingsStore,
@@ -7,6 +8,12 @@ import {
   createRelationshipsStore,
   createQuery,
   createAuditLogStore,
+  // SQLite store creators for persistent storage (do-8m4e)
+  SQLiteAdapter,
+  createSQLiteThingsStore,
+  createSQLiteEventsStore,
+  createSQLiteRelationshipsStore,
+  createSQLiteAuditLogStore,
   type ThingsStore,
   type EventsStore,
   type RelationshipsStore,
@@ -21,6 +28,7 @@ import {
   type QueryBuilder,
   type StorableData,
   type BulkUpdateItem,
+  type SqlStorage,
   defaultAuditConfig,
   maskSensitiveFields
 } from '../db'
@@ -31,11 +39,20 @@ import {
 export interface EntityManagerOptions {
   /** Audit logging configuration */
   auditConfig?: Partial<AuditLogConfig>
+  /**
+   * DurableObjectState for SQLite persistence (do-8m4e)
+   * When provided, stores will use SQLite via state.storage.sql
+   * When omitted, falls back to in-memory stores for backward compatibility
+   */
+  state?: DurableObjectState
 }
 
 /**
  * Entity Manager wraps the base stores and adds event emission on entity changes
  * Also provides audit logging for all CRUD operations (do-xebw)
+ *
+ * When constructed with a DurableObjectState, uses SQLite storage for persistence (do-8m4e).
+ * When constructed without state, uses in-memory stores (backward compatible).
  */
 export class EntityManager {
   private _things: ThingsStore
@@ -44,14 +61,44 @@ export class EntityManager {
   private _auditLogs: AuditLogStore
   private _auditConfig: AuditLogConfig
   private _auditContext: AuditContext
+  private _sqliteAdapter?: SQLiteAdapter
+  private _initialized: boolean = false
+  private _initPromise?: Promise<void>
 
   constructor(options: EntityManagerOptions = {}) {
-    this._things = createThingsStore()
-    this._events = createEventsStore()
-    this._relationships = createRelationshipsStore()
-    this._auditLogs = createAuditLogStore()
+    if (options.state?.storage?.sql) {
+      // Use SQLite stores for persistent storage (do-8m4e)
+      this._sqliteAdapter = new SQLiteAdapter(options.state.storage.sql as SqlStorage)
+      this._things = createSQLiteThingsStore(this._sqliteAdapter)
+      this._events = createSQLiteEventsStore(this._sqliteAdapter)
+      this._relationships = createSQLiteRelationshipsStore(this._sqliteAdapter)
+      this._auditLogs = createSQLiteAuditLogStore(this._sqliteAdapter)
+
+      // Initialize SQLite adapter asynchronously
+      // The stores will handle initialization lazily if needed
+      this._initPromise = this._sqliteAdapter.initialize().then(() => {
+        this._initialized = true
+      })
+    } else {
+      // Fall back to in-memory stores for backward compatibility
+      this._things = createThingsStore()
+      this._events = createEventsStore()
+      this._relationships = createRelationshipsStore()
+      this._auditLogs = createAuditLogStore()
+      this._initialized = true
+    }
     this._auditConfig = { ...defaultAuditConfig, ...options.auditConfig }
     this._auditContext = { actor: 'system' }
+  }
+
+  /**
+   * Ensure SQLite is initialized before operations
+   * This is called internally to handle the async initialization
+   */
+  private async ensureInitialized(): Promise<void> {
+    if (this._initPromise) {
+      await this._initPromise
+    }
   }
 
   /**
@@ -137,6 +184,10 @@ export class EntityManager {
         return baseStore.get(id)
       },
 
+      async getMany(ids: string[]): Promise<Map<string, Thing>> {
+        return baseStore.getMany(ids)
+      },
+
       async update(id, data) {
         const thing = await baseStore.update(id, data)
 
@@ -172,6 +223,10 @@ export class EntityManager {
 
       async list(options?: { type?: string; limit?: number; offset?: number }): Promise<Thing[]> {
         return baseStore.list(options)
+      },
+
+      async listWithCursor(options) {
+        return baseStore.listWithCursor(options)
       },
 
       async bulkCreate(items) {
@@ -306,6 +361,10 @@ export class EntityManager {
 
       async find(query: RelationshipQuery): Promise<Relationship[]> {
         return baseStore.find(query)
+      },
+
+      async findWithCursor(options) {
+        return baseStore.findWithCursor(options)
       },
 
       async getRelated(subjectId: string, predicate: string): Promise<string[]> {
