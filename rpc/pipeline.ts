@@ -279,7 +279,7 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
           throw new Error('Pipeline response missing result field')
         }
 
-        return response.result
+        return response.result as T
       }
 
       // No pipeline steps, just a regular call

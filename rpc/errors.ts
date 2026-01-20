@@ -1096,7 +1096,7 @@ export interface RetryWithCircuitBreakerOptions {
   /** Circuit breaker options */
   circuitBreaker?: CircuitBreakerOptions
   /** Optional callback for observing state transitions */
-  onStateChange?: (newState: CircuitState, metrics: CircuitMetrics) => void
+  onStateChange?: ((newState: CircuitState, metrics: CircuitMetrics) => void) | undefined
 }
 
 /**
@@ -1151,7 +1151,7 @@ export interface RetryCircuitBreakerMetrics extends CircuitMetrics {
 export class RetryWithCircuitBreaker {
   private readonly circuitBreaker: CircuitBreaker
   private readonly retryOptions: Required<RetryOptions>
-  private readonly onStateChange?: (newState: CircuitState, metrics: CircuitMetrics) => void
+  private readonly onStateChange?: ((newState: CircuitState, metrics: CircuitMetrics) => void) | undefined
   private lastState: CircuitState = CircuitState.CLOSED
   private totalRetryAttempts = 0
   private lastRetryDelayMs: number | null = null

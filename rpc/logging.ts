@@ -244,7 +244,7 @@ export interface RPCErrorContext {
   /** Timestamp of the error */
   timestamp: string
   /** Error stack trace */
-  stack?: string
+  stack?: string | undefined
   /** Error code (if RPCError) */
   code?: string
   /** HTTP status (if RPCError) */

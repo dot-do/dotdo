@@ -374,8 +374,11 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       let current: Record<string, unknown> = target as Record<string, unknown>
 
       for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i]
+        // The loop bounds guarantee part exists, but TypeScript needs the check
+        if (part === undefined) continue
         // Only access own properties to prevent prototype chain traversal
-        if (!Object.prototype.hasOwnProperty.call(current, parts[i])) {
+        if (!Object.prototype.hasOwnProperty.call(current, part)) {
           // Return same error as whitelist rejection to prevent method enumeration
           if (currentWhitelist !== undefined) {
             const error = createMethodNotAllowedError()
@@ -384,7 +387,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
           const error = NotFoundError.forResource('Method', method)
           return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
         }
-        const next = current[parts[i]]
+        const next = current[part]
         if (!next || typeof next !== 'object') {
           // Return same error as whitelist rejection to prevent method enumeration
           if (currentWhitelist !== undefined) {
@@ -398,6 +401,11 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       }
 
       const methodName = parts[parts.length - 1]
+      // The parts array is validated to have at least one element
+      if (methodName === undefined) {
+        const error = new ValidationError('Invalid method path: empty', { method })
+        return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
+      }
 
       // For the final method, we need to check both own properties AND prototype methods
       // (class instances have methods on the prototype). The forbidden names check above
