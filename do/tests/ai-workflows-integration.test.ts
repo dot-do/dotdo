@@ -611,7 +611,7 @@ describe('Type compatibility with ai-workflows', () => {
     // @dotdo/do EventHandler: (event: T) => Promise<void> | void
 
     // Both should accept functions that handle events
-    const aiHandler: (data: unknown, $: AIWorkflowContext) => Promise<void> = async (data, $) => {
+    const aiHandler: AIWorkflowsEventHandler = async (data, $) => {
       $.log('Handled', data)
     }
 
@@ -628,7 +628,7 @@ describe('Type compatibility with ai-workflows', () => {
     // ai-workflows ScheduleHandler: ($: WorkflowContext) => void | Promise<void>
     // @dotdo/do ScheduleHandler: () => Promise<void>
 
-    const aiScheduleHandler: ($: AIWorkflowContext) => Promise<void> = async ($) => {
+    const aiScheduleHandler: AIWorkflowsScheduleHandler = async ($) => {
       $.log('Scheduled task')
     }
 
@@ -638,5 +638,78 @@ describe('Type compatibility with ai-workflows', () => {
 
     expect(typeof aiScheduleHandler).toBe('function')
     expect(typeof doScheduleHandler).toBe('function')
+  })
+
+  it('should have ScheduleInterval compatible with ai-workflows ScheduleInterval', () => {
+    // ai-workflows ScheduleInterval has type discriminant + value/expression/description
+    // @dotdo/do ScheduleInterval should match
+
+    const mockState = {
+      id: { toString: () => 'test-do' },
+      storage: {
+        get: vi.fn(),
+        put: vi.fn(),
+        list: vi.fn(() => Promise.resolve(new Map())),
+        delete: vi.fn(),
+      },
+    } as unknown as DurableObjectState
+    const $ = createContext(mockState, {})
+
+    const handler = vi.fn()
+    $.every.Monday.at9am(handler)
+
+    const schedules = Array.from($._schedules.values())
+    const interval = schedules[0].interval
+
+    // Should have type matching ai-workflows ScheduleInterval
+    expect(interval.type).toBeDefined()
+    expect(['second', 'minute', 'hour', 'day', 'week', 'cron', 'natural']).toContain(interval.type)
+
+    // Should have natural description
+    expect(interval.natural).toBeDefined()
+
+    // If cron type, should have expression
+    if (interval.type === 'cron') {
+      expect(interval.expression).toBeDefined()
+    }
+  })
+
+  it('should have OnProxy with same two-level proxy structure as ai-workflows', () => {
+    // ai-workflows OnProxy: Proxy<{ [noun]: Proxy<{ [event]: (handler) => void }> }>
+    // @dotdo/do OnProxy: Same two-level Proxy structure
+
+    const handlers = new Map<string, EventHandler[]>()
+    const onProxy = createOnProxy(handlers)
+
+    // Should support arbitrary noun.verb combinations
+    const handler = vi.fn()
+
+    onProxy.Customer.created(handler)
+    onProxy.ArbitraryNoun.arbitraryVerb(handler)
+    onProxy['*'].wildcard(handler)
+
+    expect(handlers.get('Customer.created')).toContain(handler)
+    expect(handlers.get('ArbitraryNoun.arbitraryVerb')).toContain(handler)
+    expect(handlers.get('*.wildcard')).toContain(handler)
+  })
+
+  it('should have EveryProxy with callable and property access like ai-workflows', () => {
+    // ai-workflows EveryProxy: callable function + property access
+    // @dotdo/do EveryProxy: same pattern
+
+    const schedules = new Map<string, ScheduleRegistration>()
+    const everyProxy = createEveryProxy(schedules)
+
+    // Property access patterns
+    const handler1 = vi.fn()
+    const handler2 = vi.fn()
+
+    // Simple pattern
+    everyProxy.hour(handler1)
+
+    // Chained pattern
+    everyProxy.Monday.at9am(handler2)
+
+    expect(schedules.size).toBe(2)
   })
 })

@@ -11,3 +11,4 @@ packages:
   - utils
   - integrations
   - test-utils
+  - primitives/packages/**
