@@ -247,3 +247,100 @@ export function createDOStub<T extends object>(
     }
   })
 }
+
+/**
+ * Creates a secure typed proxy for DO-to-DO calls with HMAC signing.
+ *
+ * This version of createDOStub includes HMAC signatures in all requests,
+ * which prevents header spoofing attacks. The receiving DO must have
+ * DO_INTERNAL_SECRET configured and will verify the signature.
+ *
+ * @example
+ * ```typescript
+ * interface OtherDO {
+ *   process(data: Data): Promise<Result>
+ * }
+ *
+ * // In a Durable Object
+ * class MyDO extends DurableObject {
+ *   async doWork() {
+ *     const other = createSecureDOStub<OtherDO>(
+ *       this.env.OTHER_DO,
+ *       'target-id',
+ *       { sourceDoId: this.ctx.id.toString() }
+ *     )
+ *     return await other.process({ key: 'value' })
+ *   }
+ * }
+ * ```
+ *
+ * @param binding - The DurableObjectNamespace binding
+ * @param id - Either a string name or a DurableObjectId
+ * @param options - Configuration including source DO ID for signing
+ * @returns A typed proxy that forwards method calls to the DO with HMAC signing
+ */
+export function createSecureDOStub<T extends object>(
+  binding: DurableObjectNamespace,
+  id: string | DurableObjectId,
+  options: SecureDOStubOptions
+): T {
+  // Lazy import to avoid circular dependencies
+  let createDOToDoHeaders: typeof import('../do/auth').createDOToDoHeaders | null = null
+
+  const doId = isDurableObjectId(id) ? id : binding.idFromName(id)
+  const stub = binding.get(doId)
+  const { correlationId: baseCorrelationId, sourceDoId } = options
+
+  return new Proxy({} as T, {
+    get(_, prop: string | symbol) {
+      // Don't intercept symbols or promise methods
+      if (typeof prop === 'symbol') {
+        return undefined
+      }
+
+      if (prop === 'then' || prop === 'catch' || prop === 'finally') {
+        return undefined
+      }
+
+      return async (...args: unknown[]) => {
+        // Lazy load the auth module
+        if (!createDOToDoHeaders) {
+          const authModule = await import('../do/auth')
+          createDOToDoHeaders = authModule.createDOToDoHeaders
+        }
+
+        // Generate a correlation ID for each request, or use the provided base correlation ID
+        const correlationId = baseCorrelationId || generateCorrelationId()
+
+        // Create secure headers with HMAC signature
+        const headers = await createDOToDoHeaders(sourceDoId, '/rpc', correlationId)
+
+        const response = await stub.fetch('https://do/rpc', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ method: prop, args }),
+        })
+
+        if (!response.ok) {
+          const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
+          // Try to parse the structured error response
+          try {
+            const errorBody = await response.json() as SerializedError & { correlationId?: string }
+            if (errorBody.code && errorBody.message) {
+              throw deserializeError(errorBody)
+            }
+          } catch (e) {
+            // If it's already an RPCError from deserialization, re-throw it
+            if (isRPCError(e)) {
+              throw e
+            }
+          }
+          // Fallback to generic error
+          throw new Error(`DO RPC error: ${response.status} [${responseCorrelationId}]`)
+        }
+
+        return response.json()
+      }
+    }
+  })
+}
