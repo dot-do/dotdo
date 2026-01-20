@@ -5,6 +5,7 @@
 export * from './middleware'
 export * from './guards'
 export * from './token'
+export * from './jwks'
 export * from './apikey'
 export * from './session'
 export * from './org-ai'
