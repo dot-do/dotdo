@@ -232,6 +232,10 @@ export function withEventSourcing<T extends StorableData = StorableData>(
       return store.get(id)
     },
 
+    async getMany(ids) {
+      return store.getMany(ids)
+    },
+
     async update(id, data) {
       // Get previous state for change tracking
       const previous = await store.get(id)
@@ -283,6 +287,10 @@ export function withEventSourcing<T extends StorableData = StorableData>(
 
     async list(options) {
       return store.list(options)
+    },
+
+    async listWithCursor(options) {
+      return store.listWithCursor(options)
     },
 
     async bulkCreate(items) {

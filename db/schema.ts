@@ -642,6 +642,10 @@ export function createValidatedStore(
       return store.get(id)
     },
 
+    async getMany(ids) {
+      return store.getMany(ids)
+    },
+
     async update(id, data) {
       // Get existing thing to know its type and merge data for validation
       const existing = await store.get(id)
@@ -662,6 +666,10 @@ export function createValidatedStore(
 
     async list(options) {
       return store.list(options)
+    },
+
+    async listWithCursor(options) {
+      return store.listWithCursor(options)
     },
 
     async bulkCreate(items) {

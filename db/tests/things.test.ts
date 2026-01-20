@@ -362,6 +362,57 @@ describe('Things Store', () => {
     })
   })
 
+  describe('getMany', () => {
+    it('should retrieve multiple things by ids', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' },
+        { $type: 'Customer', name: 'Bob' },
+        { $type: 'Order', total: 100 }
+      ])
+
+      const result = await store.getMany([created[0].$id, created[2].$id])
+
+      expect(result.size).toBe(2)
+      expect(result.get(created[0].$id)).toEqual(created[0])
+      expect(result.get(created[2].$id)).toEqual(created[2])
+      expect(result.has(created[1].$id)).toBe(false) // Bob not requested
+    })
+
+    it('should return empty map for empty input', async () => {
+      const result = await store.getMany([])
+      expect(result.size).toBe(0)
+    })
+
+    it('should skip non-existent ids without error', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' }
+      ])
+
+      const result = await store.getMany([created[0].$id, 'non-existent', 'also-missing'])
+
+      expect(result.size).toBe(1)
+      expect(result.get(created[0].$id)).toEqual(created[0])
+      expect(result.has('non-existent')).toBe(false)
+      expect(result.has('also-missing')).toBe(false)
+    })
+
+    it('should return empty map when all ids are non-existent', async () => {
+      const result = await store.getMany(['non-existent-1', 'non-existent-2'])
+      expect(result.size).toBe(0)
+    })
+
+    it('should handle duplicate ids', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' }
+      ])
+
+      const result = await store.getMany([created[0].$id, created[0].$id])
+
+      expect(result.size).toBe(1)
+      expect(result.get(created[0].$id)).toEqual(created[0])
+    })
+  })
+
   describe('bulkDelete', () => {
     it('should delete multiple things at once', async () => {
       const created = await store.bulkCreate([
