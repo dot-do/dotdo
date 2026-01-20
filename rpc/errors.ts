@@ -337,29 +337,42 @@ export function isAuthorizationError(error: unknown): error is AuthorizationErro
  * Check if an error is retryable
  *
  * Checks in order:
- * 1. Custom errors with explicit `retriable` property
- * 2. RPCError types with retryable error codes
- * 3. Generic errors default to false (non-retryable)
+ * 1. Custom errors with explicit `retriable` property (definitive)
+ * 2. RPCError types with non-retryable codes (ValidationError, AuthN/AuthZ, NotFound)
+ * 3. RPCError types with retryable codes (NetworkError, Timeout, etc.)
+ * 4. Generic errors default to true (retryable) - assume transient until proven otherwise
+ *
+ * This philosophy follows "retry by default, don't retry validation/auth errors"
  */
 export function isRetryableError(error: unknown): boolean {
-  // Check for explicit retriable property on any error
+  // Check for explicit retriable property on any error (definitive answer)
   if (error && typeof error === 'object' && 'retriable' in error) {
     return (error as { retriable: boolean }).retriable
   }
 
   // RPCError-based errors check the error code
   if (error instanceof RPCError) {
-    const retryableCodes: RPCErrorCode[] = [
-      RPCErrorCode.NETWORK_ERROR,
-      RPCErrorCode.TIMEOUT,
-      RPCErrorCode.RATE_LIMIT,
-      RPCErrorCode.SERVICE_UNAVAILABLE,
+    // Explicitly non-retryable codes (client errors that retrying won't fix)
+    const nonRetryableCodes: RPCErrorCode[] = [
+      RPCErrorCode.VALIDATION_ERROR,
+      RPCErrorCode.INVALID_PARAMS,
+      RPCErrorCode.AUTHENTICATION_ERROR,
+      RPCErrorCode.AUTHORIZATION_ERROR,
+      RPCErrorCode.NOT_FOUND,
+      RPCErrorCode.CONFLICT, // Version conflicts shouldn't be blindly retried
     ]
-    return retryableCodes.includes(error.code)
+    if (nonRetryableCodes.includes(error.code)) {
+      return false
+    }
+
+    // All other RPCErrors are retryable (Network, Timeout, RateLimit, ServiceUnavailable, etc.)
+    return true
   }
 
-  // Generic errors are not retryable by default
-  return false
+  // Generic errors are retryable by default
+  // This handles transient issues like connection resets, temporary failures
+  // Specific non-retryable errors should use ValidationError or set retriable=false
+  return true
 }
 
 // ============================================================================

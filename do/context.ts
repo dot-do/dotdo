@@ -71,6 +71,102 @@ export function createContext(
   const schedules = new Map<string, ScheduleRegistration>()
   const stubCache = new Map<string, DOStubProxy>()
 
+  // Helper function to process an event (invoke handlers with retry logic)
+  async function processEvent(emitted: Event, eventType: string, payload: unknown): Promise<void> {
+    // Get durability config for this event type (supports per-type configuration)
+    const config = events.getDurabilityConfig(eventType)
+    const retryOptions: RetryOptions = {
+      maxRetries: config.retries ?? 3, // Max 3 retries by default as per task spec
+      backoff: config.backoff ?? 'exponential',
+      initialDelay: 100
+    }
+
+    // Use invokeHandlers which includes retry logic
+    const result = await invokeHandlers(eventType, emitted, handlers, retryOptions)
+
+    // Handle failed handlers - add to DLQ and track validation failures
+    for (const failure of result.failed) {
+      if (failure.error instanceof ValidationError) {
+        events.addValidationFailure({
+          type: eventType,
+          payload: payload,
+          error: `ValidationError: ${failure.error.message}`,
+          details: failure.error.details
+        })
+      } else {
+        events.addToDeadLetterQueue({
+          event: emitted,
+          attempts: failure.attempts,
+          lastError: failure.error?.message || 'Unknown error'
+        })
+      }
+    }
+
+    // Calculate total attempts (max across all handlers)
+    const totalAttempts = Math.max(
+      ...result.succeeded.map(h => h.attempts),
+      ...result.failed.map(h => h.attempts),
+      1
+    )
+
+    // Track event retry status using event payload's id or the emitted $id
+    const eventId = (payload as { id?: string })?.id || emitted.$id
+    events.setEventRetryStatus(eventId, {
+      attempts: totalAttempts,
+      succeeded: result.failed.length === 0,
+      lastAttempt: Date.now()
+    })
+
+    // Record retry metrics
+    const totalRetries = result.succeeded.reduce((sum, h) => sum + (h.attempts - 1), 0) +
+                        result.failed.reduce((sum, h) => sum + (h.attempts - 1), 0)
+
+    if (result.succeeded.length > 0 || result.failed.length > 0) {
+      events.recordRetryAttempt(
+        eventType,
+        result.failed.length === 0,
+        totalRetries
+      )
+    }
+
+    // Emit recovery event if handlers succeeded after retries
+    for (const success of result.succeeded) {
+      if (success.attempts > 1) {
+        const recoveryEvent = {
+          $id: `recovery-${emitted.$id}`,
+          type: 'System.recovered',
+          originalEvent: { type: eventType },
+          attempts: success.attempts,
+          $timestamp: Date.now(),
+          source: 'system'
+        }
+
+        const recoveryHandlers = matchHandlers('System.recovered', handlers)
+        for (const handler of recoveryHandlers) {
+          try {
+            await handler(recoveryEvent)
+          } catch (err) {
+            console.error('[send] Error in recovery handler:', err)
+          }
+        }
+      }
+    }
+  }
+
+  // Subscribe to events from the store to handle replayed events only
+  events.subscribe((event) => {
+    // Only process events replayed from the DLQ (source: 'dlq-replay')
+    // Events from $.send() have source: 'workflow' and are processed separately
+    if (event.source !== 'dlq-replay') {
+      return
+    }
+
+    // Process replayed events with retry logic
+    processEvent(event, event.type, event.payload).catch((err) => {
+      console.error(`[subscribe] Error processing replayed event "${event.type}":`, err)
+    })
+  })
+
   const context: WorkflowContext = {
     // Fire-and-forget event emission with retry support
     send(event) {
@@ -79,93 +175,11 @@ export function createContext(
         payload: event.payload,
         source: 'workflow'
       }).then(async (emitted) => {
-        // Get durability config for this event type (supports per-type configuration)
-        const config = events.getDurabilityConfig(event.type)
-        const retryOptions: RetryOptions = {
-          maxRetries: config.retries ?? 5,
-          backoff: config.backoff ?? 'exponential',
-          initialDelay: 100
-        }
-
-        // Use invokeHandlers which includes retry logic
-        const result = await invokeHandlers(event.type, emitted, handlers, retryOptions)
-
-        // Handle failed handlers - add to DLQ and track validation failures
-        for (const failure of result.failed) {
-          if (failure.error instanceof ValidationError) {
-            // Track validation failures separately
-            events.addValidationFailure({
-              type: event.type,
-              payload: event.payload,
-              error: `ValidationError: ${failure.error.message}`,
-              details: failure.error.details
-            })
-          } else {
-            // Add to dead letter queue for potential replay
-            events.addToDeadLetterQueue({
-              event: emitted,
-              attempts: failure.attempts,
-              lastError: failure.error?.message || 'Unknown error'
-            })
-          }
-        }
-
-        // Calculate total attempts (max across all handlers)
-        const totalAttempts = Math.max(
-          ...result.succeeded.map(h => h.attempts),
-          ...result.failed.map(h => h.attempts),
-          1
-        )
-
-        // Track event retry status using event payload's id or the emitted $id
-        const eventId = (event.payload as any)?.id || emitted.$id
-        events.setEventRetryStatus(eventId, {
-          attempts: totalAttempts,
-          succeeded: result.failed.length === 0,
-          lastAttempt: Date.now()
-        })
-
-        // Record retry metrics
-        const totalRetries = result.succeeded.reduce((sum, h) => sum + (h.attempts - 1), 0) +
-                            result.failed.reduce((sum, h) => sum + (h.attempts - 1), 0)
-
-        if (result.succeeded.length > 0 || result.failed.length > 0) {
-          events.recordRetryAttempt(
-            event.type,
-            result.failed.length === 0, // Overall success if no failures
-            totalRetries
-          )
-        }
-
-        // Emit recovery event if handlers succeeded after retries
-        for (const success of result.succeeded) {
-          if (success.attempts > 1) {
-            // Handler recovered after retries - emit System.recovered event
-            // Use matchHandlers + direct invocation to ensure recovery handlers are called
-            // Note: Recovery event has originalEvent and attempts at top level for easy access
-            const recoveryEvent = {
-              $id: `recovery-${emitted.$id}`,
-              type: 'System.recovered',
-              originalEvent: { type: event.type },
-              attempts: success.attempts,
-              $timestamp: Date.now(),
-              source: 'system'
-            }
-
-            // Invoke handlers directly for recovery event (no retries for recovery events)
-            const recoveryHandlers = matchHandlers('System.recovered', handlers)
-            for (const handler of recoveryHandlers) {
-              try {
-                await handler(recoveryEvent)
-              } catch (err) {
-                console.error('[send] Error in recovery handler:', err)
-              }
-            }
-          }
-        }
+        // Process handlers with retry logic
+        await processEvent(emitted, event.type, event.payload)
       }).catch((err: unknown) => {
-        // Catch any errors from emit() itself
-        console.error(`[send] Error emitting event "${event.type}":`, err)
+        // Catch any errors from emit() or processEvent()
+        console.error(`[send] Error processing event "${event.type}":`, err)
       })
     },
 

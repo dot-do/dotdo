@@ -175,7 +175,8 @@ export function createEventsStore(): EventsStore {
 
   // Durability configuration
   let durabilityConfig: Record<string, DurabilityConfig> = {}
-  const defaultDurabilityConfig: DurabilityConfig = { retries: 5, backoff: 'exponential' }
+  // Default: 3 retries as per task requirements
+  const defaultDurabilityConfig: DurabilityConfig = { retries: 3, backoff: 'exponential' }
 
   return {
     async emit(data) {
