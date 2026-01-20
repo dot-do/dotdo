@@ -154,6 +154,15 @@ export {
   type InvokeHandlersResult,
 } from './workflow'
 
+// EventSystem - Standalone event handling module (do-rljr.3)
+export {
+  EventSystem,
+  createEventSystem,
+  type EventPayload,
+  type EventEmitListener,
+  type EventSystemOptions,
+} from './workflow'
+
 // Event handler system ($.on.Noun.verb) - backward compatible re-exports
 export {
   createOnProxy,

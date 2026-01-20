@@ -390,7 +390,12 @@ describe('invokeHandlers - Error Handling', () => {
 
       expect(consoleErrorSpy).toHaveBeenCalled()
       const logCall = consoleErrorSpy.mock.calls[0]
-      expect(logCall[0]).toContain('Order.placed')
+      // The logger format is: [prefix] message error
+      // Check if any argument contains the event type
+      const hasEventType = logCall.some((arg: unknown) =>
+        typeof arg === 'string' && arg.includes('Order.placed')
+      )
+      expect(hasEventType).toBe(true)
     })
 
     it('should log the actual error object', async () => {

@@ -88,7 +88,8 @@ describe('DO Class', () => {
       const response = await doInstance.fetch(request)
       expect(response.status).toBe(500)
       const json = await response.json()
-      expect(json.error).toBe('Test error')
+      // Error is returned in serialized RPCError format with 'message' field
+      expect(json.message).toContain('Test error')
     })
 
     it('should handle nested methods via dot notation', async () => {

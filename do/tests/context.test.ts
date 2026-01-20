@@ -98,7 +98,7 @@ describe('WorkflowContext ($)', () => {
       await expect($.do(async () => {
         await new Promise(r => setTimeout(r, 1000))
         return 'done'
-      }, { timeout: 50, retries: 0 })).rejects.toThrow('Timeout')
+      }, { timeout: 50, retries: 0 })).rejects.toThrow('timed out')
     })
 
     it('should use exponential backoff by default', async () => {

@@ -60,3 +60,12 @@ export {
   type DOStubProxy,
   type CrossDORPCConfig,
 } from './rpc'
+
+// EventSystem - Standalone event handling module (do-rljr.3)
+export {
+  EventSystem,
+  createEventSystem,
+  type EventPayload,
+  type EventEmitListener,
+  type EventSystemOptions,
+} from './event-system'
