@@ -3,6 +3,8 @@
 // Define once → SDK, CLI, API, MCP all auto-generated
 
 export { createAPI } from './app'
+
+// Resource definition
 export {
   defineResource,
   getResource,
@@ -17,6 +19,17 @@ export {
   type ComputedFieldDef,
   type RouteDefinitions,
 } from './resource'
+
+// HATEOAS link generation
+export {
+  generateLinks,
+  generateCollectionLinks,
+  withLinks,
+  withCollectionLinks,
+  type Link,
+  type HATEOASResponse,
+  type ResourceConfig,
+} from './hateoas'
 export {
   generateOpenAPI,
   OpenAPIGenerator,

@@ -2,9 +2,64 @@
 // DO = Durable Object = Digital Object
 
 export { DO, type DOEnv, type DOOptions } from './DO'
-export { createContext, type WorkflowContext } from './context'
-export type { $ } from './context'
+export { createContext, createTypedContext } from './context'
+export type { WorkflowContext, $ } from './context'
 export { EntityManager, withEntities, type EntityManagerOptions } from './entities'
+
+// Type-safe WorkflowContext types (do-ebio)
+export type {
+  // Core typed context
+  TypedWorkflowContext,
+  $Typed,
+
+  // DO binding types
+  DOBindingsConstraint,
+  EmptyBindings,
+  DefineDOBindings,
+  DOBindingAccessors,
+  TypedDOStubProxy,
+  TypedDOStubFactory,
+  DOStubProxy,
+  DOStubFactory,
+  DOTypeFromBinding,
+  StubTypeForBinding,
+  InferDOBindings,
+
+  // Event schema types
+  EventSchemasConstraint,
+  EmptyEventSchemas,
+  DefineEventSchemas,
+  EventTypes,
+  EventPayload,
+  EventPayloadType,
+  ExtractNoun,
+  ExtractVerb,
+  EventNouns,
+  EventVerbsForNoun,
+  TypedEvent,
+  TypedEventHandler,
+  TypedSend,
+
+  // Typed On proxy ($.on.Noun.verb)
+  TypedOnProxy,
+  TypedNounEventProxy,
+
+  // Typed Every proxy ($.every.day.at('9am'))
+  TypedEveryProxy,
+  ScheduleRegisterFn,
+  TimeAccessor,
+  DayOfWeekProxy,
+  IntervalUnitProxy,
+  WeekProxy,
+  EveryProxy,
+
+  // Context types
+  BaseWorkflowContext,
+  TypedBaseWorkflowContext,
+  DoOptions,
+  TypedContextConfig,
+  CreateTypedContextOptions,
+} from './types'
 
 // Type-safe DO binding registry (do-hsfo)
 export {
@@ -130,3 +185,48 @@ export {
   createDOToDoHeaders,
   addWorkerHeaders,
 } from './auth'
+
+// Extended primitives with AI assistance (fsx, gitx, bashx)
+export {
+  // File System Extended
+  FSX,
+  createFSX,
+  fsx,
+  type FileInfo,
+  type ReadOptions,
+  type WriteOptions,
+  type ListOptions,
+  type CopyMoveOptions,
+  type AIFileResult,
+  type FSXAIOptions,
+
+  // Git Extended
+  GitX,
+  createGitX,
+  gitx,
+  type Commit,
+  type Branch,
+  type FileStatus,
+  type RepoStatus,
+  type DiffInfo,
+  type DiffHunk,
+  type DiffLine,
+  type CommitOptions,
+  type BranchOptions,
+  type MergeOptions,
+  type AIGitOptions,
+  type AICommitMessage,
+  type AIReviewResult,
+
+  // Bash Extended
+  BashX,
+  createBashX,
+  bashx,
+  type ExecResult,
+  type ExecOptions,
+  type Command,
+  type PipelineResult,
+  type AIBashOptions,
+  type AICommandResult,
+  type AIDiagnosisResult,
+} from './primitives'
