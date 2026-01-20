@@ -1,18 +1,24 @@
 // Events/Actions storage - immutable event log
 // Generic types added per do-jqrj
+// Storage abstraction added per do-68rr
+// Branded types added per do-e3my
 
 import type { StorableData, JsonValue } from './types'
+import type { StorageAdapter } from './storage'
+import type { EventId, ThingId, CorrelationId } from './branded-types'
+import { generateEventId } from './id'
 
 /**
  * Base Event interface with system fields
  * P extends JsonValue for user-defined payload type
+ * Uses branded EventId and CorrelationId for type safety - see do-e3my
  */
 export interface BaseEvent {
-  $id: string
+  $id: EventId
   type: string
   $timestamp: number
-  source?: string      // Who emitted (thing $id, system, etc.)
-  correlationId?: string // For tracing related events
+  source?: ThingId | string  // Who emitted (thing $id, system, etc.)
+  correlationId?: CorrelationId | string // For tracing related events
 }
 
 /**
@@ -170,9 +176,7 @@ export interface EventQueryOptions {
   offset?: number
 }
 
-function generateEventId(): string {
-  return `evt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-}
+// ID generation moved to ./id.ts (do-e3my)
 
 /**
  * Estimate the size of an event in bytes (for storage monitoring)
@@ -180,6 +184,252 @@ function generateEventId(): string {
 function estimateEventSize(event: Event): number {
   // JSON serialization + some overhead for storage
   return JSON.stringify(event).length * 2 // UTF-16 encoding estimate
+}
+
+/**
+ * Key prefix for events in storage adapter
+ */
+const EVENTS_PREFIX = 'event:'
+
+/**
+ * Create an EventsStore backed by a StorageAdapter
+ * This allows using any storage backend (SQLite, memory, etc.)
+ */
+export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
+  adapter: StorageAdapter
+): EventsStore<P> {
+  const subscribers = new Set<(event: Event<P>) => void>()
+  let retentionPolicy: RetentionPolicy | undefined
+
+  // In-memory state for DLQ, validation failures, retry status, metrics
+  // These could be moved to storage adapter in the future
+  const deadLetterQueue: DLQEntry<P>[] = []
+  const validationFailures: ValidationFailure<P>[] = []
+  const eventRetryStatus = new Map<string, EventRetryStatus>()
+  const retryMetricsData = new Map<string, { totalEvents: number; totalRetries: number; successes: number }>()
+  let durabilityConfig: Record<string, DurabilityConfig> = {}
+  const defaultDurabilityConfig: DurabilityConfig = { retries: 3, backoff: 'exponential' }
+
+  return {
+    async emit(data) {
+      const providedTimestamp = (data as { $timestamp?: number }).$timestamp
+      const event: Event<P> = {
+        ...data,
+        $id: generateEventId(),
+        $timestamp: typeof providedTimestamp === 'number' ? providedTimestamp : Date.now()
+      }
+
+      await adapter.put(`${EVENTS_PREFIX}${event.$id}`, event)
+
+      // Notify subscribers
+      subscribers.forEach(handler => {
+        try {
+          handler(event)
+        } catch (e) {
+          console.error('Event subscriber error:', e)
+        }
+      })
+
+      return event
+    },
+
+    async get(id) {
+      const event = await adapter.get<Event<P>>(`${EVENTS_PREFIX}${id}`)
+      return event ?? null
+    },
+
+    async query(options = {}) {
+      const { type, source, correlationId, since, until, limit = 100, offset = 0 } = options
+
+      const result = await adapter.list<Event<P>>({ prefix: EVENTS_PREFIX, includeValues: true })
+      let events = Array.from(result.entries.values()).filter((e): e is Event<P> => e !== undefined)
+
+      // Apply filters
+      events = events.filter(e => {
+        if (type && e.type !== type) return false
+        if (source && e.source !== source) return false
+        if (correlationId && e.correlationId !== correlationId) return false
+        if (since && e.$timestamp < since) return false
+        if (until && e.$timestamp > until) return false
+        return true
+      })
+
+      // Sort by timestamp descending (newest first)
+      events.sort((a, b) => b.$timestamp - a.$timestamp)
+
+      return events.slice(offset, offset + limit)
+    },
+
+    subscribe(handler) {
+      subscribers.add(handler)
+      return () => subscribers.delete(handler)
+    },
+
+    async setRetentionPolicy(policy) {
+      if (policy.maxEvents !== undefined && policy.maxEvents <= 0) {
+        throw new Error('maxEvents must be positive')
+      }
+      if (policy.maxAgeDays !== undefined && policy.maxAgeDays <= 0) {
+        throw new Error('maxAgeDays must be positive')
+      }
+      retentionPolicy = policy
+    },
+
+    async getRetentionPolicy() {
+      return retentionPolicy
+    },
+
+    async count(filter) {
+      const result = await adapter.list<Event<P>>({ prefix: EVENTS_PREFIX, includeValues: true })
+      let events = Array.from(result.entries.values()).filter((e): e is Event<P> => e !== undefined)
+
+      if (filter?.type) {
+        events = events.filter(e => e.type === filter.type)
+      }
+
+      return events.length
+    },
+
+    async cleanup(_options) {
+      if (!retentionPolicy) {
+        return { deleted: 0 }
+      }
+
+      let deleted = 0
+      const result = await adapter.list<Event<P>>({ prefix: EVENTS_PREFIX, includeValues: true })
+      let events = Array.from(result.entries.entries())
+        .filter(([_, e]): e is [string, Event<P>] => e !== undefined)
+
+      // Delete by age
+      if (retentionPolicy.maxAgeDays) {
+        const cutoff = Date.now() - (retentionPolicy.maxAgeDays * 24 * 60 * 60 * 1000)
+        const toDelete = events.filter(([_, e]) => e.$timestamp < cutoff).map(([k]) => k)
+        if (toDelete.length > 0) {
+          await adapter.deleteMany(toDelete)
+          deleted += toDelete.length
+          events = events.filter(([k]) => !toDelete.includes(k))
+        }
+      }
+
+      // Delete by count (keep newest)
+      if (retentionPolicy.maxEvents && events.length > retentionPolicy.maxEvents) {
+        events.sort(([_, a], [__, b]) => a.$timestamp - b.$timestamp) // oldest first
+        const toDelete = events.slice(0, events.length - retentionPolicy.maxEvents).map(([k]) => k)
+        if (toDelete.length > 0) {
+          await adapter.deleteMany(toDelete)
+          deleted += toDelete.length
+        }
+      }
+
+      return { deleted }
+    },
+
+    async getStorageUsage() {
+      const result = await adapter.list<Event<P>>({ prefix: EVENTS_PREFIX, includeValues: true })
+      const events = Array.from(result.entries.values()).filter((e): e is Event<P> => e !== undefined)
+      const bytesUsed = events.reduce((total, event) => total + estimateEventSize(event), 0)
+
+      return {
+        eventCount: events.length,
+        bytesUsed
+      }
+    },
+
+    // DLQ methods (in-memory for now)
+    addToDeadLetterQueue(entry) {
+      deadLetterQueue.push({ ...entry, timestamp: Date.now() })
+    },
+
+    getDeadLetterQueue() {
+      return [...deadLetterQueue]
+    },
+
+    queryDeadLetterQueue(options) {
+      let results = [...deadLetterQueue]
+      if (options?.type) results = results.filter(e => e.event.type === options.type)
+      if (options?.since) results = results.filter(e => e.timestamp >= options.since!)
+      if (options?.limit) results = results.slice(0, options.limit)
+      return results
+    },
+
+    removeFromDeadLetterQueue(eventId) {
+      const index = deadLetterQueue.findIndex(e => e.event.$id === eventId)
+      if (index >= 0) {
+        deadLetterQueue.splice(index, 1)
+        return true
+      }
+      return false
+    },
+
+    async replayDeadLetterQueue(options) {
+      const toReplay = this.queryDeadLetterQueue(options)
+      const replayedEvents: Event<P>[] = []
+
+      for (const entry of toReplay) {
+        const newEvent = await this.emit({
+          type: entry.event.type,
+          payload: entry.event.payload,
+          source: 'dlq-replay',
+          correlationId: entry.event.$id
+        })
+        replayedEvents.push(newEvent)
+        this.removeFromDeadLetterQueue(entry.event.$id)
+      }
+
+      return replayedEvents
+    },
+
+    // Validation failure tracking
+    addValidationFailure(failure) {
+      validationFailures.push({ ...failure, timestamp: Date.now() })
+    },
+
+    queryValidationFailures(options) {
+      if (!options?.type) return [...validationFailures]
+      return validationFailures.filter(f => f.type === options.type)
+    },
+
+    // Retry status tracking
+    setEventRetryStatus(eventId, status) {
+      eventRetryStatus.set(eventId, status)
+    },
+
+    getEventRetryStatus(eventId) {
+      return eventRetryStatus.get(eventId)
+    },
+
+    // Retry metrics
+    recordRetryAttempt(eventType, succeeded, retryCount) {
+      const existing = retryMetricsData.get(eventType) || { totalEvents: 0, totalRetries: 0, successes: 0 }
+      existing.totalEvents++
+      existing.totalRetries += retryCount
+      if (succeeded) existing.successes++
+      retryMetricsData.set(eventType, existing)
+    },
+
+    getRetryMetrics() {
+      const result: Record<string, RetryMetrics> = {}
+      for (const [eventType, data] of retryMetricsData) {
+        result[eventType] = {
+          totalEvents: data.totalEvents,
+          totalRetries: data.totalRetries,
+          successRate: data.totalEvents > 0 ? data.successes / data.totalEvents : 0
+        }
+      }
+      return result
+    },
+
+    // Durability configuration
+    setDurabilityConfig(config) {
+      durabilityConfig = config
+    },
+
+    getDurabilityConfig(eventType) {
+      if (durabilityConfig[eventType]) return durabilityConfig[eventType]
+      if (durabilityConfig['*']) return durabilityConfig['*']
+      return defaultDurabilityConfig
+    }
+  }
 }
 
 /**
@@ -281,7 +531,7 @@ export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStor
       return events.filter(e => e.type === filter.type).length
     },
 
-    async cleanup(options?: { batchSize?: number }): Promise<CleanupResult> {
+    async cleanup(_options?: { batchSize?: number }): Promise<CleanupResult> {
       if (!retentionPolicy) {
         return { deleted: 0 }
       }
@@ -327,18 +577,18 @@ export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStor
     },
 
     // Dead letter queue methods
-    addToDeadLetterQueue(entry: Omit<DLQEntry, 'timestamp'>): void {
+    addToDeadLetterQueue(entry: Omit<DLQEntry<P>, 'timestamp'>): void {
       deadLetterQueue.push({
         ...entry,
         timestamp: Date.now()
       })
     },
 
-    getDeadLetterQueue(): DLQEntry[] {
+    getDeadLetterQueue(): DLQEntry<P>[] {
       return [...deadLetterQueue]
     },
 
-    queryDeadLetterQueue(options?: DLQQueryOptions): DLQEntry[] {
+    queryDeadLetterQueue(options?: DLQQueryOptions): DLQEntry<P>[] {
       let results = [...deadLetterQueue]
 
       if (options?.type) {
@@ -365,9 +615,9 @@ export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStor
       return false
     },
 
-    async replayDeadLetterQueue(options?: DLQQueryOptions): Promise<Event[]> {
+    async replayDeadLetterQueue(options?: DLQQueryOptions): Promise<Event<P>[]> {
       const toReplay = this.queryDeadLetterQueue(options)
-      const replayedEvents: Event[] = []
+      const replayedEvents: Event<P>[] = []
 
       for (const entry of toReplay) {
         // Re-emit the event (creates a new event with new id/timestamp)
@@ -387,14 +637,14 @@ export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStor
     },
 
     // Validation failure tracking
-    addValidationFailure(failure: Omit<ValidationFailure, 'timestamp'>): void {
+    addValidationFailure(failure: Omit<ValidationFailure<P>, 'timestamp'>): void {
       validationFailures.push({
         ...failure,
         timestamp: Date.now()
       })
     },
 
-    queryValidationFailures(options?: { type?: string }): ValidationFailure[] {
+    queryValidationFailures(options?: { type?: string }): ValidationFailure<P>[] {
       if (!options?.type) {
         return [...validationFailures]
       }

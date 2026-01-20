@@ -412,4 +412,35 @@ export const coreMigrations: Migration[] = [
       DROP TABLE IF EXISTS fire_and_forget_errors;
     `,
   }),
+  // Retry queue for fire-and-forget handlers (do-9bmr)
+  createMigration({
+    version: 6,
+    name: 'create_retry_queue_table',
+    up: `
+      CREATE TABLE IF NOT EXISTS retry_queue (
+        id TEXT PRIMARY KEY,
+        error_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        payload TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL,
+        added_at INTEGER NOT NULL,
+        next_retry_at INTEGER NOT NULL,
+        backoff_delay INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        last_error TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_retry_queue_status ON retry_queue(status);
+      CREATE INDEX IF NOT EXISTS idx_retry_queue_next_retry ON retry_queue(next_retry_at);
+      CREATE INDEX IF NOT EXISTS idx_retry_queue_event_type ON retry_queue(event_type);
+      CREATE INDEX IF NOT EXISTS idx_retry_queue_error_id ON retry_queue(error_id);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_retry_queue_error_id;
+      DROP INDEX IF EXISTS idx_retry_queue_event_type;
+      DROP INDEX IF EXISTS idx_retry_queue_next_retry;
+      DROP INDEX IF EXISTS idx_retry_queue_status;
+      DROP TABLE IF EXISTS retry_queue;
+    `,
+  }),
 ]

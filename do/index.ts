@@ -2,6 +2,33 @@
 // DO = Durable Object = Digital Object
 
 export { DO, type DOEnv, type DOOptions } from './DO'
+
+// Composable mixins for building DOs (do-6epx)
+export {
+  // Storage mixin
+  WithStorage,
+  type Constructor,
+  type HasStorage,
+  type WithStorageOptions,
+  type MixinInstance,
+  // WebSocket mixin
+  WithWebSocket,
+  type HasWebSocket,
+  type WithWebSocketOptions,
+  // RPC mixin
+  WithRPC,
+  type HasRPC,
+  type WithRPCOptions,
+  type RPCRequest,
+  type RPCResponse,
+  // Auth mixin
+  WithAuth,
+  type HasAuth,
+  type WithAuthOptions,
+  // Composition helpers
+  type ComposedType,
+  type InstanceOf
+} from './mixins'
 export { createContext, createTypedContext } from './context'
 export type { WorkflowContext, $ } from './context'
 export { EntityManager, withEntities, type EntityManagerOptions } from './entities'
@@ -104,7 +131,28 @@ export {
   type BroadcastResult
 } from './websocket'
 
-// Event handler system ($.on.Noun.verb)
+// Workflow module - standalone WorkflowContext DSL (do-b3pv)
+// Re-export additional utilities from the workflow module
+export {
+  // Cross-DO RPC utilities
+  createDOAccessor,
+  createDORPCProxy,
+  hasStub,
+  clearStub,
+  clearAllStubs,
+  getStubCount,
+  type CrossDORPCConfig,
+  // Schedule utilities
+  getSchedules,
+  getScheduleCount,
+  clearSchedules,
+  executeSchedule,
+  // Event handler result types
+  type HandlerResult,
+  type InvokeHandlersResult,
+} from './workflow'
+
+// Event handler system ($.on.Noun.verb) - backward compatible re-exports
 export {
   createOnProxy,
   matchHandlers,
@@ -118,13 +166,25 @@ export {
   type NounEventProxy
 } from './on'
 
-// Scheduling DSL ($.every.Monday.at9am)
+// Scheduling DSL ($.every.Monday.at9am) - backward compatible re-exports
 export {
   createEveryProxy,
   type ScheduleHandler,
   type ScheduleInterval,
   type ScheduleRegistration
 } from './schedule'
+
+// Fire-and-forget error tracking (do-9bmr)
+export {
+  createInMemoryErrorStore,
+  createSQLiteErrorStore,
+  extractErrorInfo,
+  trackFireAndForget,
+  type FireAndForgetError,
+  type FireAndForgetErrorStore,
+  type ErrorQueryOptions,
+  type ErrorStats
+} from './fire-and-forget-errors'
 
 // Admin interface hooks
 export {
