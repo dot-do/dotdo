@@ -6,8 +6,19 @@ import type { MiddlewareHandler } from 'hono'
 import { authMiddleware } from '../auth/middleware'
 import { getErrorMessage } from '../rpc/errors'
 
+export interface CORSOptions {
+  /**
+   * Allowed origins for CORS requests.
+   * - Provide an array of specific origins: ['https://app.example.com', 'https://dashboard.example.com']
+   * - Use ['*'] to allow all origins (not recommended for production)
+   * - Default: [] (no origins allowed - restrictive by default)
+   */
+  allowedOrigins?: string[]
+}
+
 export interface APIOptions {
   basePath?: string
+  cors?: CORSOptions
   auth?: {
     enabled?: boolean
     skipPaths?: string[]
@@ -69,8 +80,33 @@ function loggingMiddleware(): MiddlewareHandler {
   }
 }
 
+/**
+ * Builds a CORS origin function that validates against allowed origins.
+ * Returns the origin if allowed, or null if not allowed.
+ */
+function buildCorsOrigin(allowedOrigins: string[]): string | ((origin: string) => string | null) {
+  // If wildcard is explicitly allowed, return '*'
+  if (allowedOrigins.includes('*')) {
+    return '*'
+  }
+
+  // If no origins specified, return a function that rejects all
+  if (allowedOrigins.length === 0) {
+    return () => null
+  }
+
+  // Return a function that validates against the allowed list
+  return (origin: string) => {
+    if (allowedOrigins.includes(origin)) {
+      return origin
+    }
+    return null
+  }
+}
+
 export function createAPI(options?: APIOptions) {
-  const { basePath = '', auth } = options || {}
+  const { basePath = '', cors: corsOptions, auth } = options || {}
+  const allowedOrigins = corsOptions?.allowedOrigins ?? []
 
   // Create base app
   const baseApp = new Hono()
@@ -108,11 +144,11 @@ export function createAPI(options?: APIOptions) {
   baseApp.use('*', requestIdMiddleware())
   baseApp.use('*', loggingMiddleware())
 
-  // CORS middleware
+  // CORS middleware with configurable origins
   baseApp.use(
     '*',
     cors({
-      origin: '*',
+      origin: buildCorsOrigin(allowedOrigins),
       allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-API-Key'],
       exposeHeaders: ['X-Request-ID'],

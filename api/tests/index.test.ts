@@ -69,11 +69,23 @@ describe('Hono App Setup', () => {
   })
 
   describe('CORS Middleware', () => {
-    it('should add CORS headers to responses', async () => {
+    it('should not add CORS headers when no origins configured (secure default)', async () => {
       const app = createAPI()
       const res = await app.request('http://localhost/health')
 
-      expect(res.headers.get('access-control-allow-origin')).toBe('*')
+      // Secure default: no CORS headers when no origins are explicitly allowed
+      expect(res.headers.get('access-control-allow-origin')).toBeNull()
+    })
+
+    it('should add CORS headers when origins are configured', async () => {
+      const app = createAPI({
+        cors: { allowedOrigins: ['https://app.dotdo.dev'] }
+      })
+      const res = await app.request('http://localhost/health', {
+        headers: { 'Origin': 'https://app.dotdo.dev' }
+      })
+
+      expect(res.headers.get('access-control-allow-origin')).toBe('https://app.dotdo.dev')
     })
 
     it('should handle OPTIONS preflight requests', async () => {
