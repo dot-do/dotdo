@@ -1,14 +1,18 @@
-// TDD test for do-dwti: MCP tools array mutation race condition
-// RED: Tests demonstrating direct push to tools array can cause race conditions
+// TDD test for do-tisl: MCP tools array mutation race condition
+// GREEN: Tests verifying that direct push to tools array is prevented
 //
-// Problem: server.tools array is exposed directly, allowing consumers to mutate
-// it via server.tools.push() instead of using server.addTool(). This bypasses
-// registry synchronization and can cause race conditions.
+// Solution: server.tools array is now read-only (frozen defensive copy)
 //
-// Expected behavior:
-// 1. Tools array should be read-only or encapsulated
-// 2. All mutations should go through addTool() to maintain registry consistency
-// 3. Concurrent addTool() calls should not cause data corruption
+// Benefits:
+// 1. Tools array cannot be directly mutated via server.tools.push()
+// 2. All mutations must go through server.addTool() which maintains registry consistency
+// 3. Concurrent addTool() calls are safe (no data corruption possible)
+// 4. Consumers always see a consistent snapshot of tools
+//
+// Implementation:
+// - Changed from public tools array to getter that returns Object.freeze([...toolsArray])
+// - Internal toolsArray remains mutable for addTool() operations
+// - External callers cannot modify the returned frozen array
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createMCPServer, type MCPServer, type MCPTool } from '../server'
@@ -23,9 +27,9 @@ function createTestTool(name: string): MCPTool {
   }
 }
 
-describe('MCP Tools Array Mutation Race Conditions (do-dwti)', () => {
-  describe('RED: Direct array mutation bypasses registry', () => {
-    it('should NOT allow direct push to tools array (bypasses addTool)', () => {
+describe('MCP Tools Array Mutation Race Conditions (do-tisl)', () => {
+  describe('GREEN: Direct array mutation prevented', () => {
+    it('should prevent direct push to tools array (enforces addTool)', () => {
       const registry = new ToolRegistry()
       const server = createMCPServer({ name: 'test', registry })
 
@@ -34,51 +38,57 @@ describe('MCP Tools Array Mutation Race Conditions (do-dwti)', () => {
       expect(server.tools.length).toBe(1)
       expect(registry.get('proper-tool')).toBeDefined()
 
-      // BUG: Direct push bypasses registry!
-      // This is the problematic pattern we want to prevent
-      server.tools.push(createTestTool('sneaky-tool'))
+      // Fix: Direct push is now prevented (frozen array)
+      // This should throw because the array is frozen
+      expect(() => {
+        (server.tools as MCPTool[]).push(createTestTool('sneaky-tool'))
+      }).toThrow()
 
-      // Tool is in array but NOT in registry - inconsistent state!
-      expect(server.tools.length).toBe(2)
-      expect(server.tools.find(t => t.name === 'sneaky-tool')).toBeDefined()
+      // Tools array remains unchanged - protected from direct mutation
+      expect(server.tools.length).toBe(1)
+      expect(server.tools.find(t => t.name === 'sneaky-tool')).toBeUndefined()
 
-      // This is the BUG - registry is out of sync
-      // After fix, this should not be possible (array should be read-only or protected)
-      const sneakyInRegistry = registry.get('sneaky-tool')
-
-      // Currently FAILS because direct push doesn't update registry
-      // After fix, the push itself should throw or be prevented
-      expect(sneakyInRegistry).toBeDefined() // RED: This will fail currently
+      // Registry remains in sync
+      expect(registry.get('sneaky-tool')).toBeUndefined()
     })
 
-    it('should prevent direct array modification methods', () => {
+    it('should prevent all direct array modification methods', () => {
       const server = createMCPServer({ name: 'test' })
       server.addTool(createTestTool('tool-1'))
       server.addTool(createTestTool('tool-2'))
 
       const originalLength = server.tools.length
+      const toolNames = Array.from(server.tools).map(t => t.name)
 
-      // These mutations should be prevented after the fix:
+      // These mutations should all fail (array is frozen):
 
-      // Direct push
-      server.tools.push(createTestTool('pushed'))
+      // Direct push should throw
+      expect(() => {
+        (server.tools as MCPTool[]).push(createTestTool('pushed'))
+      }).toThrow()
 
-      // Splice
-      server.tools.splice(0, 1) // Remove first tool
+      // Splice should throw
+      expect(() => {
+        (server.tools as MCPTool[]).splice(0, 1)
+      }).toThrow()
 
-      // Direct assignment (if array not frozen)
-      server.tools[0] = createTestTool('replaced')
+      // Direct assignment should throw
+      expect(() => {
+        (server.tools as any)[0] = createTestTool('replaced')
+      }).toThrow()
 
-      // Pop
-      server.tools.pop()
+      // Pop should throw
+      expect(() => {
+        (server.tools as MCPTool[]).pop()
+      }).toThrow()
 
-      // After fix, array should be unchanged or mutations should throw
-      // Currently these all succeed, causing state corruption
-      expect(server.tools.length).toBe(originalLength) // RED: Will fail
+      // Array should remain completely unchanged
+      expect(server.tools.length).toBe(originalLength)
+      expect(Array.from(server.tools).map(t => t.name)).toEqual(toolNames)
     })
   })
 
-  describe('RED: Concurrent addTool race conditions', () => {
+  describe('GREEN: Concurrent addTool race conditions', () => {
     it('should handle concurrent addTool calls without data loss', async () => {
       const server = createMCPServer({ name: 'test' })
       const toolCount = 100
@@ -96,7 +106,7 @@ describe('MCP Tools Array Mutation Race Conditions (do-dwti)', () => {
       expect(server.tools.length).toBe(toolCount)
 
       // Verify no duplicates or missing tools
-      const names = server.tools.map(t => t.name)
+      const names = Array.from(server.tools).map(t => t.name)
       const uniqueNames = new Set(names)
       expect(uniqueNames.size).toBe(toolCount)
     })
@@ -108,26 +118,24 @@ describe('MCP Tools Array Mutation Race Conditions (do-dwti)', () => {
       server.addTool(createTestTool('api-tool-1'))
       server.addTool(createTestTool('api-tool-2'))
 
-      // Someone directly mutates the array (bad practice)
-      server.tools.push(createTestTool('direct-tool'))
+      // Try to directly mutate the array (now prevented)
+      expect(() => {
+        (server.tools as MCPTool[]).push(createTestTool('direct-tool'))
+      }).toThrow()
 
       // Fetch tools list
       const request = new Request('http://localhost/mcp/tools')
       const response = await server.fetch(request)
       const json = await response.json() as { tools: { name: string }[] }
 
-      // Currently the direct-push tool WILL appear in API (inconsistent with registry)
-      // After fix, either:
-      // a) Direct push is prevented
-      // b) Or API endpoint should use registry, not raw array
-
-      // The tool count should match expected (2 via addTool)
-      // This RED test exposes that direct mutation pollutes the API response
-      expect(json.tools.length).toBe(2) // RED: Will be 3 currently
+      // With the fix, direct mutations are prevented
+      // The API endpoint reflects only properly added tools
+      // Tool count is exactly 2 via addTool
+      expect(json.tools.length).toBe(2)
     })
   })
 
-  describe('RED: Interleaved read/write race conditions', () => {
+  describe('GREEN: Snapshot consistency', () => {
     it('should provide consistent snapshot during iteration', async () => {
       const server = createMCPServer({ name: 'test' })
 
@@ -147,29 +155,33 @@ describe('MCP Tools Array Mutation Race Conditions (do-dwti)', () => {
         }
       })()
 
-      // While iterating, add more tools
+      // While iterating, try to add more tools
       server.addTool(createTestTool('late-addition'))
-      server.tools.push(createTestTool('direct-late-addition'))
+
+      // Try to directly mutate (now prevented)
+      expect(() => {
+        (server.tools as MCPTool[]).push(createTestTool('direct-late-addition'))
+      }).toThrow()
 
       await iterationPromise
 
-      // With exposed mutable array, iteration may or may not include late additions
-      // depending on timing - this is non-deterministic behavior
+      // Iteration captured the snapshot at time of iteration start
+      // Since the array is immutable from outside, iteration is always consistent
+      expect(iteratedTools.length).toBeGreaterThanOrEqual(5)
 
-      // After fix with immutable/snapshot pattern:
-      // Iteration should see a consistent snapshot (either all 5 or all 7, not random)
+      // Each call to server.tools returns a new frozen array
+      const snapshot1 = server.tools
+      const snapshot2 = server.tools
 
-      // This test verifies the tools array returns a defensive copy or is frozen
-      const afterTools = server.tools
-      server.tools.push(createTestTool('another-direct'))
+      // Different instances (defensive copies)
+      expect(snapshot1).not.toBe(snapshot2)
 
-      // If properly encapsulated, the returned array should not be the same reference
-      // or modifications to it should not affect internal state
-      expect(afterTools).not.toBe(server.tools) // RED: Currently same reference
+      // Same contents
+      expect(Array.from(snapshot1)).toEqual(Array.from(snapshot2))
     })
   })
 
-  describe('RED: Registry synchronization', () => {
+  describe('GREEN: Registry synchronization', () => {
     it('should keep registry in sync with tools array', () => {
       const registry = new ToolRegistry()
       const server = createMCPServer({ name: 'test', registry })
@@ -181,13 +193,14 @@ describe('MCP Tools Array Mutation Race Conditions (do-dwti)', () => {
       expect(server.tools.find(t => t.name === 'synced-tool')).toBeDefined()
       expect(registry.get('synced-tool')).toBeDefined()
 
-      // Now directly manipulate array
-      server.tools.length = 0 // Clear array directly
+      // Try to directly clear array - should be prevented
+      expect(() => {
+        (server.tools as any).length = 0
+      }).toThrow()
 
-      // BUG: Registry is now out of sync with tools array!
-      // Registry still has the tool, but tools array is empty
-      expect(server.tools.length).toBe(0)
-      expect(registry.get('synced-tool')).toBeUndefined() // RED: Still defined in registry
+      // Registry remains in sync (both still have the tool)
+      expect(server.tools.length).toBe(1)
+      expect(registry.get('synced-tool')).toBeDefined()
     })
 
     it('should prevent array clearing without registry update', () => {
@@ -197,98 +210,108 @@ describe('MCP Tools Array Mutation Race Conditions (do-dwti)', () => {
       server.addTool(createTestTool('tool-to-clear'))
       server.addTool(createTestTool('another-tool'))
 
-      // Direct array operations that cause desync
-      server.tools.pop()
-      server.tools.shift()
+      // Direct array operations that would cause desync are now prevented
+      expect(() => {
+        (server.tools as MCPTool[]).pop()
+      }).toThrow()
 
-      // After fix, these should either:
-      // a) Throw (array is frozen/read-only)
-      // b) Also update registry (array is a proxy)
-      // c) Return a copy (defensive copy pattern)
+      expect(() => {
+        (server.tools as MCPTool[]).shift()
+      }).toThrow()
 
-      expect(registry.get('tool-to-clear')).toBeUndefined() // RED: Still defined
-      expect(registry.get('another-tool')).toBeUndefined() // RED: Still defined
+      // Registry remains in perfect sync
+      expect(registry.get('tool-to-clear')).toBeDefined()
+      expect(registry.get('another-tool')).toBeDefined()
     })
   })
 
-  describe('GREEN (future): Protected array patterns', () => {
-    // These tests document expected behavior after the fix
-
-    it('should expose tools as readonly array', () => {
+  describe('GREEN: Protected array patterns', () => {
+    it('should expose tools as readonly frozen array', () => {
       const server = createMCPServer({ name: 'test' })
       server.addTool(createTestTool('readonly-test'))
 
-      // After fix, tools should be a readonly array (TypeScript)
-      // and either frozen or return a copy at runtime
+      // Tools are exposed as readonly (TypeScript)
       const tools = server.tools
 
-      // Option 1: Frozen array - mutations throw
-      // Option 2: Defensive copy - mutations don't affect internal state
-      // Option 3: Proxy that intercepts and prevents mutations
+      // Each getter call returns a new frozen array
+      const tools2 = server.tools
+      expect(tools).not.toBe(tools2)
 
-      // For now, just verify the getter exists and returns tools
+      // But with same contents
+      expect(Array.from(tools)).toEqual(Array.from(tools2))
+
+      // Both are frozen (immutable)
+      expect(Object.isFrozen(tools)).toBe(true)
+      expect(Object.isFrozen(tools2)).toBe(true)
+
+      // Verify it's really an array
       expect(Array.isArray(tools)).toBe(true)
       expect(tools.length).toBe(1)
     })
 
-    it('should provide getTools() method returning a copy', () => {
-      // Preferred pattern: method that explicitly returns a copy
-      // server.getTools() instead of server.tools
-
-      // This test is a design suggestion for the fix
+    it('should provide defensive copy preventing external mutations', () => {
       const server = createMCPServer({ name: 'test' })
       server.addTool(createTestTool('copy-test'))
 
-      // If getTools() existed:
-      // const copy1 = server.getTools()
-      // const copy2 = server.getTools()
-      // expect(copy1).not.toBe(copy2) // Different array instances
-      // expect(copy1).toEqual(copy2)  // Same contents
+      // Get snapshot
+      const copy1 = server.tools
+      const initialLength = copy1.length
 
-      // Placeholder assertion for now
-      expect(server.tools).toBeDefined()
+      // Try to mutate the returned copy
+      expect(() => {
+        (copy1 as MCPTool[]).push(createTestTool('external-push'))
+      }).toThrow()
+
+      // Get new snapshot - should be unaffected
+      const copy2 = server.tools
+      expect(copy2.length).toBe(initialLength)
+
+      // No external mutations possible
+      expect(Array.from(copy2).map(t => t.name)).toContain('copy-test')
+      expect(Array.from(copy2).map(t => t.name)).not.toContain('external-push')
     })
   })
-})
 
-describe('Array mutation detection', () => {
-  it('demonstrates how direct array push causes inconsistency', () => {
-    // This test clearly documents the exact bug
+  describe('GREEN: Array mutation detection', () => {
+    it('demonstrates proper tool registration prevents inconsistency', () => {
+      const registry = new ToolRegistry()
+      const server = createMCPServer({ name: 'test', registry })
 
-    const registry = new ToolRegistry()
-    const server = createMCPServer({ name: 'test', registry })
+      // Step 1: Add tool properly
+      server.addTool({
+        name: 'proper',
+        description: 'Added via addTool',
+        inputSchema: {},
+        execute: async () => 'proper'
+      })
 
-    // Step 1: Add tool properly
-    server.addTool({
-      name: 'proper',
-      description: 'Added via addTool',
-      inputSchema: {},
-      execute: async () => 'proper'
+      // Verify: both synchronized
+      expect(server.tools.length).toBe(1)
+      expect(registry.list().length).toBe(1)
+
+      // Step 2: Try to add tool improperly (direct push - now prevented)
+      expect(() => {
+        (server.tools as MCPTool[]).push({
+          name: 'improper',
+          description: 'Attempted via direct push',
+          inputSchema: {},
+          execute: async () => 'improper'
+        })
+      }).toThrow()
+
+      // Both remain in perfect sync (1 tool, not 2)
+      expect(server.tools.length).toBe(1)
+      expect(registry.list().length).toBe(1)
+
+      // The 'improper' tool is NOT in the array
+      expect(server.tools.find(t => t.name === 'improper')).toBeUndefined()
+
+      // And NOT in the registry
+      expect(registry.get('improper')).toBeUndefined()
+
+      // Perfect consistency maintained
+      expect(Array.from(server.tools).map(t => t.name)).toEqual(['proper'])
+      expect(registry.list().map(t => t.name)).toEqual(['proper'])
     })
-
-    // Verify: both synchronized
-    expect(server.tools.length).toBe(1)
-    expect(registry.list().length).toBe(1)
-
-    // Step 2: Add tool improperly (direct push)
-    server.tools.push({
-      name: 'improper',
-      description: 'Added via direct push',
-      inputSchema: {},
-      execute: async () => 'improper'
-    })
-
-    // BUG: Tools array has 2, registry has 1
-    expect(server.tools.length).toBe(2)
-    expect(registry.list().length).toBe(1) // Still 1! Desync!
-
-    // The 'improper' tool is in the array
-    expect(server.tools.find(t => t.name === 'improper')).toBeDefined()
-
-    // But NOT in the registry
-    expect(registry.get('improper')).toBeUndefined()
-
-    // This is the race condition - if code relies on registry for some operations
-    // and raw array for others, behavior becomes inconsistent
   })
 })

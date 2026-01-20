@@ -420,13 +420,15 @@ export function shardMiddleware(router: ShardRouter) {
     const hostParts = url.hostname.split('.')
     const namespace = hostParts.length > 2 && hostParts[0] ? hostParts[0] : 'default'
 
+    const entityType = c.req.param('entityType')
+    const entityId = c.req.param('id') || c.req.param('entityId')
     const ctx: ShardContext = {
       namespace,
       path: url.pathname,
       params: url.searchParams,
       headers: c.req.headers,
-      entityType: c.req.param('entityType'),
-      entityId: c.req.param('id') || c.req.param('entityId'),
+      ...(entityType && { entityType }),
+      ...(entityId && { entityId }),
     }
 
     const result = router.route(ctx)
@@ -643,8 +645,8 @@ export class LoadBalancedRouter extends ShardRouter {
   private lbConfig: LoadBalancedRouterConfig
   private roundRobinCounter: Map<string, number> = new Map()
 
-  constructor(config: LoadBalancedRouterConfig = {}) {
-    super(config)
+  constructor(config: Partial<LoadBalancedRouterConfig> & { defaultShardCount?: number } = {}) {
+    super({ defaultShardCount: config.defaultShardCount ?? 1, ...config } as LoadBalancedRouterConfig)
     this.lbConfig = {
       ...config,
       strategy: config.strategy ?? 'least-loaded',

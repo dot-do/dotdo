@@ -426,8 +426,8 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
       return result.results.map(mapRowToError)
     },
 
-    get(id) {
-      const row = sql.prepare('SELECT * FROM fire_and_forget_errors WHERE id = ?')
+    async get(id) {
+      const row = await sql.prepare('SELECT * FROM fire_and_forget_errors WHERE id = ?')
         .bind(id)
         .first()
 
@@ -1091,8 +1091,8 @@ export function createSQLiteRetryQueue(
       return id
     },
 
-    get(id) {
-      const row = sql.prepare('SELECT * FROM retry_queue WHERE id = ?')
+    async get(id) {
+      const row = await sql.prepare('SELECT * FROM retry_queue WHERE id = ?')
         .bind(id)
         .first()
 
@@ -1390,10 +1390,9 @@ export function createEnhancedErrorStore(
 
       return errors.map(error => {
         const retryStatus = retryItems.find(item => item.errorId === error.id)
-        return {
-          error,
-          retryStatus
-        }
+        const result: { error: FireAndForgetError; retryStatus?: RetryQueueItem } = { error }
+        if (retryStatus) result.retryStatus = retryStatus
+        return result
       })
     }
   }

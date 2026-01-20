@@ -43,7 +43,7 @@
 // console.log(health.status) // 'healthy' | 'degraded' | 'unhealthy'
 // ```
 //
-import type { Thing, ThingsStore } from '@dotdo/db'
+import type { Thing, ThingsStore, JsonValue } from '@dotdo/db'
 import type { Event, EventsStore, EventQueryOptions } from '@dotdo/db'
 import type { Relationship, RelationshipsStore } from '@dotdo/db'
 
@@ -234,7 +234,7 @@ export class AdminDO {
 
     return await this.stores.events.emit({
       type,
-      payload,
+      payload: payload as JsonValue,
       source,
       correlationId
     })

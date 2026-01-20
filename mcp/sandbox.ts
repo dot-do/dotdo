@@ -47,13 +47,13 @@ export interface ResourceUsage {
   /** Whether output was truncated due to size limits */
   outputTruncated: boolean
   /** Memory used in MB (approximate) */
-  memoryUsedMB?: number
+  memoryUsedMB?: number | undefined
   /** Peak memory usage in MB */
-  peakMemoryMB?: number
+  peakMemoryMB?: number | undefined
   /** CPU time consumed in milliseconds */
-  cpuTimeMs?: number
+  cpuTimeMs?: number | undefined
   /** Which limit was violated (if any) */
-  limitViolated?: 'timeout' | 'memory' | 'cpu' | 'network'
+  limitViolated?: 'timeout' | 'memory' | 'cpu' | 'network' | undefined
 }
 
 export interface SandboxOptions {
@@ -71,10 +71,10 @@ export interface SandboxOptions {
 
 export interface SandboxResult {
   success: boolean
-  value?: unknown
-  error?: string
+  value?: unknown | undefined
+  error?: string | undefined
   duration: number
-  logs?: Array<{ level: string; message: string; timestamp?: number }>
+  logs?: Array<{ level: string; message: string; timestamp?: number }> | undefined
   /** Resource usage statistics */
   resourceUsage?: ResourceUsage
 }

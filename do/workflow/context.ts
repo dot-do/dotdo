@@ -10,7 +10,7 @@
  * @module do/workflow/context
  */
 
-import { createEventsStore, type EventsStore, type Event } from '@dotdo/db'
+import { createEventsStore, type EventsStore, type Event, type JsonValue } from '@dotdo/db'
 import { createEveryProxy, type ScheduleRegistration } from './schedule'
 import { createOnProxy, matchHandlers, invokeHandlers, type OnProxy, type EventHandler, type RetryOptions } from './events'
 import { createDORPCProxy, type DOStubProxy } from './rpc'
@@ -387,7 +387,7 @@ export function createContext(
     send(event: { type: string; payload?: unknown }) {
       events.emit({
         type: event.type,
-        payload: event.payload,
+        payload: event.payload as JsonValue,
         source: 'workflow'
       }).then(async (emitted) => {
         // Process handlers with retry logic

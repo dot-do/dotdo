@@ -96,7 +96,7 @@ export interface IndexDefinition {
   /** Fields to include in the index (supports composite indexes) */
   fields: string[]
   /** Whether the index enforces uniqueness */
-  unique?: boolean
+  unique?: boolean | undefined
 }
 
 /**
