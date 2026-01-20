@@ -8,6 +8,9 @@
   },
   "main": "index.ts",
   "types": "index.ts",
+  "bin": {
+    "dotdo-mcp": "./cli.ts"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
@@ -15,11 +18,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@dotdo/db": "workspace:*",
     "@dotdo/do": "workspace:*",
     "@dotdo/rpc": "workspace:*",
     "hono": "^4.7.0"
   },
   "devDependencies": {
+    "@dotdo/test-utils": "workspace:*",
     "typescript": "^5.7.0"
   }
 }
