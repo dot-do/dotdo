@@ -1,8 +1,9 @@
 // Real-time Document Collaboration Durable Object
 // Demonstrates: WebSockets, presence, operational transformation, events
+// Key patterns: $.on.Noun.verb event handlers, $.every scheduling, WebSocket manager
 
 import { Hono } from 'hono'
-import { DO, type DOEnv } from '../../do'
+import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
 import type {
   Document,
   Collaborator,
@@ -28,12 +29,75 @@ function getRandomColor(): string {
 }
 
 export class CollaborationDO extends DO {
+  private $: WorkflowContext
+
   // In-memory state for active session
   private cursors: Map<string, CursorPosition> = new Map()
   private userConnections: Map<string, WebSocket> = new Map()
 
   constructor(state: DurableObjectState, env: DOEnv) {
     super(state, env)
+
+    // Initialize WorkflowContext for event handling and scheduling
+    this.$ = createContext(state, env)
+
+    // ========================================================================
+    // Event Handlers using $.on.Noun.verb pattern
+    // ========================================================================
+
+    // Track document edits for analytics
+    this.$.on.Document.edited(async (event) => {
+      const { documentId, userId, version, operationCount } = event.payload as {
+        documentId: string
+        userId: string
+        version: number
+        operationCount: number
+      }
+      console.log(`[Event] Document ${documentId} edited by ${userId}, v${version} (${operationCount} ops)`)
+    })
+
+    // Track collaborator join/leave
+    this.$.on.Collaborator.joined(async (event) => {
+      const { documentId, userId, userName } = event.payload as {
+        documentId: string
+        userId: string
+        userName: string
+      }
+      console.log(`[Event] ${userName} (${userId}) joined document ${documentId}`)
+    })
+
+    this.$.on.Collaborator.left(async (event) => {
+      const { documentId, userId } = event.payload as {
+        documentId: string
+        userId: string
+      }
+      console.log(`[Event] User ${userId} left document ${documentId}`)
+    })
+
+    // Track comments
+    this.$.on.Comment.added(async (event) => {
+      const { documentId, commentId, userId } = event.payload as {
+        documentId: string
+        commentId: string
+        userId: string
+      }
+      console.log(`[Event] Comment ${commentId} added to document ${documentId} by ${userId}`)
+    })
+
+    // Audit log all document events
+    this.$.on.Document['*'](async (event) => {
+      console.log(`[Audit] Document event: ${event.type}`, event.payload)
+    })
+
+    // ========================================================================
+    // Scheduled Tasks using $.every pattern
+    // ========================================================================
+
+    // Every hour - check for stale connections and cleanup
+    this.$.every.hour(async () => {
+      console.log('[Scheduled] Cleaning up stale connections...')
+      // In production: timeout inactive connections
+    })
 
     // Register WebSocket message handlers
     this.ws.on('join', this.handleJoin.bind(this))
@@ -71,10 +135,10 @@ export class CollaborationDO extends DO {
         version: 0,
       })
 
-      await this.events.emit({
+      // Fire event using $.send
+      this.$.send({
         type: 'Document.created',
         payload: { documentId: doc.$id, title },
-        source: doc.$id,
       })
 
       return c.json(doc, 201)
@@ -185,10 +249,10 @@ export class CollaborationDO extends DO {
         comment,
       })
 
-      await this.events.emit({
+      // Fire event using $.send - triggers $.on.Comment.added handler
+      this.$.send({
         type: 'Comment.added',
         payload: { documentId, commentId: comment.$id, userId },
-        source: documentId,
       })
 
       return c.json(comment, 201)
@@ -290,11 +354,10 @@ export class CollaborationDO extends DO {
     // Broadcast presence update to all
     await this.broadcastPresence(documentId)
 
-    // Emit join event
-    await this.events.emit({
+    // Fire event using $.send - triggers $.on.Collaborator.joined handler
+    this.$.send({
       type: 'Collaborator.joined',
       payload: { documentId, userId, userName },
-      source: documentId,
     })
   }
 
@@ -308,10 +371,10 @@ export class CollaborationDO extends DO {
     // Broadcast presence update
     await this.broadcastPresence(msg.documentId)
 
-    await this.events.emit({
+    // Fire event using $.send - triggers $.on.Collaborator.left handler
+    this.$.send({
       type: 'Collaborator.left',
       payload: { documentId: msg.documentId, userId: msg.userId },
-      source: msg.documentId,
     })
   }
 
@@ -383,11 +446,10 @@ export class CollaborationDO extends DO {
       }
     }
 
-    // Emit edit event
-    await this.events.emit({
+    // Fire event using $.send - triggers $.on.Document.edited handler
+    this.$.send({
       type: 'Document.edited',
       payload: { documentId, userId, version: newVersion, operationCount: operations.length },
-      source: documentId,
     })
   }
 

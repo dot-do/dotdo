@@ -10,9 +10,59 @@ This example demonstrates:
 - **Tool Use**: Built-in tools for search, calculation, weather, notes
 - **Memory**: Store and recall information across conversations
 - **Tasks**: Execute multi-step long-running operations
-- **Events**: Track all agent activities through the event system
+- **Event Handlers**: `$.on.Noun.verb()` pattern for reactive event handling
+- **Scheduling**: `$.every` pattern for scheduled tasks
 
 ## Key dotdo Concepts
+
+### WorkflowContext ($)
+
+The `$` context provides the core dotdo patterns:
+
+```typescript
+// Initialize in constructor
+this.$ = createContext(state, env)
+
+// Event handlers - $.on.Noun.verb pattern
+this.$.on.Message.sent(async (event) => {
+  const { conversationId, messageId, role } = event.payload
+  console.log(`Message sent: ${role}`)
+})
+
+this.$.on.Tool.executed(async (event) => {
+  const { toolName, success } = event.payload
+  console.log(`Tool ${toolName} executed (success: ${success})`)
+})
+
+this.$.on.Task.completed(async (event) => {
+  // Handle task completion
+})
+
+// Wildcard handlers - catch all events
+this.$.on['*']['*'](async (event) => {
+  console.log(`[Audit] ${event.type}`, event.payload)
+})
+
+// Fire events (fire-and-forget)
+this.$.send({
+  type: 'Message.sent',
+  payload: { conversationId, messageId, role: 'user' },
+})
+```
+
+### Scheduling with $.every
+
+```typescript
+// Daily summary at 6pm
+this.$.every.day.at6pm(async () => {
+  console.log('Generating daily conversation summary...')
+})
+
+// Weekly cleanup on Monday
+this.$.every.Monday.at9am(async () => {
+  console.log('Cleaning up old conversations...')
+})
+```
 
 ### Things (Entities)
 
@@ -33,23 +83,6 @@ const memory = await this.things.create({
   value: 'Prefers celsius for temperature',
   type: 'preference',
   confidence: 1.0,
-})
-```
-
-### Events
-
-```typescript
-// Track all agent activities
-await this.events.emit({
-  type: 'Message.sent',
-  payload: { conversationId, messageId, role: 'user' },
-  source: conversationId,
-})
-
-await this.events.emit({
-  type: 'Tool.executed',
-  payload: { toolName: 'weather', args: { location: 'SF' }, success: true },
-  source: 'agent',
 })
 ```
 

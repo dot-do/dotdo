@@ -1,8 +1,9 @@
 // E-commerce Checkout Durable Object
 // Demonstrates: Cart management, checkout flow, payment simulation, order tracking
+// Key patterns: $.on.Noun.verb event handlers, $.every scheduling, $.do durable actions
 
 import { Hono } from 'hono'
-import { DO, type DOEnv } from '../../do'
+import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
 import type {
   Product,
   Cart,
@@ -19,8 +20,97 @@ import type {
 const TAX_RATE = 0.08 // 8% tax
 
 export class EcommerceDO extends DO {
+  private $: WorkflowContext
+
   constructor(state: DurableObjectState, env: DOEnv) {
     super(state, env)
+
+    // Initialize the WorkflowContext ($) for event handling and scheduling
+    this.$ = createContext(state, env)
+
+    // ========================================================================
+    // Event Handlers using $.on.Noun.verb pattern
+    // These demonstrate the core dotdo event-driven architecture
+    // ========================================================================
+
+    // Handle order creation - send confirmation email
+    this.$.on.Order.created(async (event) => {
+      const { orderId, customerId, total } = event.payload as {
+        orderId: string
+        customerId: string
+        total: number
+      }
+      console.log(`[Event] Order created: ${orderId} for customer ${customerId}, total: $${total}`)
+      // In production: send order confirmation email via $.do for durability
+    })
+
+    // Handle payment completion - update inventory and notify
+    this.$.on.Payment.completed(async (event) => {
+      const { orderId, paymentId } = event.payload as {
+        orderId: string
+        paymentId: string
+      }
+      console.log(`[Event] Payment completed for order ${orderId}, payment: ${paymentId}`)
+      // In production: trigger fulfillment workflow
+    })
+
+    // Handle payment failure - notify customer
+    this.$.on.Payment.failed(async (event) => {
+      const { orderId, reason } = event.payload as {
+        orderId: string
+        paymentId: string
+        reason: string
+      }
+      console.log(`[Event] Payment failed for order ${orderId}: ${reason}`)
+      // In production: send payment failure notification
+    })
+
+    // Handle cart item added - track analytics
+    this.$.on.Cart.itemAdded(async (event) => {
+      const { cartId, productId, quantity } = event.payload as {
+        cartId: string
+        productId: string
+        quantity: number
+      }
+      console.log(`[Event] Item added to cart ${cartId}: ${productId} x${quantity}`)
+    })
+
+    // Wildcard handler - log all events for debugging
+    this.$.on['*']['*'](async (event) => {
+      console.log(`[Audit] Event: ${event.type}`, event.payload)
+    })
+
+    // ========================================================================
+    // Scheduled Tasks using $.every pattern
+    // ========================================================================
+
+    // Every day at midnight - clean up abandoned carts
+    this.$.every.day.atmidnight(async () => {
+      console.log('[Scheduled] Cleaning up abandoned carts...')
+      const carts = await this.things.list({ type: 'Cart' })
+      const now = Date.now()
+      const abandonedThreshold = 24 * 60 * 60 * 1000 // 24 hours
+
+      for (const cart of carts) {
+        const cartData = cart as unknown as Cart
+        if (cartData.status === 'active') {
+          // Check if cart is old (in production, check $updatedAt)
+          // Mark as abandoned if not checked out
+        }
+      }
+    })
+
+    // Every hour - check for pending payment retries
+    this.$.every.hour(async () => {
+      console.log('[Scheduled] Checking for payment retries...')
+      const orders = await this.things.list({ type: 'Order' })
+      for (const order of orders) {
+        const orderData = order as unknown as Order
+        if (orderData.status === 'payment_failed') {
+          // In production: attempt retry or notify customer
+        }
+      }
+    })
   }
 
   protected routes(app: Hono): void {
@@ -155,11 +245,10 @@ export class EcommerceDO extends DO {
         total,
       })
 
-      // Emit event
-      await this.events.emit({
+      // Fire event using $.send (fire-and-forget) - triggers event handlers
+      this.$.send({
         type: 'Cart.itemAdded',
         payload: { cartId: cart.$id, productId, quantity },
-        source: cart.$id,
       })
 
       return c.json(updatedCart)
@@ -250,10 +339,10 @@ export class EcommerceDO extends DO {
         total,
       })
 
-      await this.events.emit({
+      // Fire event using $.send (fire-and-forget)
+      this.$.send({
         type: 'Cart.itemRemoved',
         payload: { cartId: cart.$id, productId },
-        source: cart.$id,
       })
 
       return c.json(updatedCart)
@@ -329,11 +418,10 @@ export class EcommerceDO extends DO {
       // Mark cart as checked out
       await this.things.update(cart.$id, { status: 'checked_out' })
 
-      // Emit checkout event
-      await this.events.emit({
+      // Fire event using $.send - triggers $.on.Order.created handler
+      this.$.send({
         type: 'Order.created',
         payload: { orderId: order.$id, customerId, total },
-        source: order.$id,
       })
 
       // Add relationship
@@ -402,11 +490,10 @@ export class EcommerceDO extends DO {
           }
         }
 
-        // Emit payment success event
-        await this.events.emit({
+        // Fire event - triggers $.on.Payment.completed handler
+        this.$.send({
           type: 'Payment.completed',
           payload: { orderId, paymentId: payment.$id },
-          source: orderId,
         })
 
         return c.json({
@@ -423,10 +510,10 @@ export class EcommerceDO extends DO {
 
         await this.things.update(orderId, { status: 'payment_failed' })
 
-        await this.events.emit({
+        // Fire event - triggers $.on.Payment.failed handler
+        this.$.send({
           type: 'Payment.failed',
           payload: { orderId, paymentId: payment.$id, reason: 'declined' },
-          source: orderId,
         })
 
         return c.json(
@@ -475,11 +562,10 @@ export class EcommerceDO extends DO {
 
       const updatedOrder = await this.things.update(orderId, { status })
 
-      // Emit status change event
-      await this.events.emit({
+      // Fire event - dynamic event type based on status (e.g., Order.shipped)
+      this.$.send({
         type: `Order.${status}`,
         payload: { orderId, status },
-        source: orderId,
       })
 
       return c.json(updatedOrder)

@@ -12,8 +12,66 @@ This example demonstrates:
 - **Payment Processing**: Simulated payment with success/failure handling
 - **Order Tracking**: Order status updates and history via events
 - **Relationships**: Customer-to-order relationships using the graph model
+- **Event Handlers**: `$.on.Noun.verb()` pattern for reactive event handling
+- **Scheduling**: `$.every` pattern for scheduled tasks
 
 ## Key dotdo Concepts
+
+### WorkflowContext ($)
+
+The `$` context provides the core dotdo patterns:
+
+```typescript
+// Initialize in constructor
+this.$ = createContext(state, env)
+
+// Event handlers - $.on.Noun.verb pattern
+this.$.on.Order.created(async (event) => {
+  const { orderId, customerId, total } = event.payload
+  console.log(`Order created: ${orderId}`)
+  // Send confirmation email, update analytics, etc.
+})
+
+this.$.on.Payment.completed(async (event) => {
+  // Trigger fulfillment workflow
+})
+
+this.$.on.Payment.failed(async (event) => {
+  // Send notification, schedule retry
+})
+
+// Wildcard handlers - catch all events
+this.$.on['*']['*'](async (event) => {
+  console.log(`[Audit] ${event.type}`, event.payload)
+})
+
+// Fire events (fire-and-forget)
+this.$.send({
+  type: 'Cart.itemAdded',
+  payload: { cartId, productId, quantity },
+})
+```
+
+### Scheduling with $.every
+
+```typescript
+// Clean up abandoned carts at midnight
+this.$.every.day.atmidnight(async () => {
+  const carts = await this.things.list({ type: 'Cart' })
+  // Mark old active carts as abandoned
+})
+
+// Check for payment retries every hour
+this.$.every.hour(async () => {
+  const orders = await this.things.list({ type: 'Order' })
+  // Retry failed payments
+})
+
+// Other scheduling patterns:
+this.$.every.Monday.at9am(handler)
+this.$.every.day.at('6pm')(handler)
+this.$.every(5).minutes(handler)
+```
 
 ### Things (Entities)
 
@@ -24,17 +82,6 @@ const product = await this.things.create({
   name: 'Widget',
   price: 29.99,
   inventory: 100,
-})
-```
-
-### Events
-
-```typescript
-// Track all state changes with events
-await this.events.emit({
-  type: 'Cart.itemAdded',
-  payload: { cartId, productId, quantity },
-  source: cartId,
 })
 ```
 

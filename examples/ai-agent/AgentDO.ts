@@ -1,8 +1,9 @@
 // AI Agent Durable Object
 // Demonstrates: AI integration, tool use, memory, tasks, events
+// Key patterns: $.on.Noun.verb event handlers, $.every scheduling, $.do durable actions
 
 import { Hono } from 'hono'
-import { DO, type DOEnv } from '../../do'
+import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
 import type {
   Conversation,
   Message,
@@ -96,11 +97,98 @@ interface AgentEnv extends DOEnv {
 }
 
 export class AgentDO extends DO {
-  private env: AgentEnv
+  private $: WorkflowContext
+  private agentEnv: AgentEnv
 
   constructor(state: DurableObjectState, env: AgentEnv) {
     super(state, env)
-    this.env = env
+    this.agentEnv = env
+
+    // Initialize WorkflowContext for event handling and scheduling
+    this.$ = createContext(state, env)
+
+    // ========================================================================
+    // Event Handlers using $.on.Noun.verb pattern
+    // ========================================================================
+
+    // Track messages for analytics
+    this.$.on.Message.sent(async (event) => {
+      const { conversationId, messageId, role } = event.payload as {
+        conversationId: string
+        messageId: string
+        role: string
+      }
+      console.log(`[Event] Message sent in ${conversationId}: ${role} (${messageId})`)
+    })
+
+    this.$.on.Message.received(async (event) => {
+      const { conversationId, messageId, role } = event.payload as {
+        conversationId: string
+        messageId: string
+        role: string
+      }
+      console.log(`[Event] Message received in ${conversationId}: ${role} (${messageId})`)
+    })
+
+    // Track tool executions
+    this.$.on.Tool.executed(async (event) => {
+      const { toolName, args, success } = event.payload as {
+        toolName: string
+        args: Record<string, unknown>
+        success: boolean
+      }
+      console.log(`[Event] Tool ${toolName} executed (success: ${success})`, args)
+    })
+
+    this.$.on.Tool.failed(async (event) => {
+      const { toolName, error } = event.payload as {
+        toolName: string
+        args: Record<string, unknown>
+        error: string
+      }
+      console.error(`[Event] Tool ${toolName} failed: ${error}`)
+    })
+
+    // Track task lifecycle
+    this.$.on.Task.started(async (event) => {
+      const { taskId, name } = event.payload as { taskId: string; name: string }
+      console.log(`[Event] Task started: ${name} (${taskId})`)
+    })
+
+    this.$.on.Task.completed(async (event) => {
+      const { taskId, name } = event.payload as { taskId: string; name: string }
+      console.log(`[Event] Task completed: ${name} (${taskId})`)
+    })
+
+    this.$.on.Task.failed(async (event) => {
+      const { taskId, name, error } = event.payload as {
+        taskId: string
+        name: string
+        error: string
+      }
+      console.error(`[Event] Task failed: ${name} (${taskId}): ${error}`)
+    })
+
+    // Audit log - catch all agent events
+    this.$.on['*']['*'](async (event) => {
+      console.log(`[Audit] ${event.type}`, event.payload)
+    })
+
+    // ========================================================================
+    // Scheduled Tasks using $.every pattern
+    // ========================================================================
+
+    // Every day at 6pm - summarize day's conversations
+    this.$.every.day.at6pm(async () => {
+      console.log('[Scheduled] Generating daily conversation summary...')
+      // In production: generate summary of day's conversations
+    })
+
+    // Every week on Monday - clean up old conversations
+    this.$.every.Monday.at9am(async () => {
+      console.log('[Scheduled] Cleaning up old conversations...')
+      // In production: archive or delete old conversations
+    })
   }
 
   protected routes(app: Hono): void {
@@ -511,9 +599,9 @@ export class AgentDO extends DO {
     let assistantContent: string
     let toolCalls: ToolCall[] | undefined
 
-    if (this.env.AI) {
+    if (this.agentEnv.AI) {
       // Use Cloudflare Workers AI
-      const response = await this.env.AI.run(model as Parameters<Ai['run']>[0], {
+      const response = await this.agentEnv.AI.run(model as Parameters<Ai['run']>[0], {
         messages: aiMessages,
       })
 
@@ -569,17 +657,15 @@ export class AgentDO extends DO {
       lastMessageAt: new Date().toISOString(),
     })
 
-    // Emit events
-    await this.events.emit({
+    // Fire events using $.send - triggers event handlers
+    this.$.send({
       type: 'Message.sent',
       payload: { conversationId, messageId: userMessage.$id, role: 'user' },
-      source: conversationId,
     })
 
-    await this.events.emit({
+    this.$.send({
       type: 'Message.received',
       payload: { conversationId, messageId: assistantMessage.$id, role: 'assistant' },
-      source: conversationId,
     })
 
     return {
@@ -646,20 +732,20 @@ export class AgentDO extends DO {
           }
       }
 
-      await this.events.emit({
+      // Fire event using $.send - triggers $.on.Tool.executed handler
+      this.$.send({
         type: 'Tool.executed',
         payload: { toolName, args, success: true },
-        source: 'agent',
       })
 
       return { toolCallId, success: true, result }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
 
-      await this.events.emit({
+      // Fire event using $.send - triggers $.on.Tool.failed handler
+      this.$.send({
         type: 'Tool.failed',
         payload: { toolName, args, error: errorMessage },
-        source: 'agent',
       })
 
       return { toolCallId, success: false, error: errorMessage }
@@ -775,10 +861,10 @@ export class AgentDO extends DO {
 
     await this.things.update(taskId, { status: 'running' })
 
-    await this.events.emit({
+    // Fire event using $.send - triggers $.on.Task.started handler
+    this.$.send({
       type: 'Task.started',
       payload: { taskId, name: task.name },
-      source: taskId,
     })
 
     try {
@@ -818,10 +904,10 @@ export class AgentDO extends DO {
         completedAt: new Date().toISOString(),
       })
 
-      await this.events.emit({
+      // Fire event using $.send - triggers $.on.Task.completed handler
+      this.$.send({
         type: 'Task.completed',
         payload: { taskId, name: task.name },
-        source: taskId,
       })
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
@@ -832,10 +918,10 @@ export class AgentDO extends DO {
         completedAt: new Date().toISOString(),
       })
 
-      await this.events.emit({
+      // Fire event using $.send - triggers $.on.Task.failed handler
+      this.$.send({
         type: 'Task.failed',
         payload: { taskId, name: task.name, error: errorMessage },
-        source: taskId,
       })
     }
   }

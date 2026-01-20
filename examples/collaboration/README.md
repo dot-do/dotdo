@@ -11,9 +11,54 @@ This example demonstrates:
 - **Cursor Tracking**: Show other users' cursor positions in real-time
 - **Operational Transformation**: Basic edit operations (insert/delete)
 - **Comments**: Threaded comments on document sections
-- **Event History**: Track all changes via the events store
+- **Event Handlers**: `$.on.Noun.verb()` pattern for reactive event handling
+- **Scheduling**: `$.every` pattern for scheduled tasks
 
 ## Key dotdo Concepts
+
+### WorkflowContext ($)
+
+The `$` context provides the core dotdo patterns:
+
+```typescript
+// Initialize in constructor
+this.$ = createContext(state, env)
+
+// Event handlers - $.on.Noun.verb pattern
+this.$.on.Document.edited(async (event) => {
+  const { documentId, userId, version, operationCount } = event.payload
+  console.log(`Document ${documentId} edited by ${userId}, v${version}`)
+})
+
+this.$.on.Collaborator.joined(async (event) => {
+  const { documentId, userId, userName } = event.payload
+  console.log(`${userName} joined document ${documentId}`)
+})
+
+this.$.on.Comment.added(async (event) => {
+  // Handle new comment
+})
+
+// Wildcard handlers - catch all document events
+this.$.on.Document['*'](async (event) => {
+  console.log(`[Audit] Document event: ${event.type}`, event.payload)
+})
+
+// Fire events (fire-and-forget)
+this.$.send({
+  type: 'Document.edited',
+  payload: { documentId, userId, version, operationCount },
+})
+```
+
+### Scheduling with $.every
+
+```typescript
+// Cleanup stale connections every hour
+this.$.every.hour(async () => {
+  console.log('Cleaning up stale connections...')
+})
+```
 
 ### WebSocket Manager
 
@@ -45,17 +90,6 @@ const doc = await this.things.create({
   title: 'My Document',
   content: '',
   version: 0,
-})
-```
-
-### Events
-
-```typescript
-// Track all document changes
-await this.events.emit({
-  type: 'Document.edited',
-  payload: { documentId, userId, version },
-  source: documentId,
 })
 ```
 
