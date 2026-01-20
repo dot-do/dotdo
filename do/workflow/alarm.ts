@@ -284,8 +284,33 @@ export async function executeSchedules(
 /**
  * Execute due one-time alarms
  *
+ * LIMITATION: Silent failure if handler not found
+ *
+ * This function processes one-time alarms that have reached their scheduled time.
+ * However, if a DO has restarted since the alarm was scheduled:
+ *
+ * 1. The alarm metadata (oneTimeAlarms) IS restored from storage
+ * 2. The handler function (oneTimeHandlers) IS NOT restored (can't serialize)
+ * 3. When the alarm fires, alarmStore.oneTimeHandlers.get(id) returns undefined
+ * 4. The alarm is silently skipped (no error logged)
+ * 5. The alarm is deleted, hiding the failure
+ *
+ * RESULT: The one-time alarm "completes" without doing anything
+ *
+ * This is distinguishable from normal execution only by:
+ * - The absence of the handler's side effects
+ * - Application-level monitoring/logging
+ * - The work that was intended to happen doesn't occur
+ *
+ * WORKAROUND:
+ * To avoid silent failures with one-time alarms:
+ * - Re-register handlers in DO initialization if you need to survive restarts
+ * - Store pending work intent in a persistent data structure (Thing, Entity, etc.)
+ * - Use a persistent job queue pattern instead of one-time alarms
+ * - Consider recurring schedules with filtering (e.g., "run once if flag not set")
+ *
  * @param alarmStore - Alarm store containing one-time alarms
- * @returns Array of execution results
+ * @returns Array of execution results (skipped alarms return no result)
  */
 export async function executeOneTimeAlarms(
   alarmStore: AlarmStore
@@ -309,6 +334,10 @@ export async function executeOneTimeAlarms(
             error: error instanceof Error ? error : new Error(String(error))
           })
         }
+      } else {
+        // Handler not found - silent failure (likely due to DO restart)
+        // Log a warning but continue
+        logger.warn(`One-time alarm "${id}" has no handler (may have been restored after restart)`)
       }
 
       // Remove the one-time alarm after execution

@@ -644,6 +644,35 @@ export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStor
   // Default: 3 retries as per task requirements
   const defaultDurabilityConfig: DurabilityConfig = { retries: 3, backoff: 'exponential' }
 
+  // Helper to add failed event to DLQ (do-6dc7.4)
+  const trackHandlerFailure = (event: Event<P>, error: unknown, handlerIndex: number) => {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const errorStack = error instanceof Error ? error.stack : undefined
+
+    logger.error(`Event handler ${handlerIndex} failed for ${event.type}:`, error)
+
+    // Check if this event already has a DLQ entry for this handler
+    const existingEntry = deadLetterQueue.find(
+      entry => entry.event.$id === event.$id && entry.handlerIndex === handlerIndex
+    )
+
+    if (existingEntry) {
+      // Update existing entry
+      existingEntry.attempts++
+      existingEntry.lastError = errorMessage
+      existingEntry.timestamp = Date.now()
+    } else {
+      // Create new DLQ entry
+      deadLetterQueue.push({
+        event,
+        attempts: 1,
+        lastError: errorMessage + (errorStack ? `\n${errorStack}` : ''),
+        timestamp: Date.now(),
+        handlerIndex
+      })
+    }
+  }
+
   return {
     async emit(data) {
       // Allow timestamp override for testing purposes
@@ -656,14 +685,26 @@ export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStor
 
       events.push(event)
 
-      // Notify subscribers
-      subscribers.forEach(handler => {
+      // Notify subscribers with proper error handling (do-6dc7.4)
+      // Track handler index for DLQ entries
+      let handlerIndex = 0
+      for (const handler of subscribers) {
         try {
-          handler(event)
+          const result = handler(event)
+          // Handle async handlers - catch any promise rejections
+          if (result && typeof (result as Promise<unknown>).catch === 'function') {
+            // Fire-and-forget but track failures
+            const currentIndex = handlerIndex
+            ;(result as Promise<unknown>).catch((asyncError: unknown) => {
+              trackHandlerFailure(event, asyncError, currentIndex)
+            })
+          }
         } catch (e) {
-          logger.error('Event subscriber error:', e)
+          // Synchronous error
+          trackHandlerFailure(event, e, handlerIndex)
         }
-      })
+        handlerIndex++
+      }
 
       return event
     },
