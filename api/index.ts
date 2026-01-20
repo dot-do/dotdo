@@ -73,4 +73,5 @@ export {
   type RateLimitConfig,
   type RateLimitTier,
   type RateLimitResult,
+  type RateLimitSqlStorage,
 } from './middleware/rate-limit'

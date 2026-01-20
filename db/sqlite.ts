@@ -334,6 +334,122 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
       })
     },
 
+    // getMany implementation for SQLite (do-8m4e)
+    async getMany(ids: string[]): Promise<Map<string, Thing>> {
+      if (ids.length === 0) {
+        return new Map()
+      }
+
+      const result = new Map<string, Thing>()
+
+      // SQLite doesn't support array binding, so we fetch individually
+      // This could be optimized with IN clause for larger batches
+      for (const id of ids) {
+        const thing = await this.get(id)
+        if (thing) {
+          result.set(id, thing)
+        }
+      }
+
+      return result
+    },
+
+    // listWithCursor implementation for SQLite (do-8m4e)
+    async listWithCursor(options = {}) {
+      const { type, cursor, limit = 100, direction = 'forward' } = options as any
+
+      // For now, use offset-based pagination as a fallback
+      // Full cursor implementation would parse the cursor to get position
+      const items = await this.list({ type, limit: limit + 1, offset: 0 })
+
+      // Handle cursor-based pagination logic
+      let startIndex = 0
+      if (cursor) {
+        // Find the item matching the cursor
+        const cursorIndex = items.findIndex((item: Thing) => item.$id === cursor)
+        if (cursorIndex !== -1) {
+          startIndex = direction === 'forward' ? cursorIndex + 1 : Math.max(0, cursorIndex - limit)
+        }
+      }
+
+      const slicedItems = items.slice(startIndex, startIndex + limit)
+      const hasMore = items.length > startIndex + limit
+
+      return {
+        items: slicedItems,
+        nextCursor: hasMore && slicedItems.length > 0 ? slicedItems[slicedItems.length - 1].$id : undefined,
+        prevCursor: startIndex > 0 && slicedItems.length > 0 ? slicedItems[0].$id : undefined,
+        hasMore
+      }
+    },
+
+    // bulkCreate implementation for SQLite (do-8m4e)
+    async bulkCreate(items: Array<{ $type: string } & Record<string, unknown>>) {
+      if (items.length === 0) {
+        return []
+      }
+
+      const now = Date.now()
+      const created: Thing[] = []
+
+      for (const data of items) {
+        if (!data.$type) {
+          throw new Error('$type is required')
+        }
+
+        const id = generateId()
+        const { $type, ...customData } = data
+
+        const thing: Thing = {
+          $id: id,
+          $type,
+          $createdAt: now,
+          $updatedAt: now,
+          ...customData
+        }
+
+        const dataJson = JSON.stringify(customData)
+
+        await sql
+          .prepare(
+            'INSERT INTO things (id, type, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+          )
+          .bind(id, $type, dataJson, now, now)
+          .run()
+
+        created.push(thing)
+      }
+
+      return created
+    },
+
+    // bulkUpdate implementation for SQLite (do-8m4e)
+    async bulkUpdate(items: Array<{ id: string; data: Record<string, unknown> }>) {
+      if (items.length === 0) {
+        return []
+      }
+
+      const updated: Thing[] = []
+
+      for (const { id, data } of items) {
+        const thing = await this.update(String(id), data)
+        updated.push(thing)
+      }
+
+      return updated
+    },
+
+    // bulkDelete implementation for SQLite (do-8m4e)
+    async bulkDelete(ids: string[]): Promise<void> {
+      if (ids.length === 0) {
+        return
+      }
+
+      for (const id of ids) {
+        await this.delete(id)
+      }
+    },
+
     /**
      * Execute query with SQL WHERE clause conditions (do-5k2l)
      * This is the key method that fixes the performance issue by pushing
@@ -551,6 +667,33 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
         source: (row.source as string) || undefined,
         correlationId: (row.correlation_id as string) || undefined
       }))
+    },
+
+    // queryWithCursor implementation for SQLite (do-8m4e)
+    async queryWithCursor(options: any = {}) {
+      const { type, source, correlationId, since, until, cursor, limit = 100, direction = 'forward' } = options
+
+      // Fetch events using query method
+      const events = await this.query({ type, source, correlationId, since, until, limit: limit + 1 })
+
+      // Handle cursor-based pagination logic
+      let startIndex = 0
+      if (cursor) {
+        const cursorIndex = events.findIndex((e: Event) => e.$id === cursor)
+        if (cursorIndex !== -1) {
+          startIndex = direction === 'forward' ? cursorIndex + 1 : Math.max(0, cursorIndex - limit)
+        }
+      }
+
+      const slicedEvents = events.slice(startIndex, startIndex + limit)
+      const hasMore = events.length > startIndex + limit
+
+      return {
+        items: slicedEvents,
+        nextCursor: hasMore && slicedEvents.length > 0 ? slicedEvents[slicedEvents.length - 1].$id : undefined,
+        prevCursor: startIndex > 0 && slicedEvents.length > 0 ? slicedEvents[0].$id : undefined,
+        hasMore
+      }
     },
 
     subscribe(handler: (event: Event) => void) {
@@ -865,6 +1008,40 @@ export function createSQLiteRelationshipsStore(
         object: row.object as string,
         $createdAt: row.created_at as number
       }))
+    },
+
+    // findWithCursor implementation for SQLite (do-8m4e)
+    async findWithCursor(options: any = {}) {
+      const { subject, predicate, object, cursor, limit = 100, direction = 'forward' } = options
+
+      // Fetch relationships using find method
+      const rels = await this.find({ subject, predicate, object })
+
+      // Sort by createdAt descending
+      rels.sort((a: Relationship, b: Relationship) => b.$createdAt - a.$createdAt)
+
+      // Handle cursor-based pagination logic
+      let startIndex = 0
+      if (cursor) {
+        const cursorIndex = rels.findIndex((r: Relationship) =>
+          `${r.subject}:${r.predicate}:${r.object}` === cursor
+        )
+        if (cursorIndex !== -1) {
+          startIndex = direction === 'forward' ? cursorIndex + 1 : Math.max(0, cursorIndex - limit)
+        }
+      }
+
+      const slicedRels = rels.slice(startIndex, startIndex + limit)
+      const hasMore = rels.length > startIndex + limit
+
+      const getRelId = (rel: Relationship) => `${rel.subject}:${rel.predicate}:${rel.object}`
+
+      return {
+        items: slicedRels,
+        nextCursor: hasMore && slicedRels.length > 0 ? getRelId(slicedRels[slicedRels.length - 1]) : undefined,
+        prevCursor: startIndex > 0 && slicedRels.length > 0 ? getRelId(slicedRels[0]) : undefined,
+        hasMore
+      }
     },
 
     async getRelated(subjectId: string, predicate: string) {

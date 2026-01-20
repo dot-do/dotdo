@@ -20,7 +20,7 @@
  */
 
 import type { Context, MiddlewareHandler, Next } from 'hono'
-import { RateLimitError, ValidationError } from '../../rpc/errors'
+import { RateLimitError, ValidationError } from '@dotdo/rpc'
 
 // ============================================================================
 // TYPES
