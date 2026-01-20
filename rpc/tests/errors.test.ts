@@ -114,10 +114,6 @@ describe('retryWithBackoff', () => {
     vi.useFakeTimers()
   })
 
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
   it('should succeed on first attempt', async () => {
     const fn = vi.fn().mockResolvedValue('success')
 
@@ -192,22 +188,16 @@ describe('retryWithBackoff', () => {
 
   it('should throw after max retries exceeded', async () => {
     const error = new RPCError(RPCErrorCode.NETWORK_ERROR, 'Network failed')
-    // Use mockImplementation instead of mockRejectedValue to avoid promise creation timing issues
-    const fn = vi.fn().mockImplementation(() => Promise.reject(error))
+    const fn = vi.fn().mockRejectedValue(error)
 
     const promise = retryWithBackoff(fn, {
       maxRetries: 3,
       initialDelay: 100,
     })
 
-    // Attach catch handler immediately to prevent unhandled rejection
-    const rejectionPromise = promise.catch((e) => e)
-
     await vi.runAllTimersAsync()
 
-    const caughtError = await rejectionPromise
-    expect(caughtError).toBeInstanceOf(RPCError)
-    expect(caughtError.message).toBe('Network failed')
+    await expect(promise).rejects.toThrow('Network failed')
     expect(fn).toHaveBeenCalledTimes(4) // Initial + 3 retries
   })
 
@@ -260,10 +250,6 @@ describe('retryWithBackoff', () => {
 describe('CircuitBreaker', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
   })
 
   it('should start in closed state', () => {
@@ -504,44 +490,53 @@ describe('CircuitBreaker', () => {
 })
 
 describe('withTimeout', () => {
-  // Note: These tests use real timers with short timeouts to avoid
-  // timing issues with fake timers and Promise.race
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
 
   it('should resolve if function completes before timeout', async () => {
-    const result = await withTimeout(Promise.resolve('success'), 1000)
+    const fn = vi.fn().mockResolvedValue('success')
+
+    const promise = withTimeout(fn(), 5000)
+    await vi.runAllTimersAsync()
+    const result = await promise
+
     expect(result).toBe('success')
   })
 
   it('should reject with timeout error if function takes too long', async () => {
-    // Create a promise that takes longer than the timeout
-    const slowPromise = new Promise<string>((resolve) => {
-      setTimeout(() => resolve('too late'), 100)
-    })
+    const fn = vi.fn().mockImplementation(() => new Promise(() => {})) // Never resolves
 
-    await expect(withTimeout(slowPromise, 10)).rejects.toThrow('Request timed out after 10ms')
+    const promise = withTimeout(fn(), 1000)
+    await vi.advanceTimersByTimeAsync(1000)
+
+    await expect(promise).rejects.toThrow('Request timed out after 1000ms')
   })
 
   it('should reject with original error if function fails before timeout', async () => {
     const error = new RPCError(RPCErrorCode.INTERNAL_ERROR, 'Failed')
-    const rejectingPromise = Promise.reject(error)
+    const fn = vi.fn().mockRejectedValue(error)
 
-    await expect(withTimeout(rejectingPromise, 1000)).rejects.toThrow('Failed')
+    const promise = withTimeout(fn(), 5000)
+    await vi.runAllTimersAsync()
+
+    await expect(promise).rejects.toThrow('Failed')
   })
 
   it('should include timeout duration in error details', async () => {
-    // Create a promise that takes longer than the timeout
-    const slowPromise = new Promise<string>((resolve) => {
-      setTimeout(() => resolve('too late'), 100)
-    })
+    const fn = vi.fn().mockImplementation(() => new Promise(() => {}))
+
+    const promise = withTimeout(fn(), 2000)
+    await vi.advanceTimersByTimeAsync(2000)
 
     try {
-      await withTimeout(slowPromise, 15)
+      await promise
       expect.fail('Should have thrown')
     } catch (error) {
       expect(error).toBeInstanceOf(RPCError)
       if (error instanceof RPCError) {
         expect(error.code).toBe(RPCErrorCode.TIMEOUT)
-        expect(error.details).toEqual({ timeout: 15 })
+        expect(error.details).toEqual({ timeout: 2000 })
       }
     }
   })
@@ -797,10 +792,6 @@ describe('CircuitOpenError', () => {
 describe('RetryWithCircuitBreaker', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
   })
 
   it('should succeed on first attempt', async () => {

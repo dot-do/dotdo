@@ -1,9 +1,5 @@
 // Session management for @dotdo/auth
 // Implements session creation, retrieval, invalidation, and refresh
-// Persists to StorageAdapter for DO storage support (do-qy75)
-
-import type { StorageAdapter } from '../db/storage'
-import { createMemoryStorageAdapter } from '../db/adapters/memory'
 
 export interface Session {
   id: string
@@ -32,55 +28,13 @@ export interface SessionOptions {
   slidingWindow?: boolean // extend expiry on access, default true
 }
 
-/**
- * Session storage configuration
- * Allows injecting a storage adapter for persistence
- */
-export interface SessionStorageConfig {
-  adapter: StorageAdapter
-}
-
-// Storage adapter instance - defaults to in-memory for backward compatibility
-let storageAdapter: StorageAdapter = createMemoryStorageAdapter()
-
-// Key prefixes for storage
-const SESSION_PREFIX = 'session:'
-const USER_SESSION_PREFIX = 'user_sessions:'
+// In-memory session storage (will be replaced with DO storage in production)
+const sessions = new Map<string, Session>()
+const userSessions = new Map<string, Set<string>>() // userId -> sessionIds
 
 // Default options
 const DEFAULT_MAX_AGE = 3600 // 1 hour
 const DEFAULT_SLIDING_WINDOW = true
-
-/**
- * Configure the session storage adapter
- * Call this with a StorageAdapter backed by DO/SQLite for persistence
- *
- * @example
- * // In DO initialization
- * import { SQLiteStorageAdapter } from '@dotdo/db'
- * import { configureSessionStorage } from '@dotdo/auth'
- *
- * configureSessionStorage({
- *   adapter: new SQLiteStorageAdapter(this.state.storage.sql, { namespace: 'sessions' })
- * })
- */
-export function configureSessionStorage(config: SessionStorageConfig): void {
-  storageAdapter = config.adapter
-}
-
-/**
- * Get the current storage adapter (for testing)
- */
-export function getSessionStorageAdapter(): StorageAdapter {
-  return storageAdapter
-}
-
-/**
- * Reset storage to default in-memory adapter (for testing)
- */
-export function resetSessionStorage(): void {
-  storageAdapter = createMemoryStorageAdapter()
-}
 
 /**
  * Generate a unique session ID
@@ -93,27 +47,6 @@ function generateSessionId(): string {
 
   // Fallback for environments without crypto.randomUUID
   return `session-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`
-}
-
-/**
- * Get user sessions set from storage
- */
-async function getUserSessionIds(userId: string): Promise<Set<string>> {
-  const key = `${USER_SESSION_PREFIX}${userId}`
-  const sessionIds = await storageAdapter.get<string[]>(key)
-  return new Set(sessionIds ?? [])
-}
-
-/**
- * Save user sessions set to storage
- */
-async function saveUserSessionIds(userId: string, sessionIds: Set<string>): Promise<void> {
-  const key = `${USER_SESSION_PREFIX}${userId}`
-  if (sessionIds.size === 0) {
-    await storageAdapter.delete(key)
-  } else {
-    await storageAdapter.put(key, Array.from(sessionIds))
-  }
 }
 
 /**
@@ -138,12 +71,13 @@ export async function createSession(
   }
 
   // Store session
-  await storageAdapter.put(`${SESSION_PREFIX}${session.id}`, session)
+  sessions.set(session.id, session)
 
   // Track session by user
-  const userSessionIds = await getUserSessionIds(userId)
-  userSessionIds.add(session.id)
-  await saveUserSessionIds(userId, userSessionIds)
+  if (!userSessions.has(userId)) {
+    userSessions.set(userId, new Set())
+  }
+  userSessions.get(userId)!.add(session.id)
 
   return session
 }
@@ -157,7 +91,7 @@ export async function getSession(
   sessionId: string,
   options: SessionOptions = {}
 ): Promise<Session | null> {
-  const session = await storageAdapter.get<Session>(`${SESSION_PREFIX}${sessionId}`)
+  const session = sessions.get(sessionId)
 
   if (!session) {
     return null
@@ -182,9 +116,6 @@ export async function getSession(
     session.expiresAt = now + maxAge * 1000
   }
 
-  // Save updated session
-  await storageAdapter.put(`${SESSION_PREFIX}${sessionId}`, session)
-
   return session
 }
 
@@ -200,40 +131,41 @@ export async function invalidateSession(
 ): Promise<boolean | number> {
   if (sessionId) {
     // Invalidate specific session
-    const session = await storageAdapter.get<Session>(`${SESSION_PREFIX}${sessionId}`)
+    const session = sessions.get(sessionId)
     if (!session) {
       return false
     }
 
     // Remove from sessions
-    await storageAdapter.delete(`${SESSION_PREFIX}${sessionId}`)
+    sessions.delete(sessionId)
 
     // Remove from user sessions
-    const userSessionIds = await getUserSessionIds(session.userId)
-    userSessionIds.delete(sessionId)
-    await saveUserSessionIds(session.userId, userSessionIds)
+    const userSessionSet = userSessions.get(session.userId)
+    if (userSessionSet) {
+      userSessionSet.delete(sessionId)
+      if (userSessionSet.size === 0) {
+        userSessions.delete(session.userId)
+      }
+    }
 
     return true
   }
 
   if (userId) {
     // Invalidate all sessions for user
-    const userSessionIds = await getUserSessionIds(userId)
-    if (userSessionIds.size === 0) {
+    const userSessionSet = userSessions.get(userId)
+    if (!userSessionSet) {
       return 0
     }
 
     let count = 0
-    for (const sid of userSessionIds) {
-      const exists = await storageAdapter.has(`${SESSION_PREFIX}${sid}`)
-      if (exists) {
-        await storageAdapter.delete(`${SESSION_PREFIX}${sid}`)
+    for (const sid of userSessionSet) {
+      if (sessions.delete(sid)) {
         count++
       }
     }
 
-    // Clear user sessions index
-    await storageAdapter.delete(`${USER_SESSION_PREFIX}${userId}`)
+    userSessions.delete(userId)
     return count
   }
 
@@ -251,7 +183,7 @@ export async function refreshSession(
   data?: Record<string, unknown>,
   options: SessionOptions = {}
 ): Promise<Session | null> {
-  const session = await storageAdapter.get<Session>(`${SESSION_PREFIX}${sessionId}`)
+  const session = sessions.get(sessionId)
 
   if (!session) {
     return null
@@ -294,18 +226,16 @@ export async function refreshSession(
     await invalidateSession(sessionId)
 
     // Store new session
-    await storageAdapter.put(`${SESSION_PREFIX}${newSession.id}`, newSession)
+    sessions.set(newSession.id, newSession)
 
     // Track new session by user
-    const userSessionIds = await getUserSessionIds(newSession.userId)
-    userSessionIds.add(newSession.id)
-    await saveUserSessionIds(newSession.userId, userSessionIds)
+    if (!userSessions.has(newSession.userId)) {
+      userSessions.set(newSession.userId, new Set())
+    }
+    userSessions.get(newSession.userId)!.add(newSession.id)
 
     return newSession
   }
-
-  // Save updated session
-  await storageAdapter.put(`${SESSION_PREFIX}${sessionId}`, session)
 
   return session
 }
@@ -318,16 +248,8 @@ export async function cleanupExpiredSessions(): Promise<number> {
   const now = Date.now()
   let removed = 0
 
-  // List all sessions
-  const result = await storageAdapter.list<Session>({
-    prefix: SESSION_PREFIX,
-    includeValues: true
-  })
-
-  for (const [key, session] of result.entries) {
-    if (session && session.expiresAt <= now) {
-      // Extract session ID from key (remove prefix)
-      const sessionId = key.replace(SESSION_PREFIX, '')
+  for (const [sessionId, session] of sessions.entries()) {
+    if (session.expiresAt <= now) {
       await invalidateSession(sessionId)
       removed++
     }
@@ -340,16 +262,16 @@ export async function cleanupExpiredSessions(): Promise<number> {
  * Get all sessions for a user
  */
 export async function getUserSessions(userId: string): Promise<Session[]> {
-  const userSessionIds = await getUserSessionIds(userId)
-  if (userSessionIds.size === 0) {
+  const userSessionSet = userSessions.get(userId)
+  if (!userSessionSet) {
     return []
   }
 
   const now = Date.now()
   const result: Session[] = []
 
-  for (const sessionId of userSessionIds) {
-    const session = await storageAdapter.get<Session>(`${SESSION_PREFIX}${sessionId}`)
+  for (const sessionId of userSessionSet) {
+    const session = sessions.get(sessionId)
     if (session && session.expiresAt > now) {
       result.push(session)
     }
@@ -362,5 +284,6 @@ export async function getUserSessions(userId: string): Promise<Session[]> {
  * Clear all sessions (for testing)
  */
 export async function clearAllSessions(): Promise<void> {
-  await storageAdapter.clear()
+  sessions.clear()
+  userSessions.clear()
 }
