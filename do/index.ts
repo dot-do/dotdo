@@ -1,7 +1,14 @@
 // @dotdo/do - THE Durable Object for Digital Objects
 // DO = Durable Object = Digital Object
 
-export { DO, type DOEnv, type DOOptions } from './DO'
+export {
+  DO,
+  MissingSecretsError,
+  type DOEnv,
+  type DOOptions,
+  type SecretValidationConfig,
+  type SecretValidationResult,
+} from './DO'
 
 // Composable mixins for building DOs (do-6epx)
 export {
