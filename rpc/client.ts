@@ -12,7 +12,7 @@
  * @module @dotdo/rpc/client
  */
 
-import { SerializedError, deserializeError, isRPCError, handleHTTPError } from './errors'
+import { SerializedError, deserializeError, isRPCError, handleResponseError } from './errors'
 import type { Transport, RPCMessage, RPCResponse } from './transport/types'
 import { PipelineBuilder, type PipelineRequest, type PipelineResponse } from './pipeline'
 
@@ -69,7 +69,7 @@ function createMethodInvoker(
 
     if (!response.ok) {
       const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
-      await handleHTTPError(response.json(), {
+      await handleResponseError(response, {
         status: response.status,
         correlationId: responseCorrelationId,
         fallbackMessage: `RPC error: ${response.status}`,
@@ -340,7 +340,7 @@ export function createDOStub<T extends object>(
 
         if (!response.ok) {
           const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
-          await handleHTTPError(response.json(), {
+          await handleResponseError(response, {
             status: response.status,
             correlationId: responseCorrelationId,
             fallbackMessage: `DO RPC error: ${response.status}`,
@@ -428,7 +428,7 @@ export function createSecureDOStub<T extends object>(
 
         if (!response.ok) {
           const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
-          await handleHTTPError(response.json(), {
+          await handleResponseError(response, {
             status: response.status,
             correlationId: responseCorrelationId,
             fallbackMessage: `DO RPC error: ${response.status}`,
@@ -686,7 +686,7 @@ export function createDOStubWithPipeline<T extends object>(
 
         if (!response.ok) {
           const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
-          await handleHTTPError(response.json(), {
+          await handleResponseError(response, {
             status: response.status,
             correlationId: responseCorrelationId,
             fallbackMessage: `DO RPC error: ${response.status}`,

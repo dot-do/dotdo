@@ -255,7 +255,6 @@ export class EntityManager {
    */
   get things(): ThingsStore {
     const baseStore = this._things
-    const eventsStore = this._events
     const logAudit = this.logAudit.bind(this)
     const ensureInit = () => this.ensureInitialized()
     const safeEmit = this.safeEmitEvent.bind(this)
