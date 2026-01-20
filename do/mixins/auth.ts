@@ -35,6 +35,7 @@ import {
   extractCallerInfo,
   detectCallerType,
   verifyDOSignature,
+  extractDONonce,
   setDOInternalSecret,
   addDOSourceHeadersAsync,
   createDOToDoHeaders,
@@ -44,6 +45,7 @@ import {
   type CallerInfo,
   type CallerType,
   type AuthPayload,
+  type CreateDOToDoHeadersOptions,
   CF_WORKER_HEADER,
   WORKER_NAME_HEADER,
   DO_SOURCE_HEADER,
@@ -51,7 +53,8 @@ import {
   CORRELATION_ID_HEADER,
   INTERNAL_TRUST_HEADER,
   DO_SIGNATURE_HEADER,
-  DO_TIMESTAMP_HEADER
+  DO_TIMESTAMP_HEADER,
+  DO_NONCE_HEADER
 } from '../auth'
 import type { Constructor } from './storage'
 
@@ -361,6 +364,7 @@ export {
   extractCallerInfo,
   detectCallerType,
   verifyDOSignature,
+  extractDONonce,
   setDOInternalSecret,
   addDOSourceHeadersAsync,
   createDOToDoHeaders,
@@ -370,6 +374,7 @@ export {
   type CallerInfo,
   type CallerType,
   type AuthPayload,
+  type CreateDOToDoHeadersOptions,
   // Headers
   CF_WORKER_HEADER,
   WORKER_NAME_HEADER,
@@ -378,5 +383,6 @@ export {
   CORRELATION_ID_HEADER,
   INTERNAL_TRUST_HEADER,
   DO_SIGNATURE_HEADER,
-  DO_TIMESTAMP_HEADER
+  DO_TIMESTAMP_HEADER,
+  DO_NONCE_HEADER
 }

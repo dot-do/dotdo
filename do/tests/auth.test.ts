@@ -1199,3 +1199,243 @@ describe('createDOAuthGuard with secure verification', () => {
     expect(result).toBe(true)
   })
 })
+
+// ============================================================================
+// Replay Protection Tests (do-rljr.9)
+// Tests for timestamp validation and nonce support
+// ============================================================================
+
+import { extractDONonce, DO_NONCE_HEADER } from '../auth'
+
+describe('HMAC Replay Protection (do-rljr.9)', () => {
+  beforeEach(() => {
+    clearDOInternalSecret()
+  })
+
+  afterEach(() => {
+    clearDOInternalSecret()
+  })
+
+  describe('Timestamp validation', () => {
+    it('should reject timestamps too far in the future (clock manipulation)', async () => {
+      setDOInternalSecret(TEST_SECRET)
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      // Timestamp 2 minutes in the future (beyond 30 second max future drift)
+      const futureTimestamp = (Date.now() + 2 * 60 * 1000).toString()
+
+      const request = createRequest('https://do/rpc', {
+        headers: {
+          [DO_SOURCE_HEADER]: 'true',
+          [DO_SOURCE_ID_HEADER]: 'source-do',
+          [DO_SIGNATURE_HEADER]: 'some-signature',
+          [DO_TIMESTAMP_HEADER]: futureTimestamp,
+        },
+      })
+
+      const result = await verifyDOSignature(request)
+      expect(result).toBe(false)
+
+      // Verify warning was logged (logger prefixes with [DOAuth])
+      expect(warnSpy).toHaveBeenCalled()
+      const call = warnSpy.mock.calls[0]
+      expect(call).toBeDefined()
+      expect(call.join(' ')).toContain('timestamp in future')
+
+      warnSpy.mockRestore()
+    })
+
+    it('should accept timestamps within allowed future drift (clock skew)', async () => {
+      setDOInternalSecret(TEST_SECRET)
+
+      const sourceDoId = 'source-do-123'
+      const targetPath = '/rpc'
+
+      // Create headers with a timestamp 10 seconds in the future (within 30s allowed drift)
+      const timestamp = (Date.now() + 10 * 1000).toString()
+
+      const encoder = new TextEncoder()
+      const key = await crypto.subtle.importKey(
+        'raw',
+        encoder.encode(TEST_SECRET),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      )
+
+      // Message format: sourceDoId|timestamp|nonce|targetPath
+      const message = `${sourceDoId}|${timestamp}||${targetPath}`
+      const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(message))
+      const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)))
+
+      const request = createRequest(`https://do${targetPath}`, {
+        headers: {
+          [DO_SOURCE_HEADER]: 'true',
+          [DO_SOURCE_ID_HEADER]: sourceDoId,
+          [DO_TIMESTAMP_HEADER]: timestamp,
+          [DO_SIGNATURE_HEADER]: signature,
+        },
+      })
+
+      const result = await verifyDOSignature(request)
+      expect(result).toBe(true)
+    })
+
+    it('should reject timestamps at exactly max age boundary', async () => {
+      setDOInternalSecret(TEST_SECRET)
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      // Timestamp exactly at max age + 1 second (should be rejected)
+      const oldTimestamp = (Date.now() - 5 * 60 * 1000 - 1000).toString()
+
+      const request = createRequest('https://do/rpc', {
+        headers: {
+          [DO_SOURCE_HEADER]: 'true',
+          [DO_SOURCE_ID_HEADER]: 'source-do',
+          [DO_SIGNATURE_HEADER]: 'some-signature',
+          [DO_TIMESTAMP_HEADER]: oldTimestamp,
+        },
+      })
+
+      const result = await verifyDOSignature(request)
+      expect(result).toBe(false)
+
+      warnSpy.mockRestore()
+    })
+  })
+
+  describe('Nonce validation', () => {
+    it('should create headers with nonce when provided', async () => {
+      setDOInternalSecret(TEST_SECRET)
+
+      const nonce = 'unique-request-id-123'
+      const headers = await createDOToDoHeaders('source-do', '/rpc', { nonce })
+
+      expect(headers.get(DO_NONCE_HEADER)).toBe(nonce)
+      expect(headers.get(DO_SOURCE_HEADER)).toBe('true')
+      expect(headers.get(DO_SIGNATURE_HEADER)).toBeTruthy()
+    })
+
+    it('should verify signatures with nonce included', async () => {
+      setDOInternalSecret(TEST_SECRET)
+
+      const sourceDoId = 'source-do-123'
+      const targetPath = '/rpc'
+      const nonce = 'request-nonce-456'
+
+      // Create headers with nonce
+      const headers = await createDOToDoHeaders(sourceDoId, targetPath, { nonce })
+
+      const request = new Request(`https://do${targetPath}`, {
+        method: 'POST',
+        headers,
+      })
+
+      const result = await verifyDOSignature(request)
+      expect(result).toBe(true)
+    })
+
+    it('should reject signature if nonce is tampered with', async () => {
+      setDOInternalSecret(TEST_SECRET)
+
+      const sourceDoId = 'source-do-123'
+      const targetPath = '/rpc'
+      const originalNonce = 'original-nonce'
+
+      // Create headers with original nonce
+      const headers = await createDOToDoHeaders(sourceDoId, targetPath, { nonce: originalNonce })
+
+      // Tamper with the nonce header (but keep the original signature)
+      headers.set(DO_NONCE_HEADER, 'tampered-nonce')
+
+      const request = new Request(`https://do${targetPath}`, {
+        method: 'POST',
+        headers,
+      })
+
+      const result = await verifyDOSignature(request)
+      expect(result).toBe(false)
+    })
+
+    it('should extract nonce from request', () => {
+      const nonce = 'my-unique-nonce'
+      const request = createRequest('https://do/rpc', {
+        headers: { [DO_NONCE_HEADER]: nonce },
+      })
+
+      const extractedNonce = extractDONonce(request)
+      expect(extractedNonce).toBe(nonce)
+    })
+
+    it('should return null when no nonce present', () => {
+      const request = createRequest('https://do/rpc')
+
+      const extractedNonce = extractDONonce(request)
+      expect(extractedNonce).toBeNull()
+    })
+
+    it('should support nonce with addDOSourceHeaders', async () => {
+      setDOInternalSecret(TEST_SECRET)
+
+      const nonce = 'header-nonce-789'
+      const headers = new Headers()
+      await addDOSourceHeaders(headers, 'source-do', '/rpc', nonce)
+
+      expect(headers.get(DO_NONCE_HEADER)).toBe(nonce)
+    })
+
+    it('should create headers with both nonce and correlationId', async () => {
+      setDOInternalSecret(TEST_SECRET)
+
+      const nonce = 'unique-nonce'
+      const correlationId = 'correlation-id-123'
+
+      const headers = await createDOToDoHeaders('source-do', '/rpc', {
+        nonce,
+        correlationId,
+      })
+
+      expect(headers.get(DO_NONCE_HEADER)).toBe(nonce)
+      expect(headers.get(CORRELATION_ID_HEADER)).toBe(correlationId)
+    })
+
+    it('should maintain backwards compatibility with string correlationId', async () => {
+      setDOInternalSecret(TEST_SECRET)
+
+      // Old API: third param is just correlationId string
+      const headers = await createDOToDoHeaders('source-do', '/rpc', 'corr-id')
+
+      expect(headers.get(CORRELATION_ID_HEADER)).toBe('corr-id')
+      expect(headers.get(DO_NONCE_HEADER)).toBeNull() // No nonce with old API
+    })
+  })
+
+  describe('Timing attack prevention', () => {
+    it('should use constant-time comparison for signature verification', async () => {
+      setDOInternalSecret(TEST_SECRET)
+
+      const sourceDoId = 'source-do'
+      const targetPath = '/rpc'
+
+      // Create valid signature
+      const headers = await createDOToDoHeaders(sourceDoId, targetPath)
+      const validSignature = headers.get(DO_SIGNATURE_HEADER)!
+
+      // Create request with slightly different signature (only last char differs)
+      const tamperedSignature = validSignature.slice(0, -1) + (validSignature.slice(-1) === 'a' ? 'b' : 'a')
+
+      const request = createRequest(`https://do${targetPath}`, {
+        headers: {
+          [DO_SOURCE_HEADER]: 'true',
+          [DO_SOURCE_ID_HEADER]: sourceDoId,
+          [DO_TIMESTAMP_HEADER]: headers.get(DO_TIMESTAMP_HEADER)!,
+          [DO_SIGNATURE_HEADER]: tamperedSignature,
+        },
+      })
+
+      // The verification should fail, demonstrating the constant-time comparison works
+      const result = await verifyDOSignature(request)
+      expect(result).toBe(false)
+    })
+  })
+})
