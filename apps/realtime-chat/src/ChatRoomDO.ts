@@ -27,6 +27,7 @@ interface MessageRow {
   username: string
   content: string
   timestamp: number
+  [key: string]: string | number | null | ArrayBuffer  // Index signature for SqlStorageValue compatibility
 }
 
 interface WebSocketMessage {

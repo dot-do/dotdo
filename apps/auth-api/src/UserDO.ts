@@ -29,6 +29,7 @@ interface UserRow {
   password_hash: string
   created_at: number
   updated_at: number
+  [key: string]: string | number | null | ArrayBuffer  // Index signature for SqlStorageValue compatibility
 }
 
 // ============================================================================
@@ -143,7 +144,7 @@ export class UserDO implements DurableObject {
       'SELECT id, email, name, password_hash, created_at, updated_at FROM users LIMIT 1'
     )
     const rows = [...cursor]
-    return rows.length > 0 ? rows[0] : null
+    return rows.length > 0 ? rows[0]! : null
   }
 
   // Convert row to public user (no password)

@@ -28,6 +28,7 @@ interface TodoRow {
   completed: number // SQLite uses 0/1 for booleans
   created_at: number
   updated_at: number
+  [key: string]: string | number | null | ArrayBuffer  // Index signature for SqlStorageValue compatibility
 }
 
 // ============================================================================

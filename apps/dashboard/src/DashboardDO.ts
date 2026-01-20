@@ -50,7 +50,9 @@ export interface MetricsBucket {
   totalResponseTime: number
 }
 
-// SQL row types
+// SQL row types - all include index signature for SqlStorageValue compatibility
+type SqlStorageValue = string | number | null | ArrayBuffer
+
 interface DORegistrationRow {
   id: string
   name: string
@@ -60,6 +62,7 @@ interface DORegistrationRow {
   last_seen: number
   status: string
   metadata: string | null
+  [key: string]: SqlStorageValue
 }
 
 interface DOEventRow {
@@ -72,6 +75,7 @@ interface DOEventRow {
   timestamp: number
   duration: number | null
   error: string | null
+  [key: string]: SqlStorageValue
 }
 
 interface MetricsRow {
@@ -80,6 +84,7 @@ interface MetricsRow {
   error_count: number
   avg_response_time: number
   last_updated: number
+  [key: string]: SqlStorageValue
 }
 
 interface MetricsBucketRow {
@@ -88,15 +93,18 @@ interface MetricsBucketRow {
   requests: number
   errors: number
   total_response_time: number
+  [key: string]: SqlStorageValue
 }
 
 interface CountRow {
   count: number
+  [key: string]: SqlStorageValue
 }
 
 interface SumRow {
   total_requests: number
   total_errors: number
+  [key: string]: SqlStorageValue
 }
 
 export class DashboardDO implements DurableObject {

@@ -231,6 +231,7 @@ describe('Resource Definition DSL', () => {
     it('should support validation hooks', () => {
       interface CustomerData {
         email: string
+        [key: string]: string // Index signature for StorableData compatibility
       }
 
       const Customer = defineResource<CustomerData>('Customer')
@@ -253,6 +254,7 @@ describe('Resource Definition DSL', () => {
       interface CustomerData {
         firstName: string
         lastName: string
+        [key: string]: string // Index signature for StorableData compatibility
       }
 
       const Customer = defineResource<CustomerData>('Customer')
@@ -344,6 +346,7 @@ describe('Resource Definition DSL', () => {
     it('should support method chaining', () => {
       interface CustomerData {
         name: string
+        [key: string]: string // Index signature for StorableData compatibility
       }
 
       const resource = defineResource<CustomerData>('Customer')

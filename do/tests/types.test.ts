@@ -100,8 +100,8 @@ interface SampleProductDO {
   updateStock(quantity: number): Promise<void>
 }
 
-// Define sample event schemas
-interface SampleEventSchemas {
+// Define sample event schemas - extends constraint for index signature compatibility
+interface SampleEventSchemas extends EventSchemasConstraint {
   'Customer.signup': { customerId: string; email: string; plan: string }
   'Customer.updated': { customerId: string; changes: Record<string, unknown> }
   'Order.placed': { orderId: string; items: string[]; total: number }
@@ -109,8 +109,8 @@ interface SampleEventSchemas {
   'Payment.failed': { paymentId: string; reason: string }
 }
 
-// Define sample DO bindings map
-interface SampleDOBindings {
+// Define sample DO bindings map - extends constraint for index signature compatibility
+interface SampleDOBindings extends DOBindingsConstraint {
   Customer: SampleCustomerDO
   Order: SampleOrderDO
   Product: SampleProductDO
