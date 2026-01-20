@@ -1,7 +1,11 @@
 // RPC Client - connects to Workers/DOs
 // Implements typed proxy for remote method invocation via fetch-based RPC
+// Supports pluggable transports for different communication backends
 
 import { SerializedError, deserializeError, isRPCError } from './errors'
+import type { Transport, RPCMessage, RPCResponse } from './transport/types'
+import { FetchTransport } from './transport/fetch'
+import { StubTransport } from './transport/stub'
 
 /**
  * Generate a unique correlation ID for request tracing
@@ -138,6 +142,116 @@ export function createClient<T extends object>(options: RPCClientOptions): T {
   const { url, timeout = 30000, correlationId } = options
 
   return createNestedProxy(url, timeout, [], correlationId) as T
+}
+
+// ============================================================================
+// Transport-Based Client API
+// ============================================================================
+
+/**
+ * Options for creating a transport-based RPC client
+ */
+export interface TransportClientOptions {
+  /** The transport to use for RPC communication */
+  transport: Transport
+  /** Optional correlation ID to use for all requests */
+  correlationId?: string
+}
+
+/**
+ * Internal helper to create a method invoker for transport-based client
+ */
+function createTransportMethodInvoker(
+  transport: Transport,
+  methodPath: string[],
+  baseCorrelationId?: string
+): (...args: unknown[]) => Promise<unknown> {
+  return async (...args: unknown[]) => {
+    const method = methodPath.join('.')
+    const correlationId = baseCorrelationId || generateCorrelationId()
+
+    const message: RPCMessage = { method, args, correlationId }
+    const response = await transport.send(message)
+
+    if (response.error) {
+      throw deserializeError(response.error)
+    }
+
+    return response.result
+  }
+}
+
+/**
+ * Create a nested proxy that tracks the property path for transport-based client
+ */
+function createTransportNestedProxy(
+  transport: Transport,
+  path: string[] = [],
+  correlationId?: string
+): unknown {
+  return new Proxy(() => {}, {
+    get(_, prop: string | symbol) {
+      // Don't intercept symbols or promise methods (client should not be thenable)
+      if (typeof prop === 'symbol') {
+        return undefined
+      }
+
+      if (prop === 'then' || prop === 'catch' || prop === 'finally') {
+        return undefined // Not a promise
+      }
+
+      // Special property to access the underlying transport
+      if (prop === '$transport') {
+        return transport
+      }
+
+      // Return a nested proxy for property access
+      return createTransportNestedProxy(transport, [...path, prop], correlationId)
+    },
+
+    apply(_, __, args: unknown[]) {
+      // When called as a function, invoke the RPC method
+      return createTransportMethodInvoker(transport, path, correlationId)(...args)
+    },
+  })
+}
+
+/**
+ * Creates a typed proxy client that uses a transport for RPC communication.
+ *
+ * This is the new transport-based API that separates the transport layer
+ * from the RPC protocol. Use this when you need more control over the
+ * communication backend.
+ *
+ * @example
+ * ```typescript
+ * import { createClientWithTransport, FetchTransport } from '@dotdo/rpc'
+ *
+ * interface MyAPI {
+ *   greet(name: string): Promise<string>
+ *   users: {
+ *     create(user: User): Promise<{ id: string }>
+ *   }
+ * }
+ *
+ * // Using fetch transport
+ * const transport = new FetchTransport({ url: 'https://api.example.com' })
+ * const client = createClientWithTransport<MyAPI>({ transport })
+ *
+ * const greeting = await client.greet('World')
+ * const user = await client.users.create({ name: 'Alice' })
+ *
+ * // Access the underlying transport
+ * const state = client.$transport.getState?.()
+ * await client.$transport.close?.()
+ * ```
+ *
+ * @param options - Configuration options including the transport
+ * @returns A typed proxy that forwards method calls via the transport
+ */
+export function createClientWithTransport<T extends object>(options: TransportClientOptions): T & { $transport: Transport } {
+  const { transport, correlationId } = options
+  return createTransportNestedProxy(transport, [], correlationId) as T & { $transport: Transport }
 }
 
 /**
