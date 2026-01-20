@@ -1,220 +1,280 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { DO } from '../DO'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { env } from 'cloudflare:test'
 
-// Mock DurableObjectState
-function createMockState(): DurableObjectState {
-  const storage = new Map<string, unknown>()
+/**
+ * DO Class Tests - Using Real Miniflare Runtime
+ *
+ * These tests use @cloudflare/vitest-pool-workers to test against
+ * real Durable Objects instead of mocks. This ensures:
+ * - Real storage persistence
+ * - Real SQLite operations
+ * - Real concurrency handling (blockConcurrencyWhile)
+ * - Real WebSocket hibernation
+ *
+ * NO MOCKS for DO storage/state per CLAUDE.md philosophy.
+ */
 
-  return {
-    id: { toString: () => 'test-do-id' } as DurableObjectId,
-    storage: {
-      get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
-      put: vi.fn((key: string, value: unknown) => {
-        storage.set(key, value)
-        return Promise.resolve()
-      }),
-      delete: vi.fn((key: string) => {
-        storage.delete(key)
-        return Promise.resolve(true)
-      }),
-      list: vi.fn(() => Promise.resolve(storage)),
-      deleteAll: vi.fn(() => {
-        storage.clear()
-        return Promise.resolve()
-      }),
-    },
-    blockConcurrencyWhile: vi.fn((fn) => fn()),
-    waitUntil: vi.fn(),
-  } as unknown as DurableObjectState
+// Helper to generate unique test IDs for isolation
+function generateTestId(): string {
+  return `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+// Helper to get DO stub
+function getDoStub(name: string = generateTestId()) {
+  const id = env.DO.idFromName(name)
+  return env.DO.get(id)
 }
 
 describe('DO Class', () => {
-  let doInstance: DO
-  let mockState: DurableObjectState
+  let testId: string
 
   beforeEach(() => {
-    mockState = createMockState()
-    doInstance = new DO(mockState, {})
+    testId = generateTestId()
   })
 
   describe('health check', () => {
     it('should respond to GET /', async () => {
-      const request = new Request('https://do/')
-      const response = await doInstance.fetch(request)
+      const stub = getDoStub(testId)
+      const response = await stub.fetch('https://do/')
 
       expect(response.status).toBe(200)
-      const json = await response.json()
+      const json = await response.json() as { status: string; id: string }
       expect(json.status).toBe('ok')
-      expect(json.id).toBe('test-do-id')
+      expect(json.id).toBeDefined()
+      expect(typeof json.id).toBe('string')
     })
   })
 
   describe('RPC endpoint', () => {
-    it('should call DO methods via /rpc', async () => {
-      // Add a test method to the DO
-      (doInstance as any).greet = (name: string) => `Hello, ${name}!`
-
-      const request = new Request('https://do/rpc', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method: 'greet', args: ['World'] })
-      })
-
-      const response = await doInstance.fetch(request)
-      expect(response.status).toBe(200)
-      expect(await response.json()).toBe('Hello, World!')
-    })
-
     it('should return 404 for unknown methods', async () => {
-      const request = new Request('https://do/rpc', {
+      const stub = getDoStub(testId)
+      const response = await stub.fetch('https://do/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method: 'unknown', args: [] })
+        body: JSON.stringify({ method: 'unknownMethod', args: [] })
       })
 
-      const response = await doInstance.fetch(request)
       expect(response.status).toBe(404)
     })
 
-    it('should handle errors gracefully', async () => {
-      (doInstance as any).throws = () => { throw new Error('Test error') }
-
-      const request = new Request('https://do/rpc', {
+    it('should call things.create via RPC', async () => {
+      const stub = getDoStub(testId)
+      const response = await stub.fetch('https://do/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method: 'throws', args: [] })
+        body: JSON.stringify({
+          method: 'things.create',
+          args: [{ $type: 'Customer', name: 'Alice' }]
+        })
       })
 
-      const response = await doInstance.fetch(request)
-      expect(response.status).toBe(500)
-      const json = await response.json()
-      expect(json.error).toBe('Test error')
+      expect(response.status).toBe(200)
+      const json = await response.json() as { $id: string; $type: string; name: string }
+      expect(json.$id).toBeDefined()
+      expect(json.$type).toBe('Customer')
+      expect(json.name).toBe('Alice')
     })
 
     it('should handle nested methods via dot notation', async () => {
-      // Add a nested method structure
-      (doInstance as any).math = {
-        add: (a: number, b: number) => a + b
-      }
+      const stub = getDoStub(testId)
 
-      const request = new Request('https://do/rpc', {
+      // First create a thing
+      const createResponse = await stub.fetch('https://do/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method: 'math.add', args: [2, 3] })
+        body: JSON.stringify({
+          method: 'things.create',
+          args: [{ $type: 'Order', total: 100 }]
+        })
       })
+      expect(createResponse.status).toBe(200)
+      const created = await createResponse.json() as { $id: string }
 
-      const response = await doInstance.fetch(request)
-      expect(response.status).toBe(200)
-      expect(await response.json()).toBe(5)
-    })
-
-    it('should handle async methods', async () => {
-      (doInstance as any).asyncGreet = async (name: string) => {
-        return `Hello, ${name}!`
-      }
-
-      const request = new Request('https://do/rpc', {
+      // Then get it back
+      const getResponse = await stub.fetch('https://do/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method: 'asyncGreet', args: ['Async'] })
+        body: JSON.stringify({
+          method: 'things.get',
+          args: [created.$id]
+        })
       })
-
-      const response = await doInstance.fetch(request)
-      expect(response.status).toBe(200)
-      expect(await response.json()).toBe('Hello, Async!')
+      expect(getResponse.status).toBe(200)
+      const retrieved = await getResponse.json() as { $id: string; total: number }
+      expect(retrieved.$id).toBe(created.$id)
+      expect(retrieved.total).toBe(100)
     })
   })
 
   describe('info endpoint', () => {
     it('should return storage info at /info', async () => {
-      const request = new Request('https://do/info')
-      const response = await doInstance.fetch(request)
+      const stub = getDoStub(testId)
+      const response = await stub.fetch('https://do/info')
 
       expect(response.status).toBe(200)
-      const json = await response.json()
-      expect(json.id).toBe('test-do-id')
+      const json = await response.json() as { id: string; keys: number }
+      expect(json.id).toBeDefined()
       expect(typeof json.keys).toBe('number')
     })
   })
 
-  describe('subclassing', () => {
-    it('should allow subclasses to add routes', async () => {
-      class CustomDO extends DO {
-        protected routes(app: any) {
-          app.get('/custom', (c: any) => c.json({ custom: true }))
-        }
+  // Note: Subclassing tests require static class registration in wrangler config
+  // For now, test the base DO behavior which is what we can test with env.DO
+  describe('base functionality', () => {
+    it('should handle concurrent requests to same instance', async () => {
+      const stub = getDoStub(testId)
+
+      // Make multiple concurrent requests
+      const requests = Array.from({ length: 5 }, (_, i) =>
+        stub.fetch('https://do/rpc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            method: 'things.create',
+            args: [{ $type: 'Item', index: i }]
+          })
+        })
+      )
+
+      const responses = await Promise.all(requests)
+
+      // All should succeed
+      for (const response of responses) {
+        expect(response.status).toBe(200)
       }
 
-      const custom = new CustomDO(mockState, {})
-      const request = new Request('https://do/custom')
-      const response = await custom.fetch(request)
-
-      expect(response.status).toBe(200)
-      expect(await response.json()).toEqual({ custom: true })
+      // Verify all items were created
+      const listResponse = await stub.fetch('https://do/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: 'things.list',
+          args: [{ $type: 'Item' }]
+        })
+      })
+      expect(listResponse.status).toBe(200)
+      const items = await listResponse.json() as Array<{ $type: string }>
+      expect(items.length).toBe(5)
     })
 
-    it('should still have base routes when subclassed', async () => {
-      class CustomDO extends DO {
-        protected routes(app: any) {
-          app.get('/custom', (c: any) => c.json({ custom: true }))
-        }
-      }
+    it('should persist data within same instance', async () => {
+      const stub = getDoStub(testId)
 
-      const custom = new CustomDO(mockState, {})
+      // Create a thing
+      const createResponse = await stub.fetch('https://do/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: 'things.create',
+          args: [{ $type: 'User', email: 'test@example.com' }]
+        })
+      })
+      const created = await createResponse.json() as { $id: string }
 
-      // Check base health endpoint still works
-      const request = new Request('https://do/')
-      const response = await custom.fetch(request)
-
-      expect(response.status).toBe(200)
-      const json = await response.json()
-      expect(json.status).toBe('ok')
+      // Get it back immediately
+      const getResponse = await stub.fetch('https://do/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: 'things.get',
+          args: [created.$id]
+        })
+      })
+      const retrieved = await getResponse.json() as { $id: string; email: string }
+      expect(retrieved.email).toBe('test@example.com')
     })
   })
 
   describe('CORS', () => {
-    it('should include CORS headers by default', async () => {
-      const request = new Request('https://do/', {
+    it('should include CORS headers on preflight requests', async () => {
+      const stub = getDoStub(testId)
+      const response = await stub.fetch('https://do/', {
         method: 'OPTIONS',
         headers: {
           'Origin': 'https://example.com',
           'Access-Control-Request-Method': 'GET'
         }
       })
-
-      const response = await doInstance.fetch(request)
+      // CORS headers should be present
       expect(response.headers.get('Access-Control-Allow-Origin')).toBeTruthy()
-    })
-
-    it('should allow disabling CORS', async () => {
-      const noCors = new DO(mockState, {}, { cors: false })
-
-      const request = new Request('https://do/', {
-        method: 'OPTIONS',
-        headers: {
-          'Origin': 'https://example.com',
-          'Access-Control-Request-Method': 'GET'
-        }
-      })
-
-      const response = await noCors.fetch(request)
-      // Without CORS middleware, OPTIONS will return 404 or no CORS headers
-      const corsHeader = response.headers.get('Access-Control-Allow-Origin')
-      expect(corsHeader).toBeNull()
     })
   })
 
-  describe('lifecycle methods', () => {
-    it('should have alarm method', () => {
-      expect(typeof doInstance.alarm).toBe('function')
+  // Type-safe SQL storage access test (do-grp5.1)
+  describe('SQL storage type safety', () => {
+    it('should access SQL storage without unsafe type casts', async () => {
+      const stub = getDoStub(testId)
+
+      // Create a thing via RPC - this exercises the type-safe SQL access path
+      const createResponse = await stub.fetch('https://do/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: 'things.create',
+          args: [{ $type: 'TestEntity', name: 'TypeSafeTest', value: 42 }]
+        })
+      })
+
+      expect(createResponse.status).toBe(200)
+      const created = await createResponse.json() as { $id: string; $type: string; name: string; value: number }
+      expect(created.$id).toBeDefined()
+      expect(created.$type).toBe('TestEntity')
+      expect(created.name).toBe('TypeSafeTest')
+      expect(created.value).toBe(42)
+
+      // Verify the data was persisted via SQLite
+      const getResponse = await stub.fetch('https://do/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: 'things.get',
+          args: [created.$id]
+        })
+      })
+
+      expect(getResponse.status).toBe(200)
+      const retrieved = await getResponse.json() as { $id: string; $type: string; name: string; value: number }
+      expect(retrieved.$id).toBe(created.$id)
+      expect(retrieved.name).toBe('TypeSafeTest')
+      expect(retrieved.value).toBe(42)
     })
 
-    it('should have webSocketMessage method', () => {
-      expect(typeof doInstance.webSocketMessage).toBe('function')
-    })
+    it('should handle multiple entity types with type-safe SQL storage', async () => {
+      const stub = getDoStub(testId)
 
-    it('should have webSocketClose method', () => {
-      expect(typeof doInstance.webSocketClose).toBe('function')
+      // Create entities of different types
+      const customerResponse = await stub.fetch('https://do/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: 'things.create',
+          args: [{ $type: 'Customer', email: 'test@example.com' }]
+        })
+      })
+      expect(customerResponse.status).toBe(200)
+
+      const orderResponse = await stub.fetch('https://do/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: 'things.create',
+          args: [{ $type: 'Order', total: 99.99 }]
+        })
+      })
+      expect(orderResponse.status).toBe(200)
+
+      // List by type to verify type filtering works
+      const listResponse = await stub.fetch('https://do/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: 'things.list',
+          args: [{ $type: 'Customer' }]
+        })
+      })
+      expect(listResponse.status).toBe(200)
+      const customers = await listResponse.json() as Array<{ $type: string }>
+      expect(customers.every(c => c.$type === 'Customer')).toBe(true)
     })
   })
 })

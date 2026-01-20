@@ -4,6 +4,10 @@
 
 export { createAPI } from './app'
 
+// Re-export DO class for miniflare bindings in tests
+// Import directly from DO.ts to avoid pulling in node-dependent modules (gitx, bashx)
+export { DO } from '../do/DO'
+
 // Resource definition
 export {
   defineResource,
@@ -67,10 +71,20 @@ export {
 // Rate limiting middleware
 export {
   RateLimiter,
+  DistributedRateLimiter,
   rateLimitMiddleware,
+  distributedRateLimitMiddleware,
   createRateLimiter,
+  createDistributedRateLimiter,
   DEFAULT_TIERS,
   type RateLimitConfig,
+  type DistributedRateLimitConfig,
   type RateLimitTier,
   type RateLimitResult,
+  type RateLimiterDONamespace,
+  type RateLimiterDOStub,
 } from './middleware/rate-limit'
+
+// Rate limiter Durable Object (for distributed state)
+export { RateLimiterDO } from './middleware/RateLimiterDO'
+export type { RateLimitCheckParams, RateLimitCheckResult } from './middleware/RateLimiterDO'
