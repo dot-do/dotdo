@@ -26,6 +26,8 @@ export interface JwksClientOptions {
   refetchOnMissingKey?: boolean
   /** Minimum seconds between refetch attempts for missing keys (default: 30) */
   refetchCooldown?: number
+  /** Allow insecure HTTP for localhost/127.0.0.1 (for local development only, default: false) */
+  allowInsecureLocalhost?: boolean
 }
 
 /**
@@ -74,9 +76,43 @@ interface CacheEntry {
 }
 
 /**
+ * Validate that a JWKS URI uses HTTPS for security
+ * @param uri The JWKS URI to validate
+ * @param allowInsecureLocalhost Allow HTTP for localhost/127.0.0.1 (for development)
+ * @throws Error if the URI does not use HTTPS (unless localhost exception applies)
+ */
+export function validateJwksUri(uri: string, allowInsecureLocalhost = false): void {
+  const url = new URL(uri)
+
+  // Check if using HTTPS
+  if (url.protocol === 'https:') {
+    return // HTTPS is always allowed
+  }
+
+  // HTTP is only allowed for localhost if explicitly enabled
+  if (url.protocol === 'http:') {
+    const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1'
+
+    if (isLocalhost && allowInsecureLocalhost) {
+      return // Allow HTTP for localhost in development
+    }
+
+    throw new Error(
+      'JWKS URI must use HTTPS for security. ' +
+        'HTTP is not allowed as it exposes keys to man-in-the-middle attacks.'
+    )
+  }
+
+  throw new Error(`JWKS URI must use HTTPS. Unsupported protocol: ${url.protocol}`)
+}
+
+/**
  * Fetch JWKS from a URL
  */
-export async function fetchJwks(jwksUri: string): Promise<Jwks> {
+export async function fetchJwks(jwksUri: string, allowInsecureLocalhost = false): Promise<Jwks> {
+  // Validate HTTPS requirement
+  validateJwksUri(jwksUri, allowInsecureLocalhost)
+
   const response = await fetch(jwksUri)
 
   if (!response.ok) {
@@ -101,7 +137,11 @@ export function createJwksClient(options: JwksClientOptions): JwksClient {
     cacheTtl = 600,
     refetchOnMissingKey = true,
     refetchCooldown = 30,
+    allowInsecureLocalhost = false,
   } = options
+
+  // Validate JWKS URI uses HTTPS (security requirement)
+  validateJwksUri(jwksUri, allowInsecureLocalhost)
 
   let cache: CacheEntry | null = null
   let lastRefetchAttempt = 0
@@ -119,7 +159,7 @@ export function createJwksClient(options: JwksClientOptions): JwksClient {
    * Fetch and cache JWKS
    */
   async function fetchAndCache(): Promise<CacheEntry> {
-    const jwks = await fetchJwks(jwksUri)
+    const jwks = await fetchJwks(jwksUri, allowInsecureLocalhost)
     const keys = new Map<string, CryptoKey>()
 
     cache = {
