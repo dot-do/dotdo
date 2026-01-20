@@ -1,6 +1,7 @@
 // RPC Server - exposes methods via HTTP/RPC
 // Includes Cap'n Proto-style promise pipelining support
 import { Hono } from 'hono'
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
 import {
   NotFoundError,
@@ -229,20 +230,20 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
         const validation = validateMethodPath(request.method)
         if (!validation.valid) {
           const error = new ValidationError(validation.error, { method: request.method })
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus as ContentfulStatusCode)
         }
 
         // Check for private methods in initial call
         if (hasPrivateSegment(request.method)) {
           const error = createMethodNotAllowedError()
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus as ContentfulStatusCode)
         }
 
         // Check whitelist for initial method
         if (currentWhitelist !== undefined) {
           if (!matchesWhitelist(request.method, currentWhitelist)) {
             const error = createMethodNotAllowedError()
-            return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+            return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus as ContentfulStatusCode)
           }
         }
 
@@ -254,7 +255,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
             `Pipeline step ${response.error.stepIndex} failed: ${response.error.message}`,
             { stepIndex: response.error.stepIndex, code: response.error.code }
           )
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId, ...response.error }, error.httpStatus)
+          return c.json({ ...serializeError(error, { includeStack: false }), correlationId, ...response.error }, error.httpStatus as ContentfulStatusCode)
         }
 
         return c.json(response)
@@ -262,14 +263,14 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
         if (isRPCError(error)) {
           return c.json(
             { ...serializeError(error, { includeStack: false }), correlationId },
-            error.httpStatus
+            error.httpStatus as ContentfulStatusCode
           )
         }
 
         const wrappedError = InternalError.wrap(error)
         return c.json(
           { ...serializeError(wrappedError, { includeStack: false }), correlationId },
-          wrappedError.httpStatus
+          wrappedError.httpStatus as ContentfulStatusCode
         )
       }
     })
@@ -292,7 +293,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       const validation = validateMethodPath(method)
       if (!validation.valid) {
         const error = new ValidationError(validation.error, { method })
-        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus as ContentfulStatusCode)
       }
 
       const { parts } = validation
@@ -301,7 +302,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       // This must return the same error as whitelist rejection to avoid method enumeration
       if (hasPrivateSegment(method)) {
         const error = createMethodNotAllowedError()
-        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus as ContentfulStatusCode)
       }
 
       // Check whitelist if specified
@@ -311,7 +312,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
         if (!matchesWhitelist(method, currentWhitelist)) {
           // Return generic error - don't reveal whether method exists
           const error = createMethodNotAllowedError()
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus as ContentfulStatusCode)
         }
       }
 
@@ -325,20 +326,20 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
           // Return same error as whitelist rejection to prevent method enumeration
           if (currentWhitelist !== undefined) {
             const error = createMethodNotAllowedError()
-            return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+            return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus as ContentfulStatusCode)
           }
           const error = NotFoundError.forResource('Method', method)
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus as ContentfulStatusCode)
         }
         const next = current[parts[i]]
         if (!next || typeof next !== 'object') {
           // Return same error as whitelist rejection to prevent method enumeration
           if (currentWhitelist !== undefined) {
             const error = createMethodNotAllowedError()
-            return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+            return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus as ContentfulStatusCode)
           }
           const error = NotFoundError.forResource('Method', method)
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus as ContentfulStatusCode)
         }
         current = next as Record<string, unknown>
       }
@@ -354,10 +355,10 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
         // Return same error as whitelist rejection to prevent method enumeration
         if (currentWhitelist !== undefined) {
           const error = createMethodNotAllowedError()
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus as ContentfulStatusCode)
         }
         const error = NotFoundError.forResource('Method', method)
-        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus as ContentfulStatusCode)
       }
 
       // Validate arguments if schema is defined for this method
@@ -377,7 +378,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       if (isRPCError(error)) {
         return c.json(
           { ...serializeError(error, { includeStack: false }), correlationId },
-          error.httpStatus
+          error.httpStatus as ContentfulStatusCode
         )
       }
 
@@ -385,7 +386,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       const wrappedError = InternalError.wrap(error)
       return c.json(
         { ...serializeError(wrappedError, { includeStack: false }), correlationId },
-        wrappedError.httpStatus
+        wrappedError.httpStatus as ContentfulStatusCode
       )
     }
   })

@@ -564,10 +564,13 @@ export class Router {
 
     // Default implementation (placeholder)
     // Real implementation would call actual provider APIs
-    return {
+    const result: ExecuteResult = {
       result: `Response from ${options.provider}: ${prompt}`,
-      provider: options.provider
     }
+    if (options.provider !== undefined) {
+      result.provider = options.provider
+    }
+    return result
   }
 
   private _selectProviderForLoadBalancing(): Provider {

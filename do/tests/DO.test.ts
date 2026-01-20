@@ -218,4 +218,53 @@ describe('DO Class', () => {
       expect(typeof doInstance.webSocketClose).toBe('function')
     })
   })
+
+  describe('WorkflowContext ($) initialization', () => {
+    it('should initialize $ (WorkflowContext) in constructor', () => {
+      // Access the protected $ property via type assertion
+      const context = (doInstance as any).$
+
+      // Verify $ is defined (not undefined)
+      expect(context).toBeDefined()
+
+      // Verify $ has the expected WorkflowContext methods
+      expect(typeof context.send).toBe('function')
+      expect(typeof context.try).toBe('function')
+      expect(typeof context.do).toBe('function')
+
+      // Verify $ has the event handler proxy
+      expect(context.on).toBeDefined()
+
+      // Verify $ has the scheduling proxy
+      expect(context.every).toBeDefined()
+
+      // Verify $ has internal state
+      expect(context._events).toBeDefined()
+      expect(context._handlers).toBeInstanceOf(Map)
+      expect(context._schedules).toBeInstanceOf(Map)
+    })
+
+    it('should allow subclasses to use $ in constructor', () => {
+      let contextUsedInConstructor = false
+
+      class CustomDO extends DO {
+        constructor(state: DurableObjectState, env: any) {
+          super(state, env)
+          // Verify $ is accessible after super()
+          if (this.$ && typeof this.$.send === 'function') {
+            contextUsedInConstructor = true
+          }
+        }
+
+        // Expose protected $ for testing
+        get context() {
+          return this.$
+        }
+      }
+
+      const custom = new CustomDO(mockState, {})
+      expect(contextUsedInConstructor).toBe(true)
+      expect(custom.context).toBeDefined()
+    })
+  })
 })

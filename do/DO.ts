@@ -1,7 +1,8 @@
 // Base DO class - THE Durable Object for Digital Objects
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import type { WorkflowContext } from './context'
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { createContext, type WorkflowContext } from './context'
 import { EntityManager } from './entities'
 import { WebSocketManager } from './websocket'
 import type { ThingsStore, EventsStore, RelationshipsStore, AuditLogStore, AuditContext, QueryBuilder } from '../db'
@@ -48,9 +49,14 @@ export class DO implements DurableObject {
     this.state = state
     this.env = env
     this.app = new Hono()
-    this.entityManager = new EntityManager()
+    // Pass state to EntityManager for SQLite storage persistence (do-8m4e)
+    this.entityManager = new EntityManager({ state })
     this.websocketManager = new WebSocketManager()
     this._integrations = new IntegrationRegistry()
+
+    // Initialize WorkflowContext ($) for event handlers, scheduling, and cross-DO RPC
+    // This provides the fluent API: $.send(), $.try(), $.do(), $.on.*, $.every.*
+    this.$ = createContext(state, env)
 
     // Setup middleware
     if (options.cors !== false) {
@@ -138,14 +144,14 @@ export class DO implements DurableObject {
           current = current[parts[i]]
           if (!current) {
             const error = new NotFoundError(`Method not found: ${method}`)
-            return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
+            return c.json({ ...error.toJSON(), correlationId }, error.httpStatus as ContentfulStatusCode)
           }
         }
 
         const fn = current[parts[parts.length - 1]]
         if (typeof fn !== 'function') {
           const error = new NotFoundError(`Method not found: ${method}`)
-          return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
+          return c.json({ ...error.toJSON(), correlationId }, error.httpStatus as ContentfulStatusCode)
         }
 
         const result = await fn.apply(current, args)
@@ -156,11 +162,11 @@ export class DO implements DurableObject {
 
         // Re-throw RPCErrors with proper formatting
         if (error instanceof RPCError) {
-          return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
+          return c.json({ ...error.toJSON(), correlationId }, error.httpStatus as ContentfulStatusCode)
         }
         // Wrap unknown errors in InternalError
         const wrappedError = InternalError.wrap(error)
-        return c.json({ ...wrappedError.toJSON(), correlationId }, wrappedError.httpStatus)
+        return c.json({ ...wrappedError.toJSON(), correlationId }, wrappedError.httpStatus as ContentfulStatusCode)
       }
     })
 
@@ -176,7 +182,7 @@ export class DO implements DurableObject {
 
         if (!Array.isArray(calls)) {
           const error = new NotFoundError('Invalid batch request: calls must be an array')
-          return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
+          return c.json({ ...error.toJSON(), correlationId }, error.httpStatus as ContentfulStatusCode)
         }
 
         // Execute all calls in parallel
@@ -233,10 +239,10 @@ export class DO implements DurableObject {
 
         // Handle request-level errors (e.g., invalid JSON)
         if (error instanceof RPCError) {
-          return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
+          return c.json({ ...error.toJSON(), correlationId }, error.httpStatus as ContentfulStatusCode)
         }
         const wrappedError = InternalError.wrap(error)
-        return c.json({ ...wrappedError.toJSON(), correlationId }, wrappedError.httpStatus)
+        return c.json({ ...wrappedError.toJSON(), correlationId }, wrappedError.httpStatus as ContentfulStatusCode)
       }
     })
 
