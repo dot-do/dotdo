@@ -19,6 +19,7 @@ export interface AIPromise<T> extends Promise<T> {
   json<U = unknown>(): Promise<U>
   boolean(): AIPromise<boolean>
   list<U = unknown>(): AIPromise<U[]>
+  object<U = unknown>(schema: JSONSchema | ZodTypeAny | Record<string, unknown>): AIPromise<U>
   pipe<U>(fn: (value: T) => U | Promise<U>): AIPromise<U>
 }
 
@@ -159,6 +160,47 @@ export function createAIPromise<T>(
               }
             })
           }
+        },
+        { ...meta }
+      )
+    },
+    enumerable: true
+  })
+
+  Object.defineProperty(aiPromise, 'object', {
+    value: function <U = unknown>(
+      schema: JSONSchema | ZodTypeAny | Record<string, unknown>
+    ): AIPromise<U> {
+      return createAIPromise<U>(
+        async (objectMeta) => {
+          // Import generateObject at runtime to avoid circular dependencies
+          const { generateObject } = await import('./ai-core')
+
+          // Copy meta from original promise
+          Object.assign(objectMeta, meta)
+
+          // Get the model from meta
+          const modelId = objectMeta.model === 'default' ? 'sonnet' : (objectMeta.model || 'sonnet')
+
+          // Get the prompt from the original text result
+          const textResult = await basePromise
+          const prompt = String(textResult)
+
+          // Call generateObject with the schema and prompt
+          const result = await generateObject<U>({
+            model: modelId,
+            schema: schema as any,
+            prompt,
+            ...(objectMeta.temperature !== undefined && { temperature: objectMeta.temperature }),
+          })
+
+          // Update meta with token usage
+          objectMeta.tokens = {
+            input: result.usage.promptTokens,
+            output: result.usage.completionTokens,
+          }
+
+          return result.object
         },
         { ...meta }
       )
