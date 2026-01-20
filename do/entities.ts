@@ -17,6 +17,8 @@ import {
   type Event,
   type Relationship,
   type QueryBuilder,
+  type StorableData,
+  type JsonValue,
   defaultAuditConfig,
   maskSensitiveFields
 } from '../db'
@@ -75,11 +77,11 @@ export class EntityManager {
   /**
    * Helper to log audit entries if enabled
    */
-  private async logAudit(
+  private async logAudit<T extends StorableData = StorableData>(
     action: string,
     resource: string,
     resourceId?: string,
-    details?: Record<string, unknown>,
+    details?: Partial<T>,
     level: 'info' | 'warn' | 'error' | 'security' = 'info'
   ): Promise<void> {
     if (!this._auditConfig.enabled) return
@@ -239,8 +241,8 @@ export class EntityManager {
   /**
    * Query builder factory
    */
-  query(): QueryBuilder {
-    return createQuery(this.things)
+  query<T extends StorableData = StorableData>(): QueryBuilder<T> {
+    return createQuery<T>(this.things)
   }
 }
 
@@ -280,8 +282,8 @@ export function withEntities<T extends new (...args: any[]) => any>(Base: T) {
       return this.entityManager.getAuditContext()
     }
 
-    query(): QueryBuilder {
-      return this.entityManager.query()
+    query<T extends StorableData = StorableData>(): QueryBuilder<T> {
+      return this.entityManager.query<T>()
     }
   }
 }

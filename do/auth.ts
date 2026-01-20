@@ -150,21 +150,182 @@ export const CORRELATION_ID_HEADER = 'X-Correlation-ID'
  */
 export const INTERNAL_TRUST_HEADER = 'X-Internal-Trust'
 
+/**
+ * Header containing HMAC signature for DO-to-DO authentication
+ * This prevents header spoofing by external clients
+ */
+export const DO_SIGNATURE_HEADER = 'X-DO-Signature'
+
+/**
+ * Header containing timestamp for signature validation (prevents replay attacks)
+ */
+export const DO_TIMESTAMP_HEADER = 'X-DO-Timestamp'
+
+/**
+ * Maximum age of a signature in milliseconds (5 minutes)
+ */
+const SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000
+
+// ============================================================================
+// HMAC Signing for DO-to-DO Authentication
+// ============================================================================
+
+/**
+ * Internal secret for DO-to-DO HMAC signing
+ * This should be set via setDOInternalSecret() before use
+ */
+let doInternalSecret: string | null = null
+
+/**
+ * Set the internal secret used for DO-to-DO HMAC signing
+ * This must be called during Worker/DO initialization with a secret from env
+ *
+ * @example
+ * ```typescript
+ * // In your Worker/DO initialization
+ * setDOInternalSecret(env.DO_INTERNAL_SECRET)
+ * ```
+ */
+export function setDOInternalSecret(secret: string): void {
+  if (!secret || secret.length < 32) {
+    throw new Error('DO_INTERNAL_SECRET must be at least 32 characters')
+  }
+  doInternalSecret = secret
+}
+
+/**
+ * Get the current internal secret (for testing purposes)
+ * @internal
+ */
+export function getDOInternalSecret(): string | null {
+  return doInternalSecret
+}
+
+/**
+ * Clear the internal secret (for testing purposes)
+ * @internal
+ */
+export function clearDOInternalSecret(): void {
+  doInternalSecret = null
+}
+
+/**
+ * Generate HMAC-SHA256 signature for DO-to-DO request
+ */
+async function generateHmacSignature(
+  secret: string,
+  sourceDoId: string,
+  timestamp: string,
+  targetPath?: string
+): Promise<string> {
+  const encoder = new TextEncoder()
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+
+  // Message format: sourceDoId|timestamp|targetPath
+  const message = `${sourceDoId}|${timestamp}|${targetPath || ''}`
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message))
+
+  // Convert to base64
+  return btoa(String.fromCharCode(...new Uint8Array(signature)))
+}
+
+/**
+ * Verify HMAC-SHA256 signature for DO-to-DO request
+ */
+async function verifyHmacSignature(
+  secret: string,
+  sourceDoId: string,
+  timestamp: string,
+  signature: string,
+  targetPath?: string
+): Promise<boolean> {
+  try {
+    const expectedSignature = await generateHmacSignature(secret, sourceDoId, timestamp, targetPath)
+    // Constant-time comparison to prevent timing attacks
+    if (signature.length !== expectedSignature.length) {
+      return false
+    }
+    let result = 0
+    for (let i = 0; i < signature.length; i++) {
+      result |= signature.charCodeAt(i) ^ expectedSignature.charCodeAt(i)
+    }
+    return result === 0
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Verify DO-to-DO request signature
+ * Returns true if the request has a valid signature, false otherwise
+ */
+export async function verifyDOSignature(request: Request): Promise<boolean> {
+  if (!doInternalSecret) {
+    console.warn('[DOAuth] DO_INTERNAL_SECRET not configured - DO-to-DO verification disabled')
+    return false
+  }
+
+  const signature = request.headers.get(DO_SIGNATURE_HEADER)
+  const timestamp = request.headers.get(DO_TIMESTAMP_HEADER)
+  const sourceDoId = request.headers.get(DO_SOURCE_ID_HEADER)
+
+  if (!signature || !timestamp || !sourceDoId) {
+    return false
+  }
+
+  // Check timestamp to prevent replay attacks
+  const timestampMs = parseInt(timestamp, 10)
+  if (isNaN(timestampMs)) {
+    return false
+  }
+
+  const now = Date.now()
+  if (Math.abs(now - timestampMs) > SIGNATURE_MAX_AGE_MS) {
+    return false
+  }
+
+  // Extract path from URL for signature verification
+  const url = new URL(request.url)
+  const targetPath = url.pathname
+
+  return verifyHmacSignature(doInternalSecret, sourceDoId, timestamp, signature, targetPath)
+}
+
 // ============================================================================
 // Caller Detection
 // ============================================================================
 
 /**
- * Detect the type of caller from request headers
+ * Detect the type of caller from request headers (synchronous, without signature verification)
+ *
+ * WARNING: This function does NOT verify DO-to-DO signatures and should only be
+ * used for non-security-critical logging/tracing. For security decisions, use
+ * extractCallerInfoWithVerification() which verifies HMAC signatures.
+ *
+ * @deprecated Use extractCallerInfoWithVerification() for security-critical decisions
  */
 export function detectCallerType(request: Request): CallerType {
   // Check for DO-to-DO call first (most specific)
+  // Note: This only checks header presence, NOT signature validity
   if (request.headers.get(DO_SOURCE_HEADER) === 'true') {
     return 'do'
   }
 
   // Check for Worker-to-DO call (internal)
-  if (request.headers.get(CF_WORKER_HEADER) || request.headers.get(WORKER_NAME_HEADER)) {
+  // cf-worker header is set by Cloudflare runtime and cannot be spoofed
+  if (request.headers.get(CF_WORKER_HEADER)) {
+    return 'worker'
+  }
+
+  // X-Worker-Name can be spoofed - only trust if cf-worker is also present
+  // This is kept for backwards compatibility but the auth guard should verify
+  if (request.headers.get(WORKER_NAME_HEADER)) {
     return 'worker'
   }
 
@@ -177,7 +338,12 @@ export function detectCallerType(request: Request): CallerType {
 }
 
 /**
- * Extract caller information from request
+ * Extract caller information from request (synchronous, without signature verification)
+ *
+ * WARNING: The 'trusted' field for DO callers is NOT verified in this function.
+ * For security-critical decisions, use extractCallerInfoWithVerification().
+ *
+ * @deprecated Use extractCallerInfoWithVerification() for security-critical decisions
  */
 export function extractCallerInfo(request: Request): CallerInfo {
   const type = detectCallerType(request)
@@ -188,14 +354,17 @@ export function extractCallerInfo(request: Request): CallerInfo {
         type: 'do',
         id: request.headers.get(DO_SOURCE_ID_HEADER),
         sourceDoId: request.headers.get(DO_SOURCE_ID_HEADER) ?? undefined,
-        trusted: true, // DO-to-DO is trusted by default
+        // WARNING: trusted=true here is NOT verified - use extractCallerInfoWithVerification()
+        trusted: true,
       }
 
     case 'worker':
+      // cf-worker header is set by Cloudflare and cannot be spoofed
+      const hasCfWorker = !!request.headers.get(CF_WORKER_HEADER)
       return {
         type: 'worker',
         id: request.headers.get(WORKER_NAME_HEADER) || request.headers.get(CF_WORKER_HEADER),
-        trusted: true, // Worker-to-DO is trusted (same CF account)
+        trusted: hasCfWorker, // Only trust if cf-worker header is present
       }
 
     case 'user':
@@ -211,6 +380,78 @@ export function extractCallerInfo(request: Request): CallerInfo {
         id: null,
         trusted: false,
       }
+  }
+}
+
+/**
+ * Extract caller information with HMAC signature verification for DO-to-DO calls
+ *
+ * This is the secure version that should be used for all security-critical decisions.
+ * It verifies:
+ * - DO-to-DO calls: HMAC signature must be valid
+ * - Worker-to-DO calls: cf-worker header must be present (set by Cloudflare, cannot be spoofed)
+ * - User calls: Must have valid JWT token (verified separately)
+ */
+export async function extractCallerInfoWithVerification(request: Request): Promise<CallerInfo> {
+  // Check for DO-to-DO call first - requires signature verification
+  if (request.headers.get(DO_SOURCE_HEADER) === 'true') {
+    const signatureValid = await verifyDOSignature(request)
+
+    if (signatureValid) {
+      return {
+        type: 'do',
+        id: request.headers.get(DO_SOURCE_ID_HEADER),
+        sourceDoId: request.headers.get(DO_SOURCE_ID_HEADER) ?? undefined,
+        trusted: true, // Signature verified - this is a legitimate DO-to-DO call
+      }
+    } else {
+      // Signature invalid or missing - treat as untrusted/unknown
+      // This prevents header spoofing attacks
+      console.warn(
+        '[DOAuth] DO-to-DO request with invalid or missing signature from:',
+        request.headers.get(DO_SOURCE_ID_HEADER)
+      )
+      return {
+        type: 'unknown',
+        id: null,
+        trusted: false,
+      }
+    }
+  }
+
+  // Check for Worker-to-DO call (internal)
+  // cf-worker header is set by Cloudflare runtime and cannot be spoofed by external clients
+  if (request.headers.get(CF_WORKER_HEADER)) {
+    return {
+      type: 'worker',
+      id: request.headers.get(WORKER_NAME_HEADER) || request.headers.get(CF_WORKER_HEADER),
+      trusted: true, // cf-worker header is Cloudflare-controlled
+    }
+  }
+
+  // X-Worker-Name without cf-worker is NOT trusted (can be spoofed)
+  if (request.headers.get(WORKER_NAME_HEADER)) {
+    console.warn('[DOAuth] X-Worker-Name header present without cf-worker - treating as untrusted')
+    return {
+      type: 'unknown',
+      id: null,
+      trusted: false,
+    }
+  }
+
+  // Check for user request (has Authorization header)
+  if (request.headers.get('Authorization')) {
+    return {
+      type: 'user',
+      id: null, // Will be populated after token validation
+      trusted: false, // User requests need explicit token validation
+    }
+  }
+
+  return {
+    type: 'unknown',
+    id: null,
+    trusted: false,
   }
 }
 
@@ -235,10 +476,11 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
 
   return {
     async canAccess(request: Request, doId: string): Promise<boolean> {
-      const callerInfo = extractCallerInfo(request)
+      // Use secure verification that validates HMAC signatures for DO-to-DO calls
+      const callerInfo = await extractCallerInfoWithVerification(request)
 
-      // DO-to-DO trust
-      if (callerInfo.type === 'do') {
+      // DO-to-DO trust - only if signature was verified
+      if (callerInfo.type === 'do' && callerInfo.trusted) {
         if (!trustDoToDo) {
           return false
         }
@@ -249,14 +491,14 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
         return true
       }
 
-      // Worker-to-DO trust
-      if (callerInfo.type === 'worker') {
+      // Worker-to-DO trust - only if cf-worker header is present (Cloudflare-controlled)
+      if (callerInfo.type === 'worker' && callerInfo.trusted) {
         // If trustedWorkers list is specified, verify worker name
         if (trustedWorkers.length > 0) {
           const workerName = callerInfo.id
           return workerName ? trustedWorkers.includes(workerName) : false
         }
-        // Default: trust all workers in same CF account
+        // Default: trust all workers in same CF account (verified via cf-worker header)
         return true
       }
 
@@ -271,7 +513,7 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
         return payload !== null
       }
 
-      // Unknown caller type
+      // Unknown caller type or untrusted internal caller (spoofed headers)
       return allowAnonymous
     },
 
@@ -404,16 +646,16 @@ export function doAuthMiddleware(options: DOAuthMiddlewareOptions = {}): Middlew
   return async (c, next) => {
     // Skip auth for specified paths
     if (skipPaths.some((path) => c.req.path === path || c.req.path.startsWith(path + '/'))) {
-      // Still extract caller info for logging
-      const callerInfo = extractCallerInfo(c.req.raw)
+      // Still extract caller info for logging (use async verification for security)
+      const callerInfo = await extractCallerInfoWithVerification(c.req.raw)
       c.set('callerInfo', callerInfo)
       c.set('doAuth', guard)
       return next()
     }
 
     try {
-      // Extract caller information
-      const callerInfo = extractCallerInfo(c.req.raw)
+      // Extract caller information with secure verification
+      const callerInfo = await extractCallerInfoWithVerification(c.req.raw)
 
       // Get DO ID from the request (could be from path, header, or state)
       const doId = c.req.header('X-DO-ID') || c.req.path.split('/')[1] || 'unknown'
@@ -600,32 +842,123 @@ export function requireDOSource(...allowedDOs: string[]): MiddlewareHandler {
 // ============================================================================
 
 /**
- * Add DO source headers to a request for cross-DO calls
+ * Generate HMAC signature for DO-to-DO request headers
+ * @internal
+ */
+async function signDORequest(
+  sourceDoId: string,
+  timestamp: string,
+  targetPath?: string
+): Promise<string> {
+  if (!doInternalSecret) {
+    throw new Error('DO_INTERNAL_SECRET not configured - call setDOInternalSecret() first')
+  }
+
+  const encoder = new TextEncoder()
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(doInternalSecret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+
+  const message = `${sourceDoId}|${timestamp}|${targetPath || ''}`
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message))
+
+  return btoa(String.fromCharCode(...new Uint8Array(signature)))
+}
+
+/**
+ * Add DO source headers to a request for cross-DO calls (with HMAC signature)
  * Call this when making requests from one DO to another
  *
  * @example
  * ```typescript
- * const headers = addDOSourceHeaders(new Headers(), 'my-do-id')
- * const response = await otherDO.fetch('https://do/endpoint', {
+ * const headers = await addDOSourceHeaders(new Headers(), 'my-do-id', '/rpc')
+ * const response = await otherDO.fetch('https://do/rpc', {
  *   headers,
  * })
  * ```
+ *
+ * @deprecated Use addDOSourceHeadersAsync for clarity - this function is now async
  */
-export function addDOSourceHeaders(headers: Headers, sourceDoId: string): Headers {
+export async function addDOSourceHeaders(
+  headers: Headers,
+  sourceDoId: string,
+  targetPath?: string
+): Promise<Headers> {
+  const timestamp = Date.now().toString()
+
   headers.set(DO_SOURCE_HEADER, 'true')
   headers.set(DO_SOURCE_ID_HEADER, sourceDoId)
+  headers.set(DO_TIMESTAMP_HEADER, timestamp)
+
+  try {
+    const signature = await signDORequest(sourceDoId, timestamp, targetPath)
+    headers.set(DO_SIGNATURE_HEADER, signature)
+  } catch (error) {
+    console.warn('[DOAuth] Failed to sign DO-to-DO request:', error)
+    // Still set the headers without signature for backwards compatibility
+    // but the receiver will reject it if DO_INTERNAL_SECRET is configured
+  }
+
   return headers
 }
 
 /**
- * Create headers for a DO-to-DO request
+ * Add DO source headers to a request for cross-DO calls (with HMAC signature)
+ * Async version with explicit naming
+ *
+ * @example
+ * ```typescript
+ * const headers = await addDOSourceHeadersAsync(new Headers(), 'my-do-id', '/rpc')
+ * const response = await otherDO.fetch('https://do/rpc', {
+ *   headers,
+ * })
+ * ```
  */
-export function createDOToDoHeaders(sourceDoId: string, correlationId?: string): Headers {
+export async function addDOSourceHeadersAsync(
+  headers: Headers,
+  sourceDoId: string,
+  targetPath?: string
+): Promise<Headers> {
+  return addDOSourceHeaders(headers, sourceDoId, targetPath)
+}
+
+/**
+ * Create headers for a DO-to-DO request (with HMAC signature)
+ *
+ * @example
+ * ```typescript
+ * const headers = await createDOToDoHeaders('source-do-123', '/rpc', 'corr-123')
+ * const response = await otherDO.fetch('https://do/rpc', {
+ *   method: 'POST',
+ *   headers,
+ *   body: JSON.stringify({ ... }),
+ * })
+ * ```
+ */
+export async function createDOToDoHeaders(
+  sourceDoId: string,
+  targetPath?: string,
+  correlationId?: string
+): Promise<Headers> {
+  const timestamp = Date.now().toString()
+
   const headers = new Headers({
     'Content-Type': 'application/json',
     [DO_SOURCE_HEADER]: 'true',
     [DO_SOURCE_ID_HEADER]: sourceDoId,
+    [DO_TIMESTAMP_HEADER]: timestamp,
   })
+
+  try {
+    const signature = await signDORequest(sourceDoId, timestamp, targetPath)
+    headers.set(DO_SIGNATURE_HEADER, signature)
+  } catch (error) {
+    console.warn('[DOAuth] Failed to sign DO-to-DO request:', error)
+  }
 
   if (correlationId) {
     headers.set(CORRELATION_ID_HEADER, correlationId)
@@ -637,6 +970,9 @@ export function createDOToDoHeaders(sourceDoId: string, correlationId?: string):
 /**
  * Add worker identification headers
  * Call this in the Worker layer when forwarding to DOs
+ *
+ * Note: X-Worker-Name alone is not trusted for security decisions.
+ * The cf-worker header (set by Cloudflare runtime) is used for trust verification.
  */
 export function addWorkerHeaders(headers: Headers, workerName: string): Headers {
   headers.set(WORKER_NAME_HEADER, workerName)

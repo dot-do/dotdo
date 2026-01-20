@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { Hono } from 'hono'
 import type { User, Session, Credential } from '../../primitives/packages/id.org.ai/src/index'
 import {
@@ -7,13 +7,32 @@ import {
   checkOrganizationMembership,
   mapOrgAiRolesToPermissions,
   initiateSSOFlow,
+  configureOrgAiClient,
+  clearOrgAiCache,
+  getOrgAiClientConfig,
   type OrgAiAuthOptions,
   type OrgAiUser,
   type OrgAiOrganization,
-  type OrgAiPermissions
+  type OrgAiPermissions,
+  type OrgAiClientConfig
 } from '../org-ai'
 
 describe('org.ai/auth integration', () => {
+  // Enable mock mode for all tests unless specifically testing production behavior
+  let originalConfig: OrgAiClientConfig
+
+  beforeEach(() => {
+    originalConfig = getOrgAiClientConfig()
+    configureOrgAiClient({ mockMode: true })
+    clearOrgAiCache()
+  })
+
+  afterEach(() => {
+    configureOrgAiClient(originalConfig)
+    vi.unstubAllEnvs()
+    clearOrgAiCache()
+  })
+
   describe('orgAiAuthMiddleware', () => {
     let app: Hono
 
@@ -399,6 +418,199 @@ describe('org.ai/auth integration', () => {
       })
 
       expect(res.status).toBe(200) // Should still work without metadata
+    })
+  })
+
+  describe('org.ai client configuration', () => {
+    let originalConfig: OrgAiClientConfig
+
+    beforeEach(() => {
+      originalConfig = getOrgAiClientConfig()
+      clearOrgAiCache()
+    })
+
+    afterEach(() => {
+      // Restore original config
+      configureOrgAiClient(originalConfig)
+      clearOrgAiCache()
+    })
+
+    it('should allow configuring the org.ai client', () => {
+      configureOrgAiClient({
+        baseUrl: 'https://staging.id.org.ai',
+        cacheTtl: 600,
+        timeout: 10000,
+      })
+
+      const config = getOrgAiClientConfig()
+      expect(config.baseUrl).toBe('https://staging.id.org.ai')
+      expect(config.cacheTtl).toBe(600)
+      expect(config.timeout).toBe(10000)
+    })
+
+    it('should merge partial config with existing config', () => {
+      configureOrgAiClient({ cacheTtl: 120 })
+      const config = getOrgAiClientConfig()
+
+      expect(config.cacheTtl).toBe(120)
+      expect(config.baseUrl).toBe(originalConfig.baseUrl)
+    })
+  })
+
+  describe('caching behavior', () => {
+    // Uses global beforeEach/afterEach which sets ORG_AI_MOCK=true
+
+    it('should cache user lookups', async () => {
+      const userId = 'https://schema.org.ai/users/user-123'
+
+      // First lookup
+      const user1 = await lookupUserByOrgAiId(userId)
+      expect(user1).toBeDefined()
+
+      // Second lookup should hit cache
+      const user2 = await lookupUserByOrgAiId(userId)
+      expect(user2).toBeDefined()
+      expect(user2?.$id).toBe(user1?.$id)
+    })
+
+    it('should allow skipping cache', async () => {
+      const userId = 'https://schema.org.ai/users/user-456'
+
+      // First lookup
+      const user1 = await lookupUserByOrgAiId(userId)
+      expect(user1).toBeDefined()
+
+      // Lookup with skipCache should not use cached value
+      const user2 = await lookupUserByOrgAiId(userId, { skipCache: true })
+      expect(user2).toBeDefined()
+    })
+
+    it('should cache membership lookups', async () => {
+      const userId = 'https://schema.org.ai/users/user-123'
+      const orgId = 'org-456'
+
+      // First lookup
+      const membership1 = await checkOrganizationMembership(userId, orgId, { includeRole: true })
+      expect(membership1).toBeDefined()
+
+      // Second lookup should hit cache
+      const membership2 = await checkOrganizationMembership(userId, orgId, { includeRole: true })
+      expect(membership2).toEqual(membership1)
+    })
+
+    it('should clear cache when clearOrgAiCache is called', async () => {
+      const userId = 'https://schema.org.ai/users/user-789'
+
+      // Populate cache
+      await lookupUserByOrgAiId(userId)
+
+      // Clear cache
+      clearOrgAiCache()
+
+      // This should be a fresh lookup (no way to verify without mocking fetch,
+      // but at least ensure it still works)
+      const user = await lookupUserByOrgAiId(userId)
+      expect(user).toBeDefined()
+    })
+  })
+
+  describe('API error handling', () => {
+    let originalFetch: typeof fetch
+    let savedConfig: OrgAiClientConfig
+
+    beforeEach(() => {
+      savedConfig = getOrgAiClientConfig()
+      // Disable mock mode and use short timeout for error handling tests
+      configureOrgAiClient({ mockMode: false, timeout: 100 })
+      clearOrgAiCache()
+      originalFetch = globalThis.fetch
+    })
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch
+      configureOrgAiClient(savedConfig)
+      clearOrgAiCache()
+    })
+
+    it('should handle network errors gracefully in production', async () => {
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error('Network error'))
+
+      const userId = 'https://schema.org.ai/users/network-error-user'
+      const user = await lookupUserByOrgAiId(userId)
+
+      // In production without mock mode, should return null on error
+      expect(user).toBeNull()
+    })
+
+    it('should handle timeout errors', async () => {
+      // Configure very short timeout (10ms) - mockMode is already false from beforeEach
+      configureOrgAiClient({ mockMode: false, timeout: 10 })
+
+      globalThis.fetch = vi.fn().mockImplementation(() =>
+        new Promise((resolve) => setTimeout(resolve, 1000))
+      )
+
+      const userId = 'https://schema.org.ai/users/timeout-user'
+      const user = await lookupUserByOrgAiId(userId)
+
+      // Should return null on timeout in production
+      expect(user).toBeNull()
+    }, 10000) // Give test 10s to complete
+
+    it('should handle 404 responses for non-existent users', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+      })
+
+      const userId = 'https://schema.org.ai/users/not-found-user'
+      const user = await lookupUserByOrgAiId(userId)
+
+      expect(user).toBeNull()
+    })
+
+    it('should handle 404 responses for non-member organizations', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+      })
+
+      const isMember = await checkOrganizationMembership('user-123', 'org-not-member')
+      expect(isMember).toBe(false)
+    })
+  })
+
+  describe('mock mode', () => {
+    // Uses global beforeEach/afterEach which sets mockMode=true
+
+    it('should return mock user when mockMode is enabled', async () => {
+      // mockMode is already enabled by global beforeEach
+      const userId = 'https://schema.org.ai/users/mock-user'
+      const user = await lookupUserByOrgAiId(userId)
+
+      // With mock mode enabled, should return mock user without network call
+      expect(user).toBeDefined()
+      expect(user?.name).toBe('Mock User')
+      expect(user?.$type).toBe('https://schema.org.ai/User')
+    })
+
+    it('should return mock membership when mockMode is enabled', async () => {
+      // mockMode is already enabled by global beforeEach
+      const membership = await checkOrganizationMembership(
+        'user-123',
+        'org-456',
+        { includeRole: true }
+      )
+
+      expect(membership).toMatchObject({
+        isMember: true,
+        role: 'member',
+        organization: expect.objectContaining({
+          name: 'Mock Organization',
+        }),
+      })
     })
   })
 })

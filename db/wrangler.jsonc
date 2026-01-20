@@ -1,5 +1,21 @@
 {
   "name": "dotdo-db",
   "main": "index.ts",
-  "compatibility_date": "2025-01-15"
+  "compatibility_date": "2025-01-15",
+
+  // Durable Object bindings for database tests
+  // Allows tests to use real SQLite storage via state.storage.sql
+  "durable_objects": {
+    "bindings": [
+      { "name": "DO", "class_name": "DO" }
+    ]
+  },
+
+  // Migrations for DO classes with SQL storage
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DO"]
+    }
+  ]
 }

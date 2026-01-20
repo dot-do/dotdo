@@ -2,6 +2,7 @@
 // Uses digital-objects from primitives
 // Base for database.do managed service
 
+export * from './types'
 export * from './things'
 export * from './relationships'
 export * from './events'

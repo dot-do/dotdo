@@ -1,6 +1,7 @@
 // Resource definition DSL - see do-7rf.7.4
 import { z } from 'zod'
 import type { Context } from 'hono'
+import type { JsonValue, StorableData } from '../db'
 
 // Field Types
 export type FieldType =
@@ -16,7 +17,7 @@ export type FieldType =
 export interface BaseFieldDef {
   type: FieldType
   required?: boolean
-  default?: unknown
+  default?: JsonValue
 }
 
 export interface StringFieldDef extends BaseFieldDef {
@@ -74,7 +75,7 @@ export interface ActionDef {
 }
 
 // Hook Types
-export interface HookDef<T = Record<string, unknown>> {
+export interface HookDef<T extends StorableData = StorableData> {
   beforeValidate?: (data: Partial<T>) => Promise<Partial<T>>
   beforeCreate?: (data: T) => Promise<T>
   afterCreate?: (data: T) => Promise<T>
@@ -85,8 +86,8 @@ export interface HookDef<T = Record<string, unknown>> {
 }
 
 // Computed Field Types
-export type ComputedFieldDef<T = Record<string, unknown>> = {
-  [key: string]: (data: T) => unknown
+export type ComputedFieldDef<T extends StorableData = StorableData> = {
+  [key: string]: (data: T) => JsonValue
 }
 
 // Route Definitions
@@ -101,7 +102,7 @@ export interface RouteDefinitions {
 }
 
 // Resource Definition
-export interface ResourceDefinition<T = Record<string, unknown>> {
+export interface ResourceDefinition<T extends StorableData = StorableData> {
   name: string
   fields: Record<string, FieldDef>
   schema: z.ZodType
@@ -113,7 +114,7 @@ export interface ResourceDefinition<T = Record<string, unknown>> {
 }
 
 // Resource Builder (Fluent API)
-export class ResourceBuilder<T = Record<string, unknown>> {
+export class ResourceBuilder<T extends StorableData = StorableData> {
   private name: string
   private _fields: Record<string, FieldDef> = {}
   private _relations?: Record<string, RelationDef>
@@ -357,17 +358,17 @@ function generateRoutes(
 }
 
 // Global Resource Registry
-const resourceRegistry: Map<string, ResourceDefinition<unknown>> = new Map()
+const resourceRegistry: Map<string, ResourceDefinition<StorableData>> = new Map()
 
-function registerResource<T>(name: string, definition: ResourceDefinition<T>): void {
-  resourceRegistry.set(name, definition as ResourceDefinition<unknown>)
+function registerResource<T extends StorableData>(name: string, definition: ResourceDefinition<T>): void {
+  resourceRegistry.set(name, definition as ResourceDefinition<StorableData>)
 }
 
-export function getResource(name: string): ResourceDefinition<unknown> | undefined {
+export function getResource(name: string): ResourceDefinition<StorableData> | undefined {
   return resourceRegistry.get(name)
 }
 
-export function getAllResources(): Record<string, ResourceDefinition<unknown>> {
+export function getAllResources(): Record<string, ResourceDefinition<StorableData>> {
   return Object.fromEntries(resourceRegistry.entries())
 }
 
@@ -376,6 +377,6 @@ export function clearRegistry(): void {
 }
 
 // Main export - fluent API entry point
-export function defineResource<T = Record<string, unknown>>(name: string): ResourceBuilder<T> {
+export function defineResource<T extends StorableData = StorableData>(name: string): ResourceBuilder<T> {
   return new ResourceBuilder<T>(name)
 }

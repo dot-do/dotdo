@@ -96,9 +96,16 @@ export {
   type AuthPayload,
   type CallerInfo,
   type CallerType,
-  // Caller detection
+  // Caller detection (use extractCallerInfoWithVerification for security)
   detectCallerType,
   extractCallerInfo,
+  extractCallerInfoWithVerification,
+  // HMAC signing for DO-to-DO (do-rrb9 security fix)
+  setDOInternalSecret,
+  verifyDOSignature,
+  // For testing only
+  getDOInternalSecret,
+  clearDOInternalSecret,
   // Hono middleware
   doAuthMiddleware,
   type DOAuthMiddlewareOptions,
@@ -115,8 +122,11 @@ export {
   DO_SOURCE_ID_HEADER,
   CORRELATION_ID_HEADER,
   INTERNAL_TRUST_HEADER,
-  // Helpers
+  DO_SIGNATURE_HEADER,
+  DO_TIMESTAMP_HEADER,
+  // Helpers (async for HMAC signing)
   addDOSourceHeaders,
+  addDOSourceHeadersAsync,
   createDOToDoHeaders,
   addWorkerHeaders,
 } from './auth'

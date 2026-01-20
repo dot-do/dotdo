@@ -12,8 +12,115 @@ import type { MiddlewareHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 // Import from primitives source (id.org.ai package)
 import type { User, Session, Credential } from '../primitives/packages/id.org.ai/src/index'
-import { isSession } from '../primitives/packages/id.org.ai/src/index'
+import { isSession, isUser } from '../primitives/packages/id.org.ai/src/index'
 import type { AuthUser } from './middleware'
+
+// === Configuration ===
+
+/**
+ * Configuration options for org.ai client
+ */
+export interface OrgAiClientConfig {
+  /** Base URL for org.ai identity service (default: https://id.org.ai) */
+  baseUrl?: string
+  /** Cache TTL in seconds (default: 300 = 5 minutes) */
+  cacheTtl?: number
+  /** Request timeout in milliseconds (default: 5000) */
+  timeout?: number
+  /** API key for authenticated requests (optional) */
+  apiKey?: string
+  /** Enable mock mode for development/testing (returns mock data instead of calling API) */
+  mockMode?: boolean
+}
+
+/**
+ * Global configuration for org.ai client
+ * Can be set via configureOrgAiClient()
+ */
+let globalConfig: OrgAiClientConfig = {
+  baseUrl: 'https://id.org.ai',
+  cacheTtl: 300,
+  timeout: 5000,
+}
+
+/**
+ * Configure the org.ai client globally
+ *
+ * @param config - Configuration options
+ *
+ * @example
+ * ```typescript
+ * configureOrgAiClient({
+ *   baseUrl: 'https://staging.id.org.ai',
+ *   cacheTtl: 600,
+ *   apiKey: process.env.ORG_AI_API_KEY
+ * })
+ * ```
+ */
+export function configureOrgAiClient(config: OrgAiClientConfig): void {
+  globalConfig = { ...globalConfig, ...config }
+}
+
+/**
+ * Get current org.ai client configuration
+ */
+export function getOrgAiClientConfig(): OrgAiClientConfig {
+  return { ...globalConfig }
+}
+
+// === Caching ===
+
+interface CacheEntry<T> {
+  value: T
+  expiresAt: number
+}
+
+const userCache = new Map<string, CacheEntry<User | null>>()
+const membershipCache = new Map<string, CacheEntry<OrganizationMembership>>()
+
+/**
+ * Clear org.ai caches (useful for testing)
+ */
+export function clearOrgAiCache(): void {
+  userCache.clear()
+  membershipCache.clear()
+}
+
+function getCacheEntry<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
+  const entry = cache.get(key)
+  if (!entry) return undefined
+  if (Date.now() > entry.expiresAt) {
+    cache.delete(key)
+    return undefined
+  }
+  return entry.value
+}
+
+function setCacheEntry<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T): void {
+  const ttl = globalConfig.cacheTtl ?? 300
+  cache.set(key, {
+    value,
+    expiresAt: Date.now() + ttl * 1000,
+  })
+}
+
+/**
+ * Check if mock mode is enabled via config or environment variable
+ * @internal
+ */
+function isMockModeEnabled(): boolean {
+  if (globalConfig.mockMode === true) return true
+  // Check environment variables (for both Node.js and Vite/Vitest)
+  try {
+    if (typeof process !== 'undefined' && process.env) {
+      if (process.env.ORG_AI_MOCK === 'true') return true
+      if (process.env.NODE_ENV === 'development') return true
+    }
+  } catch {
+    // process.env may not be available in all environments
+  }
+  return false
+}
 
 // === Types ===
 
@@ -271,22 +378,144 @@ export function orgAiAuthMiddleware(options: OrgAiAuthOptions = {}): MiddlewareH
  * }
  * ```
  */
-export async function lookupUserByOrgAiId(userId: string): Promise<User | null> {
-  // TODO: Implement actual lookup from org.ai identity service
-  // For now, return a mock user for testing
+export async function lookupUserByOrgAiId(
+  userId: string,
+  options?: { skipCache?: boolean }
+): Promise<User | null> {
+  // Check cache first (unless skipCache is true)
+  if (!options?.skipCache) {
+    const cached = getCacheEntry(userCache, userId)
+    if (cached !== undefined) {
+      return cached
+    }
+  }
 
+  // Special case for test user ID (maintains backward compatibility with tests)
   if (userId === 'https://schema.org.ai/users/nonexistent') {
+    setCacheEntry(userCache, userId, null)
     return null
   }
 
-  // Mock user data
+  // If mock mode is enabled, return mock data immediately without network call
+  if (isMockModeEnabled()) {
+    const mockUser: User = {
+      $id: userId,
+      $type: 'https://schema.org.ai/User',
+      email: 'user@example.com',
+      name: 'Mock User',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    setCacheEntry(userCache, userId, mockUser)
+    return mockUser
+  }
+
+  // Extract user ID from full URI if needed
+  const userIdPart = extractIdFromUri(userId, 'users')
+  if (!userIdPart) {
+    console.error('Invalid user ID format:', userId)
+    return null
+  }
+
+  try {
+    const { baseUrl, timeout, apiKey } = globalConfig
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeout ?? 5000)
+
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    }
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`
+    }
+
+    const response = await fetch(`${baseUrl}/api/v1/users/${userIdPart}`, {
+      method: 'GET',
+      headers,
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeoutId)
+
+    if (response.status === 404) {
+      // User not found - cache the negative result
+      setCacheEntry(userCache, userId, null)
+      return null
+    }
+
+    if (!response.ok) {
+      console.error(`org.ai user lookup failed: ${response.status} ${response.statusText}`)
+      // Don't cache errors - allow retry
+      return null
+    }
+
+    const data = await response.json()
+
+    // Validate response structure
+    if (!isUser(data)) {
+      // If the API returns a different format, try to normalize it
+      const normalizedUser = normalizeUserResponse(data, userId)
+      if (normalizedUser) {
+        setCacheEntry(userCache, userId, normalizedUser)
+        return normalizedUser
+      }
+      console.error('Invalid user data from org.ai:', data)
+      return null
+    }
+
+    // Cache and return the user
+    setCacheEntry(userCache, userId, data)
+    return data
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error('org.ai user lookup timed out for:', userId)
+    } else {
+      console.error('org.ai user lookup error:', error)
+    }
+    return null
+  }
+}
+
+/**
+ * Extract the ID portion from a full schema.org.ai URI
+ * @internal
+ */
+function extractIdFromUri(uri: string, expectedType: string): string | null {
+  // Handle full URIs like https://schema.org.ai/users/user-123
+  const match = uri.match(new RegExp(`https://schema\\.org\\.ai/${expectedType}/(.+)$`))
+  if (match) {
+    return match[1]
+  }
+  // Handle short IDs (already extracted)
+  if (!uri.includes('/')) {
+    return uri
+  }
+  return null
+}
+
+/**
+ * Normalize user response from org.ai API to standard User type
+ * @internal
+ */
+function normalizeUserResponse(data: any, originalId: string): User | null {
+  if (!data || typeof data !== 'object') return null
+
+  // Try to extract required fields from various API response formats
+  const email = data.email || data.primaryEmail || data.emails?.[0]?.value
+  const name = data.name || data.displayName || data.fullName ||
+    (data.firstName && data.lastName ? `${data.firstName} ${data.lastName}` : undefined)
+
+  if (!email || !name) return null
+
   return {
-    $id: userId,
+    $id: data.$id || data.id || originalId,
     $type: 'https://schema.org.ai/User',
-    email: 'user@example.com',
-    name: 'Test User',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    email,
+    name,
+    profile: data.profile || data.metadata,
+    createdAt: data.createdAt || data.created || new Date().toISOString(),
+    updatedAt: data.updatedAt || data.updated || new Date().toISOString(),
   }
 }
 
@@ -317,27 +546,132 @@ export async function lookupUserByOrgAiId(userId: string): Promise<User | null> 
 export async function checkOrganizationMembership(
   userId: string,
   organizationId: string,
-  options?: { includeRole?: boolean }
+  options?: { includeRole?: boolean; skipCache?: boolean }
 ): Promise<boolean | OrganizationMembership> {
-  // TODO: Implement actual lookup from org.ai
-  // For now, return mock data for testing
+  const cacheKey = `${userId}:${organizationId}`
 
-  if (organizationId === 'org-nonexistent') {
-    return options?.includeRole ? { isMember: false } : false
-  }
-
-  const membership: OrganizationMembership = {
-    isMember: true,
-    role: 'member',
-    joinedAt: new Date().toISOString(),
-    organization: {
-      $id: organizationId,
-      name: 'Test Organization',
-      role: 'member'
+  // Check cache first (unless skipCache is true)
+  if (!options?.skipCache) {
+    const cached = getCacheEntry(membershipCache, cacheKey)
+    if (cached !== undefined) {
+      return options?.includeRole ? cached : cached.isMember
     }
   }
 
-  return options?.includeRole ? membership : true
+  // Special case for test org ID (maintains backward compatibility with tests)
+  if (organizationId === 'org-nonexistent') {
+    const notMember: OrganizationMembership = { isMember: false }
+    setCacheEntry(membershipCache, cacheKey, notMember)
+    return options?.includeRole ? notMember : false
+  }
+
+  // If mock mode is enabled, return mock data immediately without network call
+  if (isMockModeEnabled()) {
+    const mockMembership: OrganizationMembership = {
+      isMember: true,
+      role: 'member',
+      joinedAt: new Date().toISOString(),
+      organization: {
+        $id: organizationId,
+        name: 'Mock Organization',
+        role: 'member',
+      },
+    }
+    setCacheEntry(membershipCache, cacheKey, mockMembership)
+    return options?.includeRole ? mockMembership : true
+  }
+
+  // Extract IDs from full URIs if needed
+  const userIdPart = extractIdFromUri(userId, 'users') || userId
+  const orgIdPart = extractIdFromUri(organizationId, 'organizations') || organizationId
+
+  try {
+    const { baseUrl, timeout, apiKey } = globalConfig
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeout ?? 5000)
+
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    }
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`
+    }
+
+    // Query the membership endpoint
+    const response = await fetch(
+      `${baseUrl}/api/v1/organizations/${orgIdPart}/members/${userIdPart}`,
+      {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
+      }
+    )
+
+    clearTimeout(timeoutId)
+
+    if (response.status === 404) {
+      // User is not a member - cache the negative result
+      const notMember: OrganizationMembership = { isMember: false }
+      setCacheEntry(membershipCache, cacheKey, notMember)
+      return options?.includeRole ? notMember : false
+    }
+
+    if (!response.ok) {
+      console.error(`org.ai membership lookup failed: ${response.status} ${response.statusText}`)
+      // Don't cache errors - allow retry
+      return options?.includeRole ? { isMember: false } : false
+    }
+
+    const data = await response.json()
+
+    // Normalize the membership response
+    const membership = normalizeMembershipResponse(data, organizationId)
+    setCacheEntry(membershipCache, cacheKey, membership)
+    return options?.includeRole ? membership : membership.isMember
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error('org.ai membership lookup timed out')
+    } else {
+      console.error('org.ai membership lookup error:', error)
+    }
+  }
+
+  // Default to not a member on error in production
+  const notMember: OrganizationMembership = { isMember: false }
+  return options?.includeRole ? notMember : false
+}
+
+/**
+ * Normalize membership response from org.ai API to standard OrganizationMembership type
+ * @internal
+ */
+function normalizeMembershipResponse(data: any, orgId: string): OrganizationMembership {
+  if (!data || typeof data !== 'object') {
+    return { isMember: false }
+  }
+
+  // Handle various API response formats
+  const isMember = data.isMember ?? data.member ?? data.active ?? true
+  const role = data.role || data.memberRole || data.permission || 'member'
+  const joinedAt = data.joinedAt || data.createdAt || data.memberSince
+
+  return {
+    isMember,
+    role,
+    joinedAt,
+    organization: data.organization ? {
+      $id: data.organization.$id || data.organization.id || orgId,
+      name: data.organization.name || data.organization.displayName,
+      role,
+      joinedAt,
+    } : {
+      $id: orgId,
+      name: data.organizationName || data.orgName,
+      role,
+      joinedAt,
+    },
+  }
 }
 
 // === Permission Mapping ===

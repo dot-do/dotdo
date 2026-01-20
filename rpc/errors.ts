@@ -340,9 +340,10 @@ export function isAuthorizationError(error: unknown): error is AuthorizationErro
  * 1. Custom errors with explicit `retriable` property (definitive)
  * 2. RPCError types with non-retryable codes (ValidationError, AuthN/AuthZ, NotFound)
  * 3. RPCError types with retryable codes (NetworkError, Timeout, etc.)
- * 4. Generic errors default to true (retryable) - assume transient until proven otherwise
+ * 4. Generic errors default to false (not retryable) - be explicit about retries
  *
- * This philosophy follows "retry by default, don't retry validation/auth errors"
+ * This philosophy follows "only retry known transient errors"
+ * Use NetworkError, TimeoutError, or set retriable=true for transient failures
  */
 export function isRetryableError(error: unknown): boolean {
   // Check for explicit retriable property on any error (definitive answer)
@@ -352,27 +353,25 @@ export function isRetryableError(error: unknown): boolean {
 
   // RPCError-based errors check the error code
   if (error instanceof RPCError) {
-    // Explicitly non-retryable codes (client errors that retrying won't fix)
-    const nonRetryableCodes: RPCErrorCode[] = [
-      RPCErrorCode.VALIDATION_ERROR,
-      RPCErrorCode.INVALID_PARAMS,
-      RPCErrorCode.AUTHENTICATION_ERROR,
-      RPCErrorCode.AUTHORIZATION_ERROR,
-      RPCErrorCode.NOT_FOUND,
-      RPCErrorCode.CONFLICT, // Version conflicts shouldn't be blindly retried
+    // Explicitly retryable codes (transient errors that may succeed on retry)
+    const retryableCodes: RPCErrorCode[] = [
+      RPCErrorCode.NETWORK_ERROR,
+      RPCErrorCode.TIMEOUT,
+      RPCErrorCode.RATE_LIMIT,
+      RPCErrorCode.SERVICE_UNAVAILABLE,
+      RPCErrorCode.CIRCUIT_OPEN,
     ]
-    if (nonRetryableCodes.includes(error.code)) {
-      return false
+    if (retryableCodes.includes(error.code)) {
+      return true
     }
 
-    // All other RPCErrors are retryable (Network, Timeout, RateLimit, ServiceUnavailable, etc.)
-    return true
+    // All other RPCErrors (including INTERNAL_ERROR) are not retryable by default
+    return false
   }
 
-  // Generic errors are retryable by default
-  // This handles transient issues like connection resets, temporary failures
-  // Specific non-retryable errors should use ValidationError or set retriable=false
-  return true
+  // Generic errors are NOT retryable by default
+  // If you need retry behavior, use NetworkError/TimeoutError or set retriable=true
+  return false
 }
 
 // ============================================================================

@@ -12,10 +12,9 @@
  * - Real concurrency handling (blockConcurrencyWhile)
  *
  * Usage:
- *   npx vitest run --config do/vitest.config.ts
- *
- * Or to run a specific test:
- *   npx vitest run --config do/vitest.config.ts do/tests/vitest-pool-workers-example.test.ts
+ *   npx vitest --project=objects              # Run via workspace
+ *   npx vitest run --config do/vitest.config.ts  # Run directly
+ *   npx vitest run do/tests/DO.test.ts        # Run specific file
  *
  * @module do/vitest.config
  */
@@ -24,20 +23,22 @@ import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
 
 export default defineWorkersConfig({
   test: {
-    // Only include integration tests that need the workers pool
+    // Include ALL DO tests - they all benefit from real miniflare runtime
     include: [
-      'tests/vitest-pool-workers-example.test.ts',
-      // Add more integration tests here as they're converted:
-      // 'tests/DO.integration.test.ts',
-      // 'tests/entities.integration.test.ts',
-      // 'tests/websocket.integration.test.ts',
+      'tests/**/*.test.ts',
     ],
 
-    // Exclude unit tests that don't need the workers pool
-    // (these run faster with the default vitest config)
+    // Exclude only non-test files
     exclude: [
       '**/node_modules/**',
     ],
+
+    // CRITICAL: Limit concurrency to prevent resource exhaustion
+    // Workers pool with miniflare is memory-intensive
+    maxConcurrency: 1,
+    maxWorkers: 1,
+    minWorkers: 1,
+    fileParallelism: false,
 
     // Pool worker options
     poolOptions: {
@@ -57,8 +58,8 @@ export default defineWorkersConfig({
 
         // Additional miniflare configuration
         miniflare: {
-          // Enable DO SQL storage
-          durableObjectsPersist: false, // In-memory for tests (faster)
+          // Enable DO SQL storage - in-memory for tests (faster)
+          durableObjectsPersist: false,
 
           // Add any additional bindings needed for tests
           bindings: {

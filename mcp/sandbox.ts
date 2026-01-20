@@ -94,6 +94,344 @@ export const DEFAULT_RESOURCE_LIMITS: Required<ResourceLimits> = {
   allowNetwork: false
 }
 
+/**
+ * Rate limiting configuration
+ */
+export interface RateLimitConfig {
+  /** Maximum requests per window (default: 100) */
+  maxRequests: number
+  /** Window size in milliseconds (default: 60000 = 1 minute) */
+  windowMs: number
+}
+
+/**
+ * Concurrency limiting configuration
+ */
+export interface ConcurrencyLimitConfig {
+  /** Maximum concurrent operations per client (default: 5) */
+  maxConcurrent: number
+}
+
+/**
+ * Default rate limit settings
+ */
+export const DEFAULT_RATE_LIMIT: RateLimitConfig = {
+  maxRequests: 100,
+  windowMs: 60000 // 1 minute
+}
+
+/**
+ * Default concurrency limit settings
+ */
+export const DEFAULT_CONCURRENCY_LIMIT: ConcurrencyLimitConfig = {
+  maxConcurrent: 5
+}
+
+/**
+ * Rate limiter - tracks requests per client within a sliding window
+ */
+export class RateLimiter {
+  private windows: Map<string, { timestamps: number[]; blocked: boolean }> = new Map()
+  private config: RateLimitConfig
+
+  constructor(config: Partial<RateLimitConfig> = {}) {
+    this.config = { ...DEFAULT_RATE_LIMIT, ...config }
+  }
+
+  /**
+   * Check if a client can make a request
+   * @param clientId - Unique identifier for the client
+   * @returns Object with allowed status and remaining requests
+   */
+  check(clientId: string): { allowed: boolean; remaining: number; resetMs: number } {
+    const now = Date.now()
+    const windowStart = now - this.config.windowMs
+
+    // Get or create window data for this client
+    let windowData = this.windows.get(clientId)
+    if (!windowData) {
+      windowData = { timestamps: [], blocked: false }
+      this.windows.set(clientId, windowData)
+    }
+
+    // Clean up timestamps outside the window
+    windowData.timestamps = windowData.timestamps.filter(ts => ts > windowStart)
+
+    const remaining = this.config.maxRequests - windowData.timestamps.length
+    const oldestTimestamp = windowData.timestamps[0] || now
+    const resetMs = oldestTimestamp + this.config.windowMs - now
+
+    if (remaining <= 0) {
+      return { allowed: false, remaining: 0, resetMs: Math.max(0, resetMs) }
+    }
+
+    return { allowed: true, remaining: remaining - 1, resetMs: Math.max(0, resetMs) }
+  }
+
+  /**
+   * Record a request for a client
+   * @param clientId - Unique identifier for the client
+   */
+  record(clientId: string): void {
+    const now = Date.now()
+    let windowData = this.windows.get(clientId)
+    if (!windowData) {
+      windowData = { timestamps: [], blocked: false }
+      this.windows.set(clientId, windowData)
+    }
+    windowData.timestamps.push(now)
+  }
+
+  /**
+   * Try to acquire a rate limit slot
+   * @param clientId - Unique identifier for the client
+   * @returns Object with allowed status and rate limit info
+   */
+  tryAcquire(clientId: string): { allowed: boolean; remaining: number; resetMs: number } {
+    const result = this.check(clientId)
+    if (result.allowed) {
+      this.record(clientId)
+    }
+    return result
+  }
+
+  /**
+   * Reset rate limit for a client (useful for testing)
+   */
+  reset(clientId: string): void {
+    this.windows.delete(clientId)
+  }
+
+  /**
+   * Reset all rate limits (useful for testing)
+   */
+  resetAll(): void {
+    this.windows.clear()
+  }
+}
+
+/**
+ * Concurrency limiter - limits concurrent operations per client
+ */
+export class ConcurrencyLimiter {
+  private activeOperations: Map<string, number> = new Map()
+  private waitingQueues: Map<string, Array<{ resolve: () => void; reject: (err: Error) => void }>> = new Map()
+  private config: ConcurrencyLimitConfig
+
+  constructor(config: Partial<ConcurrencyLimitConfig> = {}) {
+    this.config = { ...DEFAULT_CONCURRENCY_LIMIT, ...config }
+  }
+
+  /**
+   * Get current active operations count for a client
+   */
+  getActiveCount(clientId: string): number {
+    return this.activeOperations.get(clientId) || 0
+  }
+
+  /**
+   * Get waiting queue length for a client
+   */
+  getWaitingCount(clientId: string): number {
+    return this.waitingQueues.get(clientId)?.length || 0
+  }
+
+  /**
+   * Try to acquire a concurrency slot
+   * @param clientId - Unique identifier for the client
+   * @returns true if slot acquired, false if limit reached
+   */
+  tryAcquire(clientId: string): boolean {
+    const current = this.activeOperations.get(clientId) || 0
+    if (current >= this.config.maxConcurrent) {
+      return false
+    }
+    this.activeOperations.set(clientId, current + 1)
+    return true
+  }
+
+  /**
+   * Acquire a slot, waiting if necessary
+   * @param clientId - Unique identifier for the client
+   * @param timeoutMs - Maximum time to wait (default: 30000ms)
+   * @returns Promise that resolves when slot is acquired
+   */
+  async acquire(clientId: string, timeoutMs = 30000): Promise<void> {
+    // Try immediate acquisition
+    if (this.tryAcquire(clientId)) {
+      return
+    }
+
+    // Need to wait for a slot
+    return new Promise((resolve, reject) => {
+      // Set up timeout
+      const timeout = setTimeout(() => {
+        // Remove from waiting queue
+        const queue = this.waitingQueues.get(clientId)
+        if (queue) {
+          const index = queue.findIndex(w => w.resolve === resolve)
+          if (index !== -1) {
+            queue.splice(index, 1)
+          }
+        }
+        reject(new Error(`Concurrency limit timeout: waited ${timeoutMs}ms for a slot (max concurrent: ${this.config.maxConcurrent})`))
+      }, timeoutMs)
+
+      // Add to waiting queue
+      let queue = this.waitingQueues.get(clientId)
+      if (!queue) {
+        queue = []
+        this.waitingQueues.set(clientId, queue)
+      }
+      queue.push({
+        resolve: () => {
+          clearTimeout(timeout)
+          resolve()
+        },
+        reject
+      })
+    })
+  }
+
+  /**
+   * Release a concurrency slot
+   * @param clientId - Unique identifier for the client
+   */
+  release(clientId: string): void {
+    const current = this.activeOperations.get(clientId) || 0
+    if (current > 0) {
+      this.activeOperations.set(clientId, current - 1)
+
+      // Check if anyone is waiting
+      const queue = this.waitingQueues.get(clientId)
+      if (queue && queue.length > 0) {
+        const waiting = queue.shift()!
+        // Acquire slot for waiting request
+        this.activeOperations.set(clientId, (this.activeOperations.get(clientId) || 0) + 1)
+        waiting.resolve()
+      }
+    }
+  }
+
+  /**
+   * Reset concurrency limits for a client (useful for testing)
+   */
+  reset(clientId: string): void {
+    this.activeOperations.delete(clientId)
+    const queue = this.waitingQueues.get(clientId)
+    if (queue) {
+      queue.forEach(w => w.reject(new Error('Concurrency limiter reset')))
+      this.waitingQueues.delete(clientId)
+    }
+  }
+
+  /**
+   * Reset all concurrency limits (useful for testing)
+   */
+  resetAll(): void {
+    this.waitingQueues.forEach(queue => {
+      queue.forEach(w => w.reject(new Error('Concurrency limiter reset')))
+    })
+    this.activeOperations.clear()
+    this.waitingQueues.clear()
+  }
+}
+
+/**
+ * Combined resource enforcer that handles rate limiting and concurrency
+ */
+export class SandboxResourceEnforcer {
+  private rateLimiter: RateLimiter
+  private concurrencyLimiter: ConcurrencyLimiter
+
+  constructor(
+    rateLimitConfig?: Partial<RateLimitConfig>,
+    concurrencyConfig?: Partial<ConcurrencyLimitConfig>
+  ) {
+    this.rateLimiter = new RateLimiter(rateLimitConfig)
+    this.concurrencyLimiter = new ConcurrencyLimiter(concurrencyConfig)
+  }
+
+  /**
+   * Acquire resources for a sandbox execution
+   * @param clientId - Unique identifier for the client
+   * @param waitForSlot - If true, wait for a slot instead of failing immediately
+   * @param timeoutMs - Timeout for waiting (if waitForSlot is true)
+   * @returns Release function to call when done
+   */
+  async acquire(
+    clientId: string,
+    waitForSlot = false,
+    timeoutMs = 30000
+  ): Promise<{ release: () => void }> {
+    // Check rate limit first
+    const rateCheck = this.rateLimiter.tryAcquire(clientId)
+    if (!rateCheck.allowed) {
+      throw new Error(
+        `Rate limit exceeded: ${DEFAULT_RATE_LIMIT.maxRequests} requests per ${DEFAULT_RATE_LIMIT.windowMs}ms. ` +
+        `Reset in ${rateCheck.resetMs}ms.`
+      )
+    }
+
+    // Now handle concurrency
+    if (waitForSlot) {
+      await this.concurrencyLimiter.acquire(clientId, timeoutMs)
+    } else {
+      if (!this.concurrencyLimiter.tryAcquire(clientId)) {
+        throw new Error(
+          `Concurrency limit exceeded: max ${DEFAULT_CONCURRENCY_LIMIT.maxConcurrent} concurrent operations per client`
+        )
+      }
+    }
+
+    return {
+      release: () => this.concurrencyLimiter.release(clientId)
+    }
+  }
+
+  /**
+   * Get rate limiter for direct access
+   */
+  getRateLimiter(): RateLimiter {
+    return this.rateLimiter
+  }
+
+  /**
+   * Get concurrency limiter for direct access
+   */
+  getConcurrencyLimiter(): ConcurrencyLimiter {
+    return this.concurrencyLimiter
+  }
+
+  /**
+   * Reset all limits for testing
+   */
+  resetAll(): void {
+    this.rateLimiter.resetAll()
+    this.concurrencyLimiter.resetAll()
+  }
+}
+
+// Global default enforcer instance
+let globalEnforcer: SandboxResourceEnforcer | null = null
+
+/**
+ * Get or create the global resource enforcer
+ */
+export function getGlobalResourceEnforcer(): SandboxResourceEnforcer {
+  if (!globalEnforcer) {
+    globalEnforcer = new SandboxResourceEnforcer()
+  }
+  return globalEnforcer
+}
+
+/**
+ * Set a custom global resource enforcer (useful for testing)
+ */
+export function setGlobalResourceEnforcer(enforcer: SandboxResourceEnforcer | null): void {
+  globalEnforcer = enforcer
+}
+
 // Storage for captured operations (shared between sandbox instances)
 interface CapturedOperation {
   type: 'send' | 'try' | 'do' | 'on' | 'every'
@@ -595,6 +933,9 @@ export function createSandbox(options: SandboxOptions): Sandbox {
 
         // Combine all code: resource enforcement + context + wrapped user code
         const fullCode = resourceCode + '\n' + contextCode + '\n' + wrappedUserCode
+
+        // Debug: Log the transformed code to see if checkpoints are injected
+        // console.log('Transformed code:', instrumentedUserCode)
 
         // Execute code with $ context injected
         // Use Promise.race with a timeout to ensure we don't hang

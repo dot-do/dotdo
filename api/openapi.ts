@@ -1,6 +1,6 @@
 // OpenAPI 3.0 spec generation from Hono routes and Zod schemas
 import type { Hono } from 'hono'
-import type { z } from 'zod'
+import type { ZodTypeAny } from 'zod'
 import type { ResourceDefinition } from './resource'
 
 // OpenAPI 3.0 types
@@ -145,7 +145,7 @@ export interface GenerateOpenAPIOptions {
   app: Hono
   info?: Partial<InfoObject>
   servers?: ServerObject[]
-  schemas?: Record<string, z.ZodType<any>>
+  schemas?: Record<string, ZodTypeAny>
   resources?: ResourceDefinition<any>[]
   operations?: Record<string, Partial<OperationObject> & {
     requestBody?: { schema: string }
@@ -160,8 +160,8 @@ export class OpenAPIGenerator {
   private schemas: Record<string, SchemaObject> = {}
 
   // Convert Zod schema to OpenAPI schema
-  zodToOpenAPI(zodSchema: z.ZodType<any>): SchemaObject {
-    const def = (zodSchema as any)._def
+  zodToOpenAPI(zodSchema: ZodTypeAny): SchemaObject {
+    const def = zodSchema._def
 
     // Handle ZodString
     if (def.typeName === 'ZodString') {
@@ -218,10 +218,10 @@ export class OpenAPIGenerator {
       const shape = def.shape()
 
       for (const [key, value] of Object.entries(shape)) {
-        properties[key] = this.zodToOpenAPI(value as z.ZodType<any>)
+        properties[key] = this.zodToOpenAPI(value as ZodTypeAny)
 
         // Check if field is required (not optional)
-        const fieldDef = (value as any)._def
+        const fieldDef = (value as ZodTypeAny)._def
         if (fieldDef.typeName !== 'ZodOptional') {
           required.push(key)
         }
@@ -297,7 +297,7 @@ export class OpenAPIGenerator {
   }
 
   // Register a schema
-  registerSchema(name: string, zodSchema: z.ZodType<any>): void {
+  registerSchema(name: string, zodSchema: ZodTypeAny): void {
     this.schemas[name] = this.zodToOpenAPI(zodSchema)
   }
 

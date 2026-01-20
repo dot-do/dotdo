@@ -1,12 +1,12 @@
 // Auth middleware for Hono
 import type { MiddlewareHandler, Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
+import { jwtVerify, type JWTPayload } from 'jose'
 
 export interface AuthOptions {
   issuer?: string
   audience?: string
-  secret?: string
-  publicKey?: string
+  secret?: string | Uint8Array
   skipPaths?: string[]
 }
 
@@ -25,7 +25,15 @@ declare module 'hono' {
 }
 
 export function authMiddleware(options: AuthOptions = {}): MiddlewareHandler {
-  const { skipPaths = [] } = options
+  const { skipPaths = [], secret, issuer, audience } = options
+
+  // Require secret for JWT validation
+  if (!secret) {
+    throw new Error('authMiddleware requires a secret for JWT validation')
+  }
+
+  // Convert string secret to Uint8Array if needed
+  const secretKey = typeof secret === 'string' ? new TextEncoder().encode(secret) : secret
 
   return async (c, next) => {
     // Skip auth for specified paths
@@ -44,17 +52,30 @@ export function authMiddleware(options: AuthOptions = {}): MiddlewareHandler {
       throw new HTTPException(401, { message: 'Bearer token required' })
     }
 
-    // For now, simple token validation (JWT validation in do-7rf.3.2)
-    // This is a placeholder - real implementation would verify JWT
     try {
-      // Decode token (base64 JSON for testing, JWT in production)
-      const payload = decodeToken(token)
+      // Build verify options, only including defined values
+      const verifyOptions: { issuer?: string; audience?: string } = {}
+      if (issuer) verifyOptions.issuer = issuer
+      if (audience) verifyOptions.audience = audience
+
+      // Verify JWT signature and claims - FAIL CLOSED
+      const { payload } = await jwtVerify(token, secretKey, verifyOptions)
+
+      // Strict claim validation - subject is required
+      if (!payload.sub) {
+        throw new HTTPException(401, { message: 'Token missing subject claim' })
+      }
+
+      // Extract claims safely using index signature access
+      const email = payload['email'] as string | undefined
+      const roles = payload['roles']
+      const scopes = payload['scopes']
 
       const user: AuthUser = {
-        id: String(payload.sub ?? payload.id ?? ''),
-        email: payload.email as string | undefined,
-        roles: (payload.roles as string[] | undefined) ?? [],
-        scopes: (payload.scopes as string[] | undefined) ?? []
+        id: payload.sub,
+        email,
+        roles: Array.isArray(roles) ? roles : [],
+        scopes: Array.isArray(scopes) ? scopes : []
       }
 
       c.set('user', user)
@@ -62,6 +83,11 @@ export function authMiddleware(options: AuthOptions = {}): MiddlewareHandler {
 
       return next()
     } catch (error) {
+      // FAIL CLOSED - never allow invalid tokens through
+      if (error instanceof HTTPException) {
+        throw error
+      }
+      // All other errors (invalid signature, expired, malformed) reject the request
       throw new HTTPException(401, { message: 'Invalid token' })
     }
   }
@@ -91,15 +117,3 @@ export function apiKeyMiddleware(options: { header?: string } = {}): MiddlewareH
   }
 }
 
-// Simple token decoder (for testing - real impl uses jose)
-function decodeToken(token: string): Record<string, unknown> {
-  try {
-    // Try base64 JSON first (for testing)
-    const decoded = atob(token)
-    return JSON.parse(decoded)
-  } catch {
-    // If not base64 JSON, assume it's a simple token
-    // Real implementation would validate JWT here
-    return { sub: token.slice(0, 16) }
-  }
-}

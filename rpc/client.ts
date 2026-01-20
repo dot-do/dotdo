@@ -156,6 +156,14 @@ export interface DOStubOptions {
 }
 
 /**
+ * Options for creating a secure DO-to-DO stub
+ */
+export interface SecureDOStubOptions extends DOStubOptions {
+  /** Source DO ID for HMAC signing */
+  sourceDoId: string
+}
+
+/**
  * Creates a typed proxy for a Durable Object stub.
  *
  * This helper wraps a DurableObject binding and provides a typed interface
