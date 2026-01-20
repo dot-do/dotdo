@@ -458,9 +458,40 @@ export interface StreamTextResult {
 export async function streamText(
   options: StreamTextOptions
 ): Promise<StreamTextResult> {
-  const { streamText: aiStreamText } = await import('ai')
-
   const model = await resolveModel(options.model)
+
+  // Check if we're using the mock (ai-providers not available)
+  if ((model as any).provider === 'mock') {
+    // Create mock streaming response
+    const mockText = `Mock response for model: ${(model as any).modelId}`
+    const chunks = mockText.split(' ')
+
+    async function* mockTextStream() {
+      for (let i = 0; i < chunks.length; i++) {
+        yield chunks[i] + (i < chunks.length - 1 ? ' ' : '')
+      }
+    }
+
+    async function* mockFullStream() {
+      for (const chunk of chunks) {
+        yield { type: 'text-delta' as const, textDelta: chunk + ' ' }
+      }
+      yield { type: 'finish' as const, finishReason: 'stop' as const }
+    }
+
+    return {
+      textStream: mockTextStream(),
+      fullStream: mockFullStream(),
+      usage: Promise.resolve({
+        promptTokens: 10,
+        completionTokens: 20,
+        totalTokens: 30,
+      }),
+    }
+  }
+
+  // Use real AI SDK for actual models
+  const { streamText: aiStreamText } = await import('ai')
 
   const result = aiStreamText({
     ...options,
