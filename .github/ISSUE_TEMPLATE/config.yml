@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & Help
+    url: https://github.com/dot-do/dotdo/discussions/categories/q-a
+    about: Ask questions and get help from the community
+  - name: Ideas & Feature Discussions
+    url: https://github.com/dot-do/dotdo/discussions/categories/ideas
+    about: Discuss and brainstorm new features before creating a formal request
+  - name: Show & Tell
+    url: https://github.com/dot-do/dotdo/discussions/categories/show-and-tell
+    about: Share what you've built with dotdo
+  - name: Documentation Issue
+    url: https://github.com/dot-do/dotdo/issues/new?labels=documentation&title=%5BDocs%5D+
+    about: Report issues with documentation

@@ -1,0 +1,66 @@
+title: "[Q&A] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to ask a question! Please provide as much detail as possible to help the community assist you.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What would you like to know?
+      placeholder: Describe your question in detail...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What are you trying to accomplish? This helps us provide more relevant answers.
+      placeholder: |
+        - What are you building?
+        - What have you tried so far?
+        - Any relevant code snippets?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of dotdo is this related to?
+      options:
+        - "@dotdo/do (Durable Object)"
+        - "@dotdo/db (Storage Layer)"
+        - "@dotdo/rpc (Cap'n Web RPC)"
+        - "@dotdo/mcp (Model Context Protocol)"
+        - "@dotdo/ai (AI Routing)"
+        - "@dotdo/auth (Authentication)"
+        - "@dotdo/api (REST API)"
+        - "fsx (Filesystem)"
+        - "gitx (Git Operations)"
+        - "bashx (Shell Execution)"
+        - "CLI"
+        - "General / Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment (optional)
+      description: Any relevant environment details
+      placeholder: |
+        - dotdo version:
+        - Node.js version:
+        - Wrangler version:
+        - OS:
+
+  - type: checkboxes
+    id: search
+    attributes:
+      label: Due Diligence
+      options:
+        - label: I have searched existing discussions and issues for similar questions
+          required: true

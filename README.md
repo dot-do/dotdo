@@ -702,12 +702,32 @@ MIT License - see [LICENSE](./LICENSE) for details.
 
 ---
 
+## Community
+
+Join the dotdo community to get help, share ideas, and connect with other developers.
+
+### Get Involved
+
+- **[GitHub Discussions](https://github.com/dot-do/dotdo/discussions)** - Ask questions, share ideas, and show what you've built
+- **[Discord](https://workers.do/discord)** - Real-time chat with the community
+- **[Contributing Guidelines](./CONTRIBUTING.md)** - Learn how to contribute to dotdo
+- **[Code of Conduct](./CODE_OF_CONDUCT.md)** - Our community standards
+
+### Ways to Contribute
+
+- **Report bugs** - Found something broken? [Open an issue](https://github.com/dot-do/dotdo/issues/new?template=bug_report.yml)
+- **Suggest features** - Have an idea? [Start a discussion](https://github.com/dot-do/dotdo/discussions/categories/ideas)
+- **Submit PRs** - Check out our [contributing guide](./CONTRIBUTING.md)
+- **Share your projects** - Built something cool? [Show it off](https://github.com/dot-do/dotdo/discussions/categories/show-and-tell)
+
+---
+
 ## Support
 
-- **Issues:** Use `bd create` for bug reports and feature requests
-- **Discussions:** Join the [workers.do community](https://workers.do/discord)
+- **Questions:** Use [GitHub Discussions](https://github.com/dot-do/dotdo/discussions/categories/q-a) for Q&A
+- **Issues:** [Report bugs](https://github.com/dot-do/dotdo/issues/new?template=bug_report.yml) or [request features](https://github.com/dot-do/dotdo/issues/new?template=feature_request.yml)
 - **Enterprise:** Contact [enterprise@dotdo.dev](mailto:enterprise@dotdo.dev)
 
 ---
 
-**Built with ❤️ on Cloudflare Workers**
+**Built with care on Cloudflare Workers**

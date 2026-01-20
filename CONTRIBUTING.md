@@ -2,19 +2,24 @@
 
 Thank you for your interest in contributing to dotdo! This guide will help you get started with development, testing, and contributing to the runtime/framework layer for Durable Objects.
 
+## Code of Conduct
+
+This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code. Please report unacceptable behavior to [conduct@dotdo.dev](mailto:conduct@dotdo.dev).
+
 ---
 
 ## Table of Contents
 
-1. [Getting Started](#getting-started)
-2. [Development Workflow](#development-workflow)
-3. [Code Style and Conventions](#code-style-and-conventions)
-4. [Testing Guidelines](#testing-guidelines)
-5. [Pull Request Process](#pull-request-process)
-6. [Issue Tracking with Beads](#issue-tracking-with-beads)
-7. [Package Structure](#package-structure)
-8. [Process Management](#process-management)
-9. [Session Close Protocol](#session-close-protocol)
+1. [Code of Conduct](#code-of-conduct)
+2. [Getting Started](#getting-started)
+3. [Development Workflow](#development-workflow)
+4. [Code Style and Conventions](#code-style-and-conventions)
+5. [Testing Guidelines](#testing-guidelines)
+6. [Pull Request Process](#pull-request-process)
+7. [Issue Tracking with Beads](#issue-tracking-with-beads)
+8. [Package Structure](#package-structure)
+9. [Process Management](#process-management)
+10. [Session Close Protocol](#session-close-protocol)
 
 ---
 
@@ -798,10 +803,12 @@ git branch  # Should show v3 or your feature branch
 
 ## Getting Help
 
-- **Issues**: Use `bd create` for bug reports and feature requests
-- **Discussions**: GitHub Discussions for questions and ideas
-- **Discord**: Join the workers.do community
-- **Email**: For private inquiries, contact the maintainers
+- **Questions & Help**: [GitHub Discussions Q&A](https://github.com/dot-do/dotdo/discussions/categories/q-a)
+- **Ideas & Features**: [GitHub Discussions Ideas](https://github.com/dot-do/dotdo/discussions/categories/ideas)
+- **Bug Reports**: [Open an issue](https://github.com/dot-do/dotdo/issues/new?template=bug_report.yml)
+- **Feature Requests**: [Open a feature request](https://github.com/dot-do/dotdo/issues/new?template=feature_request.yml)
+- **Discord**: [Join the community](https://workers.do/discord)
+- **Security Issues**: [security@dotdo.dev](mailto:security@dotdo.dev) (do not open public issues)
 
 ---
 

@@ -1,0 +1,78 @@
+title: "[Show & Tell] "
+labels: ["show-and-tell"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Built something cool with dotdo? Share it with the community! We love seeing what people create.
+
+  - type: textarea
+    id: project
+    attributes:
+      label: Project Overview
+      description: Tell us about what you built!
+      placeholder: |
+        - What is your project?
+        - What does it do?
+        - What inspired you to build it?
+    validations:
+      required: true
+
+  - type: textarea
+    id: dotdo-usage
+    attributes:
+      label: How You Used dotdo
+      description: Which parts of dotdo did you use and how?
+      placeholder: |
+        - Which packages did you use? (@dotdo/do, @dotdo/rpc, etc.)
+        - Any interesting patterns or techniques?
+        - Code snippets welcome!
+    validations:
+      required: true
+
+  - type: textarea
+    id: links
+    attributes:
+      label: Links
+      description: Share links to your project (optional but encouraged!)
+      placeholder: |
+        - Live demo URL:
+        - GitHub repo:
+        - Blog post / documentation:
+        - Screenshots / videos:
+
+  - type: textarea
+    id: learnings
+    attributes:
+      label: Learnings & Tips
+      description: What did you learn? Any tips for others?
+      placeholder: |
+        - Challenges you overcame
+        - Tips for others
+        - Things you wish you knew earlier
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Project Category
+      description: What type of project is this?
+      options:
+        - "Web Application"
+        - "API / Backend Service"
+        - "AI Agent"
+        - "Developer Tool"
+        - "E-commerce"
+        - "Real-time / Collaboration"
+        - "IoT / Edge"
+        - "Integration / Plugin"
+        - "Learning / Tutorial"
+        - "Other"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: permissions
+    attributes:
+      label: Sharing Permissions
+      options:
+        - label: I consent to this project being featured in dotdo documentation or social media (with attribution)

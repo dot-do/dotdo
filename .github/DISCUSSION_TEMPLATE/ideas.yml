@@ -1,0 +1,79 @@
+title: "[Idea] "
+labels: ["idea", "enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea to improve dotdo? We'd love to hear it! Share your thoughts and let's discuss.
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea Summary
+      description: Briefly describe your idea
+      placeholder: A clear, concise description of your idea...
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Use Case
+      description: What problem does this solve? What use case does it enable?
+      placeholder: |
+        - What challenge are you facing?
+        - What workflow would this improve?
+        - Who would benefit from this?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How do you envision this working?
+      placeholder: |
+        Describe your proposed solution in detail. Include:
+        - API design ideas
+        - Example usage
+        - Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you considered any alternative approaches?
+      placeholder: What other solutions have you thought about?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of dotdo is this related to?
+      options:
+        - "@dotdo/do (Durable Object)"
+        - "@dotdo/db (Storage Layer)"
+        - "@dotdo/rpc (Cap'n Web RPC)"
+        - "@dotdo/mcp (Model Context Protocol)"
+        - "@dotdo/ai (AI Routing)"
+        - "@dotdo/auth (Authentication)"
+        - "@dotdo/api (REST API)"
+        - "fsx (Filesystem)"
+        - "gitx (Git Operations)"
+        - "bashx (Shell Execution)"
+        - "CLI"
+        - "Documentation"
+        - "New Package / Feature"
+        - "General / Other"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: willingness
+    attributes:
+      label: Contribution
+      description: Would you be willing to help implement this?
+      options:
+        - label: I would be willing to submit a PR for this feature
