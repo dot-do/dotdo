@@ -6,7 +6,7 @@
 import type { Thing, ThingsStore } from './things'
 import type { RelationshipsStore } from './relationships'
 import type { JsonValue, StorableData } from './types'
-import { ValidationError } from '../rpc/errors'
+import { ValidationError } from '@dotdo/rpc/errors'
 import { toThingId } from './branded-types'
 
 // ============================================================
@@ -334,10 +334,22 @@ export interface QueryBuilder<T extends StorableData = StorableData> {
 const VALID_FIELD_NAME = /^[$a-zA-Z_][a-zA-Z0-9_$]*$/
 
 /**
- * Validates a field name to prevent SQL injection
- * Throws a ValidationError if the field name is invalid
+ * Validates a field name to prevent SQL injection (do-2a0j)
+ *
+ * Field names are validated against a whitelist regex pattern.
+ * Valid names must:
+ * - Start with a letter, underscore, or $ (for system fields)
+ * - Contain only alphanumeric characters, underscores, and $
+ *
+ * This prevents SQL injection attacks via malicious field names like:
+ * - "name'; DROP TABLE things; --"
+ * - "name OR 1=1"
+ * - "name UNION SELECT * FROM users"
+ *
+ * @param field - The field name to validate
+ * @throws ValidationError if the field name is invalid
  */
-function validateFieldName(field: string): void {
+export function validateFieldName(field: string): void {
   if (!VALID_FIELD_NAME.test(field)) {
     throw ValidationError.forField(
       field,
@@ -1027,6 +1039,9 @@ export function buildWhereClause<T extends StorableData = StorableData>(options:
     for (const condition of options.whereConditions) {
       const { field, operator, value } = condition
 
+      // Validate field name to prevent SQL injection (do-2a0j)
+      validateFieldName(field)
+
       // Map field names - $type, $id etc. map to columns
       const sqlField = mapFieldToColumn(field)
 
@@ -1136,11 +1151,15 @@ function isJsonField(field: string): boolean {
 
 /**
  * Builds the ORDER BY clause
+ * Validates field name to prevent SQL injection (do-2a0j)
  */
 export function buildOrderByClause<T extends StorableData = StorableData>(options: QueryOptions<T>): string {
   if (!options.orderBy) {
     return 'ORDER BY created_at DESC'
   }
+
+  // Validate field name to prevent SQL injection (do-2a0j)
+  validateFieldName(options.orderBy)
 
   const sqlField = isJsonField(options.orderBy)
     ? `json_extract(data, '$.${options.orderBy}')`

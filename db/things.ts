@@ -12,7 +12,7 @@ import { toThingId } from './branded-types'
 import { generateId } from './id'
 import type { CursorPaginationOptions, CursorPaginatedResult } from './pagination'
 import { applyCursorPagination } from './pagination'
-import { ValidationError, NotFoundError } from '../rpc/errors'
+import { ValidationError, NotFoundError } from '@dotdo/rpc/errors'
 
 /**
  * Base Thing interface with system fields
@@ -76,6 +76,7 @@ export interface ThingCursorListOptions extends CursorPaginationOptions {
 export interface ThingsStore<T extends StorableData = StorableData> {
   create<D extends Partial<T> & { $type: string }>(data: D): Promise<Thing<T> & D>
   get(id: string): Promise<Thing<T> | null>
+  getMany(ids: string[]): Promise<Map<string, Thing<T>>>
   update<U extends ThingUpdate<T>>(id: string, data: U): Promise<Thing<T>>
   delete(id: string): Promise<void>
   list(options?: ThingListOptions): Promise<Thing<T>[]>
@@ -130,6 +131,23 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
     async get(id) {
       const thing = await adapter.get<Thing<T>>(`${THINGS_PREFIX}${id}`)
       return thing ?? null
+    },
+
+    async getMany(ids) {
+      if (ids.length === 0) {
+        return new Map<string, Thing<T>>()
+      }
+
+      const keys = ids.map(id => `${THINGS_PREFIX}${id}`)
+      const adapterResult = await adapter.getMany<Thing<T>>(keys)
+
+      // Convert from prefixed keys back to plain IDs
+      const result = new Map<string, Thing<T>>()
+      for (const [key, value] of adapterResult) {
+        const id = key.slice(THINGS_PREFIX.length)
+        result.set(id, value)
+      }
+      return result
     },
 
     async update(id, data) {
@@ -333,6 +351,18 @@ export function createThingsStore(): ThingsStore {
     async get(id) {
       const thingId = toThingId(id)
       return things.get(thingId) ?? null
+    },
+
+    async getMany(ids) {
+      const result = new Map<string, Thing>()
+      for (const id of ids) {
+        const thingId = toThingId(id)
+        const thing = things.get(thingId)
+        if (thing) {
+          result.set(id, thing)
+        }
+      }
+      return result
     },
 
     async update(id, data) {
