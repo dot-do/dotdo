@@ -145,30 +145,109 @@ export class DO implements DurableObject {
     this.setupRoutes()
   }
 
-  // WebSocket manager accessor
+  /**
+   * WebSocket manager for real-time communication.
+   * Provides connection handling, message routing, and broadcast capabilities.
+   *
+   * @example
+   * ```typescript
+   * // In your DO class
+   * this.ws.broadcast({ type: 'update', data: newData })
+   * ```
+   */
   get ws(): WebSocketManager {
     return this.websocketManager
   }
 
-  // Integration registry accessor
+  /**
+   * Integration registry for third-party services.
+   * Register and access integrations like Stripe, SendGrid, etc.
+   *
+   * @example
+   * ```typescript
+   * // Register an integration
+   * this.integrations.register('stripe', stripeIntegration)
+   *
+   * // Use an integration
+   * const stripe = this.integrations.get('stripe')
+   * ```
+   */
   get integrations(): IntegrationRegistry {
     return this._integrations
   }
 
-  // Entity store accessors
+  /**
+   * Things store for entity CRUD operations.
+   * Provides create, read, update, delete, and list operations for typed entities.
+   *
+   * @example
+   * ```typescript
+   * // Create a customer
+   * const customer = await this.things.create({
+   *   $type: 'Customer',
+   *   name: 'Alice',
+   *   email: 'alice@example.com'
+   * })
+   *
+   * // List all customers
+   * const customers = await this.things.list({ type: 'Customer' })
+   * ```
+   */
   get things(): ThingsStore {
     return this.entityManager.things
   }
 
+  /**
+   * Events store for immutable event logging and querying.
+   * Emit events and query the event history.
+   *
+   * @example
+   * ```typescript
+   * // Emit an event
+   * await this.events.emit({
+   *   type: 'Customer.signup',
+   *   payload: { customerId: '123', plan: 'pro' }
+   * })
+   *
+   * // Query events
+   * const signups = await this.events.query({ type: 'Customer.signup' })
+   * ```
+   */
   get events(): EventsStore {
     return this.entityManager.events
   }
 
+  /**
+   * Relationships store for subject-predicate-object triples.
+   * Create and query relationships between entities.
+   *
+   * @example
+   * ```typescript
+   * // Add a relationship
+   * await this.relationships.add({
+   *   subject: customerId,
+   *   predicate: 'owns',
+   *   object: orderId
+   * })
+   *
+   * // Find related entities
+   * const orders = await this.relationships.getRelated(customerId, 'owns')
+   * ```
+   */
   get relationships(): RelationshipsStore {
     return this.entityManager.relationships
   }
 
-  // Audit logging accessors (do-xebw)
+  /**
+   * Audit log store for tracking entity changes.
+   * Query the audit history of who changed what and when.
+   *
+   * @example
+   * ```typescript
+   * // Query audit logs for an entity
+   * const logs = await this.auditLogs.query({ entityId: customerId })
+   * ```
+   */
   get auditLogs(): AuditLogStore {
     return this.entityManager.auditLogs
   }
@@ -188,6 +267,22 @@ export class DO implements DurableObject {
     return this.entityManager.getAuditContext()
   }
 
+  /**
+   * Create a query builder for cross-entity queries.
+   * Enables complex queries with joins across Things, Events, and Relationships.
+   *
+   * @returns A QueryBuilder instance for constructing queries
+   *
+   * @example
+   * ```typescript
+   * const results = await this.query()
+   *   .from('things')
+   *   .where('$type', '=', 'Customer')
+   *   .orderBy('$createdAt', 'desc')
+   *   .limit(10)
+   *   .execute()
+   * ```
+   */
   query(): QueryBuilder {
     return this.entityManager.query()
   }
@@ -334,11 +429,39 @@ export class DO implements DurableObject {
     })
   }
 
-  // Subclasses can override to add routes
+  /**
+   * Override this method to add custom routes to the DO's Hono app.
+   * Called once before the first fetch request is processed.
+   *
+   * @param app - The Hono application instance to add routes to
+   *
+   * @example
+   * ```typescript
+   * protected routes(app: Hono): void {
+   *   app.get('/customers/:id', async (c) => {
+   *     const customer = await this.things.get(c.req.param('id'))
+   *     return c.json(customer)
+   *   })
+   *
+   *   app.post('/customers', async (c) => {
+   *     const data = await c.req.json()
+   *     const customer = await this.things.create({ $type: 'Customer', ...data })
+   *     return c.json(customer)
+   *   })
+   * }
+   * ```
+   */
   protected routes(_app: Hono): void {
     // Override in subclass
   }
 
+  /**
+   * Handle incoming HTTP requests to this Durable Object.
+   * Delegates to the internal Hono app after initializing routes.
+   *
+   * @param request - The incoming HTTP request
+   * @returns A Promise resolving to the HTTP response
+   */
   async fetch(request: Request): Promise<Response> {
     // Allow subclasses to add routes (only once)
     if (!this.routesInitialized) {

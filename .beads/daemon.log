@@ -6778,3 +6778,177 @@ time=2026-01-20T15:17:39.841-06:00 level=INFO msg="database opened" path=/Users/
 time=2026-01-20T15:17:39.841-06:00 level=INFO msg="upgrading .beads/.gitignore"
 time=2026-01-20T15:17:39.841-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
 time=2026-01-20T15:17:39.841-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:17:47.093-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:17:47.094-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:17:47.107-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:17:47.107-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:17:47.107-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:17:47.107-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:18:00.207-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:18:00.207-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:18:00.219-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:18:00.219-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:18:00.219-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:18:00.219-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:18:01.636-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:18:01.637-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:18:01.649-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:18:01.649-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:18:01.649-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:18:01.649-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:18:01.970-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:18:01.971-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:18:01.984-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:18:01.984-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:18:01.984-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:18:01.984-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:18:07.149-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:18:07.149-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:18:07.163-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:18:07.163-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:18:07.163-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:18:07.163-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:19:01.948-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:19:01.948-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:19:01.961-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:19:01.961-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:19:01.961-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:19:01.961-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:19:13.015-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:19:13.015-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:19:13.027-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:19:13.027-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:19:13.027-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:19:13.027-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:19:18.225-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:19:18.225-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:19:18.238-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:19:18.238-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:19:18.238-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:19:18.238-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:19:22.097-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:19:22.098-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:19:22.111-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:19:22.111-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:19:22.111-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:19:22.111-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:19:43.550-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:19:43.550-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:19:43.564-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:19:43.564-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:19:43.564-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:19:43.564-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:19:44.230-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:19:44.230-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:19:44.242-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:19:44.242-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:19:44.242-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:19:44.242-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:19:52.982-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:19:52.982-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:19:52.995-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:19:52.995-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:19:52.995-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:19:52.995-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:19:53.309-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:19:53.310-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:19:53.323-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:19:53.323-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:19:53.323-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:19:53.323-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:20:10.118-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:20:10.118-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:20:10.131-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:20:10.131-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:20:10.131-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:20:10.131-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:20:29.447-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:20:29.447-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:20:29.460-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:20:29.460-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:20:29.460-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:20:29.460-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:20:36.420-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:20:36.420-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:20:36.433-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:20:36.433-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:20:36.433-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:20:36.433-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:20:39.785-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:20:39.786-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:20:39.798-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:20:39.798-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:20:39.798-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:20:39.798-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:20:44.953-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:20:44.953-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:20:44.968-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:20:44.968-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:20:44.968-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:20:44.968-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:20:52.857-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:20:52.857-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:20:52.870-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:20:52.870-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:20:52.870-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:20:52.870-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:21:01.670-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:21:01.670-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:21:01.684-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:21:01.684-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:21:01.684-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:21:01.684-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:21:02.803-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:21:02.804-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:21:02.819-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:21:02.819-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:21:02.819-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:21:02.819-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:21:07.125-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:21:07.126-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:21:07.138-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:21:07.138-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:21:07.138-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:21:07.138-06:00 level=ERROR msg="repository fingerprint validation failed" error="failed to read repo_id: get metadata: sqlite3: database disk image is malformed"
+time=2026-01-20T15:21:40.662-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T15:21:40.662-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T15:21:40.676-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T15:21:40.676-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T15:21:40.676-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T15:21:40.687-06:00 level=INFO msg="Repository fingerprint validated: %s" !BADKEY=b1d3ef9e
+time=2026-01-20T15:21:40.687-06:00 level=INFO msg="starting RPC server" socket=/Users/nathanclevenger/projects/dotdo/.beads/bd.sock
+time=2026-01-20T15:21:40.687-06:00 level=INFO msg="RPC server ready (socket listening)"
+time=2026-01-20T15:21:40.693-06:00 level=INFO msg="registered in global registry"
+time=2026-01-20T15:21:40.693-06:00 level=INFO msg="Starting %s..." !BADKEY="sync cycle"
+time=2026-01-20T15:21:40.694-06:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-01-20T15:21:40.694-06:00 level=INFO msg="monitoring parent process" pid=0
+time=2026-01-20T15:21:40.694-06:00 level=INFO msg="using event-driven mode"
+time=2026-01-20T15:21:40.694-06:00 level=INFO msg="Auto-pull disabled: use 'git pull' manually to sync remote changes"
+time=2026-01-20T15:21:41.041-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T15:21:41.093-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T15:21:41.093-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T15:21:41.488-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T15:21:41.539-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T15:21:41.539-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T15:21:41.786-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T15:21:41.837-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T15:21:41.837-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T15:21:42.839-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T15:21:42.840-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T15:21:42.842-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T15:21:42.879-06:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T15:21:42.889-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T15:21:42.889-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T15:21:42.889-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T15:21:43.401-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T15:21:43.516-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T15:21:43.522-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T15:21:43.882-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T15:21:43.882-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T15:21:43.882-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T15:21:43.898-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T15:21:43.898-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T15:21:43.898-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T15:21:44.305-06:00 level=INFO msg="Pulled from remote"
+time=2026-01-20T15:21:44.462-06:00 level=INFO msg="Imported from JSONL"
+time=2026-01-20T15:21:44.468-06:00 level=INFO msg="Auto-import complete"

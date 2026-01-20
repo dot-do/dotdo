@@ -1,9 +1,11 @@
-// Things CRUD - see do-7rf.4.1
-// Generic types added per do-jqrj
-// Storage abstraction added per do-68rr
-// Branded types added per do-e3my
-// Cursor-based pagination added per do-rljr.8
-// ValidationError support added per do-grp5.7
+/**
+ * @dotdo/db - Things Store
+ *
+ * ThingsStore provides CRUD operations for typed entities with automatic
+ * ID generation, timestamps, and type safety through branded types.
+ *
+ * @module @dotdo/db/things
+ */
 
 import type { StorableData, JsonValue } from './types'
 import type { StorageAdapter } from './storage'
@@ -70,19 +72,115 @@ export interface ThingCursorListOptions extends CursorPaginationOptions {
 }
 
 /**
- * ThingsStore interface with generic type parameter
- * T defaults to StorableData for backward compatibility
+ * ThingsStore interface for entity CRUD operations.
+ *
+ * Provides typed operations for creating, reading, updating, and deleting entities.
+ * Supports both individual and bulk operations, with offset and cursor-based pagination.
+ *
+ * @template T - The entity data type, defaults to StorableData for flexibility
+ *
+ * @example
+ * ```typescript
+ * // Create a customer
+ * const customer = await things.create({
+ *   $type: 'Customer',
+ *   name: 'Alice',
+ *   email: 'alice@example.com'
+ * })
+ *
+ * // Get by ID
+ * const found = await things.get(customer.$id)
+ *
+ * // Update
+ * await things.update(customer.$id, { name: 'Alice Smith' })
+ *
+ * // List with pagination
+ * const page = await things.listWithCursor({
+ *   type: 'Customer',
+ *   limit: 10
+ * })
+ *
+ * // Bulk operations
+ * await things.bulkCreate([
+ *   { $type: 'Customer', name: 'Bob' },
+ *   { $type: 'Customer', name: 'Carol' }
+ * ])
+ * ```
  */
 export interface ThingsStore<T extends StorableData = StorableData> {
+  /**
+   * Create a new entity with auto-generated ID and timestamps.
+   * @param data - Entity data with required $type field
+   * @returns The created entity with $id, $createdAt, and $updatedAt
+   * @throws ValidationError if $type is missing or invalid
+   */
   create<D extends Partial<T> & { $type: string }>(data: D): Promise<Thing<T> & D>
+
+  /**
+   * Get an entity by ID.
+   * @param id - The entity ID
+   * @returns The entity or null if not found
+   */
   get(id: string): Promise<Thing<T> | null>
+
+  /**
+   * Get multiple entities by their IDs in a single operation.
+   * @param ids - Array of entity IDs
+   * @returns Map of ID to entity (missing IDs are not included)
+   */
   getMany(ids: string[]): Promise<Map<string, Thing<T>>>
+
+  /**
+   * Update an existing entity.
+   * @param id - The entity ID
+   * @param data - Fields to update (cannot change $id or $type)
+   * @returns The updated entity
+   * @throws NotFoundError if entity does not exist
+   */
   update<U extends ThingUpdate<T>>(id: string, data: U): Promise<Thing<T>>
+
+  /**
+   * Delete an entity by ID.
+   * @param id - The entity ID
+   * @throws NotFoundError if entity does not exist
+   */
   delete(id: string): Promise<void>
+
+  /**
+   * List entities with optional filtering and offset pagination.
+   * @param options - Filter and pagination options
+   * @returns Array of entities sorted by createdAt descending
+   */
   list(options?: ThingListOptions): Promise<Thing<T>[]>
+
+  /**
+   * List entities with cursor-based pagination for efficient paging.
+   * @param options - Filter and cursor pagination options
+   * @returns Paginated result with items and cursor info
+   */
   listWithCursor(options?: ThingCursorListOptions): Promise<CursorPaginatedResult<Thing<T>>>
+
+  /**
+   * Create multiple entities in a single atomic operation.
+   * @param things - Array of entity data to create
+   * @returns Array of created entities
+   * @throws ValidationError if any entity fails validation
+   */
   bulkCreate<D extends Partial<T> & { $type: string }>(things: D[]): Promise<(Thing<T> & D)[]>
+
+  /**
+   * Update multiple entities in a single atomic operation.
+   * @param items - Array of {id, data} pairs
+   * @returns Array of updated entities
+   * @throws NotFoundError if any entity does not exist
+   */
   bulkUpdate(items: BulkUpdateItem<T>[]): Promise<Thing<T>[]>
+
+  /**
+   * Delete multiple entities in a single atomic operation.
+   * @param ids - Array of entity IDs to delete
+   * @throws NotFoundError if any entity does not exist
+   */
   bulkDelete(ids: string[]): Promise<void>
 }
 
@@ -94,8 +192,27 @@ export interface ThingsStore<T extends StorableData = StorableData> {
 const THINGS_PREFIX = 'thing:'
 
 /**
- * Create a ThingsStore backed by a StorageAdapter
- * This allows using any storage backend (SQLite, memory, etc.)
+ * Create a ThingsStore backed by a StorageAdapter.
+ *
+ * This factory function creates a ThingsStore that can use any storage backend
+ * (SQLite, memory, etc.) via the adapter pattern.
+ *
+ * @template T - The entity data type
+ * @param adapter - The storage adapter to use for persistence
+ * @returns A fully-functional ThingsStore instance
+ *
+ * @example
+ * ```typescript
+ * import { createThingsStoreWithAdapter, createSQLiteAdapter } from '@dotdo/db'
+ *
+ * const adapter = createSQLiteAdapter(sql)
+ * const things = createThingsStoreWithAdapter(adapter)
+ *
+ * const customer = await things.create({
+ *   $type: 'Customer',
+ *   name: 'Alice'
+ * })
+ * ```
  */
 export function createThingsStoreWithAdapter<T extends StorableData = StorableData>(
   adapter: StorageAdapter
