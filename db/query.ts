@@ -7,6 +7,7 @@ import type { Thing, ThingsStore } from './things'
 import type { RelationshipsStore } from './relationships'
 import type { JsonValue, StorableData } from './types'
 import { ValidationError } from '../rpc/errors'
+import { toThingId } from './branded-types'
 
 // ============================================================
 // Query Limits Configuration (do-bgr1)
@@ -378,6 +379,10 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
 
       const joinedThings: Thing[] = []
 
+      // Collect all related IDs from all source IDs first (batch relationship lookup)
+      const allRelatedIds: string[] = []
+      const sourceToRelatedMap = new Map<string, string[]>()
+
       for (const sourceId of sourceIds) {
         let relatedIds: string[]
 
@@ -389,9 +394,22 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
           relatedIds = await relationshipsStore.getRelatedTo(sourceId, predicate)
         }
 
-        // Fetch the related things
+        sourceToRelatedMap.set(sourceId, relatedIds)
+        allRelatedIds.push(...relatedIds)
+      }
+
+      // Batch fetch all related things in a single query (do-8rfs: fix N+1)
+      const uniqueRelatedIds = [...new Set(allRelatedIds)]
+      const relatedThingsMap = uniqueRelatedIds.length > 0
+        ? await store.getMany(uniqueRelatedIds)
+        : new Map<string, Thing>()
+
+      // Process the fetched things with filtering
+      for (const sourceId of sourceIds) {
+        const relatedIds = sourceToRelatedMap.get(sourceId) || []
+
         for (const relatedId of relatedIds) {
-          const relatedThing = await store.get(relatedId)
+          const relatedThing = relatedThingsMap.get(relatedId)
           if (!relatedThing) continue
 
           // Check target type
@@ -694,7 +712,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
                   // Create a "null" source entry with the unmatched target
                   const joinKey = rightJoin.alias || (rightJoin.direction === 'forward' ? rightJoin.predicate : `${rightJoin.predicate}By`)
                   const nullEntry: ThingWithJoins = {
-                    $id: '',
+                    $id: toThingId('null-entry'),
                     $type: options.type || '',
                     $createdAt: 0,
                     $updatedAt: 0,
@@ -736,7 +754,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
                 if (matchesJoinConditions(targetThing, fullJoin.conditions)) {
                   const joinKey = fullJoin.alias || (fullJoin.direction === 'forward' ? fullJoin.predicate : `${fullJoin.predicate}By`)
                   const nullEntry: ThingWithJoins = {
-                    $id: '',
+                    $id: toThingId('null-entry'),
                     $type: options.type || '',
                     $createdAt: 0,
                     $updatedAt: 0,

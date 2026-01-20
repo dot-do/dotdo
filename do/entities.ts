@@ -1,5 +1,6 @@
 // Entity Management - Integration of db stores into DO class
 // See do-7rf.6.5 and do-xebw (audit logging)
+// Fixed do-4s3f: Now uses SQLite storage by default when sql parameter is provided
 
 import {
   createThingsStore,
@@ -7,6 +8,12 @@ import {
   createRelationshipsStore,
   createQuery,
   createAuditLogStore,
+  createSQLiteThingsStore,
+  createSQLiteEventsStore,
+  createSQLiteRelationshipsStore,
+  createSQLiteAuditLogStore,
+  SQLiteAdapter,
+  type SqlStorage,
   type ThingsStore,
   type EventsStore,
   type RelationshipsStore,
@@ -30,11 +37,24 @@ import {
 export interface EntityManagerOptions {
   /** Audit logging configuration */
   auditConfig?: Partial<AuditLogConfig>
+  /**
+   * SQL storage instance from Durable Object state.storage.sql
+   * When provided, entities are persisted to SQLite instead of in-memory
+   * @example
+   * // In DO constructor:
+   * this.entityManager = new EntityManager({ sql: state.storage.sql })
+   */
+  sql?: SqlStorage
 }
 
 /**
  * Entity Manager wraps the base stores and adds event emission on entity changes
  * Also provides audit logging for all CRUD operations (do-xebw)
+ *
+ * When constructed with a sql option (from state.storage.sql), data is persisted
+ * to SQLite. Otherwise, falls back to in-memory stores for backward compatibility.
+ *
+ * @see do-4s3f - Fix for EntityManager using in-memory stores
  */
 export class EntityManager {
   private _things: ThingsStore
@@ -43,14 +63,39 @@ export class EntityManager {
   private _auditLogs: AuditLogStore
   private _auditConfig: AuditLogConfig
   private _auditContext: AuditContext
+  private _sqliteAdapter?: SQLiteAdapter
+  private _initPromise?: Promise<void>
 
   constructor(options: EntityManagerOptions = {}) {
-    this._things = createThingsStore()
-    this._events = createEventsStore()
-    this._relationships = createRelationshipsStore()
-    this._auditLogs = createAuditLogStore()
+    if (options.sql) {
+      // Use SQLite-backed stores for persistence (do-4s3f)
+      this._sqliteAdapter = new SQLiteAdapter(options.sql)
+      // Initialize adapter (runs migrations) - store the promise so we can await it
+      this._initPromise = this._sqliteAdapter.initialize()
+
+      this._things = createSQLiteThingsStore(this._sqliteAdapter)
+      this._events = createSQLiteEventsStore(this._sqliteAdapter)
+      this._relationships = createSQLiteRelationshipsStore(this._sqliteAdapter)
+      this._auditLogs = createSQLiteAuditLogStore(this._sqliteAdapter)
+    } else {
+      // Fall back to in-memory stores for backward compatibility
+      this._things = createThingsStore()
+      this._events = createEventsStore()
+      this._relationships = createRelationshipsStore()
+      this._auditLogs = createAuditLogStore()
+    }
     this._auditConfig = { ...defaultAuditConfig, ...options.auditConfig }
     this._auditContext = { actor: 'system' }
+  }
+
+  /**
+   * Ensure the EntityManager is fully initialized (migrations complete)
+   * This is called automatically in blockConcurrencyWhile in the DO constructor
+   */
+  async ensureInitialized(): Promise<void> {
+    if (this._initPromise) {
+      await this._initPromise
+    }
   }
 
   /**

@@ -67,10 +67,20 @@ export {
 // Rate limiting middleware
 export {
   RateLimiter,
+  DistributedRateLimiter,
   rateLimitMiddleware,
+  distributedRateLimitMiddleware,
   createRateLimiter,
+  createDistributedRateLimiter,
   DEFAULT_TIERS,
   type RateLimitConfig,
+  type DistributedRateLimitConfig,
   type RateLimitTier,
   type RateLimitResult,
+  type RateLimiterDONamespace,
+  type RateLimiterDOStub,
 } from './middleware/rate-limit'
+
+// Rate limiter Durable Object (for distributed state)
+export { RateLimiterDO } from './middleware/RateLimiterDO'
+export type { RateLimitCheckParams, RateLimitCheckResult } from './middleware/RateLimiterDO'
