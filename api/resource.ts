@@ -74,19 +74,19 @@ export interface ActionDef {
 }
 
 // Hook Types
-export interface HookDef {
-  beforeValidate?: (data: any) => Promise<any>
-  beforeCreate?: (data: any) => Promise<any>
-  afterCreate?: (data: any) => Promise<any>
-  beforeUpdate?: (id: string, data: any) => Promise<any>
-  afterUpdate?: (id: string, data: any) => Promise<any>
+export interface HookDef<T = Record<string, unknown>> {
+  beforeValidate?: (data: Partial<T>) => Promise<Partial<T>>
+  beforeCreate?: (data: T) => Promise<T>
+  afterCreate?: (data: T) => Promise<T>
+  beforeUpdate?: (id: string, data: Partial<T>) => Promise<Partial<T>>
+  afterUpdate?: (id: string, data: T) => Promise<T>
   beforeDelete?: (id: string) => Promise<void>
   afterDelete?: (id: string) => Promise<void>
 }
 
 // Computed Field Types
-export type ComputedFieldDef = {
-  [key: string]: (data: any) => any
+export type ComputedFieldDef<T = Record<string, unknown>> = {
+  [key: string]: (data: T) => unknown
 }
 
 // Route Definitions
@@ -101,25 +101,25 @@ export interface RouteDefinitions {
 }
 
 // Resource Definition
-export interface ResourceDefinition {
+export interface ResourceDefinition<T = Record<string, unknown>> {
   name: string
   fields: Record<string, FieldDef>
   schema: z.ZodType
   relations?: Record<string, RelationDef>
   actions?: Record<string, ActionDef>
-  hooks?: HookDef
-  computed?: ComputedFieldDef
+  hooks?: HookDef<T>
+  computed?: ComputedFieldDef<T>
   routes: RouteDefinitions
 }
 
 // Resource Builder (Fluent API)
-export class ResourceBuilder {
+export class ResourceBuilder<T = Record<string, unknown>> {
   private name: string
   private _fields: Record<string, FieldDef> = {}
   private _relations?: Record<string, RelationDef>
   private _actions?: Record<string, ActionDef>
-  private _hooks?: HookDef
-  private _computed?: ComputedFieldDef
+  private _hooks?: HookDef<T>
+  private _computed?: ComputedFieldDef<T>
 
   constructor(name: string) {
     this.name = name
@@ -140,21 +140,21 @@ export class ResourceBuilder {
     return this
   }
 
-  hooks(hooks: HookDef): this {
+  hooks(hooks: HookDef<T>): this {
     this._hooks = hooks
     return this
   }
 
-  computed(computed: ComputedFieldDef): this {
+  computed(computed: ComputedFieldDef<T>): this {
     this._computed = computed
     return this
   }
 
-  build(): ResourceDefinition {
+  build(): ResourceDefinition<T> {
     const schema = buildZodSchema(this._fields)
     const routes = generateRoutes(this.name, this._actions, this._relations)
 
-    const definition: ResourceDefinition = {
+    const definition: ResourceDefinition<T> = {
       name: this.name,
       fields: this._fields,
       schema,
@@ -357,17 +357,17 @@ function generateRoutes(
 }
 
 // Global Resource Registry
-const resourceRegistry: Map<string, ResourceDefinition> = new Map()
+const resourceRegistry: Map<string, ResourceDefinition<unknown>> = new Map()
 
-function registerResource(name: string, definition: ResourceDefinition): void {
-  resourceRegistry.set(name, definition)
+function registerResource<T>(name: string, definition: ResourceDefinition<T>): void {
+  resourceRegistry.set(name, definition as ResourceDefinition<unknown>)
 }
 
-export function getResource(name: string): ResourceDefinition | undefined {
+export function getResource(name: string): ResourceDefinition<unknown> | undefined {
   return resourceRegistry.get(name)
 }
 
-export function getAllResources(): Record<string, ResourceDefinition> {
+export function getAllResources(): Record<string, ResourceDefinition<unknown>> {
   return Object.fromEntries(resourceRegistry.entries())
 }
 
@@ -376,6 +376,6 @@ export function clearRegistry(): void {
 }
 
 // Main export - fluent API entry point
-export function defineResource(name: string): ResourceBuilder {
-  return new ResourceBuilder(name)
+export function defineResource<T = Record<string, unknown>>(name: string): ResourceBuilder<T> {
+  return new ResourceBuilder<T>(name)
 }

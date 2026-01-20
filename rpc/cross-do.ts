@@ -1,6 +1,19 @@
 // Cross-DO RPC - Durable Object to Durable Object communication
 // Provides typed RPC between DOs with stub caching and connection pooling
 
+import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
+
+// Re-export for convenience
+export { generateCorrelationId, CORRELATION_ID_HEADER }
+
+/**
+ * Options for cross-DO RPC calls
+ */
+export interface CrossDORPCOptions {
+  /** Optional correlation ID to use for request tracing */
+  correlationId?: string
+}
+
 /**
  * Type guard to check if a value is a DurableObjectId
  */
@@ -104,18 +117,22 @@ export class CrossDOStubCache {
  * @param binding - The DurableObjectNamespace binding
  * @param id - Either a string name or a DurableObjectId
  * @param cache - Optional stub cache for connection pooling
+ * @param options - Optional RPC options including correlation ID
  * @returns A typed proxy that forwards method calls to the remote DO
  */
 export function createCrossDOClient<T extends object>(
   binding: DurableObjectNamespace,
   id: string | DurableObjectId,
-  cache?: CrossDOStubCache
+  cache?: CrossDOStubCache,
+  options?: CrossDORPCOptions
 ): T {
   // Get or create stub (with optional caching)
   const stub = cache ? cache.getStub(binding, id) : (() => {
     const doId = isDurableObjectId(id) ? id : binding.idFromName(id)
     return binding.get(doId)
   })()
+
+  const baseCorrelationId = options?.correlationId
 
   return new Proxy({} as T, {
     get(_, prop: string | symbol) {
@@ -131,9 +148,15 @@ export function createCrossDOClient<T extends object>(
       // Special method for raw fetch access
       if (prop === 'fetch') {
         return async (url: string, init?: RequestInit) => {
-          const response = await stub.fetch(url, init)
+          // Generate correlation ID for raw fetch too
+          const correlationId = baseCorrelationId || generateCorrelationId()
+          const headers = new Headers(init?.headers)
+          headers.set(CORRELATION_ID_HEADER, correlationId)
+
+          const response = await stub.fetch(url, { ...init, headers })
           if (!response.ok) {
-            throw new Error(`Cross-DO fetch error: ${response.status}`)
+            const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
+            throw new Error(`Cross-DO fetch error: ${response.status} [${responseCorrelationId}]`)
           }
           return response.json()
         }
@@ -141,20 +164,35 @@ export function createCrossDOClient<T extends object>(
 
       // Return method invoker
       return async (...args: unknown[]) => {
+        // Generate a correlation ID for each request, or use the provided base correlation ID
+        const correlationId = baseCorrelationId || generateCorrelationId()
+
         const response = await stub.fetch('https://do/rpc', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            [CORRELATION_ID_HEADER]: correlationId,
+          },
           body: JSON.stringify({ method: prop, args }),
         })
 
         if (!response.ok) {
-          throw new Error(`Cross-DO RPC error: ${response.status}`)
+          const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
+          throw new Error(`Cross-DO RPC error: ${response.status} [${responseCorrelationId}]`)
         }
 
         return response.json()
       }
     }
   })
+}
+
+/**
+ * Options for CrossDOContext
+ */
+export interface CrossDOContextOptions {
+  /** Optional correlation ID to propagate through all DO-to-DO calls */
+  correlationId?: string
 }
 
 /**
@@ -177,15 +215,21 @@ export function createCrossDOClient<T extends object>(
  *   'notify',
  *   'Your order shipped!'
  * )
+ *
+ * // With correlation ID for request tracing
+ * const $traced = new CrossDOContext(env, { correlationId: 'request-123' })
+ * await $traced.Customer<CustomerDO>('customer-456').getBalance()
  * ```
  */
 export class CrossDOContext {
   private cache: CrossDOStubCache
   private env: Record<string, DurableObjectNamespace>
+  private correlationId?: string
 
-  constructor(env: Record<string, DurableObjectNamespace>) {
+  constructor(env: Record<string, DurableObjectNamespace>, options?: CrossDOContextOptions) {
     this.env = env
     this.cache = new CrossDOStubCache()
+    this.correlationId = options?.correlationId
 
     // Return proxy for namespace access
     return new Proxy(this, {
@@ -216,6 +260,7 @@ export class CrossDOContext {
     }
 
     const cache = this.cache
+    const contextCorrelationId = this.correlationId
 
     // Return a function that creates typed DO clients
     return <T extends object>(id?: string | DurableObjectId) => {
@@ -227,8 +272,12 @@ export class CrossDOContext {
             method: K,
             ...args: T[K] extends (...args: infer A) => any ? A : never[]
           ): Promise<Awaited<ReturnType<T[K] extends (...args: any[]) => infer R ? () => R : never>>[]> => {
+            // Use context correlation ID or generate a shared one for the broadcast
+            const correlationId = contextCorrelationId || generateCorrelationId()
+            const options: CrossDORPCOptions = { correlationId }
+
             const promises = ids.map(async (doId) => {
-              const client = createCrossDOClient<T>(binding, doId, cache)
+              const client = createCrossDOClient<T>(binding, doId, cache, options)
               const fn = client[method as string]
               if (typeof fn !== 'function') {
                 throw new Error(`Method ${String(method)} is not a function`)
@@ -241,7 +290,12 @@ export class CrossDOContext {
         }
       }
 
-      return createCrossDOClient<T>(binding, id, cache)
+      // Create options with correlation ID if available
+      const options: CrossDORPCOptions | undefined = contextCorrelationId
+        ? { correlationId: contextCorrelationId }
+        : undefined
+
+      return createCrossDOClient<T>(binding, id, cache, options)
     }
   }
 

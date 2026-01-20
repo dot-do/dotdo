@@ -51,14 +51,14 @@ describe('RPC Client', () => {
       const client = createClient<TestAPI>({ url: 'http://localhost:8787' })
       const result = await client.greet('World')
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8787/rpc',
-        expect.objectContaining({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ method: 'greet', args: ['World'] })
-        })
-      )
+      // Check that fetch was called with the right structure
+      const fetchCall = mockFetch.mock.calls[0]
+      expect(fetchCall[0]).toBe('http://localhost:8787/rpc')
+      expect(fetchCall[1].method).toBe('POST')
+      expect(fetchCall[1].headers['Content-Type']).toBe('application/json')
+      expect(fetchCall[1].headers['X-Correlation-ID']).toBeTruthy()
+      expect(JSON.parse(fetchCall[1].body)).toEqual({ method: 'greet', args: ['World'] })
+
       expect(result).toEqual({ result: 'Hello, World!' })
     })
 
@@ -87,7 +87,8 @@ describe('RPC Client', () => {
     it('should throw on RPC error', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
-        status: 500
+        status: 500,
+        headers: new Headers({ 'X-Correlation-ID': 'error-correlation-id' })
       })
 
       interface TestAPI {
@@ -96,6 +97,7 @@ describe('RPC Client', () => {
 
       const client = createClient<TestAPI>({ url: 'http://localhost:8787' })
 
+      // Error now includes correlation ID in the message
       await expect(client.fail()).rejects.toThrow('RPC error: 500')
     })
 
@@ -292,14 +294,15 @@ describe('RPC Client', () => {
 
       expect(mockBinding.idFromName).toHaveBeenCalledWith('test-id')
       expect(mockBinding.get).toHaveBeenCalled()
-      expect(mockStub.fetch).toHaveBeenCalledWith(
-        'https://do/rpc',
-        expect.objectContaining({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ method: 'getValue', args: [] })
-        })
-      )
+
+      // Check that fetch was called with the right structure
+      const fetchCall = mockStub.fetch.mock.calls[0]
+      expect(fetchCall[0]).toBe('https://do/rpc')
+      expect(fetchCall[1].method).toBe('POST')
+      expect(fetchCall[1].headers['Content-Type']).toBe('application/json')
+      expect(fetchCall[1].headers['X-Correlation-ID']).toBeTruthy()
+      expect(JSON.parse(fetchCall[1].body)).toEqual({ method: 'getValue', args: [] })
+
       expect(result).toEqual({ value: 42 })
     })
 
@@ -334,7 +337,8 @@ describe('RPC Client', () => {
       const mockStub = {
         fetch: vi.fn().mockResolvedValueOnce({
           ok: false,
-          status: 500
+          status: 500,
+          headers: new Headers({ 'X-Correlation-ID': 'error-correlation-id' })
         })
       }
 
@@ -349,6 +353,7 @@ describe('RPC Client', () => {
 
       const stub = createDOStub<DOAPI>(mockBinding, 'test-id')
 
+      // Error now includes correlation ID in the message
       await expect(stub.fail()).rejects.toThrow('DO RPC error: 500')
     })
 

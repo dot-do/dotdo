@@ -2,6 +2,21 @@
 // Implements typed proxy for remote method invocation via fetch-based RPC
 
 /**
+ * Generate a unique correlation ID for request tracing
+ * Uses crypto.randomUUID() when available, otherwise falls back to a timestamp-based ID
+ */
+export function generateCorrelationId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  // Fallback for environments without crypto.randomUUID
+  return `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 11)}`
+}
+
+/** Header name for correlation ID */
+export const CORRELATION_ID_HEADER = 'X-Correlation-ID'
+
+/**
  * Options for creating an RPC client
  */
 export interface RPCClientOptions {
@@ -9,6 +24,8 @@ export interface RPCClientOptions {
   url: string
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number
+  /** Optional correlation ID to use for all requests (if not provided, one is generated per request) */
+  correlationId?: string
 }
 
 /**
@@ -17,19 +34,27 @@ export interface RPCClientOptions {
 function createMethodInvoker(
   url: string,
   timeout: number,
-  methodPath: string[]
+  methodPath: string[],
+  baseCorrelationId?: string
 ): (...args: unknown[]) => Promise<unknown> {
   return async (...args: unknown[]) => {
     const method = methodPath.join('.')
+    // Generate a correlation ID for each request, or use the provided base correlation ID
+    const correlationId = baseCorrelationId || generateCorrelationId()
+
     const response = await fetch(`${url}/rpc`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        [CORRELATION_ID_HEADER]: correlationId,
+      },
       body: JSON.stringify({ method, args }),
       signal: AbortSignal.timeout(timeout),
     })
 
     if (!response.ok) {
-      throw new Error(`RPC error: ${response.status}`)
+      const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
+      throw new Error(`RPC error: ${response.status} [${responseCorrelationId}]`)
     }
 
     return response.json()
@@ -43,7 +68,8 @@ function createMethodInvoker(
 function createNestedProxy(
   url: string,
   timeout: number,
-  path: string[] = []
+  path: string[] = [],
+  correlationId?: string
 ): unknown {
   return new Proxy(() => {}, {
     get(_, prop: string | symbol) {
@@ -57,12 +83,12 @@ function createNestedProxy(
       }
 
       // Return a nested proxy for property access
-      return createNestedProxy(url, timeout, [...path, prop])
+      return createNestedProxy(url, timeout, [...path, prop], correlationId)
     },
 
     apply(_, __, args: unknown[]) {
       // When called as a function, invoke the RPC method
-      return createMethodInvoker(url, timeout, path)(...args)
+      return createMethodInvoker(url, timeout, path, correlationId)(...args)
     },
   })
 }
@@ -94,9 +120,9 @@ function createNestedProxy(
  * @returns A typed proxy that forwards method calls via RPC
  */
 export function createClient<T extends object>(options: RPCClientOptions): T {
-  const { url, timeout = 30000 } = options
+  const { url, timeout = 30000, correlationId } = options
 
-  return createNestedProxy(url, timeout) as T
+  return createNestedProxy(url, timeout, [], correlationId) as T
 }
 
 /**
@@ -104,6 +130,14 @@ export function createClient<T extends object>(options: RPCClientOptions): T {
  */
 function isDurableObjectId(id: unknown): id is DurableObjectId {
   return typeof id === 'object' && id !== null && 'toString' in id && typeof id !== 'string'
+}
+
+/**
+ * Options for creating a DO stub
+ */
+export interface DOStubOptions {
+  /** Optional correlation ID to use for all requests */
+  correlationId?: string
 }
 
 /**
@@ -131,14 +165,17 @@ function isDurableObjectId(id: unknown): id is DurableObjectId {
  *
  * @param binding - The DurableObjectNamespace binding
  * @param id - Either a string name or a DurableObjectId
+ * @param options - Optional configuration including correlation ID
  * @returns A typed proxy that forwards method calls to the DO
  */
 export function createDOStub<T extends object>(
   binding: DurableObjectNamespace,
-  id: string | DurableObjectId
+  id: string | DurableObjectId,
+  options?: DOStubOptions
 ): T {
   const doId = isDurableObjectId(id) ? id : binding.idFromName(id)
   const stub = binding.get(doId)
+  const baseCorrelationId = options?.correlationId
 
   return new Proxy({} as T, {
     get(_, prop: string | symbol) {
@@ -152,14 +189,21 @@ export function createDOStub<T extends object>(
       }
 
       return async (...args: unknown[]) => {
+        // Generate a correlation ID for each request, or use the provided base correlation ID
+        const correlationId = baseCorrelationId || generateCorrelationId()
+
         const response = await stub.fetch('https://do/rpc', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            [CORRELATION_ID_HEADER]: correlationId,
+          },
           body: JSON.stringify({ method: prop, args }),
         })
 
         if (!response.ok) {
-          throw new Error(`DO RPC error: ${response.status}`)
+          const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
+          throw new Error(`DO RPC error: ${response.status} [${responseCorrelationId}]`)
         }
 
         return response.json()

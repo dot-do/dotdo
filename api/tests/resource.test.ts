@@ -187,7 +187,13 @@ describe('Resource Definition DSL', () => {
       let beforeUpdateCalled = false
       let afterUpdateCalled = false
 
-      const Customer = defineResource('Customer')
+      interface CustomerData {
+        name: string
+        createdAt?: string
+        updatedAt?: string
+      }
+
+      const Customer = defineResource<CustomerData>('Customer')
         .fields({
           name: { type: 'string', required: true },
         })
@@ -217,7 +223,11 @@ describe('Resource Definition DSL', () => {
     })
 
     it('should support validation hooks', () => {
-      const Customer = defineResource('Customer')
+      interface CustomerData {
+        email: string
+      }
+
+      const Customer = defineResource<CustomerData>('Customer')
         .fields({
           email: { type: 'string', required: true },
         })
@@ -234,7 +244,12 @@ describe('Resource Definition DSL', () => {
 
   describe('Computed Fields', () => {
     it('should define computed fields', () => {
-      const Customer = defineResource('Customer')
+      interface CustomerData {
+        firstName: string
+        lastName: string
+      }
+
+      const Customer = defineResource<CustomerData>('Customer')
         .fields({
           firstName: { type: 'string', required: true },
           lastName: { type: 'string', required: true },
@@ -321,7 +336,11 @@ describe('Resource Definition DSL', () => {
 
   describe('Fluent API', () => {
     it('should support method chaining', () => {
-      const resource = defineResource('Customer')
+      interface CustomerData {
+        name: string
+      }
+
+      const resource = defineResource<CustomerData>('Customer')
         .fields({ name: { type: 'string', required: true } })
         .relations({ orders: { type: 'hasMany', resource: 'Order' } })
         .actions({ upgrade: { method: 'POST', handler: async (ctx) => ({}) } })
