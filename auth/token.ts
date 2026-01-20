@@ -3,6 +3,7 @@ import type { MiddlewareHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { jwtVerify, type JWTPayload } from 'jose'
 import type { AuthUser } from './middleware'
+import type { TokenRevocationStore, TokenRevocationChecker } from './revocation'
 
 export interface TokenPayload extends JWTPayload {
   sub: string
@@ -19,6 +20,10 @@ export interface TokenValidationOptions {
   cookieName?: string
   skipPaths?: string[]
   refreshThreshold?: number // seconds before expiration to suggest refresh
+  /** Token revocation store for checking if tokens have been revoked */
+  revocationStore?: TokenRevocationStore
+  /** Custom revocation checker function (alternative to revocationStore) */
+  revocationChecker?: TokenRevocationChecker
 }
 
 export interface TokenExtractionOptions {
@@ -38,10 +43,7 @@ export interface ExpirationCheckOptions {
 /**
  * Extract Bearer token from Authorization header or cookies
  */
-export function extractToken(
-  request: Request,
-  options: TokenExtractionOptions = {}
-): string | null {
+export function extractToken(request: Request, options: TokenExtractionOptions = {}): string | null {
   const { cookieName = 'auth_token' } = options
 
   // Try Authorization header first
@@ -155,6 +157,27 @@ function payloadToAuthUser(payload: TokenPayload): AuthUser {
 }
 
 /**
+ * Check if a token has been revoked
+ */
+async function isTokenRevoked(
+  jti: string | undefined,
+  revocationStore?: TokenRevocationStore,
+  revocationChecker?: TokenRevocationChecker
+): Promise<boolean> {
+  if (!jti) return false
+
+  if (revocationChecker) {
+    return revocationChecker(jti)
+  }
+
+  if (revocationStore) {
+    return revocationStore.isTokenRevoked(jti)
+  }
+
+  return false
+}
+
+/**
  * Hono middleware for JWT token validation
  */
 export function validateToken(options: TokenValidationOptions): MiddlewareHandler {
@@ -165,6 +188,8 @@ export function validateToken(options: TokenValidationOptions): MiddlewareHandle
     cookieName,
     skipPaths = [],
     refreshThreshold = 300,
+    revocationStore,
+    revocationChecker,
   } = options
 
   return async (c, next) => {
@@ -195,6 +220,12 @@ export function validateToken(options: TokenValidationOptions): MiddlewareHandle
       if (expCheck.expired) {
         c.header('WWW-Authenticate', 'Bearer realm="dotdo", error="invalid_token"')
         throw new HTTPException(401, { message: 'Token expired' })
+      }
+
+      // Check if token has been revoked (requires jti claim)
+      if (await isTokenRevoked(payload.jti, revocationStore, revocationChecker)) {
+        c.header('WWW-Authenticate', 'Bearer realm="dotdo", error="invalid_token"')
+        throw new HTTPException(401, { message: 'Token has been revoked' })
       }
 
       // Set refresh hint header if token is close to expiration
