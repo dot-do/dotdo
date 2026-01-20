@@ -453,6 +453,11 @@ export function createContext(
     // Integration registry for third-party services
     integrations,
 
+    // Primitives - wired from options (do-5ljl)
+    fs: options?.fs,
+    git: options?.git,
+    bash: options?.bash,
+
     // Internal state
     _events: events,
     _handlers: handlers,
