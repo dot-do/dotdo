@@ -466,7 +466,7 @@ export function createSecureDOStub<T extends object>(
 /**
  * Options for creating a client with pipelining support
  */
-export interface PipelineClientOptions {
+export interface ClientWithPipelineOptions {
   /** Base URL of the RPC endpoint */
   url: string
   /** Request timeout in milliseconds (default: 30000) */
@@ -537,7 +537,7 @@ export type ClientWithPipeline<T extends object> = T & {
  * @returns A typed proxy with pipeline support
  */
 export function createClientWithPipeline<T extends object>(
-  options: PipelineClientOptions
+  options: ClientWithPipelineOptions
 ): ClientWithPipeline<T> {
   const { url, timeout = 30000, correlationId } = options
 
