@@ -230,12 +230,29 @@ export function createProgram(): Command {
     .description('Build project for deployment')
     .option('--minify', 'Minify output')
     .option('--sourcemap', 'Generate sourcemaps')
+    .option('--outdir <dir>', 'Output directory')
+    .option('-e, --env <environment>', 'Environment to build for')
     .action(async (options, command) => {
       const config = (command.parent as any)?._dotdoConfig || {}
-      if (config.verbose) {
+      const verbose = config.verbose || options.verbose
+
+      if (verbose) {
         console.log('[dotdo build] Options:', options)
       }
-      console.log('TODO: Implement dotdo build')
+
+      try {
+        const { buildCommand } = await import('./commands/build')
+        await buildCommand({
+          minify: options.minify,
+          sourcemap: options.sourcemap,
+          outdir: options.outdir,
+          env: options.env,
+          verbose,
+        })
+      } catch (error) {
+        console.error('Error:', error instanceof Error ? error.message : error)
+        process.exit(1)
+      }
     })
 
   // ============================================================================
@@ -401,23 +418,74 @@ export function createProgram(): Command {
     .command('list')
     .description('List Durable Objects')
     .option('-n, --namespace <name>', 'Filter by namespace')
+    .option('--format <format>', 'Output format (table|json)', 'table')
+    .option('-c, --config <path>', 'Path to wrangler config')
     .action(async (options, command) => {
-      console.log('TODO: Implement dotdo do list')
+      const config = (command.parent?.parent as any)?._dotdoConfig || {}
+      const verbose = config.verbose || options.verbose
+
+      try {
+        const { doListCommand } = await import('./commands/do-list')
+        await doListCommand({
+          namespace: options.namespace,
+          format: options.format,
+          config: options.config,
+          verbose,
+        })
+      } catch (error) {
+        console.error('Error:', error instanceof Error ? error.message : error)
+        process.exit(1)
+      }
     })
 
   doCommand
     .command('inspect <id>')
     .description('Inspect a Durable Object')
+    .option('-n, --namespace <name>', 'Namespace/binding name')
+    .option('--format <format>', 'Output format (table|json)', 'table')
+    .option('-c, --config <path>', 'Path to wrangler config')
+    .option('--storage', 'Show storage contents', true)
     .action(async (id, options, command) => {
-      console.log(`TODO: Implement dotdo do inspect ${id}`)
+      const config = (command.parent?.parent as any)?._dotdoConfig || {}
+      const verbose = config.verbose || options.verbose
+
+      try {
+        const { doInspectCommand } = await import('./commands/do-inspect')
+        await doInspectCommand(id, {
+          namespace: options.namespace,
+          format: options.format,
+          config: options.config,
+          storage: options.storage,
+          verbose,
+        })
+      } catch (error) {
+        console.error('Error:', error instanceof Error ? error.message : error)
+        process.exit(1)
+      }
     })
 
   doCommand
     .command('delete <id>')
     .description('Delete a Durable Object')
     .option('-f, --force', 'Skip confirmation')
+    .option('-n, --namespace <name>', 'Namespace/binding name')
+    .option('-c, --config <path>', 'Path to wrangler config')
     .action(async (id, options, command) => {
-      console.log(`TODO: Implement dotdo do delete ${id}`)
+      const config = (command.parent?.parent as any)?._dotdoConfig || {}
+      const verbose = config.verbose || options.verbose
+
+      try {
+        const { doDeleteCommand } = await import('./commands/do-delete')
+        await doDeleteCommand(id, {
+          namespace: options.namespace,
+          force: options.force,
+          config: options.config,
+          verbose,
+        })
+      } catch (error) {
+        console.error('Error:', error instanceof Error ? error.message : error)
+        process.exit(1)
+      }
     })
 
   // ============================================================================
@@ -427,11 +495,31 @@ export function createProgram(): Command {
   program
     .command('logs')
     .description('Tail logs from deployed worker')
-    .option('-f, --follow', 'Follow logs in real-time')
-    .option('--level <level>', 'Filter by log level', 'info')
+    .option('-f, --follow', 'Follow logs in real-time', true)
+    .option('--level <level>', 'Filter by log level (debug|info|warn|error)', 'info')
+    .option('--name <name>', 'Worker name')
+    .option('-e, --env <environment>', 'Environment to target')
+    .option('-c, --config <path>', 'Path to wrangler config')
+    .option('--format <format>', 'Output format (pretty|json)', 'pretty')
     .action(async (options, command) => {
       const config = (command.parent as any)?._dotdoConfig || {}
-      console.log('TODO: Implement dotdo logs')
+      const verbose = config.verbose || options.verbose
+
+      try {
+        const { logsCommand } = await import('./commands/logs')
+        await logsCommand({
+          follow: options.follow,
+          level: options.level,
+          name: options.name,
+          env: options.env,
+          config: options.config,
+          format: options.format,
+          verbose,
+        })
+      } catch (error) {
+        console.error('Error:', error instanceof Error ? error.message : error)
+        process.exit(1)
+      }
     })
 
   // ============================================================================
@@ -454,8 +542,21 @@ export function createProgram(): Command {
   configCommand
     .command('set <key> <value>')
     .description('Set a configuration value')
+    .option('-g, --global', 'Set in global config (~/.dotdo/config.json)')
     .action(async (key, value, options, command) => {
-      console.log(`TODO: Set ${key} = ${value}`)
+      const config = (command.parent?.parent as any)?._dotdoConfig || {}
+      const verbose = config.verbose || options.verbose
+
+      try {
+        const { configSetCommand } = await import('./commands/config-set')
+        await configSetCommand(key, value, {
+          global: options.global,
+          verbose,
+        })
+      } catch (error) {
+        console.error('Error:', error instanceof Error ? error.message : error)
+        process.exit(1)
+      }
     })
 
   configCommand
