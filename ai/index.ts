@@ -126,6 +126,18 @@ export {
 } from './context'
 
 // ============================================================================
+// Export primitives DSL from ai-functions (do-8wsa.6)
+// These provide convenient template literal syntax for common AI operations
+// ============================================================================
+
+export {
+  list,
+  extract,
+  is,
+  research,
+} from 'ai-functions'
+
+// ============================================================================
 // Export batching utilities from ai-functions (primitives)
 // These provide automatic batch processing for AI operations
 // ============================================================================
@@ -187,4 +199,6 @@ export {
 } from 'ai-providers'
 
 // Re-export AI SDK types from ai-providers for convenience
-export type { Provider as AIProvider, ProviderRegistryProvider } from 'ai-providers'
+// Note: 'Provider' from ai-providers is re-exported as 'AISDKProvider' to avoid
+// conflict with local 'AIProvider' type from ./providers
+export type { Provider as AISDKProvider, ProviderRegistryProvider } from 'ai-providers'
