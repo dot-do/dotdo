@@ -1,6 +1,8 @@
 // AIPromise wrapper
 
 import { createStream, type Stream } from './stream'
+import type { JSONSchema } from './ai-core'
+import type { ZodTypeAny } from 'zod'
 
 export interface AIMeta {
   model?: string
