@@ -1,8 +1,11 @@
-// Events/Actions storage - immutable event log
-// Generic types added per do-jqrj
-// Storage abstraction added per do-68rr
-// Branded types added per do-e3my
-// Cursor-based pagination added per do-rljr.8
+/**
+ * @dotdo/db - Events Store
+ *
+ * EventsStore provides an immutable event log with support for event emission,
+ * querying, subscriptions, retention policies, dead letter queues, and durability configuration.
+ *
+ * @module @dotdo/db/events
+ */
 
 import type { StorableData, JsonValue } from './types'
 import type { StorageAdapter } from './storage'
@@ -153,44 +156,140 @@ export interface EventCursorQueryOptions extends CursorPaginationOptions {
 }
 
 /**
- * EventsStore interface with generic type parameter
- * P defaults to JsonValue for backward compatibility
+ * EventsStore interface for immutable event logging and querying.
+ *
+ * Provides operations for emitting, querying, and managing events with support for:
+ * - Event emission with automatic ID and timestamp generation
+ * - Querying with filtering and cursor-based pagination
+ * - Real-time subscriptions to new events
+ * - Retention policies to manage storage growth
+ * - Dead letter queue (DLQ) for failed event processing
+ * - Durability configuration for event reliability
+ *
+ * @template P - The event payload type, defaults to JsonValue
+ *
+ * @example
+ * ```typescript
+ * // Emit an event
+ * const event = await events.emit({
+ *   type: 'Customer.signup',
+ *   payload: { customerId: '123', email: 'alice@example.com' }
+ * })
+ *
+ * // Query events
+ * const signups = await events.query({
+ *   type: 'Customer.signup',
+ *   since: Date.now() - 86400000 // Last 24 hours
+ * })
+ *
+ * // Subscribe to new events
+ * const unsubscribe = events.subscribe((event) => {
+ *   console.log('New event:', event.type)
+ * })
+ *
+ * // Set retention policy
+ * await events.setRetentionPolicy({
+ *   maxEvents: 10000,
+ *   maxAgeDays: 30
+ * })
+ * ```
  */
 export interface EventsStore<P extends JsonValue = JsonValue> {
+  /**
+   * Emit a new event to the log.
+   * @param event - Event data with type and payload
+   * @returns The created event with $id and $timestamp
+   */
   emit(event: EventInput<P>): Promise<Event<P>>
+
+  /**
+   * Get an event by ID.
+   * @param id - The event ID
+   * @returns The event or null if not found
+   */
   get(id: string): Promise<Event<P> | null>
+
+  /**
+   * Query events with filtering and pagination.
+   * @param options - Query options for filtering and pagination
+   * @returns Array of events sorted by timestamp descending
+   */
   query(options?: EventQueryOptions): Promise<Event<P>[]>
+
+  /**
+   * Query events with cursor-based pagination.
+   * @param options - Query options with cursor support
+   * @returns Paginated result with items and cursor info
+   */
   queryWithCursor(options?: EventCursorQueryOptions): Promise<CursorPaginatedResult<Event<P>>>
+
+  /**
+   * Subscribe to new events in real-time.
+   * @param handler - Callback invoked for each new event
+   * @returns Unsubscribe function
+   */
   subscribe(handler: (event: Event<P>) => void): () => void
 
-  // Retention policy methods
+  /**
+   * Set retention policy for automatic cleanup.
+   * @param policy - Retention limits (max events and/or max age)
+   */
   setRetentionPolicy(policy: RetentionPolicy): Promise<void>
+
+  /** Get the current retention policy. */
   getRetentionPolicy(): Promise<RetentionPolicy | undefined>
+
+  /**
+   * Count events with optional filtering.
+   * @param filter - Optional type filter
+   * @returns Total count of matching events
+   */
   count(filter?: { type?: string }): Promise<number>
+
+  /**
+   * Run cleanup based on retention policy.
+   * @param options - Cleanup options
+   * @returns Number of events deleted
+   */
   cleanup(options?: { batchSize?: number }): Promise<CleanupResult>
+
+  /** Get storage usage statistics. */
   getStorageUsage(): Promise<StorageUsage>
 
   // Dead letter queue methods
+  /** Add a failed event to the dead letter queue. */
   addToDeadLetterQueue(entry: Omit<DLQEntry<P>, 'timestamp'>): void
+  /** Get all events in the dead letter queue. */
   getDeadLetterQueue(): DLQEntry<P>[]
+  /** Query the dead letter queue with filtering. */
   queryDeadLetterQueue(options?: DLQQueryOptions): DLQEntry<P>[]
+  /** Remove an event from the dead letter queue. */
   removeFromDeadLetterQueue(eventId: string): boolean
+  /** Replay events from the dead letter queue. */
   replayDeadLetterQueue(options?: DLQQueryOptions): Promise<Event<P>[]>
 
   // Validation failure tracking
+  /** Record a validation failure for diagnostics. */
   addValidationFailure(failure: Omit<ValidationFailure<P>, 'timestamp'>): void
+  /** Query validation failures. */
   queryValidationFailures(options?: { type?: string }): ValidationFailure<P>[]
 
   // Retry status tracking
+  /** Set the retry status for an event. */
   setEventRetryStatus(eventId: string, status: EventRetryStatus): void
+  /** Get the retry status for an event. */
   getEventRetryStatus(eventId: string): EventRetryStatus | undefined
 
   // Retry metrics
+  /** Record a retry attempt for metrics. */
   recordRetryAttempt(eventType: string, succeeded: boolean, retryCount: number): void
+  /** Get retry metrics per event type. */
   getRetryMetrics(): Record<string, RetryMetrics>
 
   // Durability configuration
+  /** Set durability configuration per event type. */
   setDurabilityConfig(config: Record<string, DurabilityConfig>): void
+  /** Get durability configuration for an event type. */
   getDurabilityConfig(eventType: string): DurabilityConfig
 }
 
@@ -210,8 +309,27 @@ function estimateEventSize(event: Event): number {
 const EVENTS_PREFIX = 'event:'
 
 /**
- * Create an EventsStore backed by a StorageAdapter
- * This allows using any storage backend (SQLite, memory, etc.)
+ * Create an EventsStore backed by a StorageAdapter.
+ *
+ * This factory function creates an EventsStore that can use any storage backend
+ * (SQLite, memory, etc.) via the adapter pattern.
+ *
+ * @template P - The event payload type
+ * @param adapter - The storage adapter to use for persistence
+ * @returns A fully-functional EventsStore instance
+ *
+ * @example
+ * ```typescript
+ * import { createEventsStoreWithAdapter, createSQLiteAdapter } from '@dotdo/db'
+ *
+ * const adapter = createSQLiteAdapter(sql)
+ * const events = createEventsStoreWithAdapter(adapter)
+ *
+ * const event = await events.emit({
+ *   type: 'Customer.signup',
+ *   payload: { email: 'alice@example.com' }
+ * })
+ * ```
  */
 export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
   adapter: StorageAdapter
@@ -484,8 +602,25 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
 }
 
 /**
- * Create an in-memory EventsStore with generic type parameter
- * P defaults to JsonValue for backward compatibility
+ * Create an in-memory EventsStore for testing or simple use cases.
+ *
+ * This implementation stores all data in memory and does not persist across restarts.
+ * For production use, prefer createEventsStoreWithAdapter with a SQLite adapter.
+ *
+ * @template P - The event payload type
+ * @returns An in-memory EventsStore instance
+ *
+ * @example
+ * ```typescript
+ * import { createEventsStore } from '@dotdo/db'
+ *
+ * // For testing
+ * const events = createEventsStore()
+ * const event = await events.emit({
+ *   type: 'Customer.signup',
+ *   payload: { email: 'test@example.com' }
+ * })
+ * ```
  */
 export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStore<P> {
   const events: Event<P>[] = []

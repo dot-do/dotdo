@@ -434,8 +434,26 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
   }
 }
 
-// In-memory implementation (SQLite in do-7rf.4.6)
-// Kept for backward compatibility - uses internal Map
+/**
+ * Create an in-memory ThingsStore for testing or simple use cases.
+ *
+ * This implementation stores all data in memory and does not persist across restarts.
+ * For production use, prefer createThingsStoreWithAdapter with a SQLite adapter.
+ *
+ * @returns An in-memory ThingsStore instance
+ *
+ * @example
+ * ```typescript
+ * import { createThingsStore } from '@dotdo/db'
+ *
+ * // For testing
+ * const things = createThingsStore()
+ * const customer = await things.create({
+ *   $type: 'Customer',
+ *   name: 'Alice'
+ * })
+ * ```
+ */
 export function createThingsStore(): ThingsStore {
   const things = new Map<ThingId, Thing>()
 

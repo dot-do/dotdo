@@ -1,7 +1,16 @@
-// RPC Client - connects to Workers/DOs
-// Implements typed proxy for remote method invocation via fetch-based RPC
-// Supports pluggable transports for different communication backends
-// Includes Cap'n Proto-style promise pipelining for efficient RPC chaining
+/**
+ * @dotdo/rpc - RPC Client
+ *
+ * Provides typed proxy clients for remote method invocation via fetch-based RPC.
+ * Supports:
+ * - Typed proxies with full TypeScript inference
+ * - Pluggable transports for different communication backends
+ * - Cap'n Proto-style promise pipelining for efficient RPC chaining
+ * - Durable Object stub creation with correlation ID tracking
+ * - Secure DO-to-DO calls with HMAC signing
+ *
+ * @module @dotdo/rpc/client
+ */
 
 import { SerializedError, deserializeError, isRPCError } from './errors'
 import type { Transport, RPCMessage, RPCResponse } from './transport/types'

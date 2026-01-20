@@ -1,5 +1,11 @@
-// RPC Server - exposes methods via HTTP/RPC
-// Includes Cap'n Proto-style promise pipelining support
+/**
+ * @dotdo/rpc - RPC Server
+ *
+ * Exposes methods via HTTP/RPC with support for method whitelisting, schema validation,
+ * and Cap'n Proto-style promise pipelining.
+ *
+ * @module @dotdo/rpc/server
+ */
 import { Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
@@ -26,9 +32,24 @@ import {
 // Re-export for convenience
 export { CORRELATION_ID_HEADER }
 
+/**
+ * Options for creating an RPC server.
+ *
+ * @example
+ * ```typescript
+ * const server = createServer({
+ *   target: myAPI,
+ *   whitelist: ['users.*', 'posts.get', 'posts.list'],
+ *   schemas: {
+ *     'users.create': { params: [{ type: 'object', required: true }] }
+ *   }
+ * })
+ * ```
+ */
 export interface RPCServerOptions {
+  /** The target object whose methods will be exposed via RPC */
   target: object
-  /** Optional whitelist of allowed method names or glob patterns */
+  /** Optional whitelist of allowed method names or glob patterns (e.g., 'users.*') */
   whitelist?: string[]
   /** Optional schema registry for argument validation */
   schemas?: MethodSchemaRegistry
@@ -200,6 +221,44 @@ function createMethodNotAllowedError(): AuthorizationError {
   return new AuthorizationError('Method not allowed')
 }
 
+/**
+ * Create an RPC server that exposes an object's methods via HTTP.
+ *
+ * Creates a Hono app with `/rpc` and `/rpc/pipeline` endpoints that accept JSON-RPC requests.
+ * Supports:
+ * - Nested method paths (e.g., `users.create`)
+ * - Method whitelisting with glob patterns
+ * - Argument validation via schemas
+ * - Cap'n Proto-style promise pipelining
+ * - Automatic correlation ID tracking
+ * - Secure method path validation (prevents prototype pollution)
+ *
+ * @param options - Server configuration options
+ * @returns A Hono app that can be used as a Worker or middleware
+ *
+ * @example
+ * ```typescript
+ * import { createServer } from '@dotdo/rpc'
+ *
+ * const api = {
+ *   users: {
+ *     create(data: { name: string }) { return { id: '123', ...data } },
+ *     get(id: string) { return { id, name: 'Alice' } }
+ *   }
+ * }
+ *
+ * const server = createServer({
+ *   target: api,
+ *   whitelist: ['users.*']  // Only expose users methods
+ * })
+ *
+ * // Use as Cloudflare Worker
+ * export default { fetch: server.fetch.bind(server) }
+ *
+ * // Or as middleware
+ * app.route('/api', server)
+ * ```
+ */
 export function createServer(options: RPCServerOptions): RPCServerApp {
   const { target, enablePipeline = true, pipeline: pipelineOptions } = options
   let currentWhitelist: string[] | undefined = options.whitelist
@@ -397,7 +456,25 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
   return app
 }
 
-// Cloudflare Worker export helper
+/**
+ * Create a Cloudflare Worker from a target object.
+ *
+ * Convenience function that wraps createServer for quick Worker setup.
+ *
+ * @param target - The object whose methods will be exposed via RPC
+ * @returns An object with a fetch handler suitable for Cloudflare Workers
+ *
+ * @example
+ * ```typescript
+ * import { createWorkerFromTarget } from '@dotdo/rpc'
+ *
+ * const api = {
+ *   greet(name: string) { return `Hello, ${name}!` }
+ * }
+ *
+ * export default createWorkerFromTarget(api)
+ * ```
+ */
 export function createWorkerFromTarget(target: object) {
   const app = createServer({ target })
 
