@@ -1,6 +1,7 @@
 // MCP Server - Model Context Protocol implementation
 import { Hono } from 'hono'
 import { ToolRegistry } from './discovery'
+import { getErrorMessage } from '../rpc/errors'
 
 export interface MCPServerOptions {
   name?: string
@@ -75,10 +76,9 @@ export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
         content: [{ type: 'text', text: JSON.stringify(result) }]
       })
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
       return c.json({
         isError: true,
-        content: [{ type: 'text', text: message }]
+        content: [{ type: 'text', text: getErrorMessage(error) }]
       }, 500)
     }
   })

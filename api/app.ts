@@ -4,6 +4,7 @@ import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import type { MiddlewareHandler } from 'hono'
 import { authMiddleware } from '../auth/middleware'
+import { getErrorMessage } from '../rpc/errors'
 
 export interface APIOptions {
   basePath?: string
@@ -93,7 +94,7 @@ function errorHandlerMiddleware(): MiddlewareHandler {
       console.error('Unhandled error:', error)
       return c.json(
         {
-          error: error instanceof Error ? error.message : 'Internal Server Error',
+          error: getErrorMessage(error),
           status: 500,
           requestId
         },
@@ -130,7 +131,7 @@ export function createAPI(options?: APIOptions) {
     console.error('Unhandled error:', error)
     return c.json(
       {
-        error: error instanceof Error ? error.message : 'Internal Server Error',
+        error: getErrorMessage(error),
         status: 500,
         requestId
       },

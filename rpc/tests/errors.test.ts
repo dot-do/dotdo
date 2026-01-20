@@ -9,6 +9,8 @@ import {
   isRetryableError,
   serializeError,
   deserializeError,
+  serializeUnknownError,
+  getErrorMessage,
 } from '../errors'
 
 describe('RPCError', () => {
@@ -572,5 +574,100 @@ describe('Error Serialization', () => {
     expect(error.code).toBe(RPCErrorCode.NOT_FOUND)
     expect(error.message).toBe('Not found')
     expect(error.details).toBeUndefined()
+  })
+})
+
+describe('serializeUnknownError', () => {
+  it('should serialize RPCError', () => {
+    const error = new RPCError(RPCErrorCode.NOT_FOUND, 'Resource not found', { id: '123' })
+    const serialized = serializeUnknownError(error)
+
+    expect(serialized.type).toBe('RPCError')
+    expect(serialized.code).toBe(RPCErrorCode.NOT_FOUND)
+    expect(serialized.message).toBe('Resource not found')
+    expect(serialized.details).toEqual({ id: '123' })
+    expect(serialized.httpStatus).toBe(404)
+  })
+
+  it('should serialize standard Error', () => {
+    const error = new Error('Something went wrong')
+    const serialized = serializeUnknownError(error)
+
+    expect(serialized.type).toBe('Error')
+    expect(serialized.code).toBe(RPCErrorCode.INTERNAL_ERROR)
+    expect(serialized.message).toBe('Something went wrong')
+    expect(serialized.stack).toBeDefined()
+  })
+
+  it('should serialize string values', () => {
+    const serialized = serializeUnknownError('Something failed')
+
+    expect(serialized.type).toBe('UnknownError')
+    expect(serialized.code).toBe(RPCErrorCode.INTERNAL_ERROR)
+    expect(serialized.message).toBe('Something failed')
+    expect(serialized.httpStatus).toBe(500)
+  })
+
+  it('should serialize null', () => {
+    const serialized = serializeUnknownError(null)
+
+    expect(serialized.type).toBe('UnknownError')
+    expect(serialized.message).toBe('null')
+  })
+
+  it('should serialize undefined', () => {
+    const serialized = serializeUnknownError(undefined)
+
+    expect(serialized.type).toBe('UnknownError')
+    expect(serialized.message).toBe('undefined')
+  })
+
+  it('should serialize objects', () => {
+    const serialized = serializeUnknownError({ foo: 'bar' })
+
+    expect(serialized.type).toBe('UnknownError')
+    expect(serialized.message).toBe('[object Object]')
+  })
+
+  it('should respect includeStack option for Error', () => {
+    const error = new Error('Test error')
+
+    const withStack = serializeUnknownError(error, { includeStack: true })
+    expect(withStack.stack).toBeDefined()
+
+    const withoutStack = serializeUnknownError(error, { includeStack: false })
+    expect(withoutStack.stack).toBeUndefined()
+  })
+})
+
+describe('getErrorMessage', () => {
+  it('should extract message from Error', () => {
+    const error = new Error('Something went wrong')
+    expect(getErrorMessage(error)).toBe('Something went wrong')
+  })
+
+  it('should extract message from RPCError', () => {
+    const error = new RPCError(RPCErrorCode.NOT_FOUND, 'Resource not found')
+    expect(getErrorMessage(error)).toBe('Resource not found')
+  })
+
+  it('should convert string to message', () => {
+    expect(getErrorMessage('Something failed')).toBe('Something failed')
+  })
+
+  it('should convert null to string', () => {
+    expect(getErrorMessage(null)).toBe('null')
+  })
+
+  it('should convert undefined to string', () => {
+    expect(getErrorMessage(undefined)).toBe('undefined')
+  })
+
+  it('should convert number to string', () => {
+    expect(getErrorMessage(42)).toBe('42')
+  })
+
+  it('should convert object to string', () => {
+    expect(getErrorMessage({ foo: 'bar' })).toBe('[object Object]')
   })
 })

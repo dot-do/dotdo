@@ -66,13 +66,16 @@ export class RPCError extends Error {
   }
 
   toJSON(): SerializedError {
-    return {
+    const result: SerializedError = {
       type: this.constructor.name,
       code: this.code,
       message: this.message,
-      details: this.details,
       httpStatus: this.httpStatus,
     }
+    if (this.details !== undefined) {
+      result.details = this.details
+    }
+    return result
   }
 }
 
@@ -332,20 +335,31 @@ export function isAuthorizationError(error: unknown): error is AuthorizationErro
 
 /**
  * Check if an error is retryable
+ *
+ * Checks in order:
+ * 1. Custom errors with explicit `retriable` property
+ * 2. RPCError types with retryable error codes
+ * 3. Generic errors default to false (non-retryable)
  */
 export function isRetryableError(error: unknown): boolean {
-  if (!(error instanceof RPCError)) {
-    return false
+  // Check for explicit retriable property on any error
+  if (error && typeof error === 'object' && 'retriable' in error) {
+    return (error as { retriable: boolean }).retriable
   }
 
-  const retryableCodes: RPCErrorCode[] = [
-    RPCErrorCode.NETWORK_ERROR,
-    RPCErrorCode.TIMEOUT,
-    RPCErrorCode.RATE_LIMIT,
-    RPCErrorCode.SERVICE_UNAVAILABLE,
-  ]
+  // RPCError-based errors check the error code
+  if (error instanceof RPCError) {
+    const retryableCodes: RPCErrorCode[] = [
+      RPCErrorCode.NETWORK_ERROR,
+      RPCErrorCode.TIMEOUT,
+      RPCErrorCode.RATE_LIMIT,
+      RPCErrorCode.SERVICE_UNAVAILABLE,
+    ]
+    return retryableCodes.includes(error.code)
+  }
 
-  return retryableCodes.includes(error.code)
+  // Generic errors are not retryable by default
+  return false
 }
 
 // ============================================================================
@@ -410,6 +424,8 @@ const ERROR_REGISTRY: Record<string, RPCErrorSubclassConstructor> = {
 
 /**
  * Serialize an error for transmission across boundaries
+ *
+ * Handles RPCError, standard Error, and unknown error types
  */
 export function serializeError(error: Error | RPCError, options: SerializeErrorOptions = {}): SerializedError {
   const { includeStack = true } = options
@@ -422,7 +438,9 @@ export function serializeError(error: Error | RPCError, options: SerializeErrorO
   }
 
   if (error instanceof RPCError) {
-    serialized.details = error.details
+    if (error.details !== undefined) {
+      serialized.details = error.details
+    }
     serialized.httpStatus = error.httpStatus
   }
 
@@ -431,6 +449,62 @@ export function serializeError(error: Error | RPCError, options: SerializeErrorO
   }
 
   return serialized
+}
+
+/**
+ * Serialize any value as an error for transmission
+ *
+ * This is the recommended entry point for error serialization as it handles:
+ * - RPCError instances (with code, details, httpStatus)
+ * - Standard Error instances (with stack trace)
+ * - Unknown values (converted to string message)
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   await riskyOperation()
+ * } catch (error) {
+ *   return c.json(serializeUnknownError(error), 500)
+ * }
+ * ```
+ */
+export function serializeUnknownError(error: unknown, options: SerializeErrorOptions = {}): SerializedError {
+  if (error instanceof RPCError) {
+    return serializeError(error, options)
+  }
+
+  if (error instanceof Error) {
+    return serializeError(error, options)
+  }
+
+  // Handle non-Error values (strings, objects, null, undefined, etc.)
+  return {
+    type: 'UnknownError',
+    name: 'UnknownError',
+    code: RPCErrorCode.INTERNAL_ERROR,
+    message: String(error),
+    httpStatus: 500,
+  }
+}
+
+/**
+ * Extract error message from an unknown error value
+ *
+ * Convenience function for the common pattern:
+ * `error instanceof Error ? error.message : String(error)`
+ *
+ * @example
+ * ```typescript
+ * catch (error) {
+ *   console.error('Operation failed:', getErrorMessage(error))
+ * }
+ * ```
+ */
+export function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+  return String(error)
 }
 
 /**

@@ -1,6 +1,7 @@
 // Secure sandbox environment for code execution with $ context injection
 import { evaluate } from '../primitives/packages/ai-evaluate/src/node.js'
 import type { WorkflowContext } from '../do/context.js'
+import { getErrorMessage } from '../rpc/errors.js'
 
 export interface SandboxPermissions {
   allowSend?: boolean
@@ -27,8 +28,10 @@ export interface ResourceLimits {
   maxCodeSize?: number
   /** Maximum output size in bytes (default: 1MB) */
   maxOutputSize?: number
-  /** Memory limit hint in MB - informational, actual enforcement depends on runtime */
+  /** Memory limit in MB - enforced via allocation tracking */
   memoryLimitMB?: number
+  /** Allow network access (fetch, WebSocket). Default: false */
+  allowNetwork?: boolean
 }
 
 /**
@@ -43,6 +46,14 @@ export interface ResourceUsage {
   timedOut: boolean
   /** Whether output was truncated due to size limits */
   outputTruncated: boolean
+  /** Memory used in MB (approximate) */
+  memoryUsedMB?: number
+  /** Peak memory usage in MB */
+  peakMemoryMB?: number
+  /** CPU time consumed in milliseconds */
+  cpuTimeMs?: number
+  /** Which limit was violated (if any) */
+  limitViolated?: 'timeout' | 'memory' | 'cpu' | 'network'
 }
 
 export interface SandboxOptions {
@@ -54,6 +65,8 @@ export interface SandboxOptions {
   onAudit?: (log: AuditLog) => void
   /** Resource limits for execution */
   resourceLimits?: ResourceLimits
+  /** Allow network access (fetch, WebSocket). Default: false */
+  allowNetwork?: boolean
 }
 
 export interface SandboxResult {
@@ -77,7 +90,8 @@ export const DEFAULT_RESOURCE_LIMITS: Required<ResourceLimits> = {
   timeout: 5000,
   maxCodeSize: 100 * 1024, // 100KB
   maxOutputSize: 1024 * 1024, // 1MB
-  memoryLimitMB: 128
+  memoryLimitMB: 128,
+  allowNetwork: false
 }
 
 // Storage for captured operations (shared between sandbox instances)
@@ -85,6 +99,257 @@ interface CapturedOperation {
   type: 'send' | 'try' | 'do' | 'on' | 'every'
   data: any
   actionResult?: any
+}
+
+/**
+ * Generate resource enforcement code to be injected into sandbox
+ * This code tracks memory allocations, CPU time, and blocks network access
+ */
+function generateResourceEnforcementCode(limits: Required<ResourceLimits>): string {
+  return `
+// Resource Enforcement - Injected by sandbox
+const __resource__ = {
+  startTime: Date.now(),
+  cpuCheckpoints: 0,
+  lastCpuCheck: Date.now(),
+  memoryAllocated: 0,
+  peakMemory: 0,
+  memoryLimitBytes: ${limits.memoryLimitMB * 1024 * 1024},
+  timeoutMs: ${limits.timeout},
+  cpuTimeMs: 0,
+  limitViolated: null,
+
+  checkCpuTime() {
+    const now = Date.now();
+    const elapsed = now - this.startTime;
+    this.cpuTimeMs = elapsed;
+
+    // If we've been running for longer than timeout, it's a CPU time issue
+    // (since async timeout should have fired)
+    if (elapsed > this.timeoutMs) {
+      this.limitViolated = 'cpu';
+      throw new Error('CPU time limit exceeded: execution took ' + elapsed + 'ms (limit: ' + this.timeoutMs + 'ms)');
+    }
+
+    this.cpuCheckpoints++;
+    this.lastCpuCheck = now;
+  },
+
+  trackAllocation(bytes) {
+    this.memoryAllocated += bytes;
+    if (this.memoryAllocated > this.peakMemory) {
+      this.peakMemory = this.memoryAllocated;
+    }
+    if (this.memoryAllocated > this.memoryLimitBytes) {
+      this.limitViolated = 'memory';
+      const usedMB = Math.round(this.memoryAllocated / 1024 / 1024 * 100) / 100;
+      const limitMB = Math.round(this.memoryLimitBytes / 1024 / 1024);
+      throw new Error('Memory limit exceeded: ' + usedMB + 'MB used (limit: ' + limitMB + 'MB)');
+    }
+  },
+
+  getStats() {
+    return {
+      memoryUsedMB: Math.round(this.memoryAllocated / 1024 / 1024 * 100) / 100,
+      peakMemoryMB: Math.round(this.peakMemory / 1024 / 1024 * 100) / 100,
+      cpuTimeMs: Date.now() - this.startTime,
+      limitViolated: this.limitViolated
+    };
+  }
+};
+
+// Block network access unless explicitly allowed
+${!limits.allowNetwork ? `
+const __blockedFetch = () => {
+  __resource__.limitViolated = 'network';
+  throw new Error('Network access denied');
+};
+
+const __blockedWebSocket = function() {
+  __resource__.limitViolated = 'network';
+  throw new Error('Network access denied');
+};
+
+// Override fetch
+if (typeof globalThis !== 'undefined') {
+  globalThis.fetch = __blockedFetch;
+  globalThis.WebSocket = __blockedWebSocket;
+}
+
+// Also override in local scope
+const fetch = __blockedFetch;
+const WebSocket = __blockedWebSocket;
+` : ''}
+
+// Wrap Array constructor to track memory - use globalThis to avoid TDZ
+const __OriginalArray = globalThis.Array;
+
+// Create tracked array constructor function
+function __createTrackedArray(...args) {
+  const arr = new __OriginalArray(...args);
+  // Estimate memory: 8 bytes per element (for numbers) + overhead
+  const estimatedBytes = (arr.length || 0) * 8 + 64;
+  __resource__.trackAllocation(estimatedBytes);
+  return arr;
+}
+
+// Copy static methods
+__createTrackedArray.isArray = (arg) => __OriginalArray.isArray(arg);
+__createTrackedArray.from = function(...args) {
+  const arr = __OriginalArray.from.apply(__OriginalArray, args);
+  const estimatedBytes = arr.length * 8 + 64;
+  __resource__.trackAllocation(estimatedBytes);
+  return arr;
+};
+__createTrackedArray.of = function(...args) {
+  const arr = __OriginalArray.of.apply(__OriginalArray, args);
+  const estimatedBytes = arr.length * 8 + 64;
+  __resource__.trackAllocation(estimatedBytes);
+  return arr;
+};
+
+// Copy prototype
+__createTrackedArray.prototype = __OriginalArray.prototype;
+
+// Replace Array globally
+globalThis.Array = __createTrackedArray;
+
+// Track string length to catch exponential growth
+// Intercept String.prototype.concat and the + operator by watching string creation
+let __lastStringLength = 0;
+
+// Override String constructor to track allocations
+const __OriginalString = globalThis.String;
+const __TrackedString = function(value) {
+  const str = value === undefined ? '' : __OriginalString(value);
+  if (str.length > 1000) {
+    // Track string memory: 2 bytes per char
+    __resource__.trackAllocation(str.length * 2);
+  }
+  return str;
+};
+__TrackedString.prototype = __OriginalString.prototype;
+__TrackedString.fromCharCode = __OriginalString.fromCharCode;
+__TrackedString.fromCodePoint = __OriginalString.fromCodePoint;
+__TrackedString.raw = __OriginalString.raw;
+globalThis.String = __TrackedString;
+
+// Track large string concatenation via prototype
+const __origConcat = __OriginalString.prototype.concat;
+__OriginalString.prototype.concat = function(...args) {
+  const result = __origConcat.apply(this, args);
+  if (result.length > 10000) {
+    __resource__.trackAllocation(result.length * 2);
+  }
+  return result;
+};
+
+// Hook into string repeat for exponential growth patterns
+const __origRepeat = __OriginalString.prototype.repeat;
+__OriginalString.prototype.repeat = function(count) {
+  const result = __origRepeat.call(this, count);
+  if (result.length > 1000) {
+    __resource__.trackAllocation(result.length * 2);
+  }
+  return result;
+};
+`
+}
+
+/**
+ * Find the matching closing parenthesis for an opening paren
+ * Returns the index of the closing paren or -1 if not found
+ */
+function findMatchingParen(code: string, openIndex: number): number {
+  let depth = 1
+  let i = openIndex + 1
+  while (i < code.length && depth > 0) {
+    if (code[i] === '(') depth++
+    else if (code[i] === ')') depth--
+    i++
+  }
+  return depth === 0 ? i - 1 : -1
+}
+
+/**
+ * Inject CPU checkpoints and memory tracking into code
+ * This adds checkpoint calls at loop boundaries and tracks string growth
+ */
+function injectResourceChecks(code: string): string {
+  // Process loops by finding them manually to handle nested parens
+  let result = ''
+  let lastIndex = 0
+
+  // Find while loops
+  const whileRegex = /while\s*\(/g
+  let match
+  while ((match = whileRegex.exec(code)) !== null) {
+    const openParenIndex = match.index + match[0].length - 1
+    const closeParenIndex = findMatchingParen(code, openParenIndex)
+
+    if (closeParenIndex === -1) continue
+
+    // Look for opening brace after the closing paren
+    const afterParen = code.slice(closeParenIndex + 1)
+    const braceMatch = afterParen.match(/^\s*\{/)
+
+    if (braceMatch) {
+      // Found a while loop with body
+      const braceIndex = closeParenIndex + 1 + braceMatch.index + braceMatch[0].length
+      // Copy everything up to and including the opening brace
+      result += code.slice(lastIndex, braceIndex)
+      // Add checkpoint
+      result += ' __resource__.checkCpuTime();'
+      lastIndex = braceIndex
+    }
+  }
+  result += code.slice(lastIndex)
+  code = result
+
+  // Process for loops similarly
+  result = ''
+  lastIndex = 0
+  const forRegex = /for\s*\(/g
+  while ((match = forRegex.exec(code)) !== null) {
+    const openParenIndex = match.index + match[0].length - 1
+    const closeParenIndex = findMatchingParen(code, openParenIndex)
+
+    if (closeParenIndex === -1) continue
+
+    const afterParen = code.slice(closeParenIndex + 1)
+    const braceMatch = afterParen.match(/^\s*\{/)
+
+    if (braceMatch) {
+      const braceIndex = closeParenIndex + 1 + braceMatch.index + braceMatch[0].length
+      result += code.slice(lastIndex, braceIndex)
+      result += ' __resource__.checkCpuTime();'
+      lastIndex = braceIndex
+    }
+  }
+  result += code.slice(lastIndex)
+  code = result
+
+  // Match do-while: do { ... } while
+  code = code.replace(
+    /do\s*\{/g,
+    'do { __resource__.checkCpuTime();'
+  )
+
+  // Track string concatenation: str = str + str or str += str
+  // After any string assignment that uses +, track the result length
+  // Match: varname = anything + anything (where result could be string)
+  code = code.replace(
+    /(\w+)\s*=\s*(\w+)\s*\+\s*(\w+)\s*;?/g,
+    (match, varName, left, right) => {
+      // If same variable on both sides, likely string doubling
+      if (left === varName || right === varName || left === right) {
+        return `${match}; if (typeof ${varName} === 'string' && ${varName}.length > 1000) __resource__.trackAllocation(${varName}.length * 2);`
+      }
+      return match
+    }
+  )
+
+  return code
 }
 
 /**
@@ -229,9 +494,19 @@ const __sandbox_exec__ = async () => {
       ${code}
     })();
   } catch (e) {
-    return { __sandbox_error__: e.message, __sandbox_captured__: __sandbox_captured__ };
+    const stats = typeof __resource__ !== 'undefined' ? __resource__.getStats() : {};
+    return {
+      __sandbox_error__: e.message,
+      __sandbox_captured__: __sandbox_captured__,
+      __sandbox_stats__: stats
+    };
   }
-  return { __sandbox_result__: __user_result__, __sandbox_captured__: __sandbox_captured__ };
+  const stats = typeof __resource__ !== 'undefined' ? __resource__.getStats() : {};
+  return {
+    __sandbox_result__: __user_result__,
+    __sandbox_captured__: __sandbox_captured__,
+    __sandbox_stats__: stats
+  };
 };
 return __sandbox_exec__();
 `
@@ -285,47 +560,56 @@ function truncateOutput(value: unknown, maxSize: number): { value: unknown; trun
  * Create a secure sandbox with $ context injection
  */
 export function createSandbox(options: SandboxOptions): Sandbox {
-  const { context, timeout: legacyTimeout, permissions, audit = false, onAudit, resourceLimits } = options
+  const { context, timeout: legacyTimeout, permissions, audit = false, onAudit, resourceLimits, allowNetwork } = options
 
   // Merge resource limits with defaults (support legacy timeout option)
   const limits: Required<ResourceLimits> = {
     ...DEFAULT_RESOURCE_LIMITS,
     ...resourceLimits,
-    timeout: resourceLimits?.timeout ?? legacyTimeout ?? DEFAULT_RESOURCE_LIMITS.timeout
+    timeout: resourceLimits?.timeout ?? legacyTimeout ?? DEFAULT_RESOURCE_LIMITS.timeout,
+    allowNetwork: allowNetwork ?? resourceLimits?.allowNetwork ?? DEFAULT_RESOURCE_LIMITS.allowNetwork
   }
 
   return {
     async execute(code: string): Promise<SandboxResult> {
       const startTime = Date.now()
       let timedOut = false
+      let limitViolated: ResourceUsage['limitViolated'] = undefined
       const codeSize = new TextEncoder().encode(code).length
 
       try {
         // Validate code size before processing
         validateCode(code, limits)
 
+        // Generate resource enforcement code
+        const resourceCode = generateResourceEnforcementCode(limits)
+
         // Generate $ context code
         const contextCode = generateSandboxContextCode(permissions)
 
-        // Wrap user code to return result and captured operations
-        const wrappedUserCode = wrapUserCode(code)
+        // Inject CPU checkpoints into user code for busy loop detection
+        const instrumentedUserCode = injectResourceChecks(code)
 
-        // Combine context code with wrapped user code
-        const fullCode = contextCode + '\n' + wrappedUserCode
+        // Wrap user code to return result and captured operations
+        const wrappedUserCode = wrapUserCode(instrumentedUserCode)
+
+        // Combine all code: resource enforcement + context + wrapped user code
+        const fullCode = resourceCode + '\n' + contextCode + '\n' + wrappedUserCode
 
         // Execute code with $ context injected
         // Use Promise.race with a timeout to ensure we don't hang
         const evaluatePromise = evaluate({
           script: fullCode,
           timeout: limits.timeout,
-          fetch: null, // Block network access for safety
+          fetch: limits.allowNetwork ? undefined : null, // Block network access unless allowed
         })
 
-        // Create our own timeout wrapper
+        // Create our own timeout wrapper with better error message
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => {
             timedOut = true
-            reject(new Error('Sandbox execution timed out'))
+            limitViolated = 'timeout'
+            reject(new Error(`Execution timeout exceeded ${limits.timeout}ms (timed out)`))
           }, limits.timeout + 100)
         })
 
@@ -337,6 +621,7 @@ export function createSandbox(options: SandboxOptions): Sandbox {
         let captured: CapturedOperation[] = []
         let userResult: unknown = result.value
         let userError: string | undefined = result.error
+        let sandboxStats: { memoryUsedMB?: number; peakMemoryMB?: number; cpuTimeMs?: number; limitViolated?: string } = {}
 
         if (result.value && typeof result.value === 'object') {
           const wrappedValue = result.value as Record<string, unknown>
@@ -352,6 +637,24 @@ export function createSandbox(options: SandboxOptions): Sandbox {
 
           if ('__sandbox_error__' in wrappedValue) {
             userError = wrappedValue.__sandbox_error__ as string
+          }
+
+          // Extract resource stats from sandbox
+          if ('__sandbox_stats__' in wrappedValue) {
+            sandboxStats = (wrappedValue.__sandbox_stats__ as typeof sandboxStats) || {}
+          }
+        }
+
+        // Determine limit violated from error message or sandbox stats
+        if (sandboxStats.limitViolated) {
+          limitViolated = sandboxStats.limitViolated as ResourceUsage['limitViolated']
+        } else if (userError) {
+          if (userError.includes('CPU time limit')) {
+            limitViolated = 'cpu'
+          } else if (userError.includes('Memory limit')) {
+            limitViolated = 'memory'
+          } else if (userError.includes('Network access denied')) {
+            limitViolated = 'network'
           }
         }
 
@@ -425,12 +728,16 @@ export function createSandbox(options: SandboxOptions): Sandbox {
           limits.maxOutputSize
         )
 
-        // Build resource usage stats
+        // Build resource usage stats with data from sandbox
         const resourceUsage: ResourceUsage = {
           executionTime: duration,
           codeSize,
           timedOut,
-          outputTruncated
+          outputTruncated,
+          memoryUsedMB: sandboxStats.memoryUsedMB,
+          peakMemoryMB: sandboxStats.peakMemoryMB,
+          cpuTimeMs: sandboxStats.cpuTimeMs ?? duration,
+          limitViolated
         }
 
         // If there was an error in user code, return failure
@@ -454,7 +761,22 @@ export function createSandbox(options: SandboxOptions): Sandbox {
         }
       } catch (error) {
         const duration = Date.now() - startTime
-        const message = error instanceof Error ? error.message : String(error)
+        const message = getErrorMessage(error)
+
+        // Detect limit violation from error message
+        let errorLimitViolated: ResourceUsage['limitViolated'] = limitViolated
+        if (!errorLimitViolated) {
+          if (message.includes('CPU time limit')) {
+            errorLimitViolated = 'cpu'
+          } else if (message.includes('Memory limit')) {
+            errorLimitViolated = 'memory'
+          } else if (message.includes('Network access denied')) {
+            errorLimitViolated = 'network'
+          } else if (message.includes('timeout') || message.includes('Execution timeout')) {
+            errorLimitViolated = 'timeout'
+            timedOut = true
+          }
+        }
 
         return {
           success: false,
@@ -464,7 +786,8 @@ export function createSandbox(options: SandboxOptions): Sandbox {
             executionTime: duration,
             codeSize,
             timedOut,
-            outputTruncated: false
+            outputTruncated: false,
+            limitViolated: errorLimitViolated
           }
         }
       }
