@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { createContext, type WorkflowContext } from './context'
+import { createSQLiteErrorStore, createSQLiteRetryQueue, createEnhancedErrorStore } from './fire-and-forget-errors'
 import { EntityManager } from './entities'
 import { WebSocketManager } from './websocket'
 import type { ThingsStore, EventsStore, RelationshipsStore, AuditLogStore, AuditContext, QueryBuilder } from '@dotdo/db'
@@ -71,7 +72,12 @@ export class DO implements DurableObject {
 
     // Initialize WorkflowContext ($) for event handlers, scheduling, and cross-DO RPC
     // This provides the fluent API: $.send(), $.try(), $.do(), $.on.*, $.every.*
-    this.$ = createContext(state, env)
+    // Use SQLite-backed error store and retry queue for persistence across DO restarts (do-f9xs)
+    const sql = state.storage.sql
+    const errorStore = createSQLiteErrorStore(sql)
+    const retryQueue = createSQLiteRetryQueue(sql, errorStore)
+    const enhancedErrorStore = createEnhancedErrorStore(errorStore, retryQueue)
+    this.$ = createContext(state, env, { errorStore: enhancedErrorStore })
 
     // Setup middleware
     if (options.cors !== false) {

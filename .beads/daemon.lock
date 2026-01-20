@@ -1,7 +1,7 @@
 {
-  "pid": 22531,
-  "parent_pid": 22522,
+  "pid": 68530,
+  "parent_pid": 68521,
   "database": "/Users/nathanclevenger/projects/dotdo/.beads/beads.db",
   "version": "0.47.1",
-  "started_at": "2026-01-20T20:50:31.647384Z"
+  "started_at": "2026-01-20T21:14:40.914663Z"
 }
