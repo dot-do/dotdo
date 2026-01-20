@@ -1,6 +1,10 @@
 // AI Template literal interface
 
 import { createAIPromise, type AIPromise, type AIMeta } from './promise'
+import { generateText } from './ai-core'
+
+/** Default model to use when none is specified */
+const DEFAULT_MODEL = 'sonnet'
 
 export function ai(strings: TemplateStringsArray, ...values: unknown[]): AIPromise<string> {
   // Build the prompt from template literal
@@ -10,18 +14,35 @@ export function ai(strings: TemplateStringsArray, ...values: unknown[]): AIPromi
 
   return createAIPromise<string>(
     async (meta) => {
-      // For now, return a placeholder
-      // Real implementation would call LLM via ai-providers
       const startTime = Date.now()
 
-      // Simulate processing
-      await new Promise(resolve => setTimeout(resolve, 10))
+      try {
+        // Use the model from meta if specified, otherwise use default
+        const modelId = meta.model === 'default' ? DEFAULT_MODEL : (meta.model || DEFAULT_MODEL)
 
-      meta.duration = Date.now() - startTime
-      meta.tokens = { input: prompt.length, output: 50 }
+        // Call the actual AI provider via generateText
+        const result = await generateText({
+          model: modelId,
+          prompt,
+          ...(meta.temperature !== undefined && { temperature: meta.temperature }),
+        })
 
-      // Placeholder response (real impl calls LLM)
-      return `[AI Response to: "${prompt.slice(0, 50)}..."]`
+        meta.duration = Date.now() - startTime
+        meta.tokens = {
+          input: result.usage.promptTokens,
+          output: result.usage.completionTokens,
+        }
+
+        return result.text
+      } catch (error) {
+        meta.duration = Date.now() - startTime
+
+        // Re-throw the error with additional context
+        if (error instanceof Error) {
+          throw new Error(`AI template literal failed: ${error.message}`, { cause: error })
+        }
+        throw error
+      }
     },
     { model: 'default' }
   )
