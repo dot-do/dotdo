@@ -18,5 +18,6 @@
       "@dotdo/test-utils": ["./test-utils/index.ts"],
       "dotdo": ["./dotdo/index.ts"]
     }
-  }
+  },
+  "exclude": ["node_modules", "dist", "app/**", "gitx/**", "primitives/**", "**/primitives/**"]
 }
