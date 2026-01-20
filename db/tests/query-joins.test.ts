@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { createThingsStore, type ThingsStore } from '../things'
 import { createRelationshipsStore, type RelationshipsStore } from '../relationships'
-import { query, createQuery, JoinType } from '../query'
+import { query, createQuery, JoinType, configureQueryLimits } from '../query'
 
 describe('Query Builder - JOIN Operations', () => {
   let store: ThingsStore
@@ -10,6 +10,10 @@ describe('Query Builder - JOIN Operations', () => {
   beforeEach(async () => {
     store = createThingsStore()
     relationships = createRelationshipsStore()
+
+    // Use warn mode for existing tests to maintain backwards compatibility
+    // New code should use strict mode (default) with explicit limits
+    configureQueryLimits({ mode: 'warn' })
 
     // Seed test data - Users
     const alice = await store.create({ $type: 'User', name: 'Alice', role: 'admin' })
@@ -45,6 +49,11 @@ describe('Query Builder - JOIN Operations', () => {
     // Store references for tests (via store's internal state)
     ;(store as unknown as { _testData: Record<string, unknown> })._testData = { alice, bob, charlie, order1, order2, order3, product1, product2 }
     ;(relationships as unknown as { _testStore: ThingsStore })._testStore = store
+  })
+
+  afterEach(() => {
+    // Reset to strict mode (default)
+    configureQueryLimits({ mode: 'strict' })
   })
 
   describe('INNER JOIN', () => {
