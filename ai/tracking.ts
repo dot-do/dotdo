@@ -272,31 +272,36 @@ export class UsageTracker {
       }
 
       // By provider
-      if (!byProvider[record.provider]) {
-        byProvider[record.provider] = { cost: 0, tokens: 0, requests: 0 }
+      let providerStats = byProvider[record.provider]
+      if (!providerStats) {
+        providerStats = { cost: 0, tokens: 0, requests: 0 }
+        byProvider[record.provider] = providerStats
       }
-      byProvider[record.provider].cost += record.cost
-      byProvider[record.provider].tokens += record.tokens.input + record.tokens.output
-      byProvider[record.provider].requests++
+      providerStats.cost += record.cost
+      providerStats.tokens += record.tokens.input + record.tokens.output
+      providerStats.requests++
 
       // By model
-      if (!byModel[record.model]) {
-        byModel[record.model] = { cost: 0, tokens: 0, requests: 0 }
+      let modelStats = byModel[record.model]
+      if (!modelStats) {
+        modelStats = { cost: 0, tokens: 0, requests: 0 }
+        byModel[record.model] = modelStats
       }
-      byModel[record.model].cost += record.cost
-      byModel[record.model].tokens += record.tokens.input + record.tokens.output
-      byModel[record.model].requests++
+      modelStats.cost += record.cost
+      modelStats.tokens += record.tokens.input + record.tokens.output
+      modelStats.requests++
     }
 
-    return {
+    const report: UsageReport = {
       totalCost,
       totalTokens,
       requestCount,
       byProvider: byProvider as Record<Provider, UsageStats>,
       byModel,
-      startTime,
-      endTime,
     }
+    if (startTime !== undefined) report.startTime = startTime
+    if (endTime !== undefined) report.endTime = endTime
+    return report
   }
 
   /**
