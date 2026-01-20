@@ -1,7 +1,11 @@
 {
   "name": "@dotdo/api",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "main": "index.ts",
   "types": "index.ts",
   "scripts": {

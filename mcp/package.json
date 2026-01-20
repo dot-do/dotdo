@@ -1,7 +1,11 @@
 {
   "name": "@dotdo/mcp",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "main": "index.ts",
   "types": "index.ts",
   "scripts": {
@@ -12,6 +16,7 @@
   },
   "dependencies": {
     "@dotdo/do": "workspace:*",
+    "@dotdo/rpc": "workspace:*",
     "hono": "^4.7.0"
   },
   "devDependencies": {

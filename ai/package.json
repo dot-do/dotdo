@@ -1,7 +1,11 @@
 {
   "name": "@dotdo/ai",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "main": "index.ts",
   "types": "index.ts",
   "scripts": {
@@ -11,6 +15,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.16",
+    "@ai-sdk/google": "^3.0.10",
+    "@ai-sdk/openai": "^3.0.13",
+    "ai": "^6.0.42",
     "hono": "^4.7.0",
     "js-tiktoken": "^1.0.21"
   },

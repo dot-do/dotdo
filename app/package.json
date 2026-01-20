@@ -1,7 +1,11 @@
 {
   "name": "@dotdo/app",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "dev": "vinxi dev",
     "build": "echo 'SKIPPED: TanStack Start 1.120.20 has broken dependencies (see do-zab7.3)' && exit 0",
