@@ -139,17 +139,241 @@ export interface DoOptions {
 }
 
 // =============================================================================
-// EVERY PROXY (SCHEDULING)
+// EVENT SCHEMA TYPES
 // =============================================================================
 
 /**
- * Proxy type for the $.every scheduling DSL.
- * Supports fluent chaining like $.every.Monday.at('9am')(handler)
+ * Constraint type for event schemas.
+ * Maps event types ('Noun.verb') to their payload types.
+ *
+ * @example
+ * ```typescript
+ * interface MyEventSchemas extends EventSchemasConstraint {
+ *   'Customer.signup': { customerId: string; email: string }
+ *   'Order.placed': { orderId: string; total: number }
+ * }
+ * ```
+ */
+export interface EventSchemasConstraint {
+  [eventType: string]: unknown
+}
+
+/**
+ * Empty event schemas for untyped contexts.
+ */
+export type EmptyEventSchemas = Record<string, unknown>
+
+/**
+ * Extract noun from event type string.
+ * 'Customer.signup' -> 'Customer'
+ */
+export type ExtractNoun<T extends string> = T extends `${infer N}.${string}` ? N : never
+
+/**
+ * Extract verb from event type string.
+ * 'Customer.signup' -> 'signup'
+ */
+export type ExtractVerb<T extends string> = T extends `${string}.${infer V}` ? V : never
+
+/**
+ * Get all nouns from event schemas.
+ */
+export type EventNouns<E extends EventSchemasConstraint> = ExtractNoun<keyof E & string>
+
+/**
+ * Get all verbs for a specific noun from event schemas.
+ */
+export type EventVerbsForNoun<E extends EventSchemasConstraint, N extends string> = {
+  [K in keyof E & string]: K extends `${N}.${infer V}` ? V : never
+}[keyof E & string]
+
+/**
+ * Get the event payload type for a specific Noun.verb combination.
+ */
+export type EventPayloadType<
+  E extends EventSchemasConstraint,
+  N extends string,
+  V extends string
+> = `${N}.${V}` extends keyof E ? E[`${N}.${V}`] : unknown
+
+// =============================================================================
+// TYPED ON PROXY (EVENT HANDLERS)
+// =============================================================================
+
+/**
+ * Full event object passed to handlers, including metadata.
+ */
+export interface TypedEvent<T = unknown> {
+  $id: string
+  $timestamp: number
+  type: string
+  payload: T
+  source: string
+}
+
+/**
+ * Typed event handler function.
+ */
+export type TypedEventHandler<T = unknown> = (event: TypedEvent<T>) => Promise<void> | void
+
+/**
+ * Proxy for event handlers on a specific noun with typed verbs.
+ * Each verb returns void when registering a handler.
+ *
+ * @template E - Event schemas
+ * @template N - The noun (e.g., 'Customer')
+ */
+export type TypedNounEventProxy<E extends EventSchemasConstraint, N extends string> = {
+  // Known verbs from the event schema get typed handlers
+  [V in EventVerbsForNoun<E, N>]: (handler: TypedEventHandler<EventPayloadType<E, N, V>>) => void
+} & {
+  // Wildcard support
+  '*': (handler: TypedEventHandler<unknown>) => void
+  // Index signature for unknown verbs (fallback to unknown payload)
+  [verb: string]: (handler: TypedEventHandler<unknown>) => void
+}
+
+/**
+ * Top-level typed OnProxy for event handler registration.
+ * Each noun returns a TypedNounEventProxy with verb-specific typing.
+ *
+ * @template E - Event schemas
+ */
+export type TypedOnProxy<E extends EventSchemasConstraint> = {
+  // Known nouns from event schema get typed noun proxies
+  [N in EventNouns<E>]: TypedNounEventProxy<E, N>
+} & {
+  // Wildcard support
+  '*': TypedNounEventProxy<E, '*'>
+  // Index signature for unknown nouns (fallback to untyped)
+  [noun: string]: TypedNounEventProxy<E, string>
+}
+
+/**
+ * Untyped OnProxy (legacy, backward compatible).
+ * Re-exported from on.ts for convenience.
+ */
+export type { OnProxy } from './on'
+
+// =============================================================================
+// TYPED EVERY PROXY (SCHEDULING)
+// =============================================================================
+
+/**
+ * Handler registration function returned by scheduling chains.
+ * Returns void when called with a handler.
+ */
+export type ScheduleRegisterFn = (handler: ScheduleHandler) => void
+
+/**
+ * Time-specific accessor for scheduling (e.g., .at('9am') or .at9am).
+ * Returns a function that accepts a handler.
+ */
+export interface TimeAccessor {
+  /** Dynamic time: .at('9am'), .at('3:45pm') */
+  (time: string): ScheduleRegisterFn
+}
+
+/**
+ * Day of week proxy for week-based scheduling.
+ */
+export interface DayOfWeekProxy extends ScheduleRegisterFn {
+  // Time accessors
+  at: TimeAccessor
+  at6am: ScheduleRegisterFn
+  at7am: ScheduleRegisterFn
+  at8am: ScheduleRegisterFn
+  at9am: ScheduleRegisterFn
+  at10am: ScheduleRegisterFn
+  at11am: ScheduleRegisterFn
+  at12pm: ScheduleRegisterFn
+  atnoon: ScheduleRegisterFn
+  at1pm: ScheduleRegisterFn
+  at2pm: ScheduleRegisterFn
+  at3pm: ScheduleRegisterFn
+  at4pm: ScheduleRegisterFn
+  at5pm: ScheduleRegisterFn
+  at6pm: ScheduleRegisterFn
+  at7pm: ScheduleRegisterFn
+  at8pm: ScheduleRegisterFn
+  at9pm: ScheduleRegisterFn
+  atmidnight: ScheduleRegisterFn
+}
+
+/**
+ * Interval unit proxy for numeric intervals (e.g., every(5).minutes).
+ */
+export interface IntervalUnitProxy {
+  seconds: ScheduleRegisterFn
+  minutes: ScheduleRegisterFn
+  hours: ScheduleRegisterFn
+  days: ScheduleRegisterFn
+  weeks: ScheduleRegisterFn
+}
+
+/**
+ * Week proxy with .on accessor for day selection.
+ */
+export interface WeekProxy extends ScheduleRegisterFn {
+  on: {
+    Monday: DayOfWeekProxy
+    Tuesday: DayOfWeekProxy
+    Wednesday: DayOfWeekProxy
+    Thursday: DayOfWeekProxy
+    Friday: DayOfWeekProxy
+    Saturday: DayOfWeekProxy
+    Sunday: DayOfWeekProxy
+  }
+  at: TimeAccessor
+}
+
+/**
+ * Fully typed EveryProxy for the scheduling DSL.
+ *
+ * Supports patterns like:
+ * - $.every.Monday.at9am(handler)
+ * - $.every.day.at('6pm')(handler)
+ * - $.every.hour(handler)
+ * - $.every(5).minutes(handler)
+ * - $.every.week.on.Friday.at('3pm')(handler)
+ */
+export interface TypedEveryProxy extends ScheduleRegisterFn {
+  // Numeric interval: $.every(5).minutes(handler)
+  (value: number): IntervalUnitProxy
+
+  // Days of week
+  Monday: DayOfWeekProxy
+  Tuesday: DayOfWeekProxy
+  Wednesday: DayOfWeekProxy
+  Thursday: DayOfWeekProxy
+  Friday: DayOfWeekProxy
+  Saturday: DayOfWeekProxy
+  Sunday: DayOfWeekProxy
+
+  // Time units
+  second: ScheduleRegisterFn
+  minute: ScheduleRegisterFn
+  hour: ScheduleRegisterFn
+  day: DayOfWeekProxy
+  week: WeekProxy
+  month: ScheduleRegisterFn
+  year: ScheduleRegisterFn
+
+  // Special patterns
+  weekday: DayOfWeekProxy
+  weekend: DayOfWeekProxy
+  midnight: ScheduleRegisterFn
+  noon: ScheduleRegisterFn
+}
+
+/**
+ * Legacy untyped EveryProxy (backward compatible).
  */
 export type EveryProxy = {
   [key: string]: EveryProxy
 } & {
   (handler: () => Promise<void>): void
+  (value: number): { [unit: string]: (handler: () => Promise<void>) => void }
 }
 
 // =============================================================================
@@ -169,10 +393,10 @@ export interface BaseWorkflowContext {
   /** Durable execution with retries */
   do<T>(action: () => Promise<T>, options?: DoOptions): Promise<T>
 
-  // Event handlers (Proxy-based)
-  on: OnProxy
+  // Event handlers (Proxy-based) - untyped version
+  on: import('./on').OnProxy
 
-  // Scheduling DSL
+  // Scheduling DSL - untyped version
   every: EveryProxy
 
   // Internal state (prefixed with _ to indicate private)
@@ -181,6 +405,36 @@ export interface BaseWorkflowContext {
   _schedules: Map<string, ScheduleRegistration>
   _stubCache: Map<string, DOStubProxy>
   _env: unknown
+  _fireAndForgetErrors: FireAndForgetErrorStore
+}
+
+/**
+ * Typed base interface for WorkflowContext with event schema types.
+ *
+ * @template E - Event schemas for typed event handlers
+ */
+export interface TypedBaseWorkflowContext<E extends EventSchemasConstraint = EmptyEventSchemas> {
+  // Durability levels
+  /** Fire-and-forget event emission */
+  send(event: { type: string; payload?: unknown }): void
+  /** Single attempt execution (no retries) */
+  try<T>(action: () => Promise<T>): Promise<T>
+  /** Durable execution with retries */
+  do<T>(action: () => Promise<T>, options?: DoOptions): Promise<T>
+
+  // Event handlers (Proxy-based) - TYPED version
+  on: TypedOnProxy<E>
+
+  // Scheduling DSL - TYPED version
+  every: TypedEveryProxy
+
+  // Internal state (prefixed with _ to indicate private)
+  _events: EventsStore
+  _handlers: Map<string, EventHandler[]>
+  _schedules: Map<string, ScheduleRegistration>
+  _stubCache: Map<string, DOStubProxy>
+  _env: unknown
+  _fireAndForgetErrors: FireAndForgetErrorStore
 }
 
 // =============================================================================
@@ -198,9 +452,10 @@ export type DOBindingAccessors<T extends DOBindingsConstraint> = {
 }
 
 /**
- * Fully typed WorkflowContext with DO binding inference.
+ * Fully typed WorkflowContext with DO binding and event schema inference.
  *
- * @template T - The DO bindings map type (default: EmptyBindings for untyped usage)
+ * @template B - The DO bindings map type (default: EmptyBindings for untyped usage)
+ * @template E - The event schemas type (default: EmptyEventSchemas for untyped usage)
  *
  * @example
  * ```typescript
@@ -209,23 +464,42 @@ export type DOBindingAccessors<T extends DOBindingsConstraint> = {
  *   Order: OrderDO
  * }
  *
- * type $ = TypedWorkflowContext<DOBindings>
+ * interface EventSchemas {
+ *   'Customer.signup': { customerId: string; email: string }
+ *   'Order.placed': { orderId: string; total: number }
+ * }
+ *
+ * type $ = TypedWorkflowContext<DOBindings, EventSchemas>
  *
  * // Usage:
- * const $ = createTypedContext<DOBindings>(state, env)
+ * const $ = createTypedContext<DOBindings, EventSchemas>(state, env)
+ *
+ * // Cross-DO RPC is fully typed
  * const customer = $.Customer('user-123')
  * const profile = await customer.getProfile() // Fully typed!
+ *
+ * // Event handlers are fully typed
+ * $.on.Customer.signup((event) => {
+ *   console.log(event.payload.email) // Typed as string
+ * })
+ *
+ * // Scheduling has proper return types
+ * $.every.Monday.at('9am')(async () => {
+ *   await generateReport()
+ * })
  * ```
  */
-export type TypedWorkflowContext<T extends DOBindingsConstraint = EmptyBindings> =
-  BaseWorkflowContext & DOBindingAccessors<T> & {
-    // Allow dynamic access for bindings not in T (returns untyped proxy)
-    [key: string]: unknown
-  }
+export type TypedWorkflowContext<
+  B extends DOBindingsConstraint = EmptyBindings,
+  E extends EventSchemasConstraint = EmptyEventSchemas
+> = TypedBaseWorkflowContext<E> & DOBindingAccessors<B> & {
+  // Allow dynamic access for bindings not in B (returns untyped proxy)
+  [key: string]: unknown
+}
 
 /**
  * Legacy WorkflowContext type (untyped, backward compatible).
- * Equivalent to TypedWorkflowContext<EmptyBindings> with loose index signature.
+ * Equivalent to TypedWorkflowContext<EmptyBindings, EmptyEventSchemas> with loose index signature.
  */
 export interface WorkflowContext extends BaseWorkflowContext {
   // Cross-DO RPC (Proxy-based)
@@ -241,9 +515,13 @@ export type $ = WorkflowContext
 /**
  * Short alias for TypedWorkflowContext.
  *
- * @template T - The DO bindings map type
+ * @template B - The DO bindings map type
+ * @template E - The event schemas type
  */
-export type $Typed<T extends DOBindingsConstraint = EmptyBindings> = TypedWorkflowContext<T>
+export type $Typed<
+  B extends DOBindingsConstraint = EmptyBindings,
+  E extends EventSchemasConstraint = EmptyEventSchemas
+> = TypedWorkflowContext<B, E>
 
 // =============================================================================
 // TYPE HELPERS
@@ -294,6 +572,51 @@ export type InferDOBindings<Env> = {
  */
 export type DefineDOBindings<T extends DOBindingsConstraint> = T
 
+/**
+ * Create a typed event schemas definition.
+ *
+ * @example
+ * ```typescript
+ * type MyEvents = DefineEventSchemas<{
+ *   'Customer.signup': { customerId: string; email: string }
+ *   'Order.placed': { orderId: string; total: number }
+ * }>
+ * ```
+ */
+export type DefineEventSchemas<T extends EventSchemasConstraint> = T
+
+/**
+ * Extract all event types (as string union) from event schemas.
+ *
+ * @example
+ * ```typescript
+ * type Events = EventTypes<MyEventSchemas>
+ * // 'Customer.signup' | 'Customer.updated' | 'Order.placed'
+ * ```
+ */
+export type EventTypes<E extends EventSchemasConstraint> = keyof E & string
+
+/**
+ * Extract the payload type for a specific event.
+ *
+ * @example
+ * ```typescript
+ * type SignupPayload = EventPayload<MyEventSchemas, 'Customer.signup'>
+ * // { customerId: string; email: string }
+ * ```
+ */
+export type EventPayload<
+  E extends EventSchemasConstraint,
+  T extends keyof E
+> = E[T]
+
+/**
+ * Type for a typed send() method that validates event types.
+ */
+export type TypedSend<E extends EventSchemasConstraint> = <T extends keyof E & string>(
+  event: { type: T; payload?: E[T] }
+) => void
+
 // =============================================================================
 // CONTEXT CREATION HELPERS
 // =============================================================================
@@ -301,11 +624,17 @@ export type DefineDOBindings<T extends DOBindingsConstraint> = T
 /**
  * Configuration for creating a typed workflow context.
  *
- * @template T - The DO bindings map type
+ * @template B - The DO bindings map type
+ * @template E - The event schemas type
  */
-export interface TypedContextConfig<T extends DOBindingsConstraint> {
+export interface TypedContextConfig<
+  B extends DOBindingsConstraint = EmptyBindings,
+  E extends EventSchemasConstraint = EmptyEventSchemas
+> {
   /** The DO bindings type (for type inference only, not used at runtime) */
-  bindings?: T
+  bindings?: B
+  /** The event schemas type (for type inference only, not used at runtime) */
+  events?: E
 }
 
 /**
@@ -314,6 +643,8 @@ export interface TypedContextConfig<T extends DOBindingsConstraint> {
 export interface CreateTypedContextOptions {
   /** Enable debug logging for RPC calls */
   debug?: boolean
+  /** Custom error store for fire-and-forget errors */
+  errorStore?: FireAndForgetErrorStore
 }
 
 // =============================================================================
@@ -321,6 +652,6 @@ export interface CreateTypedContextOptions {
 // =============================================================================
 
 // Re-export related types that users commonly need
-export type { OnProxy, EventHandler } from './on'
+export type { EventHandler } from './on'
 export type { ScheduleRegistration, ScheduleHandler, ScheduleInterval } from './schedule'
 export type { Event } from '../db'
