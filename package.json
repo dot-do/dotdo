@@ -18,6 +18,8 @@
     "benchmark:compare": "npx tsx tests/benchmarks/cli.ts compare",
     "benchmark:update": "npx tsx tests/benchmarks/cli.ts update",
     "benchmark:report": "npx tsx tests/benchmarks/cli.ts report",
+    "benchmark:check": "npx tsx tests/benchmarks/check-regression.ts",
+    "benchmark:ci": "npm run benchmark && npm run benchmark:check",
     "submodule:init": "./scripts/submodule-init.sh",
     "submodule:update": "./scripts/submodule-update.sh"
   },
