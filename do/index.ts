@@ -350,3 +350,18 @@ export {
   type AICommandResult,
   type AIDiagnosisResult,
 } from './primitives'
+
+// DO Sharding support (do-rljr.4)
+export {
+  ShardRouter,
+  createShardRouter,
+  fnv1aHash,
+  getShardIndex,
+  shardMiddleware,
+  extractUserIdFromHeader,
+  extractShardFromQuery,
+  type ShardKeyConfig,
+  type ShardContext,
+  type ShardResult,
+  type ShardRouterConfig,
+} from './shard'
