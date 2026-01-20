@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createThingsStore, type Thing, type ThingsStore } from '../things'
+import { ValidationError, NotFoundError } from '../../rpc/errors'
 
 describe('Things Store', () => {
   let store: ThingsStore
@@ -21,7 +22,18 @@ describe('Things Store', () => {
 
     it('should require $type', async () => {
       // Intentionally passing invalid input to test runtime validation
+      await expect(store.create({ name: 'Alice' } as unknown as { $type: string })).rejects.toThrow(ValidationError)
       await expect(store.create({ name: 'Alice' } as unknown as { $type: string })).rejects.toThrow('$type is required')
+    })
+
+    it('should require $type to be a string', async () => {
+      await expect(store.create({ $type: 123 } as unknown as { $type: string })).rejects.toThrow(ValidationError)
+      await expect(store.create({ $type: 123 } as unknown as { $type: string })).rejects.toThrow('must be a string')
+    })
+
+    it('should require $type to not be empty', async () => {
+      await expect(store.create({ $type: '' })).rejects.toThrow(ValidationError)
+      await expect(store.create({ $type: '   ' })).rejects.toThrow('cannot be empty')
     })
 
     it('should generate unique IDs for each thing', async () => {
@@ -73,8 +85,9 @@ describe('Things Store', () => {
       expect(updated.$updatedAt).toBeGreaterThanOrEqual(created.$updatedAt)
     })
 
-    it('should throw for non-existent thing', async () => {
-      await expect(store.update('non-existent', { name: 'Bob' })).rejects.toThrow('Thing not found')
+    it('should throw NotFoundError for non-existent thing', async () => {
+      await expect(store.update('non-existent', { name: 'Bob' })).rejects.toThrow(NotFoundError)
+      await expect(store.update('non-existent', { name: 'Bob' })).rejects.toThrow('Thing with id non-existent not found')
     })
 
     it('should not allow changing $id', async () => {
@@ -118,8 +131,9 @@ describe('Things Store', () => {
       expect(result).toBeNull()
     })
 
-    it('should throw for non-existent thing', async () => {
-      await expect(store.delete('non-existent')).rejects.toThrow('Thing not found')
+    it('should throw NotFoundError for non-existent thing', async () => {
+      await expect(store.delete('non-existent')).rejects.toThrow(NotFoundError)
+      await expect(store.delete('non-existent')).rejects.toThrow('Thing with id non-existent not found')
     })
   })
 
@@ -241,11 +255,18 @@ describe('Things Store', () => {
         // Intentionally passing invalid input to test atomic rollback
         { name: 'No Type' } as unknown as { $type: string }, // Missing $type
         { $type: 'Customer', name: 'Bob' }
-      ])).rejects.toThrow('$type is required')
+      ])).rejects.toThrow(ValidationError)
 
       // Count after - should be unchanged (atomic rollback)
       const afterCount = (await store.list()).length
       expect(afterCount).toBe(beforeCount)
+    })
+
+    it('should include item index in validation error', async () => {
+      await expect(store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' },
+        { name: 'No Type' } as unknown as { $type: string },
+      ])).rejects.toThrow('items[1].$type')
     })
 
     it('should preserve all custom properties', async () => {
@@ -301,7 +322,7 @@ describe('Things Store', () => {
       await expect(store.bulkUpdate([
         { id: created[0].$id, data: { status: 'inactive' } },
         { id: 'non-existent', data: { status: 'inactive' } }
-      ])).rejects.toThrow('Thing not found')
+      ])).rejects.toThrow(NotFoundError)
 
       // Alice should be unchanged (atomic rollback)
       const alice = await store.get(created[0].$id)
@@ -370,7 +391,7 @@ describe('Things Store', () => {
       await expect(store.bulkDelete([
         created[0].$id,
         'non-existent'
-      ])).rejects.toThrow('Thing not found')
+      ])).rejects.toThrow(NotFoundError)
 
       // Alice should still exist (atomic rollback)
       expect(await store.get(created[0].$id)).not.toBeNull()
