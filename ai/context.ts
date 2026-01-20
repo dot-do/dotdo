@@ -34,17 +34,10 @@
  */
 
 import { UsageTracker } from './tracking'
-import type { Provider } from './tracking'
+import type { Provider, ProviderConfig } from './types'
 
-/**
- * Provider configuration for request-scoped context
- */
-export interface ProviderConfig {
-  provider: Provider
-  apiKey?: string
-  accountId?: string
-  defaultModel?: string
-}
+// Re-export for backward compatibility
+export type { ProviderConfig } from './types'
 
 /**
  * Request-scoped AI context that contains isolated state

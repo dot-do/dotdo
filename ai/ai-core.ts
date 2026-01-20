@@ -73,14 +73,12 @@ export interface SimpleSchema {
 // Provider Configuration
 // ============================================================================
 
-export type Provider = 'openai' | 'anthropic' | 'google' | 'cloudflare'
+import type { Provider, ProviderConfig as BaseProviderConfig } from './types'
 
-export interface ProviderConfig {
-  provider: Provider
-  apiKey?: string
-  accountId?: string
-  defaultModel?: string
-}
+// Re-export for backward compatibility
+export type { Provider } from './types'
+
+export interface ProviderConfig extends BaseProviderConfig {}
 
 // Global provider registry
 const providers = new Map<Provider, ProviderConfig>()

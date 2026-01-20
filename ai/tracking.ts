@@ -3,8 +3,10 @@
 
 import type { AIMeta } from './promise'
 import { countTokens as countTokensTiktoken, estimateCost as estimateCostTiktoken } from './tokens'
+import type { Provider } from './types'
 
-export type Provider = 'openai' | 'anthropic' | 'google' | 'cloudflare'
+// Re-export Provider type for backward compatibility
+export type { Provider } from './types'
 
 export interface ModelConfig {
   inputCostPer1M: number

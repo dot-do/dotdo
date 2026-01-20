@@ -1,9 +1,10 @@
 // Multi-provider routing for @dotdo/ai
 // Implements intelligent routing across LLM providers with fallback, cost optimization, and load balancing
 
-export type Provider = 'openai' | 'anthropic' | 'google' | 'cloudflare'
-export type Capability = 'fast' | 'smart' | 'cheap'
-export type LoadBalancingStrategy = 'round-robin' | 'random' | 'least-loaded'
+import type { Provider, Capability, LoadBalancingStrategy } from './types'
+
+// Re-export core types for backward compatibility
+export type { Provider, Capability, LoadBalancingStrategy } from './types'
 
 export interface ProviderConfig {
   provider: Provider

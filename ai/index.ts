@@ -5,11 +5,11 @@
 export * from './template'
 export * from './promise'
 
+// Export centralized types (single source of truth)
+export type { Provider, ProviderConfig, Capability, LoadBalancingStrategy } from './types'
+
 // Export from providers (includes router exports)
 export {
-  // From router.ts via providers.ts
-  type Provider,
-  type ProviderConfig,
   providers,
   configureProviders,
   // From providers/index.ts via providers.ts
@@ -26,8 +26,6 @@ export {
 // Export router items that don't conflict with providers
 export {
   Router,
-  type Capability,
-  type LoadBalancingStrategy,
   type ModelInfo,
   type RouterConfig,
   type ExecuteOptions,
@@ -103,5 +101,4 @@ export {
   getCurrentContext,
   getOrCreateContext,
   type RequestContext,
-  type ProviderConfig as RequestProviderConfig,
 } from './context'
