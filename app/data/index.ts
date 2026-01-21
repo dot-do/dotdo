@@ -383,7 +383,7 @@ class TanStackDBClient implements DataClient {
 
     return new Promise((resolve, reject) => {
       const requestId = `req-${++this.requestCounter}`
-      message.requestId = requestId
+      message['requestId'] = requestId
 
       this.pendingRequests.set(requestId, resolve)
 
@@ -402,16 +402,36 @@ class TanStackDBClient implements DataClient {
   private async fallbackToREST(message: Record<string, unknown>): Promise<unknown> {
     const { type, resource, id, data } = message
 
+    // Type guards to ensure proper types for REST fallback
+    if (typeof resource !== 'string') {
+      throw new Error('Resource must be a string')
+    }
+
     switch (type) {
       case 'get':
+        if (typeof id !== 'string') {
+          throw new Error('ID must be a string for get operation')
+        }
         return this.restFallback.get(resource, id)
       case 'list':
-        return this.restFallback.list(resource, data)
+        return this.restFallback.list(resource, data as Record<string, unknown> | undefined)
       case 'create':
-        return this.restFallback.create(resource, data)
+        if (!data || typeof data !== 'object') {
+          throw new Error('Data must be an object for create operation')
+        }
+        return this.restFallback.create(resource, data as Record<string, unknown>)
       case 'update':
-        return this.restFallback.update(resource, id, data)
+        if (typeof id !== 'string') {
+          throw new Error('ID must be a string for update operation')
+        }
+        if (!data || typeof data !== 'object') {
+          throw new Error('Data must be an object for update operation')
+        }
+        return this.restFallback.update(resource, id, data as Record<string, unknown>)
       case 'delete':
+        if (typeof id !== 'string') {
+          throw new Error('ID must be a string for delete operation')
+        }
         return this.restFallback.delete(resource, id)
       default:
         throw new Error(`Unsupported operation: ${type}`)
@@ -419,19 +439,23 @@ class TanStackDBClient implements DataClient {
   }
 
   async get(resource: string, id: string): Promise<Thing> {
-    return this.sendRequest({ type: 'get', resource, id })
+    const result = await this.sendRequest({ type: 'get', resource, id })
+    return result as Thing
   }
 
   async list(resource: string, query?: Record<string, unknown>): Promise<Thing[]> {
-    return this.sendRequest({ type: 'list', resource, data: query })
+    const result = await this.sendRequest({ type: 'list', resource, data: query })
+    return result as Thing[]
   }
 
   async create(resource: string, data: Record<string, unknown>): Promise<Thing> {
-    return this.sendRequest({ type: 'create', resource, data })
+    const result = await this.sendRequest({ type: 'create', resource, data })
+    return result as Thing
   }
 
   async update(resource: string, id: string, data: Record<string, unknown>): Promise<Thing> {
-    return this.sendRequest({ type: 'update', resource, id, data })
+    const result = await this.sendRequest({ type: 'update', resource, id, data })
+    return result as Thing
   }
 
   async delete(resource: string, id: string): Promise<void> {
@@ -568,5 +592,3 @@ export function createDataClient(options: DataClientOptions): DataClient {
   return new DualModeClient(options)
 }
 
-// Re-export for convenience
-export type { DataClient, DataClientOptions }
