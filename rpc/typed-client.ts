@@ -292,10 +292,16 @@ export function createTypedClientFromUrl<T extends object>(
 }
 
 /**
- * Type guard to check if a value is a DurableObjectId
+ * Type guard to check if a value is a DurableObjectId.
+ * Uses the `equals` method which is unique to DurableObjectId and not present on regular objects.
  */
 function isDurableObjectId(id: unknown): id is DurableObjectId {
-  return typeof id === 'object' && id !== null && 'toString' in id && typeof id !== 'string'
+  return (
+    typeof id === 'object' &&
+    id !== null &&
+    typeof (id as DurableObjectId).equals === 'function' &&
+    typeof (id as DurableObjectId).toString === 'function'
+  )
 }
 
 /**

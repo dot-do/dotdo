@@ -557,6 +557,14 @@ export class ReplService {
 
   /**
    * Execute code (RPC or local evaluation)
+   *
+   * SECURITY NOTE: This uses new Function() for local JS evaluation.
+   * This is acceptable because:
+   * 1. This is a CLI REPL - the user already has local shell access
+   * 2. The user explicitly typed the code to execute
+   * 3. The attack surface is no different from running node/deno directly
+   *
+   * For server-side code evaluation, use worker_loaders (ai-evaluate) instead.
    */
   private async executeCode(code: string): Promise<unknown> {
     // Check if this is an RPC call (starts with $.)
@@ -564,9 +572,8 @@ export class ReplService {
       return this.executeRpc(code)
     }
 
-    // Local evaluation
+    // Local evaluation via new Function() - safe for CLI REPL context
     try {
-      // Use Function to evaluate in a sandbox
       const fn = new Function('$', `return ${code}`)
       const mockContext = this.createMockContext()
       return fn(mockContext)
@@ -633,7 +640,8 @@ export class ReplService {
         // Wrap in array brackets for JSON parsing
         args = JSON.parse(`[${argsStr}]`)
       } catch {
-        // Try evaluating as JS
+        // Try evaluating as JS - safe for CLI REPL context (user typed this)
+        // SECURITY NOTE: new Function() used as JSON fallback
         try {
           const fn = new Function(`return [${argsStr}]`)
           args = fn()

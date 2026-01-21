@@ -40,10 +40,16 @@ export interface CrossDORPCOptions {
 }
 
 /**
- * Type guard to check if a value is a DurableObjectId
+ * Type guard to check if a value is a DurableObjectId.
+ * Uses the `equals` method which is unique to DurableObjectId and not present on regular objects.
  */
 function isDurableObjectId(id: unknown): id is DurableObjectId {
-  return typeof id === 'object' && id !== null && 'toString' in id && typeof id !== 'string'
+  return (
+    typeof id === 'object' &&
+    id !== null &&
+    typeof (id as DurableObjectId).equals === 'function' &&
+    typeof (id as DurableObjectId).toString === 'function'
+  )
 }
 
 /**
@@ -74,20 +80,33 @@ export class CrossDOStubCache {
   }
 
   /**
-   * Get or create a DO stub
+   * Get or create a DO stub.
+   * Uses atomic get-or-set pattern to prevent race conditions where multiple
+   * concurrent calls might create duplicate stubs for the same ID.
    */
   getStub(binding: DurableObjectNamespace, id: string | DurableObjectId): DurableObjectStub {
     const cache = this.getNamespaceCache(binding)
     const idKey = this.getIdKey(id)
 
-    let stub = cache.get(idKey)
-    if (!stub) {
-      const doId = isDurableObjectId(id) ? id : binding.idFromName(id)
-      stub = binding.get(doId)
-      cache.set(idKey, stub)
+    // Check cache first
+    const existingStub = cache.get(idKey)
+    if (existingStub) {
+      return existingStub
     }
 
-    return stub
+    // Create new stub
+    const doId = isDurableObjectId(id) ? id : binding.idFromName(id)
+    const newStub = binding.get(doId)
+
+    // Double-check pattern: another concurrent operation might have added the stub
+    // while we were creating it. Prefer the existing one for consistency.
+    const racingStub = cache.get(idKey)
+    if (racingStub) {
+      return racingStub
+    }
+
+    cache.set(idKey, newStub)
+    return newStub
   }
 
   /**
