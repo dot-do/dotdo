@@ -3,6 +3,7 @@
 
 import { promises as fs } from 'node:fs'
 import * as fsSync from 'node:fs'
+import { createLogger, setLogLevel, LogLevel, type Logger } from './logger'
 
 /**
  * Options for the eval command
@@ -16,6 +17,10 @@ export interface EvalOptions {
   authToken?: string | undefined
   /** Callback for output messages */
   onOutput?: ((message: string) => void) | undefined
+  /** Enable verbose output (request/response details, timing) */
+  verbose?: boolean | undefined
+  /** Enable debug output (all verbose output plus auth status, raw data) */
+  debug?: boolean | undefined
 }
 
 /**
@@ -111,7 +116,19 @@ export async function evalCommand(
     timeout = 5000,
     authToken,
     onOutput = () => {},
+    verbose = false,
+    debug = false,
   } = options
+
+  // Set log level based on options
+  if (debug) {
+    setLogLevel(LogLevel.DEBUG)
+  } else if (verbose) {
+    setLogLevel(LogLevel.VERBOSE)
+  }
+
+  // Create logger with the onOutput callback
+  const logger = createLogger({ output: onOutput })
 
   // Normalize endpoint URL
   const normalizedEndpoint = normalizeEndpoint(endpoint)
@@ -126,14 +143,39 @@ export async function evalCommand(
     headers['Authorization'] = `Bearer ${authToken}`
   }
 
+  // Log auth status in debug mode
+  if (debug || verbose) {
+    logger.auth(!!authToken, authToken?.substring(0, 8))
+  }
+
+  // Build request body
+  const requestBody = { method: '_eval', args: [code] }
+
+  // Log request in verbose/debug mode
+  if (debug || verbose) {
+    logger.request('POST', rpcUrl, debug ? requestBody : undefined)
+  }
+
+  // Start timing
+  const startTime = performance.now()
+
   try {
     // Make RPC call to _eval endpoint
     const response = await fetch(rpcUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ method: '_eval', args: [code] }),
+      body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(timeout),
     })
+
+    // Calculate duration
+    const durationMs = performance.now() - startTime
+
+    // Log response in verbose/debug mode
+    if (debug || verbose) {
+      logger.response(response.status)
+      logger.timing('Request took', durationMs)
+    }
 
     // Handle HTTP errors
     if (!response.ok) {
@@ -156,6 +198,11 @@ export async function evalCommand(
         success: false,
         error: errorMsg,
       }
+    }
+
+    // Log response body in debug mode
+    if (debug) {
+      logger.debug(`Response body: ${JSON.stringify(data)}`)
     }
 
     // Check for RPC-level errors
@@ -189,6 +236,12 @@ export async function evalCommand(
       error: errorMsg,
     }
   } catch (error) {
+    // Calculate duration even on error
+    const durationMs = performance.now() - startTime
+    if (debug || verbose) {
+      logger.timing('Request failed after', durationMs)
+    }
+
     // Handle network/timeout errors
     let errorMsg = error instanceof Error ? error.message : String(error)
 

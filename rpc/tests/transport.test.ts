@@ -673,6 +673,550 @@ describe('WebSocketTransport', () => {
       await transport.close()
     })
   })
+
+  describe('reconnection', () => {
+    it('should emit reconnect event when attempting to reconnect', async () => {
+      const { WebSocketTransport } = await import('../transport/websocket')
+
+      let connectionCount = 0
+
+      // Create a WebSocket that fails on first connection
+      class ReconnectingWebSocket {
+        static OPEN = 1
+        static CLOSED = 3
+
+        url: string
+        readyState = 0
+        listeners: Record<string, Function[]> = {}
+
+        constructor(url: string) {
+          this.url = url
+          connectionCount++
+
+          // First connection fails, subsequent ones succeed
+          setTimeout(() => {
+            if (connectionCount === 1) {
+              this.emit('error', new Event('error'))
+              this.emit('close', {})
+            } else {
+              this.readyState = ReconnectingWebSocket.OPEN
+              this.emit('open', {})
+            }
+          }, 5)
+        }
+
+        addEventListener(event: string, handler: Function) {
+          if (!this.listeners[event]) {
+            this.listeners[event] = []
+          }
+          this.listeners[event].push(handler)
+        }
+
+        removeEventListener(event: string, handler: Function) {
+          if (this.listeners[event]) {
+            this.listeners[event] = this.listeners[event].filter((h) => h !== handler)
+          }
+        }
+
+        emit(event: string, data: unknown) {
+          if (this.listeners[event]) {
+            this.listeners[event].forEach((h) => h(data))
+          }
+        }
+
+        send(data: string) {
+          const message = JSON.parse(data)
+          setTimeout(() => {
+            this.emit('message', {
+              data: JSON.stringify({
+                id: message.id,
+                result: { echo: message.method },
+              }),
+            })
+          }, 5)
+        }
+
+        close() {
+          this.readyState = ReconnectingWebSocket.CLOSED
+          this.emit('close', {})
+        }
+      }
+
+      const events: { type: string; attempt?: number }[] = []
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/ws',
+        WebSocket: ReconnectingWebSocket as unknown as typeof WebSocket,
+        autoReconnect: true,
+        reconnectDelay: 10, // Very short for testing
+        maxReconnectAttempts: 3,
+      })
+
+      transport.addEventListener((event) => {
+        events.push({ type: event.type, attempt: event.attempt })
+      })
+
+      // Initial connection will fail, triggering reconnect
+      try {
+        await transport.send({ method: 'test', args: [] })
+      } catch {
+        // Expected to fail on first attempt
+      }
+
+      // Wait for reconnect event and successful reconnection
+      await new Promise((r) => setTimeout(r, 50))
+
+      expect(events.some((e) => e.type === 'reconnect')).toBe(true)
+
+      await transport.close()
+    })
+
+    it('should stop reconnecting after max attempts', async () => {
+      const { WebSocketTransport } = await import('../transport/websocket')
+
+      let connectionAttempts = 0
+
+      // Create a WebSocket that always fails (no extension)
+      class AlwaysFailWebSocket {
+        static OPEN = 1
+        static CLOSED = 3
+
+        url: string
+        readyState = 0
+        listeners: Record<string, Function[]> = {}
+
+        constructor(url: string) {
+          this.url = url
+          connectionAttempts++
+
+          // Always fail connection
+          setTimeout(() => {
+            this.emit('error', new Event('error'))
+            this.emit('close', {})
+          }, 5)
+        }
+
+        addEventListener(event: string, handler: Function) {
+          if (!this.listeners[event]) {
+            this.listeners[event] = []
+          }
+          this.listeners[event].push(handler)
+        }
+
+        removeEventListener(event: string, handler: Function) {
+          if (this.listeners[event]) {
+            this.listeners[event] = this.listeners[event].filter((h) => h !== handler)
+          }
+        }
+
+        emit(event: string, data: unknown) {
+          if (this.listeners[event]) {
+            this.listeners[event].forEach((h) => h(data))
+          }
+        }
+
+        send(_data: string) {}
+
+        close() {
+          this.readyState = AlwaysFailWebSocket.CLOSED
+          this.emit('close', {})
+        }
+      }
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/ws',
+        WebSocket: AlwaysFailWebSocket as unknown as typeof WebSocket,
+        autoReconnect: true,
+        reconnectDelay: 5,
+        maxReconnectAttempts: 2,
+      })
+
+      // Trigger initial connection
+      try {
+        await transport.send({ method: 'test', args: [] })
+      } catch {
+        // Expected
+      }
+
+      // Wait for all reconnect attempts (initial + delay + attempts + delay + attempts)
+      // With 5ms delay and 2 max reconnects, need about 5 + 5*2 + 5*2*2 = 35ms
+      await new Promise((r) => setTimeout(r, 100))
+
+      // Should be: 1 initial + 2 reconnects = 3 total
+      expect(connectionAttempts).toBeLessThanOrEqual(3)
+
+      await transport.close()
+    })
+
+    it('should use exponential backoff for reconnection delays', async () => {
+      const { WebSocketTransport } = await import('../transport/websocket')
+
+      const reconnectTimes: number[] = []
+      let lastTime = Date.now()
+
+      // Create a WebSocket that always fails
+      class TimingWebSocket extends MockWebSocket {
+        constructor(url: string) {
+          super(url)
+          const now = Date.now()
+          reconnectTimes.push(now - lastTime)
+          lastTime = now
+
+          setTimeout(() => {
+            this.emit('error', new Event('error'))
+            this.emit('close', {})
+          }, 0)
+        }
+      }
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/ws',
+        WebSocket: TimingWebSocket as unknown as typeof WebSocket,
+        autoReconnect: true,
+        reconnectDelay: 20, // Base delay
+        maxReconnectDelay: 1000,
+        maxReconnectAttempts: 3,
+      })
+
+      // Trigger initial connection
+      try {
+        await transport.send({ method: 'test', args: [] })
+      } catch {
+        // Expected
+      }
+
+      // Wait for reconnect attempts
+      await new Promise((r) => setTimeout(r, 200))
+
+      // Second delay should be greater than first (exponential backoff)
+      // Note: First entry is from initial connection (should be ~0)
+      if (reconnectTimes.length >= 3) {
+        expect(reconnectTimes[2]).toBeGreaterThanOrEqual(reconnectTimes[1])
+      }
+
+      await transport.close()
+    })
+
+    it('should not reconnect when autoReconnect is false', async () => {
+      const { WebSocketTransport } = await import('../transport/websocket')
+
+      let connectionAttempts = 0
+
+      class CountingWebSocket extends MockWebSocket {
+        constructor(url: string) {
+          super(url)
+          connectionAttempts++
+
+          setTimeout(() => {
+            this.emit('error', new Event('error'))
+            this.emit('close', {})
+          }, 0)
+        }
+      }
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/ws',
+        WebSocket: CountingWebSocket as unknown as typeof WebSocket,
+        autoReconnect: false,
+      })
+
+      // Trigger initial connection
+      try {
+        await transport.send({ method: 'test', args: [] })
+      } catch {
+        // Expected
+      }
+
+      // Wait to ensure no reconnects
+      await new Promise((r) => setTimeout(r, 50))
+
+      expect(connectionAttempts).toBe(1)
+
+      await transport.close()
+    })
+
+    it('should resolve pending requests with disconnect error', async () => {
+      const { WebSocketTransport } = await import('../transport/websocket')
+
+      // Create a custom WebSocket that disconnects after receiving a message
+      class DisconnectingWebSocket {
+        static OPEN = 1
+        static CLOSED = 3
+
+        url: string
+        readyState = DisconnectingWebSocket.OPEN
+        listeners: Record<string, Function[]> = {}
+
+        constructor(url: string) {
+          this.url = url
+          // Auto-open after a moment
+          setTimeout(() => this.emit('open', {}), 5)
+        }
+
+        addEventListener(event: string, handler: Function) {
+          if (!this.listeners[event]) {
+            this.listeners[event] = []
+          }
+          this.listeners[event].push(handler)
+        }
+
+        removeEventListener(event: string, handler: Function) {
+          if (this.listeners[event]) {
+            this.listeners[event] = this.listeners[event].filter((h) => h !== handler)
+          }
+        }
+
+        emit(event: string, data: unknown) {
+          if (this.listeners[event]) {
+            this.listeners[event].forEach((h) => h(data))
+          }
+        }
+
+        send(_data: string) {
+          // Disconnect after receiving message, don't respond
+          setTimeout(() => {
+            this.readyState = DisconnectingWebSocket.CLOSED
+            this.emit('close', {})
+          }, 20)
+        }
+
+        close() {
+          this.readyState = DisconnectingWebSocket.CLOSED
+          this.emit('close', {})
+        }
+      }
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/ws',
+        WebSocket: DisconnectingWebSocket as unknown as typeof WebSocket,
+        autoReconnect: false,
+        timeout: 5000,
+      })
+
+      const response = await transport.send({ method: 'test', args: [] })
+
+      // Should get disconnection error (not timeout)
+      expect(response.error).toBeDefined()
+      expect(response.error?.message).toContain('disconnected')
+
+      await transport.close()
+    })
+  })
+
+  describe('heartbeat', () => {
+    it('should send heartbeat pings at configured interval', async () => {
+      const { WebSocketTransport } = await import('../transport/websocket')
+
+      const sentMessages: string[] = []
+
+      // Custom WebSocket that tracks messages and responds appropriately
+      class HeartbeatWebSocket {
+        static OPEN = 1
+        static CLOSED = 3
+
+        url: string
+        readyState = HeartbeatWebSocket.OPEN
+        listeners: Record<string, Function[]> = {}
+
+        constructor(url: string) {
+          this.url = url
+          setTimeout(() => this.emit('open', {}), 5)
+        }
+
+        addEventListener(event: string, handler: Function) {
+          if (!this.listeners[event]) {
+            this.listeners[event] = []
+          }
+          this.listeners[event].push(handler)
+        }
+
+        removeEventListener(event: string, handler: Function) {
+          if (this.listeners[event]) {
+            this.listeners[event] = this.listeners[event].filter((h) => h !== handler)
+          }
+        }
+
+        emit(event: string, data: unknown) {
+          if (this.listeners[event]) {
+            this.listeners[event].forEach((h) => h(data))
+          }
+        }
+
+        send(data: string) {
+          sentMessages.push(data)
+          // Echo back responses
+          const msg = JSON.parse(data)
+          setTimeout(() => {
+            this.emit('message', {
+              data: JSON.stringify({
+                id: msg.id,
+                result: msg.method === '$ping' ? { pong: true, timestamp: Date.now() } : { echo: msg.method },
+              }),
+            })
+          }, 5)
+        }
+
+        close() {
+          this.readyState = HeartbeatWebSocket.CLOSED
+          this.emit('close', {})
+        }
+      }
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/ws',
+        WebSocket: HeartbeatWebSocket as unknown as typeof WebSocket,
+        autoReconnect: false,
+        heartbeatInterval: 20, // Very short for testing
+      })
+
+      // Trigger connection by sending a message
+      await transport.send({ method: 'test', args: [] })
+
+      // Wait for heartbeats
+      await new Promise((r) => setTimeout(r, 100))
+
+      const heartbeats = sentMessages.filter((m) => {
+        try {
+          return JSON.parse(m).method === '$ping'
+        } catch {
+          return false
+        }
+      })
+
+      // Should have sent at least 2 heartbeats in 100ms with 20ms interval
+      expect(heartbeats.length).toBeGreaterThanOrEqual(2)
+
+      await transport.close()
+    })
+
+    it('should close connection if heartbeat times out', async () => {
+      const { WebSocketTransport } = await import('../transport/websocket')
+      const { TransportState } = await import('../transport/types')
+
+      class NoResponseHeartbeatWebSocket extends MockWebSocket {
+        send(data: string) {
+          // Don't respond to heartbeats, but respond to regular messages
+          const msg = JSON.parse(data)
+          if (msg.method !== '$ping') {
+            setTimeout(() => {
+              this.emit('message', {
+                data: JSON.stringify({
+                  id: msg.id,
+                  result: { echo: msg.method },
+                }),
+              })
+            }, 5)
+          }
+          // Heartbeat pings get no response
+        }
+      }
+
+      const events: { type: string }[] = []
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/ws',
+        WebSocket: NoResponseHeartbeatWebSocket as unknown as typeof WebSocket,
+        autoReconnect: false,
+        heartbeatInterval: 20,
+        heartbeatTimeout: 30,
+      })
+
+      transport.addEventListener((event) => {
+        events.push({ type: event.type })
+      })
+
+      // Trigger connection
+      await transport.send({ method: 'test', args: [] })
+
+      // Wait for heartbeat timeout
+      await new Promise((r) => setTimeout(r, 150))
+
+      // Should have disconnected due to heartbeat timeout
+      expect(events.some((e) => e.type === 'disconnect' || e.type === 'error')).toBe(true)
+
+      await transport.close()
+    })
+
+    it('should not send heartbeats when disabled', async () => {
+      const { WebSocketTransport } = await import('../transport/websocket')
+
+      const sentMessages: string[] = []
+
+      class TrackingWebSocket extends MockWebSocket {
+        send(data: string) {
+          sentMessages.push(data)
+          const msg = JSON.parse(data)
+          setTimeout(() => {
+            this.emit('message', {
+              data: JSON.stringify({
+                id: msg.id,
+                result: { echo: msg.method },
+              }),
+            })
+          }, 5)
+        }
+      }
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/ws',
+        WebSocket: TrackingWebSocket as unknown as typeof WebSocket,
+        autoReconnect: false,
+        // No heartbeatInterval means disabled (default)
+      })
+
+      // Trigger connection
+      await transport.send({ method: 'test', args: [] })
+
+      // Wait a bit
+      await new Promise((r) => setTimeout(r, 100))
+
+      const heartbeats = sentMessages.filter((m) => {
+        try {
+          return JSON.parse(m).method === '$ping'
+        } catch {
+          return false
+        }
+      })
+
+      // Should not have sent any heartbeats
+      expect(heartbeats.length).toBe(0)
+
+      await transport.close()
+    })
+  })
+
+  describe('isConnected helper', () => {
+    it('should return false when not connected', async () => {
+      const { WebSocketTransport } = await import('../transport/websocket')
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/ws',
+        WebSocket: MockWebSocket as unknown as typeof WebSocket,
+        autoReconnect: false,
+      })
+
+      expect(transport.isConnected()).toBe(false)
+
+      await transport.close()
+    })
+
+    it('should return true when connected', async () => {
+      const { WebSocketTransport } = await import('../transport/websocket')
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/ws',
+        WebSocket: MockWebSocket as unknown as typeof WebSocket,
+        autoReconnect: false,
+      })
+
+      // Trigger connection
+      await transport.send({ method: 'test', args: [] })
+
+      expect(transport.isConnected()).toBe(true)
+
+      await transport.close()
+    })
+  })
 })
 
 // ============================================================================

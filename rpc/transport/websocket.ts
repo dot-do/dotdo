@@ -29,6 +29,10 @@ export interface WebSocketTransportOptions extends TransportOptions {
   maxReconnectDelay?: number
   /** Custom WebSocket implementation (for testing) */
   WebSocket?: typeof WebSocket
+  /** Heartbeat ping interval in ms (0 or undefined to disable, default: disabled) */
+  heartbeatInterval?: number
+  /** Heartbeat timeout in ms - close connection if no pong received (default: 2x heartbeatInterval) */
+  heartbeatTimeout?: number
 }
 
 /**
@@ -64,6 +68,7 @@ interface WebSocketMessage {
  * - Request/response correlation
  * - Connection state tracking
  * - Event-based notification of state changes
+ * - Heartbeat/keepalive support for connection health monitoring
  *
  * @example
  * ```typescript
@@ -98,6 +103,8 @@ export class WebSocketTransport implements Transport {
   private readonly reconnectDelay: number
   private readonly maxReconnectDelay: number
   private readonly WebSocketImpl: typeof WebSocket
+  private readonly heartbeatInterval: number
+  private readonly heartbeatTimeout: number
 
   private ws: WebSocket | null = null
   private state: TransportState = 'DISCONNECTED' as TransportState
@@ -106,6 +113,9 @@ export class WebSocketTransport implements Transport {
   private reconnectAttempts = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private connectPromise: Promise<void> | null = null
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  private heartbeatTimeoutTimer: ReturnType<typeof setTimeout> | null = null
+  private lastPongTime: number = 0
 
   constructor(options: WebSocketTransportOptions) {
     this.url = options.url
@@ -118,6 +128,8 @@ export class WebSocketTransport implements Transport {
     this.reconnectDelay = options.reconnectDelay ?? 1000
     this.maxReconnectDelay = options.maxReconnectDelay ?? 30000
     this.WebSocketImpl = options.WebSocket ?? globalThis.WebSocket
+    this.heartbeatInterval = options.heartbeatInterval ?? 0
+    this.heartbeatTimeout = options.heartbeatTimeout ?? (this.heartbeatInterval * 2)
   }
 
   /**
@@ -147,16 +159,17 @@ export class WebSocketTransport implements Transport {
       }
 
       const onOpen = () => {
-        cleanup()
+        cleanupConnectListeners()
         this.state = 'CONNECTED' as TransportState
         this.reconnectAttempts = 0
         this.connectPromise = null
+        this.startHeartbeat()
         this.emit({ type: 'connect' })
         resolve()
       }
 
       const onError = (_event: Event) => {
-        cleanup()
+        cleanupConnectListeners()
         this.state = 'DISCONNECTED' as TransportState
         this.connectPromise = null
         const error = new Error('WebSocket connection failed')
@@ -165,7 +178,10 @@ export class WebSocketTransport implements Transport {
       }
 
       const onClose = () => {
-        cleanup()
+        // Only clean up if we haven't connected yet (connection failed)
+        if (this.state !== ('CONNECTED' as TransportState)) {
+          cleanupConnectListeners()
+        }
         this.handleDisconnect()
       }
 
@@ -173,11 +189,12 @@ export class WebSocketTransport implements Transport {
         this.handleMessage(event.data)
       }
 
-      const cleanup = () => {
+      // Clean up only the connection establishment listeners (open/error)
+      // Keep close and message listeners for the lifetime of the connection
+      const cleanupConnectListeners = () => {
         if (this.ws) {
           this.ws.removeEventListener('open', onOpen)
           this.ws.removeEventListener('error', onError)
-          this.ws.removeEventListener('close', onClose)
         }
       }
 
@@ -194,14 +211,30 @@ export class WebSocketTransport implements Transport {
    * Handle WebSocket disconnection
    */
   private handleDisconnect(): void {
+    // Skip if we're already closed (explicit close was called)
+    if (this.state === ('CLOSED' as TransportState)) {
+      return
+    }
+
     const wasConnected = this.state === ('CONNECTED' as TransportState)
     this.state = 'DISCONNECTED' as TransportState
     this.connectPromise = null
 
-    // Reject all pending requests
-    for (const [_id, request] of this.pendingRequests) {
+    // Stop heartbeat
+    this.stopHeartbeat()
+
+    // Resolve pending requests with error response (not reject, to match send() signature)
+    for (const [id, request] of this.pendingRequests) {
       clearTimeout(request.timeout)
-      request.reject(new Error('WebSocket disconnected'))
+      // Use resolve with error response to be consistent with timeout behavior
+      request.resolve({
+        error: {
+          type: 'NetworkError',
+          code: 'NETWORK_ERROR',
+          message: 'WebSocket disconnected',
+        },
+        correlationId: id,
+      })
     }
     this.pendingRequests.clear()
 
@@ -212,6 +245,92 @@ export class WebSocketTransport implements Transport {
     // Auto-reconnect if enabled
     if (this.autoReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
       this.scheduleReconnect()
+    }
+  }
+
+  /**
+   * Start heartbeat timer
+   */
+  private startHeartbeat(): void {
+    if (this.heartbeatInterval <= 0) {
+      return
+    }
+
+    this.stopHeartbeat()
+    this.lastPongTime = Date.now()
+
+    this.heartbeatTimer = setInterval(() => {
+      this.sendHeartbeat()
+    }, this.heartbeatInterval)
+  }
+
+  /**
+   * Stop heartbeat timer
+   */
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
+    }
+    if (this.heartbeatTimeoutTimer) {
+      clearTimeout(this.heartbeatTimeoutTimer)
+      this.heartbeatTimeoutTimer = null
+    }
+  }
+
+  /**
+   * Send heartbeat ping and set up timeout
+   */
+  private sendHeartbeat(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return
+    }
+
+    const pingId = generateCorrelationId()
+
+    // Set up timeout for heartbeat response
+    this.heartbeatTimeoutTimer = setTimeout(() => {
+      // Heartbeat timeout - close connection
+      this.emit({ type: 'error', error: new Error('Heartbeat timeout') })
+      if (this.ws) {
+        this.ws.close()
+      }
+      this.handleDisconnect()
+    }, this.heartbeatTimeout)
+
+    // Send ping message
+    const pingMessage: WebSocketMessage = {
+      id: pingId,
+      method: '$ping',
+      args: [{ timestamp: Date.now() }],
+    }
+
+    // Track the ping request to clear timeout on response
+    this.pendingRequests.set(pingId, {
+      resolve: (_response) => {
+        // Clear heartbeat timeout on successful pong
+        if (this.heartbeatTimeoutTimer) {
+          clearTimeout(this.heartbeatTimeoutTimer)
+          this.heartbeatTimeoutTimer = null
+        }
+        this.lastPongTime = Date.now()
+      },
+      reject: () => {
+        // Timeout handled separately
+      },
+      timeout: setTimeout(() => {
+        this.pendingRequests.delete(pingId)
+      }, this.heartbeatTimeout),
+    })
+
+    try {
+      this.ws.send(JSON.stringify(pingMessage))
+    } catch {
+      // Send failed, connection is likely dead
+      if (this.heartbeatTimeoutTimer) {
+        clearTimeout(this.heartbeatTimeoutTimer)
+        this.heartbeatTimeoutTimer = null
+      }
     }
   }
 
@@ -362,6 +481,9 @@ export class WebSocketTransport implements Transport {
    */
   async close(): Promise<void> {
     this.state = 'CLOSED' as TransportState
+
+    // Stop heartbeat
+    this.stopHeartbeat()
 
     // Cancel reconnect timer
     if (this.reconnectTimer) {

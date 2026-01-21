@@ -3,6 +3,7 @@
 
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
+import { createLogger, setLogLevel, LogLevel } from './logger'
 
 /**
  * Options for the pull command
@@ -18,6 +19,10 @@ export interface PullOptions {
   onProgress?: ((message: string) => void) | undefined
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number | undefined
+  /** Enable verbose output (request/response details, timing) */
+  verbose?: boolean | undefined
+  /** Enable debug output (all verbose output plus raw data) */
+  debug?: boolean | undefined
 }
 
 /**
@@ -79,7 +84,19 @@ export async function pull(options: PullOptions): Promise<PullResult> {
     cwd = process.cwd(),
     timeout = 30000,
     onProgress = () => {},
+    verbose = false,
+    debug = false,
   } = options
+
+  // Set log level based on options
+  if (debug) {
+    setLogLevel(LogLevel.DEBUG)
+  } else if (verbose) {
+    setLogLevel(LogLevel.VERBOSE)
+  }
+
+  // Create logger with the onProgress callback
+  const logger = createLogger({ output: onProgress })
 
   // Determine output path
   const outPath = options.outPath ?? path.join(cwd, '.do', '$.d.ts')
@@ -88,10 +105,21 @@ export async function pull(options: PullOptions): Promise<PullResult> {
   const normalizedEndpoint = normalizeEndpoint(endpoint)
   const rpcUrl = `${normalizedEndpoint}/rpc`
 
+  // Build request body
+  const requestBody = { method: '_types', args: [] }
+
+  // Start timing
+  const startTime = performance.now()
+
   try {
     // Report progress: fetching
     const url = new URL(normalizedEndpoint)
     onProgress(`Fetching types from ${url.host}...`)
+
+    // Log request in verbose/debug mode
+    if (debug || verbose) {
+      logger.request('POST', rpcUrl, debug ? requestBody : undefined)
+    }
 
     // Make RPC call to _types endpoint
     const response = await fetch(rpcUrl, {
@@ -99,9 +127,18 @@ export async function pull(options: PullOptions): Promise<PullResult> {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ method: '_types', args: [] }),
+      body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(timeout),
     })
+
+    // Calculate duration
+    const durationMs = performance.now() - startTime
+
+    // Log response in verbose/debug mode
+    if (debug || verbose) {
+      logger.response(response.status)
+      logger.timing('Request took', durationMs)
+    }
 
     // Handle HTTP errors
     if (!response.ok) {
@@ -120,6 +157,11 @@ export async function pull(options: PullOptions): Promise<PullResult> {
         success: false,
         error: parseError instanceof Error ? parseError.message : 'Failed to parse JSON response',
       }
+    }
+
+    // Log response body in debug mode
+    if (debug) {
+      logger.debug(`Response received (${typeof data === 'string' ? data.length : JSON.stringify(data).length} bytes)`)
     }
 
     // Check for RPC-level errors
@@ -151,6 +193,12 @@ export async function pull(options: PullOptions): Promise<PullResult> {
       outPath,
     }
   } catch (error) {
+    // Calculate duration even on error
+    const durationMs = performance.now() - startTime
+    if (debug || verbose) {
+      logger.timing('Request failed after', durationMs)
+    }
+
     // Handle network/fetch errors
     const message = error instanceof Error ? error.message : String(error)
     return {
