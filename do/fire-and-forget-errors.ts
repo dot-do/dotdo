@@ -15,6 +15,15 @@
 
 import type { SqlStorage, SqlRunResult } from '../db/sqlite'
 import { createLogger } from '../utils/logger'
+import {
+  DEFAULT_MAX_STORE_ENTRIES,
+  DEFAULT_MAX_ERROR_AGE_MS,
+  DEFAULT_MAX_BACKOFF_MS,
+  DEFAULT_PROCESS_INTERVAL_MS,
+  DEFAULT_COMPLETED_ITEM_MAX_AGE_MS,
+  DEFAULT_RETRY_BASE_DELAY_MS,
+  DEFAULT_MAX_RETRY_ATTEMPTS,
+} from '../utils/time-constants'
 
 const logger = createLogger('[FireAndForget]')
 
@@ -259,8 +268,8 @@ export interface InMemoryErrorStoreOptions {
 
 /** Default bounds for in-memory error store */
 const DEFAULT_ERROR_STORE_BOUNDS = {
-  maxErrors: 10000,
-  maxErrorAge: 24 * 60 * 60 * 1000, // 24 hours
+  maxErrors: DEFAULT_MAX_STORE_ENTRIES,
+  maxErrorAge: DEFAULT_MAX_ERROR_AGE_MS,
 }
 
 /**
@@ -872,14 +881,14 @@ export function createInMemoryRetryQueue(
   options: RetryQueueOptions = {}
 ): RetryQueue {
   const {
-    maxAttempts = 5,
-    initialBackoff = 100,
-    maxBackoff = 60000,
+    maxAttempts = DEFAULT_MAX_RETRY_ATTEMPTS,
+    initialBackoff = DEFAULT_RETRY_BASE_DELAY_MS,
+    maxBackoff = DEFAULT_MAX_BACKOFF_MS,
     backoffMultiplier = 2,
     autoProcess = false,
-    processInterval = 1000,
-    maxQueueSize = 10000,
-    completedItemMaxAge = 60 * 60 * 1000 // 1 hour
+    processInterval = DEFAULT_PROCESS_INTERVAL_MS,
+    maxQueueSize = DEFAULT_MAX_STORE_ENTRIES,
+    completedItemMaxAge = DEFAULT_COMPLETED_ITEM_MAX_AGE_MS
   } = options
 
   const items = new Map<string, RetryQueueItem>()

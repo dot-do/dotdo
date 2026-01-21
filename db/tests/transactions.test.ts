@@ -15,9 +15,8 @@
  * @module db/tests/transactions.test
  */
 
-// Skip this test suite - uses Miniflare directly with Node.js modules (os, fs, path)
-// which are incompatible with vitest-pool-workers. Needs refactoring to use
-// @cloudflare/vitest-pool-workers pattern instead.
+// This test suite uses Miniflare directly with Node.js modules (os, fs, path).
+// Run with: npx vitest run --config db/vitest.node.config.ts tests/transactions.test.ts
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'
 import { Miniflare } from 'miniflare'
 import * as path from 'path'
@@ -184,35 +183,38 @@ export class TransactionDO {
       if (path === '/transaction' && method === 'POST') {
         const { operations, shouldFail, failAtIndex } = await request.json()
         const results = []
+        let txError = null
 
-        try {
-          await this.state.blockConcurrencyWhile(async () => {
-            for (let i = 0; i < operations.length; i++) {
-              // Check if we should simulate failure
-              if (shouldFail && i === failAtIndex) {
-                throw new Error('Intentional rollback')
-              }
-
-              const op = operations[i]
-              if (op.type === 'create') {
-                const id = this.generateId()
-                const now = Date.now()
-                const { $type, ...customData } = op.data
-                const dataJson = JSON.stringify(customData)
-
-                this.sql.exec(
-                  'INSERT INTO things (id, type, data, version, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)',
-                  id, $type, dataJson, now, now
-                )
-                results.push({ id, operation: 'create' })
-              }
+        // Note: Errors thrown inside blockConcurrencyWhile bypass try-catch in Miniflare.
+        // We use an error tracking pattern instead.
+        await this.state.blockConcurrencyWhile(async () => {
+          for (let i = 0; i < operations.length; i++) {
+            // Check if we should simulate failure
+            if (shouldFail && i === failAtIndex) {
+              txError = new Error('Intentional rollback')
+              return // Exit the loop without throwing
             }
-          })
 
-          return Response.json({ success: true, results })
-        } catch (error) {
-          return Response.json({ success: false, error: error.message, results }, { status: 500 })
+            const op = operations[i]
+            if (op.type === 'create') {
+              const id = this.generateId()
+              const now = Date.now()
+              const { $type, ...customData } = op.data
+              const dataJson = JSON.stringify(customData)
+
+              this.sql.exec(
+                'INSERT INTO things (id, type, data, version, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)',
+                id, $type, dataJson, now, now
+              )
+              results.push({ id, operation: 'create' })
+            }
+          }
+        })
+
+        if (txError) {
+          return Response.json({ success: false, error: txError.message, results }, { status: 500 })
         }
+        return Response.json({ success: true, results })
       }
 
       // ==== CONCURRENT INCREMENT ====
@@ -267,16 +269,18 @@ export class TransactionDO {
       if (path === '/things/bulk-create' && method === 'POST') {
         const { items } = await request.json()
         const results = []
+        let bulkError = null
+
+        // Validate all items BEFORE entering blockConcurrencyWhile
+        // This ensures validation errors return proper JSON responses
+        for (const item of items) {
+          if (!item.$type) {
+            return Response.json({ error: '$type is required for all items' }, { status: 500 })
+          }
+        }
 
         await this.state.blockConcurrencyWhile(async () => {
-          // Validate all items first
-          for (const item of items) {
-            if (!item.$type) {
-              throw new Error('$type is required for all items')
-            }
-          }
-
-          // Then create all
+          // Create all items
           const now = Date.now()
           for (const item of items) {
             const id = this.generateId()
@@ -346,7 +350,7 @@ function getMiniflareConfig() {
     modules: true,
     script: TRANSACTION_DO_SCRIPT,
     durableObjects: {
-      TX_DO: 'TransactionDO',
+      TX_DO: { className: 'TransactionDO', useSQLite: true },
     },
     durableObjectsPersist: false, // In-memory for fast tests
   }
@@ -362,7 +366,7 @@ async function getTransactionDOStub(mf: Miniflare, name: string = 'default') {
 // TEST SUITES
 // ============================================================================
 
-describe.skip('Transaction Isolation', () => {
+describe('Transaction Isolation', () => {
   let mf: Miniflare
 
   beforeAll(async () => {
@@ -432,15 +436,20 @@ describe.skip('Transaction Isolation', () => {
       })
 
       // Fail transaction in stub1
-      await stub1.fetch('http://fake/transaction', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          shouldFail: true,
-          failAtIndex: 0,
-          operations: [{ type: 'create', data: { $type: 'Unsafe', name: 'will-fail' } }],
-        }),
-      })
+      // When blockConcurrencyWhile throws, the error propagates through the proxy
+      try {
+        await stub1.fetch('http://fake/transaction', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shouldFail: true,
+            failAtIndex: 0,
+            operations: [{ type: 'create', data: { $type: 'Unsafe', name: 'will-fail' } }],
+          }),
+        })
+      } catch {
+        // Expected - error propagates through proxy
+      }
 
       // Verify stub2's data is unaffected
       const listResponse = await stub2.fetch('http://fake/things/list?type=Safe')
@@ -786,7 +795,7 @@ describe.skip('Transaction Isolation', () => {
       const doName = generateTestId()
       const stub = await getTransactionDOStub(mf, doName)
 
-      // Second item missing $type
+      // Second item missing $type - validation happens before blockConcurrencyWhile
       const bulkResponse = await stub.fetch('http://fake/things/bulk-create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -800,6 +809,8 @@ describe.skip('Transaction Isolation', () => {
       })
 
       expect(bulkResponse.status).toBe(500)
+      const bulkJson = (await bulkResponse.json()) as { error: string }
+      expect(bulkJson.error).toBe('$type is required for all items')
 
       // None should exist due to validation failing before any inserts
       const countResponse = await stub.fetch('http://fake/things/count?type=BulkFail')

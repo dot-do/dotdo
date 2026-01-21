@@ -73,8 +73,12 @@ import type {
   Relationship as DBRelationship,
   Event as DBEvent,
   StorableData,
-  JsonValue
+  JsonValue,
+  JsonPrimitive
 } from '@dotdo/db'
+
+// Re-export JsonPrimitive for consumers
+export type { JsonPrimitive }
 
 /**
  * Base Thing interface with system fields

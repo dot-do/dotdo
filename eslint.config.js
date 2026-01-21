@@ -143,6 +143,8 @@ export default [
       '**/npmx/**',
       '**/e2e/**',
       '**/examples/**',
+      // TanStack Router generated file - has its own @ts-nocheck and eslint-disable
+      '**/routeTree.gen.ts',
     ]
   },
 

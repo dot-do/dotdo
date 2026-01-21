@@ -416,9 +416,10 @@ export { createAuditLogStore, createSQLiteAuditLogStore } from '@dotdo/db'
 export { createSchemaRegistry, defineSchema, SchemaValidationError } from '@dotdo/db'
 export type { SchemaRegistry, Schema, SchemaDef, FieldDef, ValidationResult, ValidationError as DbSchemaValidationError } from '@dotdo/db'
 
-// Digital objects
-export { createDigitalObjectsAdapter, validateSchema } from '@dotdo/db'
-export type { DigitalObjectsThingsStore } from '@dotdo/db'
+// Digital objects - Note: These require the primitives submodule to be initialized
+// Import directly from '@dotdo/db/digital-objects' if needed
+// export { createDigitalObjectsAdapter, validateSchema } from '@dotdo/db'
+// export type { DigitalObjectsThingsStore } from '@dotdo/db'
 
 // Branded types
 export type { ThingId, RelationshipId, EventId, CorrelationId } from '@dotdo/db'

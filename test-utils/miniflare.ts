@@ -10,6 +10,13 @@
  */
 
 import { Miniflare, type MiniflareOptions } from 'miniflare'
+import {
+  DEFAULT_TEST_TIMEOUT_MS,
+  DEFAULT_POLL_INTERVAL_MS,
+  DEFAULT_RETRY_BASE_DELAY_MS,
+  DEFAULT_RETRY_MAX_DELAY_MS,
+  DEFAULT_MAX_RETRY_ATTEMPTS,
+} from '@dotdo/utils'
 
 // ============================================================================
 // Types
@@ -325,13 +332,13 @@ export function generateTestId(prefix = 'test'): string {
 export interface WaitForOptions {
   /**
    * Maximum time to wait in milliseconds.
-   * Default: 5000
+   * Default: DEFAULT_TEST_TIMEOUT_MS (5000)
    */
   timeout?: number
 
   /**
    * Polling interval in milliseconds.
-   * Default: 50
+   * Default: DEFAULT_POLL_INTERVAL_MS (50)
    */
   interval?: number
 
@@ -361,7 +368,11 @@ export async function waitFor(
   condition: () => boolean | Promise<boolean>,
   options: WaitForOptions = {}
 ): Promise<void> {
-  const { timeout = 5000, interval = 50, message = 'Condition not met within timeout' } = options
+  const {
+    timeout = DEFAULT_TEST_TIMEOUT_MS,
+    interval = DEFAULT_POLL_INTERVAL_MS,
+    message = 'Condition not met within timeout'
+  } = options
 
   const startTime = Date.now()
 
@@ -408,7 +419,11 @@ export async function retry<T>(
     maxDelay?: number
   } = {}
 ): Promise<T> {
-  const { maxAttempts = 3, baseDelay = 100, maxDelay = 5000 } = options
+  const {
+    maxAttempts = DEFAULT_MAX_RETRY_ATTEMPTS,
+    baseDelay = DEFAULT_RETRY_BASE_DELAY_MS,
+    maxDelay = DEFAULT_RETRY_MAX_DELAY_MS
+  } = options
 
   let lastError: Error | undefined
 

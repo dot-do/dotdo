@@ -18,6 +18,14 @@
 
 import type { Context, MiddlewareHandler, Next } from 'hono'
 import { RateLimitError, ValidationError } from '@dotdo/rpc'
+import {
+  DEFAULT_RATE_LIMIT_WINDOW_MS,
+  DEFAULT_FREE_TIER_REQUESTS,
+  DEFAULT_PRO_TIER_REQUESTS,
+  DEFAULT_ENTERPRISE_TIER_REQUESTS,
+  DEFAULT_MAX_STORE_ENTRIES,
+  DEFAULT_CLEANUP_INTERVAL_MS,
+} from '@dotdo/utils'
 
 // ============================================================================
 // TYPES
@@ -43,20 +51,20 @@ export interface RateLimitTier {
 export const DEFAULT_TIERS: Record<string, RateLimitTier> = {
   free: {
     name: 'free',
-    requestsPerWindow: 100,
-    windowMs: 60000, // 1 minute
+    requestsPerWindow: DEFAULT_FREE_TIER_REQUESTS,
+    windowMs: DEFAULT_RATE_LIMIT_WINDOW_MS,
     burstCapacity: 20,
   },
   pro: {
     name: 'pro',
-    requestsPerWindow: 1000,
-    windowMs: 60000,
+    requestsPerWindow: DEFAULT_PRO_TIER_REQUESTS,
+    windowMs: DEFAULT_RATE_LIMIT_WINDOW_MS,
     burstCapacity: 100,
   },
   enterprise: {
     name: 'enterprise',
-    requestsPerWindow: 10000,
-    windowMs: 60000,
+    requestsPerWindow: DEFAULT_ENTERPRISE_TIER_REQUESTS,
+    windowMs: DEFAULT_RATE_LIMIT_WINDOW_MS,
     burstCapacity: 500,
   },
 }
@@ -193,8 +201,8 @@ export class RateLimiter {
       failOpen: config.failOpen ?? true,
       windowStrategy: config.windowStrategy ?? 'sliding',
       skipPaths: config.skipPaths ?? [],
-      maxEntries: config.maxEntries ?? 10000,
-      cleanupIntervalMs: config.cleanupIntervalMs ?? 300000, // 5 minutes
+      maxEntries: config.maxEntries ?? DEFAULT_MAX_STORE_ENTRIES,
+      cleanupIntervalMs: config.cleanupIntervalMs ?? DEFAULT_CLEANUP_INTERVAL_MS,
     }
 
     // Validate tiers

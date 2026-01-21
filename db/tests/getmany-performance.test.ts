@@ -147,7 +147,17 @@ describe('getMany N+1 Query Detection', () => {
     adapter.resetMetrics()
   })
 
-  // Intentional failures documenting N+1 query pattern - skip until optimization is implemented
+  // ==========================================================================
+  // TODO: These tests document the N+1 query problem in getMany.
+  // They INTENTIONALLY FAIL to prove the issue exists - getMany makes O(N)
+  // queries instead of O(1) batched queries.
+  //
+  // Skipped to prevent CI failures. These are not bugs in the tests;
+  // they document a known performance issue that should be optimized.
+  //
+  // When getMany is optimized to use batched queries (e.g., SQL IN clause),
+  // remove .skip and these tests should pass.
+  // ==========================================================================
   describe.skip('N+1 query problem', () => {
     it('should use O(1) database operations for getMany, not O(N)', async () => {
       // Setup: Insert 100 items

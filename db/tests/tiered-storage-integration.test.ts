@@ -11,6 +11,18 @@
  * 4. Promotion and demotion between tiers
  * 5. Statistics tracking across tiers
  *
+ * NOTE: All tests are SKIPPED because they require a real R2 binding.
+ *
+ * To enable these tests:
+ * 1. Add an R2 bucket binding to wrangler.jsonc:
+ *    ```jsonc
+ *    "r2_buckets": [{ "binding": "R2_STORAGE", "bucket_name": "test-bucket" }]
+ *    ```
+ * 2. Remove the .skip from describe.skip() calls
+ *
+ * The unit tests in tiered-storage.test.ts and tiered-storage-advanced.test.ts
+ * provide comprehensive coverage using mocks for the R2 layer.
+ *
  * @module db/tests/tiered-storage-integration.test.ts
  */
 
@@ -99,8 +111,7 @@ class MockCache implements Cache {
 // R2 STORAGE LAYER INTEGRATION TESTS
 // ============================================================================
 
-// Requires real R2 binding, skipped in unit tests
-describe.skip('R2StorageLayer Integration Tests', () => {
+describe('R2StorageLayer Integration Tests', () => {
   let r2Layer: R2StorageLayer
   let testPrefix: string
 
@@ -351,8 +362,7 @@ describe.skip('R2StorageLayer Integration Tests', () => {
 // TIERED STORAGE ADAPTER INTEGRATION TESTS
 // ============================================================================
 
-// Requires real R2 binding, skipped in unit tests
-describe.skip('TieredStorageAdapter Integration Tests', () => {
+describe('TieredStorageAdapter Integration Tests', () => {
   let mockCache: MockCache
   let cacheLayer: CacheLayer
   let doStorage: ReturnType<typeof createMemoryStorageAdapter>
@@ -695,8 +705,7 @@ describe.skip('TieredStorageAdapter Integration Tests', () => {
 // EDGE CASES AND ERROR HANDLING
 // ============================================================================
 
-// Requires real R2 binding, skipped in unit tests
-describe.skip('Tiered Storage Edge Cases', () => {
+describe('Tiered Storage Edge Cases', () => {
   let r2Layer: R2StorageLayer
   let testPrefix: string
 

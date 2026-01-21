@@ -6,6 +6,7 @@ import { isSerializedError, TransportError, ValidationError, type SerializedErro
 import { validateRPCMessage, checkCircularReferences } from '../validation'
 import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportState } from './types'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { DEFAULT_RPC_TIMEOUT_MS } from '@dotdo/utils'
 
 /**
  * Options for the fetch transport
@@ -64,7 +65,7 @@ export class FetchTransport implements Transport {
 
   constructor(options: FetchTransportOptions) {
     this.url = options.url
-    this.timeout = options.timeout ?? 30000
+    this.timeout = options.timeout ?? DEFAULT_RPC_TIMEOUT_MS
     if (options.correlationId !== undefined) {
       this.baseCorrelationId = options.correlationId
     }

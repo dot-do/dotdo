@@ -118,8 +118,8 @@ class RESTClient implements DataClient {
     })
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }))
-      throw new Error(error.error || `HTTP ${response.status}: ${response.statusText}`)
+      const errorData = await response.json().catch(() => ({ error: response.statusText })) as { error?: string }
+      throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`)
     }
 
     return response

@@ -188,3 +188,46 @@ export interface RegisteredIntegration<TConfig extends IntegrationConfig = Integ
   options: RegisterIntegrationOptions
   config?: TConfig
 }
+
+/**
+ * Context passed to integration method calls
+ */
+export interface MethodCallContext {
+  /** Method name being called */
+  method: string
+  /** Arguments passed to the method */
+  args: unknown[]
+  /** Timestamp when the call started */
+  timestamp: Date
+}
+
+/**
+ * Context for error hooks
+ */
+export interface ErrorContext {
+  /** Integration name */
+  integration: string
+  /** Method name that failed */
+  method: string
+  /** Arguments passed to the method */
+  args?: unknown[]
+}
+
+/**
+ * Hooks for integration lifecycle and method calls
+ */
+export interface IntegrationHooks {
+  /** Method call hooks */
+  onMethodCall?: {
+    /** Called before any method is executed */
+    before?(context: MethodCallContext): Promise<void> | void
+    /** Called after a method completes */
+    after?(context: MethodCallContext, result: IntegrationResult): Promise<void> | void
+  }
+  /** Called when a method fails */
+  onError?(error: IntegrationError, context: ErrorContext): Promise<void> | void
+  /** Called when the integration is initialized */
+  onInit?(): Promise<void> | void
+  /** Called when the integration is shutdown */
+  onShutdown?(): Promise<void> | void
+}

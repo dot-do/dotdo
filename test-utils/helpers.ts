@@ -7,6 +7,14 @@
  * @module test-utils/helpers
  */
 
+import {
+  DEFAULT_TEST_TIMEOUT_MS,
+  DEFAULT_POLL_INTERVAL_MS,
+  DEFAULT_RETRY_BASE_DELAY_MS,
+  DEFAULT_RETRY_MAX_DELAY_MS,
+  DEFAULT_MAX_RETRY_ATTEMPTS,
+} from '@dotdo/utils'
+
 // ============================================================================
 // ID Generation
 // ============================================================================
@@ -322,8 +330,8 @@ export async function waitFor(
   } = {}
 ): Promise<void> {
   const {
-    timeout = 5000,
-    interval = 50,
+    timeout = DEFAULT_TEST_TIMEOUT_MS,
+    interval = DEFAULT_POLL_INTERVAL_MS,
     message = 'Condition not met within timeout'
   } = options
 
@@ -365,7 +373,11 @@ export async function retry<T>(
     maxDelay?: number
   } = {}
 ): Promise<T> {
-  const { maxAttempts = 3, baseDelay = 100, maxDelay = 5000 } = options
+  const {
+    maxAttempts = DEFAULT_MAX_RETRY_ATTEMPTS,
+    baseDelay = DEFAULT_RETRY_BASE_DELAY_MS,
+    maxDelay = DEFAULT_RETRY_MAX_DELAY_MS
+  } = options
 
   let lastError: Error | undefined
 

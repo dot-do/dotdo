@@ -287,9 +287,12 @@ class ClickHouseClientImpl implements AnalyticsClient {
   private eventBuffer: AnalyticsEvent[] = []
   private cache: Map<string, { data: unknown; expires: number }> = new Map()
 
+  // Buffer configuration
   private readonly BUFFER_FLUSH_SIZE = 100
-  private readonly BUFFER_FLUSH_INTERVAL = 5000 // 5 seconds
-  private readonly CACHE_TTL = 60000 // 1 minute
+  /** Flush buffer every 5 seconds to ensure timely data persistence */
+  private readonly BUFFER_FLUSH_INTERVAL = 5000
+  /** Cache query results for 1 minute to reduce redundant computations */
+  private readonly CACHE_TTL = 60000
 
   constructor(storage: DurableObjectStorage, config: ClickHouseConfig) {
     this.storage = storage
