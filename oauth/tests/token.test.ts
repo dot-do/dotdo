@@ -375,8 +375,9 @@ describe('@dotdo/oauth token endpoint', () => {
         provider: 'mock',
       })
 
-      const provider = createMockProvider({
-        refreshToken: vi.fn().mockRejectedValue(new Error('Refresh failed')),
+      const provider = createRefreshableProvider({
+        failRefresh: true,
+        errorMessage: 'Refresh failed',
       })
 
       const handler = createTokenEndpoint({
@@ -414,12 +415,12 @@ describe('@dotdo/oauth token endpoint', () => {
         provider: 'mock',
       })
 
-      const provider = createMockProvider({
-        refreshToken: vi.fn().mockResolvedValue({
+      const provider = createRefreshableProvider({
+        refreshTokenResponse: {
           access_token: 'brand-new-access-token',
-          token_type: 'Bearer',
+          token_type: 'Bearer' as const,
           expires_in: 3600,
-        }),
+        },
       })
 
       const handler = createTokenEndpoint({
@@ -454,13 +455,13 @@ describe('@dotdo/oauth token endpoint', () => {
         provider: 'mock',
       })
 
-      const provider = createMockProvider({
-        refreshToken: vi.fn().mockResolvedValue({
+      const provider = createRefreshableProvider({
+        refreshTokenResponse: {
           access_token: 'new-access',
-          token_type: 'Bearer',
+          token_type: 'Bearer' as const,
           expires_in: 3600,
           refresh_token: 'rotated-refresh-token',
-        }),
+        },
       })
 
       const handler = createTokenEndpoint({
@@ -495,13 +496,13 @@ describe('@dotdo/oauth token endpoint', () => {
         provider: 'mock',
       })
 
-      const provider = createMockProvider({
-        refreshToken: vi.fn().mockResolvedValue({
+      const provider = createRefreshableProvider({
+        refreshTokenResponse: {
           access_token: 'new-access',
-          token_type: 'Bearer',
+          token_type: 'Bearer' as const,
           expires_in: 3600,
           // No refresh_token in response
-        }),
+        },
       })
 
       const handler = createTokenEndpoint({
@@ -538,12 +539,12 @@ describe('@dotdo/oauth token endpoint', () => {
       })
 
       const now = Date.now()
-      const provider = createMockProvider({
-        refreshToken: vi.fn().mockResolvedValue({
+      const provider = createRefreshableProvider({
+        refreshTokenResponse: {
           access_token: 'new-access',
-          token_type: 'Bearer',
+          token_type: 'Bearer' as const,
           expires_in: 7200, // 2 hours
-        }),
+        },
       })
 
       const handler = createTokenEndpoint({
@@ -650,12 +651,12 @@ describe('@dotdo/oauth token endpoint', () => {
         provider: 'mock',
       })
 
-      const provider = createMockProvider({
-        refreshToken: vi.fn().mockResolvedValue({
+      const provider = createRefreshableProvider({
+        refreshTokenResponse: {
           access_token: 'new-access',
-          token_type: 'Bearer',
+          token_type: 'Bearer' as const,
           expires_in: 7200,
-        }),
+        },
       })
 
       const handler = createTokenEndpoint({
