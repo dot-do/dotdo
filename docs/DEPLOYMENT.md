@@ -1550,10 +1550,574 @@ ws.addEventListener('close', (event) => {
 
 ---
 
+## 8. Backup and Disaster Recovery
+
+### 8.1 Backup Strategies for Durable Objects
+
+Durable Objects with SQLite storage require careful backup planning since data lives at the edge.
+
+**Strategy 1: Periodic snapshots to R2**
+
+```typescript
+interface BackupMetadata {
+  doId: string
+  timestamp: number
+  tables: string[]
+  rowCount: Record<string, number>
+}
+
+async function createBackup(
+  sql: SqlStorage,
+  env: Env,
+  doId: string
+): Promise<string> {
+  const timestamp = Date.now()
+  const backupKey = `backups/${doId}/${timestamp}.json`
+
+  // Get all table names
+  const tables = sql.exec<{ name: string }>(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`
+  ).toArray().map(t => t.name)
+
+  const backup: Record<string, unknown[]> = {}
+  const rowCount: Record<string, number> = {}
+
+  for (const table of tables) {
+    const rows = sql.exec(`SELECT * FROM "${table}"`).toArray()
+    backup[table] = rows
+    rowCount[table] = rows.length
+  }
+
+  const metadata: BackupMetadata = {
+    doId,
+    timestamp,
+    tables,
+    rowCount
+  }
+
+  // Store backup data
+  await env.BACKUP_BUCKET.put(backupKey, JSON.stringify(backup), {
+    customMetadata: {
+      doId,
+      timestamp: timestamp.toString(),
+      tables: tables.join(','),
+      totalRows: Object.values(rowCount).reduce((a, b) => a + b, 0).toString()
+    }
+  })
+
+  // Store metadata index
+  await env.BACKUP_BUCKET.put(
+    `backups/${doId}/latest.json`,
+    JSON.stringify(metadata)
+  )
+
+  return backupKey
+}
+```
+
+**Strategy 2: Continuous replication to external database**
+
+```typescript
+interface ReplicationConfig {
+  targetUrl: string
+  authToken: string
+  batchSize: number
+}
+
+class ReplicationManager {
+  private lastReplicatedVersion = 0
+
+  async replicateChanges(
+    sql: SqlStorage,
+    config: ReplicationConfig
+  ): Promise<number> {
+    // Get changes since last replication
+    const changes = sql.exec<{ id: number; table_name: string; operation: string; data: string }>(
+      `SELECT * FROM _change_log WHERE id > ? ORDER BY id LIMIT ?`,
+      this.lastReplicatedVersion,
+      config.batchSize
+    ).toArray()
+
+    if (changes.length === 0) return 0
+
+    // Send to external database
+    const response = await fetch(config.targetUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${config.authToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ changes })
+    })
+
+    if (!response.ok) {
+      throw new Error(`Replication failed: ${response.status}`)
+    }
+
+    this.lastReplicatedVersion = changes[changes.length - 1].id
+    return changes.length
+  }
+}
+```
+
+**Strategy 3: Event sourcing for point-in-time recovery**
+
+```typescript
+// Store all mutations as events
+async function recordEvent(
+  sql: SqlStorage,
+  eventType: string,
+  payload: unknown
+): Promise<void> {
+  sql.exec(`
+    INSERT INTO _events (type, payload, created_at, version)
+    VALUES (?, ?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM _events))
+  `, eventType, JSON.stringify(payload), Date.now())
+}
+
+// Replay events to rebuild state
+async function replayEvents(
+  sql: SqlStorage,
+  targetVersion?: number
+): Promise<void> {
+  const events = sql.exec<{ type: string; payload: string }>(
+    targetVersion
+      ? `SELECT type, payload FROM _events WHERE version <= ? ORDER BY version`
+      : `SELECT type, payload FROM _events ORDER BY version`,
+    targetVersion
+  ).toArray()
+
+  // Clear current state
+  sql.exec('DELETE FROM things')
+  sql.exec('DELETE FROM relationships')
+
+  // Replay each event
+  for (const event of events) {
+    await applyEvent(sql, event.type, JSON.parse(event.payload))
+  }
+}
+```
+
+### 8.2 Scheduled Backups with Alarms
+
+```typescript
+class DO extends DurableObject<Env> {
+  async alarm(): Promise<void> {
+    const alarmType = await this.ctx.storage.get<string>('alarm_type')
+
+    if (alarmType === 'backup') {
+      await this.performBackup()
+      // Schedule next backup in 24 hours
+      await this.ctx.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000)
+    }
+  }
+
+  async performBackup(): Promise<void> {
+    const sql = this.ctx.storage.sql
+    const doId = this.ctx.id.toString()
+
+    try {
+      const backupKey = await createBackup(sql, this.env, doId)
+      console.log({ event: 'backup_completed', backupKey })
+    } catch (error) {
+      console.error({ event: 'backup_failed', error: error instanceof Error ? error.message : 'Unknown' })
+      // Retry in 1 hour
+      await this.ctx.storage.setAlarm(Date.now() + 60 * 60 * 1000)
+    }
+  }
+
+  async enableBackups(): Promise<void> {
+    await this.ctx.storage.put('alarm_type', 'backup')
+    await this.ctx.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000)
+  }
+}
+```
+
+### 8.3 Restore Procedures
+
+**Restore from R2 backup:**
+
+```typescript
+async function restoreFromBackup(
+  sql: SqlStorage,
+  env: Env,
+  backupKey: string
+): Promise<void> {
+  // Get backup data
+  const object = await env.BACKUP_BUCKET.get(backupKey)
+  if (!object) {
+    throw new Error(`Backup not found: ${backupKey}`)
+  }
+
+  const backup = await object.json() as Record<string, unknown[]>
+
+  // Begin transaction
+  sql.exec('BEGIN TRANSACTION')
+
+  try {
+    // Clear existing data
+    for (const table of Object.keys(backup)) {
+      sql.exec(`DELETE FROM "${table}"`)
+    }
+
+    // Restore data
+    for (const [table, rows] of Object.entries(backup)) {
+      for (const row of rows) {
+        const columns = Object.keys(row as Record<string, unknown>)
+        const placeholders = columns.map(() => '?').join(', ')
+        const values = columns.map(c => (row as Record<string, unknown>)[c])
+
+        sql.exec(
+          `INSERT INTO "${table}" (${columns.map(c => `"${c}"`).join(', ')}) VALUES (${placeholders})`,
+          ...values
+        )
+      }
+    }
+
+    sql.exec('COMMIT')
+  } catch (error) {
+    sql.exec('ROLLBACK')
+    throw error
+  }
+}
+```
+
+**List available backups:**
+
+```typescript
+async function listBackups(
+  env: Env,
+  doId: string
+): Promise<BackupMetadata[]> {
+  const prefix = `backups/${doId}/`
+  const listed = await env.BACKUP_BUCKET.list({ prefix })
+
+  const backups: BackupMetadata[] = []
+
+  for (const object of listed.objects) {
+    if (object.key.endsWith('.json') && !object.key.endsWith('latest.json')) {
+      const metadata = await env.BACKUP_BUCKET.get(object.key)
+      if (metadata) {
+        backups.push(await metadata.json() as BackupMetadata)
+      }
+    }
+  }
+
+  return backups.sort((a, b) => b.timestamp - a.timestamp)
+}
+```
+
+### 8.4 Backup Configuration
+
+Add R2 bucket binding for backups:
+
+```toml
+# wrangler.toml
+
+[[r2_buckets]]
+binding = "BACKUP_BUCKET"
+bucket_name = "dotdo-backups"
+
+# Production environment
+[env.production]
+[[env.production.r2_buckets]]
+binding = "BACKUP_BUCKET"
+bucket_name = "dotdo-backups-prod"
+```
+
+**Backup retention policy:**
+
+```typescript
+async function cleanupOldBackups(
+  env: Env,
+  doId: string,
+  retentionDays: number = 30
+): Promise<number> {
+  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000
+  const prefix = `backups/${doId}/`
+
+  const listed = await env.BACKUP_BUCKET.list({ prefix })
+  let deleted = 0
+
+  for (const object of listed.objects) {
+    if (object.key.endsWith('.json') && !object.key.endsWith('latest.json')) {
+      const timestamp = parseInt(object.key.split('/').pop()?.replace('.json', '') ?? '0')
+      if (timestamp < cutoff) {
+        await env.BACKUP_BUCKET.delete(object.key)
+        deleted++
+      }
+    }
+  }
+
+  return deleted
+}
+```
+
+---
+
+## 9. Domain Configuration
+
+### 9.1 Custom Domains with Workers Routes
+
+**Single domain configuration:**
+
+```toml
+# wrangler.toml
+
+name = "dotdo-api"
+main = "src/index.ts"
+
+# Route configuration
+routes = [
+  { pattern = "api.example.com/*", zone_name = "example.com" }
+]
+```
+
+**Multi-tenant subdomain routing:**
+
+```toml
+# wrangler.toml
+
+routes = [
+  { pattern = "*.api.dotdo.dev/*", zone_name = "dotdo.dev" },
+  { pattern = "api.dotdo.dev/*", zone_name = "dotdo.dev" }
+]
+```
+
+**Environment-specific domains:**
+
+```toml
+# Production
+[env.production]
+routes = [
+  { pattern = "api.dotdo.dev/*", zone_name = "dotdo.dev" }
+]
+
+# Staging
+[env.staging]
+routes = [
+  { pattern = "api-staging.dotdo.dev/*", zone_name = "dotdo.dev" }
+]
+
+# Development (workers.dev subdomain)
+[env.dev]
+# No routes - uses default workers.dev URL
+```
+
+### 9.2 DNS Configuration
+
+**Required DNS records in Cloudflare:**
+
+| Type | Name | Content | Proxy Status |
+|------|------|---------|--------------|
+| CNAME | api | `<worker-name>.<account>.workers.dev` | Proxied |
+| CNAME | *.api | `<worker-name>.<account>.workers.dev` | Proxied |
+| A | @ | `192.0.2.1` (placeholder) | Proxied |
+
+**Wildcard subdomains for multi-tenancy:**
+
+```
+Type    Name    Content                              Proxy
+CNAME   *       dotdo-api.<account>.workers.dev     Proxied
+```
+
+### 9.3 SSL/TLS Configuration
+
+Cloudflare automatically provisions SSL certificates for proxied domains.
+
+**For custom certificates (Enterprise):**
+
+1. Go to Cloudflare Dashboard > SSL/TLS > Edge Certificates
+2. Upload custom certificate
+3. Configure certificate priority
+
+**Force HTTPS in worker:**
+
+```typescript
+app.use('*', async (c, next) => {
+  // Cloudflare adds this header
+  const protocol = c.req.header('X-Forwarded-Proto')
+
+  if (protocol === 'http' && c.env.ENVIRONMENT === 'production') {
+    const httpsUrl = c.req.url.replace('http://', 'https://')
+    return c.redirect(httpsUrl, 301)
+  }
+
+  await next()
+})
+```
+
+### 9.4 Custom Domain Verification
+
+**Verify domain ownership:**
+
+```bash
+# Check DNS propagation
+dig api.example.com
+
+# Verify worker is responding
+curl -v https://api.example.com/health
+
+# Check certificate
+curl -vI https://api.example.com 2>&1 | grep -A 5 "Server certificate"
+```
+
+---
+
+## 10. Production Readiness Checklist
+
+Use this checklist before deploying to production.
+
+### 10.1 Pre-Deployment Checklist
+
+#### Environment & Secrets
+
+- [ ] All required environment variables documented
+- [ ] `BETTER_AUTH_SECRET` set via `wrangler secret put`
+- [ ] `ENCRYPTION_KEY` set via `wrangler secret put`
+- [ ] OAuth secrets configured (if using OAuth)
+- [ ] API keys for external services configured
+- [ ] No secrets committed to version control
+- [ ] `.env` files in `.gitignore`
+
+#### Configuration
+
+- [ ] `wrangler.toml`/`wrangler.jsonc` validated
+- [ ] `compatibility_date` set to recent date
+- [ ] DO migrations properly configured
+- [ ] Environment-specific configurations defined
+- [ ] Custom domain routes configured
+- [ ] R2 buckets created and bound
+
+#### Code Quality
+
+- [ ] All tests passing (`npm test`)
+- [ ] TypeScript compiles without errors (`npm run typecheck`)
+- [ ] No lint errors (`npm run lint`)
+- [ ] Bundle size under 5MB
+- [ ] No console.log statements in production code
+
+### 10.2 Security Checklist
+
+#### Authentication & Authorization
+
+- [ ] JWT validation implemented and tested
+- [ ] Token expiration enforced
+- [ ] Session management secure
+- [ ] Account lockout implemented
+- [ ] Password hashing uses PBKDF2/bcrypt
+- [ ] API keys hashed before storage
+
+#### Input Validation
+
+- [ ] All user input validated with Zod/similar
+- [ ] SQL injection prevention (parameterized queries)
+- [ ] XSS prevention (output encoding)
+- [ ] Request body size limits configured
+- [ ] File upload validation (if applicable)
+
+#### Network Security
+
+- [ ] CORS configured for production origins only
+- [ ] HTTPS enforced
+- [ ] Security headers configured (CSP, HSTS, X-Frame-Options)
+- [ ] Rate limiting implemented
+- [ ] No sensitive data in URLs or logs
+
+### 10.3 Performance Checklist
+
+#### Database Optimization
+
+- [ ] Database indexes created for common queries
+- [ ] Large data offloaded to R2
+- [ ] Query performance tested under load
+- [ ] Connection pooling considered (for external DBs)
+- [ ] Caching strategy implemented
+
+#### Worker Optimization
+
+- [ ] Response compression enabled
+- [ ] Static assets cached appropriately
+- [ ] Expensive computations avoided in hot paths
+- [ ] WebSocket connections monitored
+- [ ] Memory usage profiled
+
+### 10.4 Monitoring Checklist
+
+#### Logging & Observability
+
+- [ ] Structured logging implemented
+- [ ] Request IDs added to all logs
+- [ ] Error tracking configured (Sentry/similar)
+- [ ] External logging configured (Axiom/similar)
+- [ ] Log retention policy defined
+
+#### Health Checks
+
+- [ ] `/health` endpoint implemented
+- [ ] `/livez` endpoint for liveness probes
+- [ ] `/readyz` endpoint for readiness probes
+- [ ] Health checks verify external dependencies
+- [ ] Uptime monitoring configured
+
+#### Alerting
+
+- [ ] Error rate alerts configured
+- [ ] Latency threshold alerts configured
+- [ ] Storage quota alerts configured
+- [ ] External service failure alerts configured
+- [ ] On-call rotation defined
+
+### 10.5 Backup & Recovery Checklist
+
+#### Backup Strategy
+
+- [ ] Automated backups configured
+- [ ] Backup schedule defined (daily recommended)
+- [ ] R2 bucket for backups created
+- [ ] Backup retention policy defined
+- [ ] Cross-region backup replication (optional)
+
+#### Disaster Recovery
+
+- [ ] Restore procedure documented
+- [ ] Restore procedure tested
+- [ ] RTO (Recovery Time Objective) defined
+- [ ] RPO (Recovery Point Objective) defined
+- [ ] Incident response runbook created
+
+### 10.6 Deployment Checklist
+
+#### Pre-Deploy
+
+- [ ] Changes reviewed and approved
+- [ ] Staging deployment tested
+- [ ] Database migrations tested
+- [ ] Rollback plan prepared
+- [ ] Team notified of deployment
+
+#### Deploy
+
+- [ ] Deploy via CI/CD or `wrangler deploy`
+- [ ] Verify deployment succeeded
+- [ ] Smoke test critical endpoints
+- [ ] Check error rates post-deploy
+- [ ] Monitor for 15-30 minutes
+
+#### Post-Deploy
+
+- [ ] Document any issues encountered
+- [ ] Update runbooks if needed
+- [ ] Archive deployment artifacts
+- [ ] Notify team of successful deployment
+
+---
+
 ## Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.1.0 | 2026-01-21 | Added backup strategy, domain configuration, and production checklist |
 | 1.0.0 | 2025-01-20 | Initial release |
 
 ---
