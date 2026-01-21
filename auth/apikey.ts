@@ -1,16 +1,25 @@
 // API Key Authentication for @dotdo/auth
 // Provides key generation, validation, scoping, rate limiting, and rotation
 //
+// Two manager implementations:
+// - ApiKeyManager: In-memory storage (fast, but keys lost on restart)
+// - DurableApiKeyManager: Persistent storage via StorageAdapter (survives restarts)
+//
 // Usage:
 //
 // ```typescript
-// import { ApiKeyManager, createApiKeyMiddleware } from '@dotdo/auth'
+// import { ApiKeyManager, DurableApiKeyManager, createApiKeyMiddleware } from '@dotdo/auth'
+// import { MemoryStorageAdapter } from '@dotdo/db'
 //
-// // Create manager
-// const manager = new ApiKeyManager()
+// // In-memory manager (for testing or stateless use cases)
+// const memoryManager = new ApiKeyManager()
+//
+// // Durable manager (for production - keys persist across DO restarts)
+// const adapter = new MemoryStorageAdapter() // or createSQLiteStorageAdapter(state.storage.sql)
+// const durableManager = new DurableApiKeyManager(adapter)
 //
 // // Generate a new API key
-// const { key, apiKey } = await manager.create({
+// const { key, apiKey } = await durableManager.create({
 //   name: 'Production API Key',
 //   scopes: ['users:read', 'posts:*'],
 //   rateLimit: { maxRequests: 1000, windowMs: 60000 },
@@ -18,21 +27,21 @@
 // })
 //
 // // Validate key
-// const result = await manager.validate(key)
+// const result = await durableManager.validate(key)
 // if (result.valid) {
 //   console.log('Valid key:', result.apiKey)
 // }
 //
-// // Use as Hono middleware
-// app.use('/api/*', createApiKeyMiddleware(manager, {
+// // Use as Hono middleware (works with both manager types)
+// app.use('/api/*', createApiKeyMiddleware(durableManager, {
 //   requireScopes: ['api:read']
 // }))
 //
 // // Rotate key
-// const { key: newKey } = await manager.rotate(apiKey.id)
+// const { key: newKey } = await durableManager.rotate(apiKey.id)
 //
 // // Revoke key
-// await manager.revoke(apiKey.id)
+// await durableManager.revoke(apiKey.id)
 // ```
 
 import type { Context, Next, MiddlewareHandler } from 'hono'
@@ -742,9 +751,19 @@ export class ApiKeyAuth {
 }
 
 /**
- * Hono middleware for API key authentication
+ * Common interface for API key managers (both in-memory and durable)
+ * Use this type when you need to accept either manager type.
  */
-export function createApiKeyMiddleware(manager: ApiKeyManager, options: {
+export interface ApiKeyManagerInterface {
+  validate(key: string): Promise<ApiKeyValidationResult>
+  checkRateLimit(id: string): Promise<boolean>
+}
+
+/**
+ * Hono middleware for API key authentication.
+ * Works with both ApiKeyManager (in-memory) and DurableApiKeyManager (persistent).
+ */
+export function createApiKeyMiddleware(manager: ApiKeyManagerInterface, options: {
   header?: string
   requireScopes?: string[]
 } = {}): MiddlewareHandler {

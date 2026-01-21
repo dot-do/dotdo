@@ -14,7 +14,7 @@ import type { CryptoKey, KeyObject } from 'jose'
 /** Type alias for jose key types */
 type KeyLike = CryptoKey | KeyObject
 import { validateSecretPresent } from './validation'
-import { ApiKeyManager, ApiKeyAuth, type ApiKey } from './apikey'
+import { ApiKeyAuth, type ApiKey, type ApiKeyManagerInterface } from './apikey'
 import {
   TokenValidationError,
   MissingTokenError,
@@ -267,8 +267,8 @@ export function authMiddleware(options: AuthOptions = {}): MiddlewareHandler {
  * Options for configuring API key authentication middleware.
  */
 export interface ApiKeyMiddlewareOptions {
-  /** The ApiKeyManager instance for key validation */
-  manager: ApiKeyManager
+  /** The ApiKeyManager or DurableApiKeyManager instance for key validation */
+  manager: ApiKeyManagerInterface
   /** Header name for API key (default: 'X-API-Key') */
   header?: string
   /** Scopes required to access the route (any of these grants access) */
