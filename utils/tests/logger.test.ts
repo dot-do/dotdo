@@ -15,6 +15,10 @@ import {
   LogLevel,
   logger,
   createLogger,
+  createScopedLogger,
+  runWithLogContext,
+  getContextLogger,
+  getLogContext,
   setLogLevel,
   getLogLevel,
   setLogPrefix,
@@ -718,5 +722,318 @@ describe('Concurrent usage', () => {
     expect(spy).toHaveBeenNthCalledWith(1, '[Logger1]', 'from 1')
     expect(spy).toHaveBeenNthCalledWith(2, '[Logger2]', 'from 2')
     expect(spy).toHaveBeenNthCalledWith(3, '[Logger1]', 'again from 1')
+  })
+})
+
+// ============================================================================
+// Request-Scoped Logging Tests (do-6eza)
+// ============================================================================
+
+describe('createScopedLogger (request-scoped)', () => {
+  let consoleSpy: {
+    debug: ReturnType<typeof vi.spyOn>
+    info: ReturnType<typeof vi.spyOn>
+    warn: ReturnType<typeof vi.spyOn>
+    error: ReturnType<typeof vi.spyOn>
+  }
+
+  beforeEach(() => {
+    consoleSpy = {
+      debug: vi.spyOn(console, 'debug').mockImplementation(() => {}),
+      info: vi.spyOn(console, 'info').mockImplementation(() => {}),
+      warn: vi.spyOn(console, 'warn').mockImplementation(() => {}),
+      error: vi.spyOn(console, 'error').mockImplementation(() => {}),
+    }
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    setLogLevel(LogLevel.INFO)
+    setLogPrefix('[dotdo]')
+  })
+
+  it('should create a logger with fully isolated configuration', () => {
+    const scopedLogger = createScopedLogger({
+      level: LogLevel.DEBUG,
+      prefix: '[Scoped]',
+    })
+
+    scopedLogger.debug('scoped message')
+    expect(consoleSpy.debug).toHaveBeenCalledWith('[Scoped]', 'scoped message')
+  })
+
+  it('should NOT be affected by global config changes', () => {
+    // Create scoped logger with DEBUG level
+    const scopedLogger = createScopedLogger({
+      level: LogLevel.DEBUG,
+      prefix: '[Isolated]',
+    })
+
+    // Change global to SILENT - should NOT affect scoped logger
+    setLogLevel(LogLevel.SILENT)
+
+    scopedLogger.debug('still works')
+    expect(consoleSpy.debug).toHaveBeenCalledWith('[Isolated]', 'still works')
+
+    // But global logger should be silenced
+    logger.debug('should not appear')
+    // Should have been called only once (by scoped logger)
+    expect(consoleSpy.debug).toHaveBeenCalledTimes(1)
+  })
+
+  it('should respect its own log level filtering', () => {
+    const scopedLogger = createScopedLogger({
+      level: LogLevel.WARN,
+      prefix: '[WarnOnly]',
+    })
+
+    scopedLogger.debug('debug')
+    scopedLogger.info('info')
+    scopedLogger.warn('warn')
+    scopedLogger.error('error')
+
+    expect(consoleSpy.debug).not.toHaveBeenCalled()
+    expect(consoleSpy.info).not.toHaveBeenCalled()
+    expect(consoleSpy.warn).toHaveBeenCalledWith('[WarnOnly]', 'warn')
+    expect(consoleSpy.error).toHaveBeenCalledWith('[WarnOnly]', 'error')
+  })
+
+  it('should maintain isolation between multiple scoped loggers', () => {
+    const logger1 = createScopedLogger({ level: LogLevel.DEBUG, prefix: '[L1]' })
+    const logger2 = createScopedLogger({ level: LogLevel.ERROR, prefix: '[L2]' })
+
+    logger1.debug('debug from 1') // Should log
+    logger2.debug('debug from 2') // Should NOT log (level is ERROR)
+
+    expect(consoleSpy.debug).toHaveBeenCalledTimes(1)
+    expect(consoleSpy.debug).toHaveBeenCalledWith('[L1]', 'debug from 1')
+  })
+
+  it('should have all Logger interface methods', () => {
+    const scopedLogger = createScopedLogger({ level: LogLevel.INFO, prefix: '[Test]' })
+
+    expect(typeof scopedLogger.debug).toBe('function')
+    expect(typeof scopedLogger.info).toBe('function')
+    expect(typeof scopedLogger.warn).toBe('function')
+    expect(typeof scopedLogger.error).toBe('function')
+  })
+
+  it('should pass additional arguments through', () => {
+    const scopedLogger = createScopedLogger({ level: LogLevel.DEBUG, prefix: '[API]' })
+    const data = { method: 'GET', path: '/users' }
+
+    scopedLogger.info('request', data, 200)
+
+    expect(consoleSpy.info).toHaveBeenCalledWith('[API]', 'request', data, 200)
+  })
+})
+
+describe('runWithLogContext and getContextLogger (AsyncLocalStorage)', () => {
+  let consoleSpy: {
+    debug: ReturnType<typeof vi.spyOn>
+    info: ReturnType<typeof vi.spyOn>
+    warn: ReturnType<typeof vi.spyOn>
+    error: ReturnType<typeof vi.spyOn>
+  }
+
+  beforeEach(() => {
+    consoleSpy = {
+      debug: vi.spyOn(console, 'debug').mockImplementation(() => {}),
+      info: vi.spyOn(console, 'info').mockImplementation(() => {}),
+      warn: vi.spyOn(console, 'warn').mockImplementation(() => {}),
+      error: vi.spyOn(console, 'error').mockImplementation(() => {}),
+    }
+    setLogLevel(LogLevel.INFO)
+    setLogPrefix('[dotdo]')
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    setLogLevel(LogLevel.INFO)
+    setLogPrefix('[dotdo]')
+  })
+
+  it('should provide scoped logger within runWithLogContext', async () => {
+    await runWithLogContext(
+      { level: LogLevel.DEBUG, prefix: '[Request-123]' },
+      async () => {
+        const log = getContextLogger()
+        log.debug('processing')
+        expect(consoleSpy.debug).toHaveBeenCalledWith('[Request-123]', 'processing')
+      }
+    )
+  })
+
+  it('should return global logger outside of runWithLogContext', () => {
+    // Outside of runWithLogContext, getContextLogger should return global logger
+    const log = getContextLogger()
+    setLogLevel(LogLevel.DEBUG)
+
+    log.debug('global debug')
+    expect(consoleSpy.debug).toHaveBeenCalledWith('[dotdo]', 'global debug')
+  })
+
+  it('should isolate config between nested runWithLogContext calls', async () => {
+    await runWithLogContext(
+      { level: LogLevel.DEBUG, prefix: '[Outer]' },
+      async () => {
+        const outerLog = getContextLogger()
+        outerLog.info('outer start')
+
+        await runWithLogContext(
+          { level: LogLevel.ERROR, prefix: '[Inner]' },
+          async () => {
+            const innerLog = getContextLogger()
+            innerLog.info('inner info') // Should NOT log (level is ERROR)
+            innerLog.error('inner error') // Should log
+
+            expect(consoleSpy.info).toHaveBeenCalledTimes(1) // Only outer
+            expect(consoleSpy.error).toHaveBeenCalledWith('[Inner]', 'inner error')
+          }
+        )
+
+        // After inner context, outer context should be restored
+        outerLog.info('outer end')
+        expect(consoleSpy.info).toHaveBeenCalledTimes(2)
+      }
+    )
+  })
+
+  it('should return context config with getLogContext', async () => {
+    await runWithLogContext(
+      { level: LogLevel.DEBUG, prefix: '[Test]' },
+      async () => {
+        const config = getLogContext()
+        expect(config).toBeDefined()
+        expect(config?.level).toBe(LogLevel.DEBUG)
+        expect(config?.prefix).toBe('[Test]')
+      }
+    )
+  })
+
+  it('should return undefined from getLogContext outside context', () => {
+    const config = getLogContext()
+    expect(config).toBeUndefined()
+  })
+
+  it('should preserve context across async operations', async () => {
+    await runWithLogContext(
+      { level: LogLevel.DEBUG, prefix: '[Async]' },
+      async () => {
+        // Simulate async operation
+        await new Promise((resolve) => setTimeout(resolve, 10))
+
+        const log = getContextLogger()
+        log.debug('after await')
+
+        expect(consoleSpy.debug).toHaveBeenCalledWith('[Async]', 'after await')
+      }
+    )
+  })
+
+  it('should handle errors in context without leaking', async () => {
+    try {
+      await runWithLogContext(
+        { level: LogLevel.DEBUG, prefix: '[Error]' },
+        async () => {
+          const log = getContextLogger()
+          log.info('before error')
+          throw new Error('test error')
+        }
+      )
+    } catch {
+      // Expected
+    }
+
+    // After error, context should be cleaned up
+    const config = getLogContext()
+    expect(config).toBeUndefined()
+  })
+})
+
+describe('Request-scoped isolation for Workers (do-6eza)', () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    setLogLevel(LogLevel.INFO)
+    setLogPrefix('[dotdo]')
+  })
+
+  it('should demonstrate global config leakage with old API', () => {
+    // This test demonstrates the PROBLEM that do-6eza fixes
+    // Global config changes from one "request" affect others
+
+    // Request 1 sets DEBUG level
+    setLogLevel(LogLevel.DEBUG)
+    const request1Logger = createLogger('[Request1]')
+
+    // Request 2 starts, changes level to SILENT
+    setLogLevel(LogLevel.SILENT)
+
+    // Request 1 tries to log, but level was changed by Request 2!
+    request1Logger.info('from request 1') // Should have logged, but won't
+
+    // This is the PROBLEM: no logging happened
+    expect(consoleSpy).not.toHaveBeenCalled()
+  })
+
+  it('should prevent global config leakage with createScopedLogger', () => {
+    // This test demonstrates the FIX with createScopedLogger
+
+    // Request 1 creates a scoped logger
+    const request1Logger = createScopedLogger({
+      level: LogLevel.DEBUG,
+      prefix: '[Request1]',
+    })
+
+    // Request 2 creates its own scoped logger (or changes global - doesn't matter)
+    setLogLevel(LogLevel.SILENT) // Global change
+    const request2Logger = createScopedLogger({
+      level: LogLevel.SILENT,
+      prefix: '[Request2]',
+    })
+
+    // Request 1 can still log! Its config is isolated.
+    request1Logger.info('from request 1')
+
+    expect(consoleSpy).toHaveBeenCalledWith('[Request1]', 'from request 1')
+    expect(consoleSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('should simulate concurrent requests with isolated logging', async () => {
+    const logs: string[] = []
+    vi.spyOn(console, 'info').mockImplementation((...args) => {
+      logs.push(args.join(' '))
+    })
+
+    // Simulate two concurrent requests
+    const request1 = runWithLogContext(
+      { level: LogLevel.DEBUG, prefix: '[Req-1]' },
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        const log = getContextLogger()
+        log.info('from request 1')
+      }
+    )
+
+    const request2 = runWithLogContext(
+      { level: LogLevel.DEBUG, prefix: '[Req-2]' },
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 2))
+        const log = getContextLogger()
+        log.info('from request 2')
+      }
+    )
+
+    await Promise.all([request1, request2])
+
+    // Both requests should have logged with their own prefixes
+    expect(logs).toContain('[Req-1] from request 1')
+    expect(logs).toContain('[Req-2] from request 2')
   })
 })
