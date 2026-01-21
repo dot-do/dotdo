@@ -708,6 +708,15 @@ export {
  * Provides a unified interface for registering, configuring, and using
  * integrations with third-party services like Stripe, SendGrid, etc.
  *
+ * NOTE: These are convenience re-exports from @dotdo/integrations.
+ * Users can also import directly: `import { ... } from '@dotdo/integrations'`
+ *
+ * Design decision (do-clsc0): Re-exporting integrations from @dotdo/do is intentional:
+ * - Provides single-package DX for common use cases
+ * - Modern bundlers tree-shake unused exports (no bundle size impact)
+ * - TypeScript only includes types that are actually used
+ * - Users who want minimal dependencies can import from @dotdo/integrations directly
+ *
  * @example
  * ```typescript
  * import { IntegrationRegistry, registerIntegration, getIntegration } from '@dotdo/do'

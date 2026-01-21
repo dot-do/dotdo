@@ -9,25 +9,19 @@ import { generateCorrelationId, CORRELATION_ID_HEADER, DO_SOURCE_HEADER, DO_SOUR
 export { generateCorrelationId, CORRELATION_ID_HEADER }
 export { DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER }
 
-/**
- * Try to get correlation ID from observability context if available.
- * Falls back to generating a new one if context is not available.
- * This avoids a hard dependency on the observability package while enabling
- * automatic context propagation when it's being used.
- */
-function getCorrelationIdFromContext(): string | undefined {
-  try {
-    // Dynamic require avoids hard dependency on observability package
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
-    const obs = require('../observability/context')
-    if (typeof obs.getCorrelationId === 'function') {
-      return obs.getCorrelationId() || undefined
-    }
-  } catch {
-    // observability module not available, that's fine
-  }
-  return undefined
-}
+// Note: Correlation ID propagation is handled via explicit options.correlationId parameter.
+// Callers with access to @dotdo/observability can pass getCorrelationId() directly:
+//
+//   import { getCorrelationId } from '@dotdo/observability'
+//   const client = createCrossDOClient<T>(binding, id, cache, {
+//     correlationId: getCorrelationId()
+//   })
+//
+// This design avoids:
+// 1. Dynamic require() in ESM modules (fragile at runtime)
+// 2. Implicit coupling between @dotdo/rpc and @dotdo/observability
+// 3. Silent failures that are hard to debug
+// 4. Tree-shaking issues with dynamic imports
 
 /**
  * Options for cross-DO RPC calls
@@ -245,8 +239,8 @@ export function createCrossDOClient<T extends object>(
       // Special method for raw fetch access
       if (prop === 'fetch') {
         return async (url: string, init?: RequestInit) => {
-          // Use provided correlation ID, or try to get from context, or generate new one
-          const correlationId = baseCorrelationId || getCorrelationIdFromContext() || generateCorrelationId()
+          // Use provided correlation ID or generate new one
+          const correlationId = baseCorrelationId || generateCorrelationId()
           const headers = new Headers(init?.headers)
           headers.set(CORRELATION_ID_HEADER, correlationId)
 
@@ -295,8 +289,8 @@ export function createCrossDOClient<T extends object>(
 
       // Return method invoker
       return async (...args: unknown[]) => {
-        // Use provided correlation ID, or try to get from context, or generate new one
-        const correlationId = baseCorrelationId || getCorrelationIdFromContext() || generateCorrelationId()
+        // Use provided correlation ID or generate new one
+        const correlationId = baseCorrelationId || generateCorrelationId()
 
         // Build headers with DO source info for trust chain (do-nuwe)
         const headers: Record<string, string> = {

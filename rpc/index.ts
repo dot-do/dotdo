@@ -46,7 +46,14 @@
  * ```
  */
 
-// Re-export Hono's ContentfulStatusCode for type compatibility in consumers
+// Re-export Hono's ContentfulStatusCode for type compatibility in consumers.
+//
+// Design decision (do-irqfu): Using Hono's HTTP status types is intentional:
+// - Hono is already a dependency of @dotdo/rpc (for server functionality)
+// - ContentfulStatusCode is a type-only export (no runtime impact)
+// - TypeScript erases types at compile time (no bundle size impact)
+// - Provides well-tested, comprehensive HTTP status code types
+// - Consumers can use `number` if they prefer to avoid Hono types
 export type { ContentfulStatusCode } from 'hono/utils/http-status'
 
 /**
