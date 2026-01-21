@@ -341,7 +341,7 @@ describe.skipIf(skipIfNoWorker())('E2E: SDK against live Workers', () => {
       const events = await client.events.list()
 
       expect(Array.isArray(events)).toBe(true)
-      expect(events.some((e: any) => e.$id === emitted.$id)).toBe(true)
+      expect(events.some((e: unknown) => (e as { $id: string }).$id === emitted.$id)).toBe(true)
     })
   })
 

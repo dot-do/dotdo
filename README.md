@@ -702,6 +702,77 @@ Check out the examples in the v1 reference implementation (`.worktrees/v1/exampl
 
 ---
 
+## Troubleshooting
+
+### Common Issues
+
+#### "Module not found" errors
+
+Make sure you've installed dependencies:
+```bash
+npm install
+```
+
+If using the monorepo, ensure workspaces are linked:
+```bash
+npm install --workspaces
+```
+
+#### "Durable Object binding not found"
+
+Check your `wrangler.toml` has the DO binding configured:
+```toml
+[durable_objects]
+bindings = [
+  { name = "MY_DO", class_name = "MyDO" }
+]
+```
+
+The binding name in your code must match `wrangler.toml`.
+
+#### Type errors with Cloudflare Workers types
+
+Install the latest Workers types:
+```bash
+npm install --save-dev @cloudflare/workers-types@latest
+```
+
+Add to `tsconfig.json`:
+```json
+{
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types"]
+  }
+}
+```
+
+#### Tests fail with "env is not defined"
+
+For Vitest tests, use the `cloudflare:test` import:
+```typescript
+import { env } from 'cloudflare:test'
+
+// NOT: import { env } from 'cloudflare:workers'
+```
+
+#### Vitest processes hanging
+
+Kill orphaned processes:
+```bash
+pkill -9 -f vitest
+pkill -9 -f vite
+```
+
+Use `npx vitest run` instead of watch mode for CI.
+
+### Getting Help
+
+- **Documentation** - Start with [CLAUDE.md](./CLAUDE.md) and package READMEs
+- **Examples** - Browse `.worktrees/v1/examples/` for working code
+- **Issues** - Check [GitHub Issues](https://github.com/dot-do/dotdo/issues)
+- **Discussions** - Ask questions in [GitHub Discussions](https://github.com/dot-do/dotdo/discussions)
+- **Discord** - Join the community at [workers.do/discord](https://workers.do/discord)
+
 ## Development
 
 ### Project Structure
