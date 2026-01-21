@@ -1,13 +1,32 @@
 {
   "name": "@dotdo/test-utils",
   "version": "0.1.0",
+  "description": "Shared test utilities for @dotdo packages - DO stub helpers, factories, assertions",
   "type": "module",
   "main": "index.ts",
   "types": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./helpers": "./helpers.ts",
+    "./factories": "./factories.ts",
+    "./assertions": "./assertions.ts",
+    "./miniflare": "./miniflare.ts"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
+  "peerDependencies": {
+    "vitest": "^3.0.0",
+    "miniflare": "^3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "miniflare": {
+      "optional": true
+    }
+  },
   "devDependencies": {
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "miniflare": "^3.0.0"
   }
 }
