@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { createEventsStore, type EventsStore } from '../../db'
+import { createEventsStore, type EventsStore, type Event } from '../../db'
 import { DO } from '../DO'
 
 // Mock DurableObjectState for DO tests
@@ -297,10 +297,10 @@ describe('Event Retention Policy (do-luhm.6)', () => {
 
   describe('Event archiving', () => {
     it('should archive old events before deletion', async () => {
-      const archivedEvents: any[] = []
+      const archivedEvents: Event[] = []
 
       // FAILS: setArchiveHandler() method does not exist
-      await (store as any).setArchiveHandler(async (events: any[]) => {
+      await (store as any).setArchiveHandler(async (events: Event[]) => {
         archivedEvents.push(...events)
         return { archived: events.length, location: 'r2://bucket/events/archive-001.json' }
       })

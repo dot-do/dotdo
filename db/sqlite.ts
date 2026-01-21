@@ -392,33 +392,105 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
     },
 
     // listWithCursor implementation for SQLite (do-8m4e)
+    // Fixed: Uses SQL-based cursor pagination instead of fetching all items (do-pism)
     async listWithCursor(options: { type?: string; cursor?: string; limit?: number; direction?: 'forward' | 'backward' } = {}) {
       const { type, cursor, limit = 100, direction = 'forward' } = options
+      const sortField = '$createdAt'
+      const sortDirection = 'desc' as const
 
-      // For now, use offset-based pagination as a fallback
-      // Full cursor implementation would parse the cursor to get position
-      const items = await this.list({ type, limit: limit + 1, offset: 0 })
+      // Build the SQL query with cursor-based filtering
+      let query = 'SELECT id, type, data, created_at, updated_at FROM things'
+      const params: unknown[] = []
+      const whereClauses: string[] = []
 
-      // Handle cursor-based pagination logic
-      let startIndex = 0
+      // Filter by type if specified
+      if (type) {
+        whereClauses.push('type = ?')
+        params.push(type)
+      }
+
+      // Parse cursor and add cursor-based filtering
       if (cursor) {
-        // Find the item matching the cursor
-        const cursorIndex = items.findIndex((item: Thing) => item.$id === cursor)
-        if (cursorIndex !== -1) {
-          startIndex = direction === 'forward' ? cursorIndex + 1 : Math.max(0, cursorIndex - limit)
+        const cursorData = decodeCursor(cursor)
+        if (cursorData) {
+          if (direction === 'forward') {
+            // For descending order, "after cursor" means smaller created_at or same created_at with smaller id
+            whereClauses.push('(created_at < ? OR (created_at = ? AND id < ?))')
+            params.push(cursorData.sortValue, cursorData.sortValue, cursorData.id)
+          } else {
+            // For backward pagination in descending order, we want larger created_at or same with larger id
+            whereClauses.push('(created_at > ? OR (created_at = ? AND id > ?))')
+            params.push(cursorData.sortValue, cursorData.sortValue, cursorData.id)
+          }
         }
       }
 
-      const slicedItems = items.slice(startIndex, startIndex + limit)
-      const hasMore = items.length > startIndex + limit
+      // Add WHERE clause if there are conditions
+      if (whereClauses.length > 0) {
+        query += ' WHERE ' + whereClauses.join(' AND ')
+      }
 
-      const lastItem = slicedItems[slicedItems.length - 1]
-      const firstItem = slicedItems[0]
+      // Add ORDER BY - for backward pagination, reverse the sort to get items before cursor
+      if (direction === 'backward') {
+        query += ' ORDER BY created_at ASC, id ASC'
+      } else {
+        query += ' ORDER BY created_at DESC, id DESC'
+      }
+
+      // Fetch one extra item to determine if there are more results
+      query += ' LIMIT ?'
+      params.push(limit + 1)
+
+      const result = await sql.prepare(query).bind(...params).all()
+
+      let items = result.results.map((row) => {
+        const customData = JSON.parse(row.data as string)
+        return {
+          $id: row.id as string,
+          $type: row.type as string,
+          $createdAt: row.created_at as number,
+          $updatedAt: row.updated_at as number,
+          ...customData
+        }
+      })
+
+      // For backward pagination, reverse the results back to normal order
+      if (direction === 'backward') {
+        items = items.reverse()
+      }
+
+      // Check if there are more items
+      const hasMore = items.length > limit
+      if (hasMore) {
+        items = items.slice(0, limit)
+      }
+
+      // Determine if there's a previous page (for forward) or next page (for backward)
+      const hasPrev = cursor !== undefined && direction === 'forward'
+      const hasNext = direction === 'backward' ? cursor !== undefined : hasMore
+
+      const lastItem = items[items.length - 1]
+      const firstItem = items[0]
+
       return {
-        items: slicedItems,
-        nextCursor: hasMore && slicedItems.length > 0 && lastItem ? lastItem.$id : undefined,
-        prevCursor: startIndex > 0 && slicedItems.length > 0 && firstItem ? firstItem.$id : undefined,
-        hasMore
+        items,
+        nextCursor: hasNext && lastItem
+          ? encodeCursor({
+              sortValue: lastItem.$createdAt,
+              id: lastItem.$id,
+              sortField,
+              sortDirection
+            })
+          : undefined,
+        prevCursor: hasPrev && firstItem
+          ? encodeCursor({
+              sortValue: firstItem.$createdAt,
+              id: firstItem.$id,
+              sortField,
+              sortDirection
+            })
+          : undefined,
+        hasMore: direction === 'forward' ? hasMore : hasPrev
       }
     },
 
