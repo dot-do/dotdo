@@ -276,9 +276,20 @@ export class SQLiteStorageAdapter implements StorageAdapter {
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    // SQLite in Cloudflare Workers doesn't expose explicit transaction API
-    // but each SqlStorage instance is already transactional within a DO
-    // All operations are atomic within a single DO request
+    // WARNING: Cloudflare Durable Objects DO NOT support explicit transaction APIs.
+    //
+    // This method is a NO-OP pass-through. Callers should NOT rely on this for
+    // ACID guarantees across multiple await statements.
+    //
+    // Cloudflare provides automatic atomicity: consecutive writes WITHOUT
+    // intervening await statements are automatically atomic.
+    //
+    // For true transactional behavior:
+    // 1. Use state.storage.transactionSync() for synchronous operations
+    // 2. Avoid await between SQL statements
+    // 3. Use blockConcurrencyWhile() for concurrency control
+    //
+    // See db/TRANSACTIONS.md for comprehensive documentation (do-6b5vx)
     try {
       return await fn()
     } catch (error) {

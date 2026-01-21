@@ -166,8 +166,15 @@ export class SQLiteAdapter {
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    // Use explicit SQLite transactions for atomicity (do-6dc7.5)
-    // BEGIN starts a transaction, COMMIT finalizes it, ROLLBACK undoes it
+    // WARNING: Cloudflare Durable Objects block BEGIN/COMMIT/ROLLBACK statements.
+    // This implementation works in Miniflare (local testing) but will FAIL in production.
+    //
+    // Production alternatives:
+    // 1. Use state.storage.transactionSync() for synchronous operations
+    // 2. Avoid await between SQL statements (automatic atomicity)
+    // 3. Use blockConcurrencyWhile() for concurrency control
+    //
+    // See db/TRANSACTIONS.md for full documentation (do-6b5vx)
     this.sql.exec('BEGIN')
     try {
       const result = await fn()
