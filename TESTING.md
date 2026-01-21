@@ -586,6 +586,293 @@ npm run test:coverage:db     # DB package only
    it('tests 404')  // Bad
    ```
 
+## Miniflare Direct Integration
+
+For complex scenarios requiring explicit Miniflare control (multiple DO types, custom scripts), use direct Miniflare instantiation:
+
+```typescript
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { Miniflare } from 'miniflare'
+
+// Define inline DO script for testing
+const TEST_DO_SCRIPT = `
+export class TestDO {
+  constructor(state, env) {
+    this.state = state
+    this.storage = state.storage
+    this.sql = state.storage.sql
+
+    this.state.blockConcurrencyWhile(async () => {
+      this.sql.exec(\`
+        CREATE TABLE IF NOT EXISTS items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          key TEXT NOT NULL UNIQUE,
+          value TEXT,
+          created_at INTEGER DEFAULT (unixepoch())
+        )
+      \`)
+    })
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url)
+    if (url.pathname === '/health') {
+      return Response.json({ status: 'ok', id: this.state.id.toString() })
+    }
+    if (url.pathname === '/sql/insert' && request.method === 'POST') {
+      const { key, value } = await request.json()
+      const result = this.sql.exec(
+        'INSERT INTO items (key, value) VALUES (?, ?) RETURNING id',
+        key, value
+      )
+      return Response.json({ success: true, id: result.toArray()[0].id })
+    }
+    return Response.json({ error: 'Not found' }, { status: 404 })
+  }
+}
+
+export default {
+  async fetch(request, env) {
+    const id = env.TEST_DO.idFromName('default')
+    return env.TEST_DO.get(id).fetch(request)
+  }
+}
+`
+
+describe('Miniflare Direct Integration', () => {
+  let mf: Miniflare
+
+  beforeAll(async () => {
+    mf = new Miniflare({
+      modules: true,
+      script: TEST_DO_SCRIPT,
+      durableObjects: {
+        TEST_DO: 'TestDO',
+      },
+      durableObjectsPersist: false,  // In-memory for tests
+    })
+  })
+
+  afterAll(async () => {
+    await mf.dispose()
+  })
+
+  it('creates a DO instance with SQLite', async () => {
+    const ns = await mf.getDurableObjectNamespace('TEST_DO')
+    const id = ns.idFromName('test-instance')
+    const stub = ns.get(id)
+
+    // Test SQLite insert
+    const insertResponse = await stub.fetch('http://fake/sql/insert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'test', value: 'hello' }),
+    })
+
+    const json = await insertResponse.json()
+    expect(json.success).toBe(true)
+    expect(json.id).toBeGreaterThan(0)
+  })
+})
+```
+
+### Multiple DO Types
+
+Testing cross-DO communication requires multiple DO bindings:
+
+```typescript
+const MULTI_DO_SCRIPT = `
+export class CustomerDO {
+  constructor(state, env) {
+    this.state = state
+    this.storage = state.storage
+    this.env = env
+  }
+
+  async fetch(request) {
+    // ... implementation
+  }
+}
+
+export class OrderDO {
+  constructor(state, env) {
+    this.state = state
+    this.env = env
+  }
+
+  async fetch(request) {
+    // Can call CustomerDO via this.env.CUSTOMER_DO
+    const customerId = this.env.CUSTOMER_DO.idFromName('customer-1')
+    const customerStub = this.env.CUSTOMER_DO.get(customerId)
+    return customerStub.fetch(request)
+  }
+}
+
+export default {
+  async fetch(request, env) {
+    // Worker entry point
+  }
+}
+`
+
+const mf = new Miniflare({
+  modules: true,
+  script: MULTI_DO_SCRIPT,
+  durableObjects: {
+    CUSTOMER_DO: 'CustomerDO',
+    ORDER_DO: 'OrderDO',
+  },
+  durableObjectsPersist: false,
+})
+```
+
+## WebSocket Testing
+
+Test WebSocket hibernation and messaging:
+
+```typescript
+it('accepts WebSocket connections', async () => {
+  const stub = getStub()
+
+  const response = await stub.fetch('http://fake/websocket', {
+    headers: { Upgrade: 'websocket' },
+  })
+
+  // Miniflare returns 101 for WebSocket upgrade
+  expect(response.status).toBe(101)
+  expect(response.webSocket).toBeDefined()
+})
+
+it('tracks WebSocket connections via hibernation API', async () => {
+  const stub = getStub()
+
+  // Connect multiple WebSockets
+  await stub.fetch('http://fake/websocket', { headers: { Upgrade: 'websocket' } })
+  await stub.fetch('http://fake/websocket', { headers: { Upgrade: 'websocket' } })
+
+  // Check connection count
+  const response = await stub.fetch('http://fake/websocket/connections')
+  const json = await response.json()
+
+  expect(json.totalConnections).toBe(2)
+})
+
+it('broadcasts to all connected WebSockets', async () => {
+  const stub = getStub()
+
+  // Connect a WebSocket
+  const wsResponse = await stub.fetch('http://fake/websocket', {
+    headers: { Upgrade: 'websocket' },
+  })
+  expect(wsResponse.webSocket).toBeDefined()
+
+  // Broadcast
+  const broadcastResponse = await stub.fetch('http://fake/websocket/broadcast', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'Hello everyone!' }),
+  })
+
+  const json = await broadcastResponse.json()
+  expect(json.sent).toBeGreaterThanOrEqual(0)
+})
+```
+
+## Alarm Testing
+
+Test DO alarm scheduling:
+
+```typescript
+it('schedules an alarm for future execution', async () => {
+  const stub = getStub()
+
+  const scheduleResponse = await stub.fetch('http://fake/alarm/schedule', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ delayMs: 1000 }),
+  })
+
+  const json = await scheduleResponse.json()
+  expect(json.scheduled).toBe(true)
+  expect(json.scheduledTime).toBeGreaterThan(Date.now())
+})
+
+it('cancels a scheduled alarm', async () => {
+  const stub = getStub()
+
+  // Schedule
+  await stub.fetch('http://fake/alarm/schedule', {
+    method: 'POST',
+    body: JSON.stringify({ delayMs: 60000 }),
+  })
+
+  // Cancel
+  const cancelResponse = await stub.fetch('http://fake/alarm/cancel', { method: 'POST' })
+  expect((await cancelResponse.json()).cancelled).toBe(true)
+
+  // Verify cancelled
+  const statusResponse = await stub.fetch('http://fake/alarm/status')
+  expect((await statusResponse.json()).scheduled).toBe(false)
+})
+```
+
+## Transaction Testing
+
+Test SQLite transactions via blockConcurrencyWhile:
+
+```typescript
+it('commits on successful transaction', async () => {
+  const stub = getStub()
+
+  const txResponse = await stub.fetch('http://fake/sql/transaction', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      operations: [
+        { type: 'insert', key: 'tx-1', value: 'first' },
+        { type: 'insert', key: 'tx-2', value: 'second' },
+        { type: 'insert', key: 'tx-3', value: 'third' },
+      ],
+    }),
+  })
+
+  const json = await txResponse.json()
+  expect(json.success).toBe(true)
+  expect(json.results).toHaveLength(3)
+
+  // Verify all items exist
+  const countResponse = await stub.fetch('http://fake/sql/count')
+  expect((await countResponse.json()).count).toBe(3)
+})
+
+it('rollbacks on transaction error', async () => {
+  const stub = getStub()
+
+  // First, add some data
+  await stub.fetch('http://fake/sql/insert', {
+    method: 'POST',
+    body: JSON.stringify({ key: 'original', value: 'data' }),
+  })
+
+  // Try a failing transaction
+  const txResponse = await stub.fetch('http://fake/sql/transaction', {
+    method: 'POST',
+    body: JSON.stringify({
+      operations: [
+        { type: 'insert', key: 'new-1', value: 'a' },
+        { type: 'insert', key: 'original', value: 'duplicate' }, // Will fail UNIQUE
+      ],
+    }),
+  })
+
+  expect(txResponse.status).toBe(500)
+
+  // new-1 should not exist (rolled back)
+  const getResponse = await stub.fetch('http://fake/sql/get?key=new-1')
+  expect((await getResponse.json()).row).toBeNull()
+})
+```
+
 ## Example Test File
 
 Here's a complete example demonstrating the patterns:
@@ -684,3 +971,108 @@ describe('Customer Entity', () => {
   })
 })
 ```
+
+## CI/CD Integration
+
+### GitHub Actions Example
+
+```yaml
+name: Tests
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run test:run
+```
+
+### Key CI Settings
+
+For CI environments, always use these settings to prevent resource exhaustion:
+
+```typescript
+test: {
+  maxConcurrency: 1,
+  maxWorkers: 1,
+  fileParallelism: false,
+  poolOptions: {
+    workers: {
+      singleWorker: true,
+      isolatedStorage: false,
+    },
+  },
+}
+```
+
+## Common Pitfalls
+
+### 1. Mocking Storage (Never Do This)
+
+```typescript
+// BAD - Never mock DO storage
+const mockStorage = new Map()
+vi.spyOn(doInstance.state.storage, 'get')
+
+// GOOD - Use real miniflare
+const stub = env.DO.get(env.DO.idFromName('test'))
+```
+
+### 2. Not Consuming Response Bodies
+
+```typescript
+// BAD - Leaves response body unconsumed, can cause issues
+const response = await stub.fetch('https://do/')
+expect(response.status).toBe(200)
+
+// GOOD - Always consume the body
+const response = await stub.fetch('https://do/')
+expect(response.status).toBe(200)
+await response.text()  // or .json()
+```
+
+### 3. Sharing State Between Tests
+
+```typescript
+// BAD - Shared state leaks between tests
+const stub = getStub('shared-instance')
+
+// GOOD - Fresh instance per test using unique ID
+const stub = getStub(generateTestId())
+```
+
+### 4. Not Awaiting Async Operations
+
+```typescript
+// BAD - Fire-and-forget
+stub.fetch('http://fake/action', { method: 'POST' })
+
+// GOOD - Always await
+await stub.fetch('http://fake/action', { method: 'POST' })
+```
+
+### 5. Running Multiple Vitest Instances
+
+```bash
+# BAD - Multiple parallel vitest processes
+npm test & npm run test:do & npm run test:api
+
+# GOOD - Sequential execution
+npm run test:run
+```
+
+## Summary
+
+1. **Never mock Durable Objects** - Use real Miniflare instances
+2. **Use `env` from `cloudflare:test`** - Preferred way to get DO stubs
+3. **Generate unique test IDs** - Isolate test data between tests
+4. **Limit concurrency** - Miniflare is memory-intensive
+5. **Always consume response bodies** - Prevents hanging tests
+6. **Test concurrent access** - Verify DO serialization works correctly
+7. **Use direct Miniflare** - For complex multi-DO scenarios
+8. **Clean up resources** - Call `mf.dispose()` in `afterAll`
