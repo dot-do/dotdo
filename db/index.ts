@@ -96,7 +96,12 @@ export * from './pagination'
 
 /** Input validation utilities */
 export {
-  // Configuration
+  // Context-based validation (recommended)
+  createValidationContext,
+  withValidationContext,
+  DEFAULT_VALIDATION_CONFIG,
+  type ValidationContext,
+  // Legacy global configuration (deprecated, use context-based validation instead)
   configureValidation,
   getValidationConfig,
   resetValidationConfig,
