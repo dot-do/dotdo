@@ -5,6 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![npm version](https://badge.fury.io/js/dotdo.svg)](https://www.npmjs.com/package/dotdo)
 
+> **New to dotdo?** Start with the [5-Minute Quickstart](./QUICKSTART.md) to get running in minutes.
+
 ```typescript
 import { DO } from 'dotdo'
 
