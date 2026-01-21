@@ -27,7 +27,14 @@ vi.mock('@dotdo/rpc', () => ({
 }))
 
 // Mock API responses
-let mockAPI: any
+let mockAPI: {
+  projects: {
+    create: ReturnType<typeof vi.fn>
+    get: ReturnType<typeof vi.fn>
+    list: ReturnType<typeof vi.fn>
+    delete: ReturnType<typeof vi.fn>
+  }
+}
 
 describe('WorkersDoClient', () => {
   let client: WorkersDoClient

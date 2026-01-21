@@ -44,6 +44,26 @@ dotdo is a runtime layer for [Cloudflare Durable Objects](https://developers.clo
 
 V8 isolates lack the primitives developers expect. We built them from scratch, optimized for edge execution.
 
+### Who is dotdo for?
+
+- **Startup Founders** - Build production apps without infrastructure complexity
+- **Full-Stack Developers** - Deploy stateful backends that scale automatically
+- **Infrastructure Engineers** - Extend Cloudflare Workers with persistence primitives
+- **AI/Agent Developers** - Run autonomous agents with durable state at the edge
+
+### Why Durable Objects?
+
+Durable Objects provide a unique combination of benefits:
+
+1. **Zero Cold Starts** - V8 isolates start in 0ms, not seconds
+2. **Guaranteed Consistency** - Single-threaded access eliminates race conditions
+3. **Global Distribution** - Deploy to 300+ cities automatically
+4. **Built-in SQLite** - 10GB of persistent storage per instance
+5. **Exactly-Once Delivery** - No message loss or duplication
+6. **Pay-Per-Use** - Only pay for what you use, no idle costs
+
+dotdo gives you the developer experience you expect from Node.js, on top of this powerful foundation.
+
 ---
 
 ## Why dotdo?
@@ -84,11 +104,13 @@ V8 isolates don't have:
 
 ### Installation
 
+Install dotdo in your existing project:
+
 ```bash
 npm install dotdo
 ```
 
-Or use the CLI to scaffold a new project:
+Or use the CLI to scaffold a new project with pre-configured setup:
 
 ```bash
 npx dotdo init my-app
@@ -96,38 +118,145 @@ cd my-app
 npm install
 ```
 
+### Prerequisites
+
+- **Node.js** >= 18.0.0
+- **Cloudflare Account** - Free tier available at [dash.cloudflare.com](https://dash.cloudflare.com)
+- **Wrangler CLI** - Installed automatically with dotdo
+
 ### Create Your First DO
 
+Create a new Durable Object that extends the dotdo base class:
+
 ```typescript
+// src/index.ts
 import { DO } from 'dotdo'
 
 export class MyApp extends DO {
   async fetch(request: Request) {
     const url = new URL(request.url)
 
-    // Create a Thing (entity in the graph)
-    const user = await this.$.things.create({
-      $type: 'User',
-      name: 'Alice',
-      email: 'alice@example.com'
-    })
+    if (url.pathname === '/users') {
+      // Create a Thing (entity in the graph)
+      const user = await this.$.things.create({
+        $type: 'User',
+        name: 'Alice',
+        email: 'alice@example.com'
+      })
 
-    return new Response(JSON.stringify(user), {
-      headers: { 'Content-Type': 'application/json' }
+      return new Response(JSON.stringify(user), {
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+
+    return new Response('Hello from dotdo!', {
+      headers: { 'Content-Type': 'text/plain' }
     })
+  }
+}
+
+// Export the DO
+export default {
+  async fetch(request: Request, env: Env) {
+    const id = env.MY_APP.idFromName('default')
+    const stub = env.MY_APP.get(id)
+    return stub.fetch(request)
   }
 }
 ```
 
+### Configure wrangler.toml
+
+```toml
+name = "my-app"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[durable_objects]
+bindings = [
+  { name = "MY_APP", class_name = "MyApp" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["MyApp"]
+```
+
 ### Development
 
+Start the local development server:
+
 ```bash
-npm run dev          # Start Wrangler dev server
-npm test             # Run tests with Vitest
+npm run dev          # Start Wrangler dev server at http://localhost:8787
+```
+
+Run tests with Vitest:
+
+```bash
+npm test             # Run tests in watch mode
 npm run test:run     # Run tests once (CI mode)
 npm run typecheck    # TypeScript type checking
-npm run deploy       # Deploy to Cloudflare
 ```
+
+Deploy to Cloudflare:
+
+```bash
+npm run deploy       # Deploy to production
+```
+
+### Your First Request
+
+Once the dev server is running, test your DO:
+
+```bash
+curl http://localhost:8787/users
+```
+
+You'll get back your first Thing:
+
+```json
+{
+  "$id": "usr_abc123",
+  "$type": "User",
+  "name": "Alice",
+  "email": "alice@example.com",
+  "$createdAt": 1706000000000,
+  "$updatedAt": 1706000000000
+}
+```
+
+### Next Steps
+
+Now that you have a working DO, explore dotdo's capabilities:
+
+1. **Add Event Handlers** - Use `$.on.Noun.verb()` to handle events:
+   ```typescript
+   this.$.on.User.created(async (event) => {
+     await this.$.send({ type: 'welcome-email', to: event.email })
+   })
+   ```
+
+2. **Schedule Tasks** - Use fluent scheduling DSL:
+   ```typescript
+   this.$.every.monday.at('9am')(async () => {
+     await generateWeeklyReport()
+   })
+   ```
+
+3. **Call Other DOs** - Use cross-DO RPC:
+   ```typescript
+   const balance = await this.$.Customer('user-456').getBalance()
+   await this.$.Order('order-123').ship()
+   ```
+
+4. **Add Observability** - Monitor your DOs:
+   ```typescript
+   import { createDOObservability } from '@dotdo/observability'
+
+   const obs = createDOObservability({ service: 'my-app' })
+   ```
+
+5. **Explore Examples** - Check out `.worktrees/v1/examples/` for real-world patterns
 
 ---
 

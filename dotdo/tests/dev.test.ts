@@ -9,8 +9,8 @@ vi.mock('child_process', () => ({
 
 describe('dotdo dev command', () => {
   let mockProcess: Partial<ChildProcess>
-  let mockStdout: any
-  let mockStderr: any
+  let mockStdout: { on: ReturnType<typeof vi.fn>; pipe: ReturnType<typeof vi.fn> }
+  let mockStderr: { on: ReturnType<typeof vi.fn>; pipe: ReturnType<typeof vi.fn> }
 
   beforeEach(() => {
     // Create mock event emitters for stdout/stderr
@@ -202,7 +202,7 @@ describe('dotdo dev command', () => {
 
       // Simulate a request log from wrangler
       const dataCallback = mockStdout.on.mock.calls.find(
-        (call: any) => call[0] === 'data'
+        (call: unknown[]) => call[0] === 'data'
       )?.[1]
 
       if (dataCallback) {
@@ -247,7 +247,7 @@ describe('dotdo dev command', () => {
 
       // Simulate file change notification
       const dataCallback = mockStdout.on.mock.calls.find(
-        (call: any) => call[0] === 'data'
+        (call: unknown[]) => call[0] === 'data'
       )?.[1]
 
       if (dataCallback) {

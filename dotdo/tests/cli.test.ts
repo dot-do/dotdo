@@ -418,8 +418,8 @@ describe('CLI Framework', () => {
         await program.parseAsync(['node', 'dotdo', 'config', 'get', 'nonexistent'], {
           from: 'user',
         })
-      } catch (e: any) {
-        expect(e.message).toContain('process.exit(1)')
+      } catch (e: unknown) {
+        expect((e as Error).message).toContain('process.exit(1)')
       }
 
       exitSpy.mockRestore()
