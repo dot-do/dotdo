@@ -5,16 +5,24 @@
  * - /rpc endpoint for method calls
  * - Method resolution via dot notation
  * - Error handling and logging
+ * - Authentication for sensitive methods (_eval, etc)
  *
  * @module do/handlers/rpc
  */
 
 import type { Hono } from 'hono'
-import { RPCError, NotFoundError, InternalError } from '../../rpc/errors'
+import { RPCError, NotFoundError, InternalError, AuthenticationError } from '../../rpc/errors'
 import { createLogger } from '../../utils/logger'
 import type { DOHandler } from './registry'
+import { extractCallerInfoWithVerification } from '../auth'
 
 const logger = createLogger('[RPCHandler]')
+
+/**
+ * Methods that require authentication
+ * These are privileged operations that should not be called anonymously
+ */
+const AUTH_REQUIRED_METHODS = new Set(['_eval'])
 
 /**
  * Options for creating an RPCHandler
@@ -75,6 +83,24 @@ export class RPCHandler implements DOHandler {
 
         if (this.debug) {
           logger.debug(`Calling ${method} with args:`, args)
+        }
+
+        // Check if method requires authentication
+        if (AUTH_REQUIRED_METHODS.has(method)) {
+          const callerInfo = await extractCallerInfoWithVerification(c.req.raw)
+
+          // Reject unauthenticated/untrusted callers
+          if (callerInfo.type === 'unknown' || !callerInfo.trusted) {
+            // For user type, they might have a valid token but just haven't been verified yet
+            if (callerInfo.type !== 'user') {
+              throw new AuthenticationError(`Method ${method} requires authentication`)
+            }
+          }
+
+          // For methods that accept request as second arg (like _eval), pass it
+          if (method === '_eval') {
+            args = [args[0], c.req.raw]
+          }
         }
 
         const result = await this.resolveAndCall(context.target, method, args)

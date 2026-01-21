@@ -61,6 +61,10 @@ export default defineWorkersConfig({
           // Enable DO SQL storage - in-memory for tests (faster)
           durableObjectsPersist: false,
 
+          // Enable unsafe-eval for _eval() tests
+          // This allows new Function() and eval() in the workers runtime
+          unsafeEvalBinding: 'UNSAFE_EVAL',
+
           // Add any additional bindings needed for tests
           bindings: {
             TEST_MODE: 'true',
