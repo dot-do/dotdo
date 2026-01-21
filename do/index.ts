@@ -400,3 +400,55 @@ export {
   type AICommandResult,
   type AIDiagnosisResult,
 } from './primitives'
+
+/**
+ * Circuit Breaker pattern implementation for protecting against cascading failures.
+ */
+export {
+  CircuitBreaker,
+  CircuitBreakerRegistry,
+  createCircuitBreaker,
+  createCircuitBreakerRegistry,
+  getGlobalCircuitBreakerRegistry,
+  resetGlobalCircuitBreakerRegistry,
+  type CircuitState,
+  type CircuitBreakerConfig,
+  type CircuitStats,
+  type CircuitBreakerResult,
+} from './circuit-breaker'
+
+/**
+ * Graceful Degradation for DO unavailability (do-ejab).
+ *
+ * Provides: health checking, response caching, write queue for retry,
+ * and clear degradation status reporting to callers.
+ */
+export {
+  HealthChecker,
+  createHealthChecker,
+  type HealthStatus,
+  type HealthCheckResult,
+  type HealthReport,
+  type HealthCheckConfig,
+  FallbackHandler,
+  createFallbackHandler,
+  type FallbackConfig,
+  type FallbackContext,
+  createWriteQueue,
+  createWriteQueueInstance,
+  type WriteQueue,
+  type QueuedWrite,
+  type WriteQueueConfig,
+  type WriteQueueStats,
+  type WriteQueueQueryOptions,
+  addDegradationHeaders,
+  parseDegradationHeaders,
+  type DegradationMode,
+  type DegradationStatus,
+  type DegradedResponse,
+  GracefulDegradationHandler,
+  createGracefulDegradationHandler,
+  EnhancedGracefulDegradationHandler,
+  createEnhancedGracefulDegradationHandler,
+  type EnhancedGracefulDegradationConfig,
+} from './graceful-degradation'
