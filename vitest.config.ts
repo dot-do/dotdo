@@ -5,17 +5,20 @@
  * This ensures all code actually works in the Cloudflare Workers runtime.
  *
  * Packages with special DO bindings have their own vitest.config.ts files
- * and are configured via vitest.workspace.ts:
+ * and are configured via test.projects (Vitest 3.2+):
  * - do/ (DO binding)
  * - api/ (DO binding)
  * - db/ (DO binding)
  * - business/ (BUSINESS binding)
  * - mcp/ (DO binding)
+ * - rpc.do/ (Node environment for CLI)
  *
  * Usage:
  *   npm test                              # Run all tests
  *   npx vitest run auth/tests/            # Run auth tests
- *   npx vitest run do/tests/              # Run DO tests (via workspace)
+ *   npx vitest run do/tests/              # Run DO tests (via projects)
+ *   npx vitest --project=objects          # Run only DO tests
+ *   npx vitest --project=workers          # Run only Workers tests
  *
  * @module vitest.config
  */
@@ -24,7 +27,27 @@ import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
 
 export default defineWorkersConfig({
   test: {
+    name: 'workers',
     globals: true,
+
+    // Projects configuration (replaces deprecated vitest.workspace.ts)
+    // Each package with custom DO bindings or special requirements has its own vitest.config.ts
+    projects: [
+      // Durable Object packages with custom bindings
+      './do/vitest.config.ts',
+      './db/vitest.config.ts',
+      './api/vitest.config.ts',
+      './mcp/vitest.config.ts',
+      './business/vitest.config.ts',
+      // RPC packages
+      './rpc/vitest.config.ts',
+      './rpc.do/vitest.config.ts',
+      // Auth packages
+      './auth/vitest.config.ts',
+      './oauth/vitest.config.ts',
+      // AI package
+      './ai/vitest.config.ts',
+    ],
 
     // CRITICAL: Limit concurrency to prevent resource exhaustion
     // Workers pool with miniflare is memory-intensive
@@ -33,23 +56,20 @@ export default defineWorkersConfig({
     minWorkers: 1,
     fileParallelism: false,
 
-    // Include test packages that work with the root wrangler.jsonc (DO binding only)
-    // Packages with custom bindings (business, etc.) have their own configs via workspace
+    // Include test packages that work with the root wrangler.jsonc
+    // Note: Core packages (auth, oauth, ai, rpc, etc.) now have their own configs in projects array
     include: [
-      // Core packages (no special bindings needed)
-      'auth/tests/**/*.test.ts',
-      'oauth/tests/**/*.test.ts',
-      'ai/tests/**/*.test.ts',
-      'rpc/tests/**/*.test.ts',
-      'rpc.do/tests/**/*.test.ts',
+      // SDK packages
       'sdk.do/tests/**/*.test.ts',
       'platform.do/tests/**/*.test.ts',
-      // Additional packages
+      // Main dotdo package
       'dotdo/tests/**/*.test.ts',
       'dotdo/sdk/tests/**/*.test.ts',
+      // Application packages
       'app/tests/**/*.test.ts',
       'e2e/tests/**/*.test.ts',
       'apps/**/tests/**/*.test.ts',
+      // Additional packages
       'tests/benchmarks/**/*.test.ts',
       'testing/**/*.test.ts',
       'observability/tests/**/*.test.ts',
@@ -57,19 +77,14 @@ export default defineWorkersConfig({
       'integrations/tests/**/*.test.ts',
     ],
 
-    // Exclude packages with their own configs, external packages, and archived versions
+    // Exclude external packages and archived versions
+    // Note: Packages in projects array are automatically excluded
     exclude: [
       '**/node_modules/**',
       '**/.worktrees/**',
       '**/primitives/**',
       '**/dist/**',
       '**/build/**',
-      // These have their own vitest.config.ts with custom DO bindings
-      'do/tests/**/*.test.ts',
-      'api/tests/**/*.test.ts',
-      'db/tests/**/*.test.ts',
-      'business/tests/**/*.test.ts',
-      'mcp/tests/**/*.test.ts',
     ],
 
     // Pool worker options for miniflare runtime

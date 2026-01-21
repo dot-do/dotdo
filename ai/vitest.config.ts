@@ -22,6 +22,8 @@ import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
 
 export default defineWorkersConfig({
   test: {
+    name: 'ai',
+
     // Include ALL AI tests (including do-integration.test.ts)
     include: [
       'tests/**/*.test.ts',

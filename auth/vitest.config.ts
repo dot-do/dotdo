@@ -22,6 +22,8 @@ import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
 
 export default defineWorkersConfig({
   test: {
+    name: 'auth',
+
     // Include ALL auth tests
     include: [
       'tests/**/*.test.ts',

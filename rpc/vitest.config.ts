@@ -22,6 +22,8 @@ import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
 
 export default defineWorkersConfig({
   test: {
+    name: 'rpc',
+
     // Include ALL RPC tests
     include: [
       'tests/**/*.test.ts',
