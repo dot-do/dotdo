@@ -123,14 +123,6 @@ export type {
   AuditAction
 } from '../db'
 
-// WebSocket management
-export {
-  WebSocketManager,
-  type WebSocketMessage,
-  type WebSocketHandler,
-  type BroadcastResult
-} from './websocket'
-
 // Workflow module - standalone WorkflowContext DSL (do-b3pv)
 // Re-export additional utilities from the workflow module
 export {

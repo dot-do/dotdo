@@ -1,6 +1,6 @@
 {
   "name": "dotdo-do",
-  "main": "index.ts",
+  "main": "test-entry.ts",
   "compatibility_date": "2025-01-15",
 
   // Durable Object bindings for tests
