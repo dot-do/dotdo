@@ -43,14 +43,14 @@ export interface ApiKey {
   scopes: string[]
   active: boolean
   createdAt: Date
-  expiresAt?: Date
-  revokedAt?: Date
-  lastUsedAt?: Date
-  metadata?: Record<string, unknown>
+  expiresAt?: Date | undefined
+  revokedAt?: Date | undefined
+  lastUsedAt?: Date | undefined
+  metadata?: Record<string, unknown> | undefined
   rateLimit?: {
     maxRequests: number
     windowMs: number
-  }
+  } | undefined
 }
 
 export interface ApiKeyCreateOptions {

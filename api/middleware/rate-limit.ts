@@ -34,7 +34,7 @@ export interface RateLimitTier {
   /** Window duration in milliseconds */
   windowMs: number
   /** Optional burst capacity */
-  burstCapacity?: number
+  burstCapacity?: number | undefined
 }
 
 /**
@@ -100,9 +100,9 @@ export interface RateLimitResult {
   /** Rate limit headers to apply */
   headers: Record<string, string>
   /** Error details if rate limited */
-  error?: { code: string; message: string }
+  error?: { code: string; message: string } | undefined
   /** Retry after in seconds (only when rate limited) */
-  retryAfter?: number
+  retryAfter?: number | undefined
   /** The key used for rate limiting */
   key: string
   /** The tier applied */

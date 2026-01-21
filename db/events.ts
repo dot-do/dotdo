@@ -76,7 +76,7 @@ export interface DLQEntry<P extends JsonValue = JsonValue> {
   attempts: number
   lastError: string
   timestamp: number
-  handlerIndex?: number
+  handlerIndex?: number | undefined
 }
 
 /**

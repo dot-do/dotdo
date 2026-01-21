@@ -8,7 +8,7 @@ export interface Session {
   createdAt: number
   expiresAt: number
   lastAccessedAt: number
-  metadata?: SessionMetadata
+  metadata?: SessionMetadata | undefined
 }
 
 export interface SessionMetadata {

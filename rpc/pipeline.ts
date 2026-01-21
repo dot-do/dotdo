@@ -53,18 +53,18 @@ export interface PipelineRequest {
  */
 export interface PipelineResponse<T = unknown> {
   /** Final result after all pipeline steps */
-  result?: T
+  result?: T | undefined
   /** Error if any step failed */
   error?: {
     /** Index of the failed step (-1 for initial call) */
     stepIndex: number
     /** Error details */
     message: string
-    code?: string
-    details?: Record<string, unknown>
-  }
+    code?: string | undefined
+    details?: Record<string, unknown> | undefined
+  } | undefined
   /** Correlation ID echoed back */
-  correlationId?: string
+  correlationId?: string | undefined
 }
 
 // ============================================================================

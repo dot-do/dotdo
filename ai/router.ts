@@ -36,9 +36,9 @@ export interface ExecuteOptions {
 
 export interface ExecuteResult {
   result: string
-  provider?: Provider
-  retries?: number
-  cost?: number
+  provider?: Provider | undefined
+  retries?: number | undefined
+  cost?: number | undefined
 }
 
 interface ProviderHealth {

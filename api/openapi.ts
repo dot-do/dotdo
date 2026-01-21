@@ -17,10 +17,10 @@ export interface OpenAPISpec {
 export interface InfoObject {
   title: string
   version: string
-  description?: string
-  termsOfService?: string
-  contact?: ContactObject
-  license?: LicenseObject
+  description?: string | undefined
+  termsOfService?: string | undefined
+  contact?: ContactObject | undefined
+  license?: LicenseObject | undefined
 }
 
 export interface ContactObject {
@@ -55,14 +55,14 @@ export interface PathItemObject {
 }
 
 export interface OperationObject {
-  summary?: string
-  description?: string
-  tags?: string[]
-  operationId?: string
-  parameters?: ParameterObject[]
-  requestBody?: RequestBodyObject
+  summary?: string | undefined
+  description?: string | undefined
+  tags?: string[] | undefined
+  operationId?: string | undefined
+  parameters?: ParameterObject[] | undefined
+  requestBody?: RequestBodyObject | undefined
   responses: ResponsesObject
-  security?: SecurityRequirementObject[]
+  security?: SecurityRequirementObject[] | undefined
 }
 
 export interface ParameterObject {

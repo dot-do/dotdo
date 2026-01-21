@@ -14,9 +14,9 @@ export { DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER }
  */
 export interface CrossDORPCOptions {
   /** Optional correlation ID to use for request tracing */
-  correlationId?: string
+  correlationId?: string | undefined
   /** Source DO ID for trust chain (do-nuwe) */
-  sourceDoId?: string
+  sourceDoId?: string | undefined
 }
 
 /**

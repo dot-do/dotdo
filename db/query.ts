@@ -165,7 +165,7 @@ export interface ThingWithJoins extends Thing {
  */
 export interface PaginatedQueryResult<T extends ThingWithJoins = ThingWithJoins> {
   results: T[]
-  cursor?: string
+  cursor?: string | undefined
   hasMore: boolean
 }
 
