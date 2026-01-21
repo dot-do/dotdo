@@ -406,28 +406,28 @@ describe('Environment variable support', () => {
   })
 
   it('RPC_DO_VERBOSE=1 enables verbose mode', () => {
-    process.env.RPC_DO_VERBOSE = '1'
+    process.env['RPC_DO_VERBOSE'] = '1'
     // Already imported at top, just call the function
     expect(getLogLevelFromEnv()).toBe(LogLevel.VERBOSE)
   })
 
   it('RPC_DO_DEBUG=1 enables debug mode', () => {
-    process.env.RPC_DO_DEBUG = '1'
+    process.env['RPC_DO_DEBUG'] = '1'
     expect(getLogLevelFromEnv()).toBe(LogLevel.DEBUG)
   })
 
   it('DEBUG=rpc.do enables debug mode', () => {
-    process.env.DEBUG = 'rpc.do'
+    process.env['DEBUG'] = 'rpc.do'
     expect(getLogLevelFromEnv()).toBe(LogLevel.DEBUG)
   })
 
   it('DEBUG=rpc.do:* enables debug mode', () => {
-    process.env.DEBUG = 'rpc.do:*'
+    process.env['DEBUG'] = 'rpc.do:*'
     expect(getLogLevelFromEnv()).toBe(LogLevel.DEBUG)
   })
 
   it('command line flag overrides environment variable', async () => {
-    process.env.RPC_DO_VERBOSE = '1'
+    process.env['RPC_DO_VERBOSE'] = '1'
 
     const endpoint = 'https://api.test.com'
     const code = '1+1'

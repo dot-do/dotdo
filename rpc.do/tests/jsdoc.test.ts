@@ -99,13 +99,16 @@ function parseExport(line: string, lineIndex: number): ParsedExport | null {
       .map((p) => p.trim().split(/[?:=]/)[0]?.trim())
       .filter((p): p is string => !!p && p !== '')
 
-    return {
+    const parsedExport: ParsedExport = {
       type: 'function',
       name,
-      params: params.length > 0 ? params : undefined,
       hasReturn: true, // Assume all exported functions return something
       lineIndex,
     }
+    if (params.length > 0) {
+      parsedExport.params = params
+    }
+    return parsedExport
   }
 
   // Export class

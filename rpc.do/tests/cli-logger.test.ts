@@ -284,7 +284,7 @@ describe('CLILogger', () => {
 
       logger.info('test message')
 
-      const parsed = JSON.parse(outputs[0]) as LogEntry
+      const parsed = JSON.parse(outputs[0]!) as LogEntry
       expect(parsed.correlationId).toBe('json-correlation-id')
     })
   })
@@ -302,7 +302,7 @@ describe('CLILogger', () => {
 
       logger.info('test message')
 
-      const parsed = JSON.parse(outputs[0]) as LogEntry
+      const parsed = JSON.parse(outputs[0]!) as LogEntry
       expect(parsed.level).toBe('info')
       expect(parsed.message).toBe('test message')
       expect(parsed.timestamp).toBeDefined()
@@ -320,7 +320,7 @@ describe('CLILogger', () => {
 
       logger.info('test message', { userId: 123, action: 'login' })
 
-      const parsed = JSON.parse(outputs[0]) as LogEntry
+      const parsed = JSON.parse(outputs[0]!) as LogEntry
       expect(parsed.data).toEqual({ userId: 123, action: 'login' })
     })
 
@@ -336,7 +336,7 @@ describe('CLILogger', () => {
 
       logger.info('request complete', undefined, 150)
 
-      const parsed = JSON.parse(outputs[0]) as LogEntry
+      const parsed = JSON.parse(outputs[0]!) as LogEntry
       expect(parsed.durationMs).toBe(150)
     })
 
@@ -355,7 +355,7 @@ describe('CLILogger', () => {
       expect(outputs[0]).toContain('[INFO]')
       expect(outputs[0]).toContain('test message')
       // Should not be valid JSON
-      expect(() => JSON.parse(outputs[0])).toThrow()
+      expect(() => JSON.parse(outputs[0]!)).toThrow()
     })
 
     it('should include duration in human-readable format', () => {
@@ -586,7 +586,7 @@ describe('Edge cases', () => {
 
     logger.info('Line1\nLine2\tTab')
 
-    const parsed = JSON.parse(outputs[0]) as LogEntry
+    const parsed = JSON.parse(outputs[0]!) as LogEntry
     expect(parsed.message).toBe('Line1\nLine2\tTab')
   })
 
@@ -600,7 +600,7 @@ describe('Edge cases', () => {
 
     logger.info('Hello World')
 
-    const parsed = JSON.parse(outputs[0]) as LogEntry
+    const parsed = JSON.parse(outputs[0]!) as LogEntry
     expect(parsed.message).toBe('Hello World')
   })
 
@@ -628,7 +628,7 @@ describe('Edge cases', () => {
 
     logger.info('test', undefined, undefined)
 
-    const parsed = JSON.parse(outputs[0]) as LogEntry
+    const parsed = JSON.parse(outputs[0]!) as LogEntry
     expect(parsed.data).toBeUndefined()
     expect(parsed.durationMs).toBeUndefined()
   })
@@ -643,8 +643,8 @@ describe('Edge cases', () => {
 
     logger.info('test', { nullValue: null as unknown as undefined })
 
-    const parsed = JSON.parse(outputs[0]) as LogEntry
-    expect(parsed.data?.nullValue).toBeNull()
+    const parsed = JSON.parse(outputs[0]!) as LogEntry
+    expect(parsed.data?.['nullValue']).toBeNull()
   })
 
   it('should handle zero duration', () => {
@@ -657,7 +657,7 @@ describe('Edge cases', () => {
 
     logger.info('test', undefined, 0)
 
-    const parsed = JSON.parse(outputs[0]) as LogEntry
+    const parsed = JSON.parse(outputs[0]!) as LogEntry
     expect(parsed.durationMs).toBe(0)
   })
 })

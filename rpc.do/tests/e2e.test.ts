@@ -20,7 +20,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { Miniflare } from 'miniflare'
 import { createClient } from '../src'
 import type { RPCMessage, RPCResponse, DOSchema } from '../src/types'
-import type { Transport, TransportState } from '../src/transport/types'
+import { type Transport, TransportState } from '../src/transport/types'
 import { CORRELATION_ID_HEADER, generateCorrelationId } from '../src/transport/fetch'
 
 // ============================================================================
@@ -548,7 +548,7 @@ class DirectDOTransport implements Transport {
   }
 
   getState(): TransportState {
-    return 'CONNECTED'
+    return TransportState.CONNECTED
   }
 }
 
@@ -559,7 +559,8 @@ async function createMiniflareTransport(
   headers?: Record<string, string>
 ): Promise<DirectDOTransport> {
   const stub = doType === 'auth' ? await getAuthStub(doName) : await getE2EStub(doName)
-  return new DirectDOTransport(stub, headers)
+  // Cast to unknown first then to DurableObjectStub to bypass type compatibility issues between miniflare and @cloudflare/workers-types
+  return new DirectDOTransport(stub as unknown as DurableObjectStub, headers)
 }
 
 // ============================================================================
@@ -845,7 +846,7 @@ describe('E2E rpc.do Integration Tests', () => {
       const schema = await client._schema()
       expect(schema.$version).toBe('1.0.0')
       expect(schema.entities).toBeDefined()
-      expect(schema.entities?.Thing).toBeDefined()
+      expect(schema.entities?.['Thing']).toBeDefined()
       expect(schema.methods?.['things.create']).toBeDefined()
     })
 
@@ -1189,7 +1190,7 @@ describe('E2E rpc.do Integration Tests', () => {
       for (const id of ids) {
         const thing = await client.things.get(id)
         expect(thing).not.toBeNull()
-        expect(thing?.updated).toBe(true)
+        expect(thing?.['updated']).toBe(true)
       }
     })
 
@@ -1234,7 +1235,7 @@ describe('E2E rpc.do Integration Tests', () => {
 
       // Final state should be deterministic (one of the values)
       const final = await client.things.get(thing.$id)
-      expect([1, 2, 3]).toContain(final?.counter)
+      expect([1, 2, 3]).toContain(final?.['counter'])
     })
 
     it('should handle interleaved CRUD operations', async () => {

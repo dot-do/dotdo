@@ -76,6 +76,16 @@ export const DEFAULT_RECONNECT_INTERVAL = 1000
 export const DEFAULT_MAX_RECONNECT_ATTEMPTS = 10
 
 /**
+ * Default maximum number of messages to queue while disconnected.
+ */
+export const DEFAULT_MAX_QUEUE_SIZE = 100
+
+/**
+ * Default threshold (0-1) at which to emit backpressure event.
+ */
+export const DEFAULT_BACKPRESSURE_THRESHOLD = 0.8
+
+/**
  * Options for the WebSocket transport.
  */
 export interface WebSocketTransportOptions {
@@ -126,6 +136,29 @@ export interface WebSocketTransportOptions {
    * Custom WebSocket constructor (for testing or polyfills).
    */
   WebSocket?: typeof globalThis.WebSocket
+
+  /**
+   * Maximum number of messages to queue while disconnected.
+   * When the queue reaches this limit, new messages will either be rejected
+   * or the oldest message will be dropped, depending on queueOverflowStrategy.
+   * @default 100
+   */
+  maxQueueSize?: number
+
+  /**
+   * Strategy when queue is full.
+   * - 'reject': Return an error response for new messages (default)
+   * - 'drop-oldest': Drop the oldest message in the queue to make room
+   * @default 'reject'
+   */
+  queueOverflowStrategy?: 'reject' | 'drop-oldest'
+
+  /**
+   * Threshold (0-1) at which to emit backpressure event.
+   * When queueSize / maxQueueSize reaches this threshold, a 'backpressure' event is emitted.
+   * @default 0.8 (80%)
+   */
+  backpressureThreshold?: number
 }
 
 /**
@@ -204,6 +237,17 @@ export class WebSocketTransport implements Transport {
   private readonly heartbeatInterval: number
   private readonly heartbeatTimeout: number
   private readonly WebSocketImpl: typeof globalThis.WebSocket
+  private readonly queueOverflowStrategy: 'reject' | 'drop-oldest'
+
+  /**
+   * Maximum number of messages to queue while disconnected.
+   */
+  readonly maxQueueSize: number
+
+  /**
+   * Threshold (0-1) at which to emit backpressure event.
+   */
+  readonly backpressureThreshold: number
 
   private ws: WebSocket | null = null
   private state: TransportState = TransportState.DISCONNECTED
@@ -218,6 +262,7 @@ export class WebSocketTransport implements Transport {
   private heartbeatIntervalId: ReturnType<typeof setInterval> | null = null
   private heartbeatTimeoutId: ReturnType<typeof setTimeout> | null = null
   private explicitClose = false
+  private backpressureActive = false
 
   constructor(options: WebSocketTransportOptions) {
     this.url = options.url
@@ -228,6 +273,16 @@ export class WebSocketTransport implements Transport {
     this.heartbeatInterval = options.heartbeatInterval ?? 0
     this.heartbeatTimeout = options.heartbeatTimeout ?? 5000
     this.WebSocketImpl = options.WebSocket ?? globalThis.WebSocket
+    this.maxQueueSize = options.maxQueueSize ?? DEFAULT_MAX_QUEUE_SIZE
+    this.queueOverflowStrategy = options.queueOverflowStrategy ?? 'reject'
+    this.backpressureThreshold = options.backpressureThreshold ?? DEFAULT_BACKPRESSURE_THRESHOLD
+  }
+
+  /**
+   * Get the current size of the message queue.
+   */
+  get queueSize(): number {
+    return this.messageQueue.length
   }
 
   /**
@@ -394,12 +449,44 @@ export class WebSocketTransport implements Transport {
     return new Promise<RPCResponse<T>>((resolve, reject) => {
       // If not connected, queue the message and start connecting
       if (this.state !== TransportState.CONNECTED) {
+        // Check queue bounds before adding
+        if (this.messageQueue.length >= this.maxQueueSize) {
+          if (this.queueOverflowStrategy === 'drop-oldest') {
+            // Drop the oldest message and resolve it with an error
+            const dropped = this.messageQueue.shift()
+            if (dropped) {
+              dropped.resolve(createErrorResponse(
+                {
+                  type: 'TransportError',
+                  code: 'QUEUE_OVERFLOW',
+                  message: 'Message dropped due to queue overflow',
+                },
+                dropped.correlationId
+              ))
+            }
+          } else {
+            // Reject the new message (default strategy)
+            resolve(createErrorResponse(
+              {
+                type: 'TransportError',
+                code: 'QUEUE_FULL',
+                message: `Message queue full (${this.maxQueueSize} messages)`,
+              },
+              correlationId
+            ) as RPCResponse<T>)
+            return
+          }
+        }
+
         this.messageQueue.push({
           message: wsMessage,
           resolve: resolve as (response: RPCResponse) => void,
           reject,
           correlationId,
         })
+
+        // Check backpressure threshold
+        this.checkBackpressure()
 
         // Start connecting if not already and not waiting to reconnect
         if (this.state === TransportState.DISCONNECTED && !this.reconnectTimeoutId) {
@@ -483,6 +570,19 @@ export class WebSocketTransport implements Transport {
   }
 
   /**
+   * Get detailed state information including queue metrics.
+   *
+   * @returns Object containing state, queue size, and max queue size
+   */
+  getStateInfo(): { state: TransportState; queueSize: number; maxQueueSize: number } {
+    return {
+      state: this.state,
+      queueSize: this.messageQueue.length,
+      maxQueueSize: this.maxQueueSize,
+    }
+  }
+
+  /**
    * Add an event listener for transport events.
    *
    * @param listener - Function to call when events occur
@@ -505,6 +605,24 @@ export class WebSocketTransport implements Transport {
       } catch {
         // Ignore listener errors
       }
+    }
+  }
+
+  /**
+   * Check if backpressure event should be emitted.
+   * Emits 'backpressure' when queue crosses the threshold upward,
+   * and 'resume' when queue drops below the threshold.
+   */
+  private checkBackpressure(): void {
+    const ratio = this.messageQueue.length / this.maxQueueSize
+    const shouldBeActive = ratio >= this.backpressureThreshold
+
+    if (shouldBeActive && !this.backpressureActive) {
+      this.backpressureActive = true
+      this.emitEvent({ type: 'backpressure', queueSize: this.messageQueue.length })
+    } else if (!shouldBeActive && this.backpressureActive) {
+      this.backpressureActive = false
+      this.emitEvent({ type: 'resume', queueSize: this.messageQueue.length })
     }
   }
 
@@ -602,6 +720,9 @@ export class WebSocketTransport implements Transport {
       // Send the message
       this.ws.send(JSON.stringify(queued.message))
     }
+
+    // Check if backpressure should be released now that queue is empty
+    this.checkBackpressure()
   }
 
   /**

@@ -55,28 +55,28 @@ describe('Coverage Configuration', () => {
     it('should have lines threshold of at least 80%', () => {
       const linesMatch = configContent.match(/lines:\s*(\d+)/)
       expect(linesMatch).not.toBeNull()
-      const linesThreshold = parseInt(linesMatch![1], 10)
+      const linesThreshold = parseInt(linesMatch![1]!, 10)
       expect(linesThreshold).toBeGreaterThanOrEqual(80)
     })
 
     it('should have branches threshold of at least 70%', () => {
       const branchesMatch = configContent.match(/branches:\s*(\d+)/)
       expect(branchesMatch).not.toBeNull()
-      const branchesThreshold = parseInt(branchesMatch![1], 10)
+      const branchesThreshold = parseInt(branchesMatch![1]!, 10)
       expect(branchesThreshold).toBeGreaterThanOrEqual(70)
     })
 
     it('should have functions threshold of at least 75%', () => {
       const functionsMatch = configContent.match(/functions:\s*(\d+)/)
       expect(functionsMatch).not.toBeNull()
-      const functionsThreshold = parseInt(functionsMatch![1], 10)
+      const functionsThreshold = parseInt(functionsMatch![1]!, 10)
       expect(functionsThreshold).toBeGreaterThanOrEqual(75)
     })
 
     it('should have statements threshold of at least 80%', () => {
       const statementsMatch = configContent.match(/statements:\s*(\d+)/)
       expect(statementsMatch).not.toBeNull()
-      const statementsThreshold = parseInt(statementsMatch![1], 10)
+      const statementsThreshold = parseInt(statementsMatch![1]!, 10)
       expect(statementsThreshold).toBeGreaterThanOrEqual(80)
     })
   })

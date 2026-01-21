@@ -168,7 +168,9 @@ export class CLILogger {
 
   constructor(config: Partial<CLILoggerConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config }
-    this.correlationId = config.correlationId
+    if (config.correlationId !== undefined) {
+      this.correlationId = config.correlationId
+    }
   }
 
   /**
@@ -219,10 +221,12 @@ export class CLILogger {
    * Create a child logger with inherited correlation ID
    */
   child(correlationId?: string): CLILogger {
-    return new CLILogger({
-      ...this.config,
-      correlationId: correlationId ?? this.correlationId,
-    })
+    const childCorrelationId = correlationId ?? this.correlationId
+    const config: Partial<CLILoggerConfig> = { ...this.config }
+    if (childCorrelationId !== undefined) {
+      config.correlationId = childCorrelationId
+    }
+    return new CLILogger(config)
   }
 
   /**
@@ -369,11 +373,14 @@ export function createLoggerFromOptions(options: {
     level = LogLevel.WARN
   }
 
-  return new CLILogger({
-    level,
-    json: options.json,
-    correlationId: options.correlationId,
-  })
+  const config: Partial<CLILoggerConfig> = { level }
+  if (options.json !== undefined) {
+    config.json = options.json
+  }
+  if (options.correlationId !== undefined) {
+    config.correlationId = options.correlationId
+  }
+  return new CLILogger(config)
 }
 
 /**
@@ -413,18 +420,18 @@ export function setLogLevel(level: LogLevel): void {
  */
 export function getLogLevelFromEnv(): LogLevel {
   // Check RPC_DO_DEBUG first (highest priority env var)
-  if (process.env.RPC_DO_DEBUG === '1' || process.env.RPC_DO_DEBUG === 'true') {
+  if (process.env['RPC_DO_DEBUG'] === '1' || process.env['RPC_DO_DEBUG'] === 'true') {
     return LogLevel.DEBUG
   }
 
   // Check DEBUG=rpc.do pattern
-  const debugEnv = process.env.DEBUG ?? ''
+  const debugEnv = process.env['DEBUG'] ?? ''
   if (debugEnv === 'rpc.do' || debugEnv.startsWith('rpc.do:') || debugEnv === '*') {
     return LogLevel.DEBUG
   }
 
   // Check RPC_DO_VERBOSE
-  if (process.env.RPC_DO_VERBOSE === '1' || process.env.RPC_DO_VERBOSE === 'true') {
+  if (process.env['RPC_DO_VERBOSE'] === '1' || process.env['RPC_DO_VERBOSE'] === 'true') {
     return LogLevel.VERBOSE
   }
 

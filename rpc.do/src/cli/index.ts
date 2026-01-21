@@ -24,11 +24,11 @@ program
   .option('--debug', 'Show debug-level output (includes all internal details)')
   .hook('preAction', (thisCommand) => {
     const opts = thisCommand.opts()
-    if (opts.debug) {
+    if (opts['debug']) {
       setLogLevel(LogLevel.DEBUG)
-    } else if (opts.verbose) {
+    } else if (opts['verbose']) {
       setLogLevel(LogLevel.VERBOSE)
-    } else if (opts.quiet) {
+    } else if (opts['quiet']) {
       setLogLevel(LogLevel.WARN)
     }
   })
@@ -232,7 +232,7 @@ program
       const result = await loginCommand({
         deviceFlow,
         tokenStore,
-        force: options.force,
+        force: options.force ?? false,
         onOutput: (message) => console.log(message),
       })
 

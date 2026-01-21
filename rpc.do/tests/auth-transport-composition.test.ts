@@ -105,11 +105,11 @@ describe('AuthTransport Composition', () => {
       expect(mockBaseTransport.send).toHaveBeenCalledTimes(1)
 
       // Verify the message was augmented with auth headers
-      const calledMessage = (mockBaseTransport.send as ReturnType<typeof vi.fn>).mock.calls[0][0] as RPCMessage & { headers?: Record<string, string> }
+      const calledMessage = (mockBaseTransport.send as ReturnType<typeof vi.fn>).mock.calls[0]![0] as RPCMessage & { headers?: Record<string, string> }
       expect(calledMessage.method).toBe('test.method')
       expect(calledMessage.args).toEqual(['arg1'])
       expect(calledMessage.headers).toBeDefined()
-      expect(calledMessage.headers?.Authorization).toBe('Bearer test-token')
+      expect(calledMessage.headers?.['Authorization']).toBe('Bearer test-token')
     })
 
     it('should not add auth header when no token is available', async () => {
@@ -128,8 +128,8 @@ describe('AuthTransport Composition', () => {
 
       await authTransport.send({ method: 'test', args: [] })
 
-      const calledMessage = (mockBaseTransport.send as ReturnType<typeof vi.fn>).mock.calls[0][0] as RPCMessage & { headers?: Record<string, string> }
-      expect(calledMessage.headers?.Authorization).toBeUndefined()
+      const calledMessage = (mockBaseTransport.send as ReturnType<typeof vi.fn>).mock.calls[0]![0] as RPCMessage & { headers?: Record<string, string> }
+      expect(calledMessage.headers?.['Authorization']).toBeUndefined()
     })
 
     it('should preserve existing message headers when adding auth', async () => {
@@ -152,9 +152,9 @@ describe('AuthTransport Composition', () => {
 
       await authTransport.send(messageWithHeaders)
 
-      const calledMessage = (mockBaseTransport.send as ReturnType<typeof vi.fn>).mock.calls[0][0] as RPCMessage & { headers?: Record<string, string> }
+      const calledMessage = (mockBaseTransport.send as ReturnType<typeof vi.fn>).mock.calls[0]![0] as RPCMessage & { headers?: Record<string, string> }
       expect(calledMessage.headers?.['X-Custom']).toBe('value')
-      expect(calledMessage.headers?.Authorization).toBe('Bearer test-token')
+      expect(calledMessage.headers?.['Authorization']).toBe('Bearer test-token')
     })
 
     it('should return response from wrapped transport', async () => {
@@ -244,8 +244,8 @@ describe('AuthTransport Composition', () => {
       expect(response.result).toEqual({ data: 'success' })
 
       // Second call should have new token
-      const secondCallMessage = (mockBaseTransport.send as ReturnType<typeof vi.fn>).mock.calls[1][0] as RPCMessage & { headers?: Record<string, string> }
-      expect(secondCallMessage.headers?.Authorization).toBe('Bearer new-token')
+      const secondCallMessage = (mockBaseTransport.send as ReturnType<typeof vi.fn>).mock.calls[1]![0] as RPCMessage & { headers?: Record<string, string> }
+      expect(secondCallMessage.headers?.['Authorization']).toBe('Bearer new-token')
     })
   })
 
@@ -396,8 +396,8 @@ describe('AuthTransport Composition', () => {
       expect(mockRefresh).toHaveBeenCalledWith('refresh-token')
 
       // Should use new token in request
-      const calledMessage = (mockBaseTransport.send as ReturnType<typeof vi.fn>).mock.calls[0][0] as RPCMessage & { headers?: Record<string, string> }
-      expect(calledMessage.headers?.Authorization).toBe('Bearer new-token')
+      const calledMessage = (mockBaseTransport.send as ReturnType<typeof vi.fn>).mock.calls[0]![0] as RPCMessage & { headers?: Record<string, string> }
+      expect(calledMessage.headers?.['Authorization']).toBe('Bearer new-token')
     })
   })
 

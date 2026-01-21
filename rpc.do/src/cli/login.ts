@@ -2,6 +2,7 @@
 // Provides login, logout, and whoami commands
 
 import { DeviceFlow, DeviceFlowError, type DeviceFlowOptions } from '../auth/device-flow'
+export type { DeviceFlowOptions }
 import { TokenStore, type ITokenStore, type StoredTokens } from '../auth/token-store'
 
 /**
@@ -255,11 +256,14 @@ export function createDefaultLoginOptions(config: DefaultLoginOptionsConfig): {
   deviceFlow: DeviceFlow
   tokenStore: TokenStore
 } {
-  const deviceFlow = new DeviceFlow({
+  const deviceFlowOptions: DeviceFlowOptions = {
     clientId: config.clientId,
     oauthBaseUrl: config.oauthBaseUrl,
-    scope: config.scope,
-  })
+  }
+  if (config.scope !== undefined) {
+    deviceFlowOptions.scope = config.scope
+  }
+  const deviceFlow = new DeviceFlow(deviceFlowOptions)
 
   const tokenStore = new TokenStore(config.tokensPath)
 

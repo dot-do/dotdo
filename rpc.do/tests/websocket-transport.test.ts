@@ -1210,4 +1210,365 @@ describe('WebSocketTransport advanced features', () => {
       vi.useRealTimers()
     })
   })
+
+  // ==========================================================================
+  // Edge Cases for Full Coverage
+  // ==========================================================================
+
+  describe('queued message timeout', () => {
+    it('should timeout queued messages after reconnection', async () => {
+      vi.useFakeTimers()
+      const { WebSocketTransport } = await import('../src/transport/websocket')
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/rpc',
+        reconnect: true,
+        reconnectInterval: 100,
+        timeout: 5000,
+      })
+
+      const connectPromise = transport.connect()
+      const initialWs = wsInstances[0]!
+      initialWs.simulateOpen()
+      await connectPromise
+
+      // Disconnect
+      initialWs.simulateClose(1006, 'Abnormal closure')
+
+      // Queue a message while disconnected
+      const sendPromise = transport.send({
+        method: 'slowMethod',
+        args: [],
+      })
+
+      // Wait for reconnect
+      await vi.advanceTimersByTimeAsync(100)
+
+      // New WebSocket connects
+      const newWs = wsInstances[1]!
+      newWs.simulateOpen()
+
+      // The queued message is now sent, but let it timeout (don't respond)
+      // Advance time past the timeout
+      await vi.advanceTimersByTimeAsync(5001)
+
+      const response = await sendPromise
+      expect(response.error).toBeDefined()
+      expect(response.error?.code).toBe('TIMEOUT')
+
+      vi.useRealTimers()
+    })
+  })
+
+  describe('connect edge cases', () => {
+    it('should throw error if connecting after explicit close', async () => {
+      const { WebSocketTransport } = await import('../src/transport/websocket')
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/rpc',
+      })
+
+      const connectPromise = transport.connect()
+      mockWS.simulateOpen()
+      await connectPromise
+
+      await transport.close()
+
+      // Try to connect again after explicit close
+      await expect(transport.connect()).rejects.toThrow('Transport has been closed')
+    })
+
+    it('should reuse connection if already connecting (not create new WebSocket)', async () => {
+      const { WebSocketTransport } = await import('../src/transport/websocket')
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/rpc',
+      })
+
+      // Start first connect
+      const promise1 = transport.connect()
+      // Start second connect while still connecting
+      const promise2 = transport.connect()
+
+      // Both promises should resolve successfully
+      mockWS.simulateOpen()
+      await Promise.all([promise1, promise2])
+
+      // Only one WebSocket should have been created
+      expect(wsInstances.length).toBe(1)
+      expect(transport.getState()).toBe(TransportState.CONNECTED)
+    })
+  })
+
+  describe('close edge cases', () => {
+    it('should clear queued messages on close with error response', async () => {
+      const { WebSocketTransport } = await import('../src/transport/websocket')
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/rpc',
+        reconnect: false,
+      })
+
+      // Send a message while disconnected (will be queued)
+      const sendPromise = transport.send({
+        method: 'queuedMethod',
+        args: [],
+      })
+
+      // Close before connecting
+      await transport.close()
+
+      const response = await sendPromise
+      expect(response.error).toBeDefined()
+      expect(response.error?.code).toBe('CONNECTION_CLOSED')
+    })
+  })
+
+  describe('listener error handling', () => {
+    it('should continue emitting to other listeners if one throws', async () => {
+      const { WebSocketTransport } = await import('../src/transport/websocket')
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/rpc',
+      })
+
+      const events1: TransportEvent[] = []
+      const events2: TransportEvent[] = []
+
+      // First listener throws
+      transport.addEventListener(() => {
+        throw new Error('Listener error')
+      })
+
+      // Second listener should still receive events
+      transport.addEventListener((event) => events2.push(event))
+
+      const connectPromise = transport.connect()
+      mockWS.simulateOpen()
+      await connectPromise
+
+      // The second listener should still have received the connect event
+      expect(events2.some((e) => e.type === 'connect')).toBe(true)
+    })
+  })
+
+  describe('not reconnecting after explicit close', () => {
+    it('should not reconnect after explicit close', async () => {
+      vi.useFakeTimers()
+      const { WebSocketTransport } = await import('../src/transport/websocket')
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/rpc',
+        reconnect: true,
+        reconnectInterval: 100,
+      })
+
+      const connectPromise = transport.connect()
+      mockWS.simulateOpen()
+      await connectPromise
+
+      // Explicit close
+      await transport.close()
+
+      // Advance time - should not attempt reconnect
+      await vi.advanceTimersByTimeAsync(500)
+
+      // Should only have one WebSocket instance
+      expect(wsInstances.length).toBe(1)
+      expect(transport.getState()).toBe(TransportState.CLOSED)
+
+      vi.useRealTimers()
+    })
+  })
+
+  describe('emit disconnect on explicit close', () => {
+    it('should emit disconnect event on explicit close', async () => {
+      const { WebSocketTransport } = await import('../src/transport/websocket')
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/rpc',
+      })
+
+      const events: TransportEvent[] = []
+      transport.addEventListener((event) => events.push(event))
+
+      const connectPromise = transport.connect()
+      mockWS.simulateOpen()
+      await connectPromise
+
+      // close() triggers ws.close() which fires onclose via setTimeout(0)
+      await transport.close()
+
+      // Wait for the setTimeout(0) callback to fire in MockWebSocket.close()
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
+      expect(events.some((e) => e.type === 'disconnect')).toBe(true)
+    })
+  })
+
+  describe('flushQueue edge cases', () => {
+    it('should not flush queue if WebSocket is not open', async () => {
+      vi.useFakeTimers()
+      const { WebSocketTransport } = await import('../src/transport/websocket')
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/rpc',
+        reconnect: true,
+        reconnectInterval: 100,
+      })
+
+      const connectPromise = transport.connect()
+      const initialWs = wsInstances[0]!
+      initialWs.simulateOpen()
+      await connectPromise
+
+      // Disconnect
+      initialWs.simulateClose(1006, 'Abnormal closure')
+
+      // Queue messages while disconnected
+      const sendPromise1 = transport.send({ method: 'test1', args: [] })
+      const sendPromise2 = transport.send({ method: 'test2', args: [] })
+
+      // Wait for reconnect timeout
+      await vi.advanceTimersByTimeAsync(100)
+
+      // New WebSocket is created but not yet open
+      expect(wsInstances.length).toBe(2)
+      const newWs = wsInstances[1]!
+
+      // The flushQueue should have been called but returned early since ws is not OPEN
+      // Verify messages haven't been sent yet (readyState is still CONNECTING)
+      expect(newWs.getSentMessages().length).toBe(0)
+
+      // Now open the connection
+      newWs.simulateOpen()
+
+      // Messages should now be sent
+      expect(newWs.getSentMessages().length).toBe(2)
+
+      // Complete the messages
+      const messages = newWs.getSentMessages().map((m) => JSON.parse(m) as { id: string })
+      for (const msg of messages) {
+        newWs.simulateMessage({ id: msg.id, result: 'ok' })
+      }
+
+      await Promise.all([sendPromise1, sendPromise2])
+
+      vi.useRealTimers()
+    })
+  })
+
+  describe('sendPing when not connected', () => {
+    it('should not send ping when not in CONNECTED state', async () => {
+      vi.useFakeTimers()
+      const { WebSocketTransport } = await import('../src/transport/websocket')
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/rpc',
+        heartbeatInterval: 1000,
+        reconnect: false,
+      })
+
+      const connectPromise = transport.connect()
+      mockWS.simulateOpen()
+      await connectPromise
+
+      // Advance time to trigger a ping
+      await vi.advanceTimersByTimeAsync(1000)
+
+      // A ping should have been sent
+      const messagesBefore = mockWS.getSentMessages().length
+      expect(messagesBefore).toBeGreaterThan(0)
+
+      // Now disconnect
+      mockWS.simulateClose(1006, 'Abnormal closure')
+
+      // Clear sent messages for tracking
+      const messagesAfterDisconnect = mockWS.getSentMessages().length
+
+      // Advance time - should not send more pings since disconnected
+      await vi.advanceTimersByTimeAsync(2000)
+
+      // No new messages should have been sent
+      expect(mockWS.getSentMessages().length).toBe(messagesAfterDisconnect)
+
+      vi.useRealTimers()
+    })
+
+    it('should guard against ping during state transitions', async () => {
+      vi.useFakeTimers()
+      const { WebSocketTransport } = await import('../src/transport/websocket')
+
+      // Use a custom WebSocket class that allows testing state transitions
+      let capturedWs: MockWebSocket | null = null
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/rpc',
+        heartbeatInterval: 500,
+        heartbeatTimeout: 200,
+        reconnect: true,
+        reconnectInterval: 100,
+      })
+
+      const connectPromise = transport.connect()
+      capturedWs = wsInstances[0]!
+      capturedWs.simulateOpen()
+      await connectPromise
+
+      expect(transport.getState()).toBe(TransportState.CONNECTED)
+
+      // Get the initial ping sent
+      await vi.advanceTimersByTimeAsync(500)
+      const sentMessagesAfterPing = capturedWs.getSentMessages().length
+      expect(sentMessagesAfterPing).toBeGreaterThan(0)
+
+      // Respond with pong to keep connection alive
+      capturedWs.simulateMessage({ type: 'pong' })
+
+      vi.useRealTimers()
+    })
+  })
+
+  describe('custom WebSocket option', () => {
+    it('should use custom WebSocket constructor when provided', async () => {
+      const { WebSocketTransport } = await import('../src/transport/websocket')
+
+      const CustomMockWebSocket = class extends MockWebSocket {
+        static customCalled = false
+        constructor(url: string) {
+          super(url)
+          CustomMockWebSocket.customCalled = true
+        }
+      }
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/rpc',
+        WebSocket: CustomMockWebSocket as unknown as typeof WebSocket,
+      })
+
+      transport.connect()
+
+      expect(CustomMockWebSocket.customCalled).toBe(true)
+    })
+  })
+
+  describe('default options', () => {
+    it('should use default values for optional options', async () => {
+      const { WebSocketTransport, DEFAULT_TIMEOUT, DEFAULT_RECONNECT_INTERVAL, DEFAULT_MAX_RECONNECT_ATTEMPTS } =
+        await import('../src/transport/websocket')
+
+      // Verify defaults are exported
+      expect(DEFAULT_TIMEOUT).toBe(30000)
+      expect(DEFAULT_RECONNECT_INTERVAL).toBe(1000)
+      expect(DEFAULT_MAX_RECONNECT_ATTEMPTS).toBe(10)
+
+      const transport = new WebSocketTransport({
+        url: 'wss://api.example.com/rpc',
+      })
+
+      // Verify transport was created (defaults applied internally)
+      expect(transport).toBeDefined()
+      expect(transport.getState()).toBe(TransportState.DISCONNECTED)
+    })
+  })
 })

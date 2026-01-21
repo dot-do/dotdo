@@ -39,7 +39,7 @@ export enum TransportState {
 /**
  * Event types emitted by transports
  */
-export type TransportEventType = 'connect' | 'disconnect' | 'error' | 'reconnect'
+export type TransportEventType = 'connect' | 'disconnect' | 'error' | 'reconnect' | 'backpressure' | 'resume'
 
 /**
  * Transport event with type-safe data
@@ -49,6 +49,8 @@ export interface TransportEvent {
   error?: Error
   /** For reconnect events, the attempt number */
   attempt?: number
+  /** For backpressure/resume events, the current queue size */
+  queueSize?: number
 }
 
 /**
