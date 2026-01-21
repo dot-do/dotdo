@@ -9,6 +9,7 @@ import type { StorageAdapter } from './storage'
 import type { ThingId } from './branded-types'
 import { toThingId } from './branded-types'
 import { generateId } from './id'
+import { DbNotFoundError } from './errors'
 import {
   validateThingInput,
   validateThingUpdate,
@@ -151,7 +152,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
 
       const existing = await adapter.get<Thing<T>>(`${THINGS_PREFIX}${id}`)
       if (!existing) {
-        throw new Error(`Thing not found: ${id}`)
+        throw DbNotFoundError.forResource('Thing', id)
       }
 
       const updated: Thing<T> = {
@@ -172,7 +173,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
       validateId(id, '$id')
       const exists = await adapter.has(`${THINGS_PREFIX}${id}`)
       if (!exists) {
-        throw new Error(`Thing not found: ${id}`)
+        throw DbNotFoundError.forResource('Thing', id)
       }
       await adapter.delete(`${THINGS_PREFIX}${id}`)
     },
@@ -240,7 +241,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
       // Validate all items exist
       for (const { id } of validatedItems) {
         if (!existingMap.has(`${THINGS_PREFIX}${id}`)) {
-          throw new Error(`Thing not found: ${id}`)
+          throw DbNotFoundError.forResource('Thing', id)
         }
       }
 
@@ -280,7 +281,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
 
       for (const id of validatedIds) {
         if (!existingMap.has(`${THINGS_PREFIX}${id}`)) {
-          throw new Error(`Thing not found: ${id}`)
+          throw DbNotFoundError.forResource('Thing', id)
         }
       }
 
@@ -333,7 +334,7 @@ export function createThingsStore(): ThingsStore {
       const thingId = toThingId(id)
       const existing = things.get(thingId)
       if (!existing) {
-        throw new Error(`Thing not found: ${id}`)
+        throw DbNotFoundError.forResource('Thing', id)
       }
 
       const updated: Thing = {
@@ -354,7 +355,7 @@ export function createThingsStore(): ThingsStore {
       validateId(id, '$id')
       const thingId = toThingId(id)
       if (!things.has(thingId)) {
-        throw new Error(`Thing not found: ${id}`)
+        throw DbNotFoundError.forResource('Thing', id)
       }
       things.delete(thingId)
     },
@@ -416,7 +417,7 @@ export function createThingsStore(): ThingsStore {
       for (const { id } of validatedItems) {
         const thingId = toThingId(id)
         if (!things.has(thingId)) {
-          throw new Error(`Thing not found: ${id}`)
+          throw DbNotFoundError.forResource('Thing', id)
         }
       }
 
@@ -454,7 +455,7 @@ export function createThingsStore(): ThingsStore {
       for (const id of validatedIds) {
         const thingId = toThingId(id)
         if (!things.has(thingId)) {
-          throw new Error(`Thing not found: ${id}`)
+          throw DbNotFoundError.forResource('Thing', id)
         }
       }
 

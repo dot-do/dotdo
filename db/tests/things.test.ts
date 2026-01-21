@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createThingsStore, type Thing, type ThingsStore } from '../things'
-import { DbValidationError } from '../errors'
+import { DbValidationError, DbNotFoundError } from '../errors'
 
 describe('Things Store', () => {
   let store: ThingsStore
@@ -75,8 +75,8 @@ describe('Things Store', () => {
       expect(updated.$updatedAt).toBeGreaterThanOrEqual(created.$updatedAt)
     })
 
-    it('should throw for non-existent thing', async () => {
-      await expect(store.update('non-existent', { name: 'Bob' })).rejects.toThrow('Thing not found')
+    it('should throw DbNotFoundError for non-existent thing', async () => {
+      await expect(store.update('non-existent', { name: 'Bob' })).rejects.toThrow(DbNotFoundError)
     })
 
     it('should not allow changing $id', async () => {
@@ -120,8 +120,8 @@ describe('Things Store', () => {
       expect(result).toBeNull()
     })
 
-    it('should throw for non-existent thing', async () => {
-      await expect(store.delete('non-existent')).rejects.toThrow('Thing not found')
+    it('should throw DbNotFoundError for non-existent thing', async () => {
+      await expect(store.delete('non-existent')).rejects.toThrow(DbNotFoundError)
     })
   })
 
@@ -308,7 +308,7 @@ describe('Things Store', () => {
       await expect(store.bulkUpdate([
         { id: created[0].$id, data: { status: 'inactive' } },
         { id: 'non-existent', data: { status: 'inactive' } }
-      ])).rejects.toThrow('Thing not found')
+      ])).rejects.toThrow(DbNotFoundError)
 
       // Alice should be unchanged (atomic rollback)
       const alice = await store.get(created[0].$id)
@@ -382,7 +382,7 @@ describe('Things Store', () => {
       await expect(store.bulkDelete([
         created[0].$id,
         'non-existent'
-      ])).rejects.toThrow('Thing not found')
+      ])).rejects.toThrow(DbNotFoundError)
 
       // Alice should still exist (atomic rollback)
       expect(await store.get(created[0].$id)).not.toBeNull()
