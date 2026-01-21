@@ -1,8 +1,8 @@
 /**
  * Vitest Configuration for OAuth Package Tests
  *
- * This configuration runs oauth tests in Node environment since they
- * don't require Durable Objects or Workers runtime.
+ * Uses @cloudflare/vitest-pool-workers to ensure oauth code
+ * works correctly in the Cloudflare Workers runtime.
  *
  * IMPORTANT: Tests using this config get access to:
  * - PKCE generation and validation (Web Crypto API)
@@ -17,9 +17,9 @@
  * @module oauth/vitest.config
  */
 
-import { defineConfig } from 'vitest/config'
+import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
 
-export default defineConfig({
+export default defineWorkersConfig({
   test: {
     // Include ALL oauth tests
     include: ['tests/**/*.test.ts'],
@@ -33,9 +33,26 @@ export default defineConfig({
     minWorkers: 1,
     fileParallelism: false,
 
-    // Reasonable timeouts for oauth tests
-    testTimeout: 10000,
-    hookTimeout: 10000,
+    // Pool worker options
+    poolOptions: {
+      workers: {
+        wrangler: {
+          configPath: './wrangler.jsonc',
+        },
+        singleWorker: true,
+        isolatedStorage: false,
+        miniflare: {
+          durableObjectsPersist: false,
+          bindings: {
+            TEST_MODE: 'true',
+          },
+        },
+      },
+    },
+
+    // Test timeouts
+    testTimeout: 15000,
+    hookTimeout: 15000,
 
     // Coverage configuration
     coverage: {

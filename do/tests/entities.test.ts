@@ -18,7 +18,7 @@ import {
   expectValidEntity,
   expectValidEvent,
   expectValidRelationship,
-} from '@dotdo/test-utils'
+} from '@dotdo/test-utils/assertions'
 
 // ============================================================================
 // TYPE DEFINITIONS

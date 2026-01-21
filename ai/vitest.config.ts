@@ -1,8 +1,8 @@
 /**
  * Vitest Configuration for AI Package Tests
  *
- * This configuration runs AI tests in Node environment since they
- * don't require Durable Objects or Workers runtime.
+ * Uses @cloudflare/vitest-pool-workers to ensure AI code
+ * works correctly in the Cloudflare Workers runtime.
  *
  * IMPORTANT: Tests using this config get access to:
  * - Template literal AI processing
@@ -18,23 +18,18 @@
  * @module ai/vitest.config
  */
 
-import { defineConfig } from 'vitest/config'
+import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
 
-export default defineConfig({
+export default defineWorkersConfig({
   test: {
-    // Root directory for this config
-    root: './ai',
-
-    // Include Node-environment AI tests (template literals, providers, etc.)
-    // DO integration tests run with vitest.workers.config.ts
+    // Include ALL AI tests (including do-integration.test.ts)
     include: [
       'tests/**/*.test.ts',
     ],
 
-    // Exclude non-test files and DO integration tests (those use workers pool)
+    // Exclude only non-test files
     exclude: [
       '**/node_modules/**',
-      'tests/do-integration.test.ts',
     ],
 
     // CRITICAL: Limit concurrency to prevent resource exhaustion
@@ -43,9 +38,26 @@ export default defineConfig({
     minWorkers: 1,
     fileParallelism: false,
 
-    // Reasonable timeouts for AI tests
-    testTimeout: 10000,
-    hookTimeout: 10000,
+    // Pool worker options
+    poolOptions: {
+      workers: {
+        wrangler: {
+          configPath: './wrangler.jsonc',
+        },
+        singleWorker: true,
+        isolatedStorage: false,
+        miniflare: {
+          durableObjectsPersist: false,
+          bindings: {
+            TEST_MODE: 'true',
+          },
+        },
+      },
+    },
+
+    // Test timeouts
+    testTimeout: 30000,
+    hookTimeout: 30000,
 
     // Coverage configuration
     coverage: {

@@ -21,7 +21,7 @@ import {
   MAX_WEBSOCKET_MESSAGE_SIZE,
   WEBSOCKET_CLOSE_CODES,
 } from '../websocket'
-import { generateTestId } from '@dotdo/test-utils'
+import { generateTestId } from '@dotdo/test-utils/helpers'
 
 // ============================================================================
 // Test Helpers - Using shared test-utils for generateTestId

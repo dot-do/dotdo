@@ -17,7 +17,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { env } from 'cloudflare:test'
-import { generateTestId, getTestDO, sleep } from '@dotdo/test-utils'
+import { generateTestId, getTestDO, sleep } from '@dotdo/test-utils/helpers'
 
 // ============================================================================
 // TEST ISOLATION HELPERS - Using shared test-utils
