@@ -8,7 +8,7 @@
 
 import { deserializeError, isRPCError, TransportError, InternalError, type SerializedError } from './errors'
 import type { Transport, RPCMessage, RPCResponse } from './transport/types'
-import { AutoTransport, type AutoTransportOptions } from './transport/auto'
+import { AutoTransport, type AutoTransportOptions, type TransportStrategy } from './transport/auto'
 import { PipelineBuilder, type PipelineRequest, type PipelineResponse } from './pipeline'
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
 import { createDeepRPCProxy, PROMISE_PROPS } from '@dotdo/utils'
@@ -64,12 +64,21 @@ export interface RPCClientOptions {
   /** Optional correlation ID to use for all requests (if not provided, one is generated per request) */
   correlationId?: string
   /**
-   * Enable automatic transport upgrade from HTTP to WebSocket.
-   * When enabled, the client starts with FetchTransport and attempts
-   * to upgrade to WebSocketTransport if the endpoint supports it.
+   * Enable WebSocket transport (with fallback to HTTP).
+   * When true, uses 'websocket-first' strategy: tries WebSocket first for
+   * real-time capabilities, falling back to HTTP if WebSocket is unavailable.
    * @default false
    */
   autoUpgrade?: boolean
+  /**
+   * Transport selection strategy (overrides autoUpgrade if specified)
+   * - 'fetch-only': Only use HTTP (no WebSocket)
+   * - 'websocket-only': Only use WebSocket (fail if unavailable)
+   * - 'auto-upgrade': Start with HTTP, upgrade to WebSocket if available
+   * - 'websocket-first': Try WebSocket first, fall back to HTTP if unavailable
+   * @default 'fetch-only' (or 'websocket-first' if autoUpgrade is true)
+   */
+  strategy?: TransportStrategy
   /**
    * WebSocket endpoint path for auto-upgrade (relative to base URL)
    * @default '/ws'
@@ -168,7 +177,7 @@ function createNestedProxyForFetch<T = unknown>(
  * - Flat APIs: `client.greet('World')`
  * - Nested APIs: `client.users.create({ name: 'Alice' })`
  * - Configurable timeout via AbortSignal
- * - Auto-upgrade from HTTP to WebSocket (optional)
+ * - WebSocket-first transport with HTTP fallback (via autoUpgrade or strategy)
  *
  * @example
  * ```typescript
@@ -183,10 +192,16 @@ function createNestedProxyForFetch<T = unknown>(
  * const greeting = await client.greet('World')
  * const user = await client.users.create({ name: 'Alice' })
  *
- * // With auto-upgrade to WebSocket
+ * // With WebSocket-first transport (tries WS, falls back to HTTP)
  * const wsClient = createClient<MyAPI>({
  *   url: 'https://api.example.com',
- *   autoUpgrade: true,
+ *   autoUpgrade: true, // or strategy: 'websocket-first'
+ * })
+ *
+ * // With explicit strategy
+ * const strategyClient = createClient<MyAPI>({
+ *   url: 'https://api.example.com',
+ *   strategy: 'websocket-first', // Best for REPL and real-time use cases
  * })
  * ```
  *
@@ -194,21 +209,24 @@ function createNestedProxyForFetch<T = unknown>(
  * @returns A typed proxy that forwards method calls via RPC
  */
 export function createClient<T extends object>(options: RPCClientOptions): T {
-  const { url, timeout = 30000, correlationId, autoUpgrade, wsPath } = options
+  const { url, timeout = 30000, correlationId, autoUpgrade, strategy, wsPath } = options
 
-  // If auto-upgrade is enabled, use AutoTransport
-  if (autoUpgrade) {
+  // Determine if we should use AutoTransport (for WebSocket support)
+  // Strategy takes precedence over autoUpgrade
+  const effectiveStrategy = strategy ?? (autoUpgrade ? 'websocket-first' : undefined)
+
+  if (effectiveStrategy) {
     const transport = new AutoTransport({
       url,
       timeout,
       correlationId,
-      autoUpgrade: true,
+      strategy: effectiveStrategy,
       wsPath,
     })
     return createTransportNestedProxyWithShared(transport, correlationId) as T
   }
 
-  // Default to simple fetch-based proxy
+  // Default to simple fetch-based proxy (no WebSocket)
   return createNestedProxyForFetch(url, timeout, correlationId)
 }
 
@@ -314,15 +332,47 @@ export function createClientWithTransport<T extends object>(options: TransportCl
 
 /**
  * Type guard to check if a value is a DurableObjectId.
- * Uses the `equals` method which is unique to DurableObjectId and not present on regular objects.
+ *
+ * Uses multiple checks to ensure the value is a real DurableObjectId:
+ * 1. Must be a non-null object
+ * 2. Must have an `equals` method (unique to DurableObjectId)
+ * 3. Must have a `toString` method
+ * 4. Must have a `name` property (present on all DurableObjectIds)
+ * 5. The `toString()` result must be a non-empty string (real IDs return hex strings)
+ *
+ * This is more robust than just checking for method existence, which could be
+ * spoofed by any object with matching method signatures.
  */
 function isDurableObjectId(id: unknown): id is DurableObjectId {
-  return (
-    typeof id === 'object' &&
-    id !== null &&
-    typeof (id as DurableObjectId).equals === 'function' &&
-    typeof (id as DurableObjectId).toString === 'function'
-  )
+  if (typeof id !== 'object' || id === null) {
+    return false
+  }
+
+  const candidate = id as DurableObjectId
+
+  // Check required methods exist
+  if (typeof candidate.equals !== 'function' || typeof candidate.toString !== 'function') {
+    return false
+  }
+
+  // Real DurableObjectIds have a 'name' property (may be undefined but property exists)
+  if (!('name' in candidate)) {
+    return false
+  }
+
+  // Additional validation: toString() should return a non-empty string
+  // Real DurableObjectIds return 64-character hex strings
+  try {
+    const str = candidate.toString()
+    if (typeof str !== 'string' || str.length === 0) {
+      return false
+    }
+  } catch {
+    // If toString() throws, it's not a valid DurableObjectId
+    return false
+  }
+
+  return true
 }
 
 /**
@@ -813,4 +863,84 @@ export function createDOStubWithPipeline<T extends object>(
       return createMethodProxy<T[K]>(prop as string)
     }
   }) as DOStubWithPipeline<T>
+}
+
+// ============================================================================
+// Remote Event Handler Registration (do-qkqhm)
+// ============================================================================
+
+import { createRemoteEventProxy, type RemoteEventProxyOptions } from '@dotdo/utils'
+
+/**
+ * Options for creating a remote event proxy via RPC
+ */
+export interface RemoteOnProxyOptions {
+  /** The RPC client or DO stub to use for registration */
+  client: { registerHandler: (params: { event: string; code: string; source?: string }) => Promise<unknown> }
+  /** Optional source identifier for registered handlers */
+  source?: string
+  /** Optional cache for proxy instances */
+  cache?: Map<string, unknown>
+}
+
+/**
+ * Creates a remote event handler proxy that stringifies handlers and sends them
+ * to the backend for server-side execution.
+ *
+ * This enables the $.on.Customer.signup(handler) pattern to work across RPC,
+ * where handlers are stringified on the client and executed on the DO.
+ *
+ * @param options - Configuration for the remote event proxy
+ * @returns A proxy that registers handlers remotely via RPC
+ *
+ * @example
+ * ```typescript
+ * import { createDOStub, createRemoteOnProxy } from '@dotdo/rpc'
+ *
+ * // Create a DO stub with the registerHandler method
+ * const $ = createDOStub<WorkflowContext>(env.DO, 'my-do')
+ *
+ * // Create the remote event proxy
+ * const on = createRemoteOnProxy({ client: $ })
+ *
+ * // Register handlers that execute server-side
+ * await on.Customer.signup(async (event) => {
+ *   // This code runs on the DO, not the client
+ *   await $.send({ type: 'welcome-email', payload: { to: event.email } })
+ * })
+ *
+ * // Wildcards also work
+ * await on['*'].created(async (event) => {
+ *   console.log('Something was created:', event)
+ * })
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // With a transport-based client
+ * import { createClientWithTransport, FetchTransport, createRemoteOnProxy } from '@dotdo/rpc'
+ *
+ * const transport = new FetchTransport({ url: 'https://api.example.com' })
+ * const client = createClientWithTransport<MyAPI>({ transport })
+ *
+ * const on = createRemoteOnProxy({
+ *   client: client,
+ *   source: 'web-client-123'
+ * })
+ *
+ * await on.Order.placed(async (event) => {
+ *   // Handler runs server-side with access to $ context
+ * })
+ * ```
+ */
+export function createRemoteOnProxy<T = unknown>(options: RemoteOnProxyOptions): T {
+  const { client, source, cache } = options
+
+  return createRemoteEventProxy<T>({
+    onRegister: async (path, handlerCode) => {
+      const event = path.join('.')
+      return client.registerHandler({ event, code: handlerCode, source })
+    },
+    cache
+  })
 }

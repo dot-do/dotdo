@@ -293,15 +293,47 @@ export function createTypedClientFromUrl<T extends object>(
 
 /**
  * Type guard to check if a value is a DurableObjectId.
- * Uses the `equals` method which is unique to DurableObjectId and not present on regular objects.
+ *
+ * Uses multiple checks to ensure the value is a real DurableObjectId:
+ * 1. Must be a non-null object
+ * 2. Must have an `equals` method (unique to DurableObjectId)
+ * 3. Must have a `toString` method
+ * 4. Must have a `name` property (present on all DurableObjectIds)
+ * 5. The `toString()` result must be a non-empty string (real IDs return hex strings)
+ *
+ * This is more robust than just checking for method existence, which could be
+ * spoofed by any object with matching method signatures.
  */
 function isDurableObjectId(id: unknown): id is DurableObjectId {
-  return (
-    typeof id === 'object' &&
-    id !== null &&
-    typeof (id as DurableObjectId).equals === 'function' &&
-    typeof (id as DurableObjectId).toString === 'function'
-  )
+  if (typeof id !== 'object' || id === null) {
+    return false
+  }
+
+  const candidate = id as DurableObjectId
+
+  // Check required methods exist
+  if (typeof candidate.equals !== 'function' || typeof candidate.toString !== 'function') {
+    return false
+  }
+
+  // Real DurableObjectIds have a 'name' property (may be undefined but property exists)
+  if (!('name' in candidate)) {
+    return false
+  }
+
+  // Additional validation: toString() should return a non-empty string
+  // Real DurableObjectIds return 64-character hex strings
+  try {
+    const str = candidate.toString()
+    if (typeof str !== 'string' || str.length === 0) {
+      return false
+    }
+  } catch {
+    // If toString() throws, it's not a valid DurableObjectId
+    return false
+  }
+
+  return true
 }
 
 /**

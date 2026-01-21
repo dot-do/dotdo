@@ -41,15 +41,47 @@ export interface CrossDORPCOptions {
 
 /**
  * Type guard to check if a value is a DurableObjectId.
- * Uses the `equals` method which is unique to DurableObjectId and not present on regular objects.
+ *
+ * Uses multiple checks to ensure the value is a real DurableObjectId:
+ * 1. Must be a non-null object
+ * 2. Must have an `equals` method (unique to DurableObjectId)
+ * 3. Must have a `toString` method
+ * 4. Must have a `name` property (present on all DurableObjectIds)
+ * 5. The `toString()` result must be a non-empty string (real IDs return hex strings)
+ *
+ * This is more robust than just checking for method existence, which could be
+ * spoofed by any object with matching method signatures.
  */
 function isDurableObjectId(id: unknown): id is DurableObjectId {
-  return (
-    typeof id === 'object' &&
-    id !== null &&
-    typeof (id as DurableObjectId).equals === 'function' &&
-    typeof (id as DurableObjectId).toString === 'function'
-  )
+  if (typeof id !== 'object' || id === null) {
+    return false
+  }
+
+  const candidate = id as DurableObjectId
+
+  // Check required methods exist
+  if (typeof candidate.equals !== 'function' || typeof candidate.toString !== 'function') {
+    return false
+  }
+
+  // Real DurableObjectIds have a 'name' property (may be undefined but property exists)
+  if (!('name' in candidate)) {
+    return false
+  }
+
+  // Additional validation: toString() should return a non-empty string
+  // Real DurableObjectIds return 64-character hex strings
+  try {
+    const str = candidate.toString()
+    if (typeof str !== 'string' || str.length === 0) {
+      return false
+    }
+  } catch {
+    // If toString() throws, it's not a valid DurableObjectId
+    return false
+  }
+
+  return true
 }
 
 /**
@@ -81,30 +113,50 @@ export class CrossDOStubCache {
 
   /**
    * Get or create a DO stub.
-   * Uses atomic get-or-set pattern to prevent race conditions where multiple
+   *
+   * Uses a compute-if-absent pattern to prevent race conditions where multiple
    * concurrent calls might create duplicate stubs for the same ID.
+   *
+   * In JavaScript's single-threaded execution model, the synchronous portion
+   * of this method (check + set) is atomic. However, since `binding.get()` is
+   * synchronous and the cache operations are synchronous, we can safely use
+   * a simple check-then-set pattern.
+   *
+   * The key insight is that even if multiple async operations call getStub()
+   * concurrently, each synchronous execution block completes atomically.
+   * The first call to complete will populate the cache, and subsequent calls
+   * will find the cached value.
    */
   getStub(binding: DurableObjectNamespace, id: string | DurableObjectId): DurableObjectStub {
     const cache = this.getNamespaceCache(binding)
     const idKey = this.getIdKey(id)
 
-    // Check cache first
-    const existingStub = cache.get(idKey)
-    if (existingStub) {
+    // Check cache first - this is the fast path
+    let existingStub = cache.get(idKey)
+    if (existingStub !== undefined) {
       return existingStub
     }
 
-    // Create new stub
+    // Create new stub - binding.get() is synchronous
     const doId = isDurableObjectId(id) ? id : binding.idFromName(id)
     const newStub = binding.get(doId)
 
-    // Double-check pattern: another concurrent operation might have added the stub
-    // while we were creating it. Prefer the existing one for consistency.
-    const racingStub = cache.get(idKey)
-    if (racingStub) {
-      return racingStub
+    // Use Map's native set which is atomic in single-threaded JS
+    // If another call raced and set a value between our get and set,
+    // we'll overwrite it with our stub. This is safe because all stubs
+    // pointing to the same DO ID are functionally equivalent.
+    //
+    // However, for consistency (returning the same stub instance for the
+    // same ID within a cache lifetime), we do a final check and prefer
+    // any existing stub that may have been set by a racing call.
+    existingStub = cache.get(idKey)
+    if (existingStub !== undefined) {
+      // Another call won the race - return their stub for consistency
+      // Note: newStub will be garbage collected since it's not referenced
+      return existingStub
     }
 
+    // We won the race - store and return our stub
     cache.set(idKey, newStub)
     return newStub
   }

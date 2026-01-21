@@ -1,10 +1,16 @@
 // DO Stub Transport - Durable Object stub-based RPC transport
 // Used for Worker-to-DO and DO-to-DO communication within Cloudflare Workers
 
-import { isSerializedError, TransportError, type SerializedError } from '../errors'
+import { isSerializedError, type SerializedError } from '../errors'
 import { generateCorrelationId, CORRELATION_ID_HEADER, DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER } from '../headers'
-import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportState } from './types'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportState, ErrorInterceptor } from './types'
+import {
+  createTransportErrorFromCatch,
+  createServerErrorFromStatus,
+  createErrorResponse,
+  createErrorContext,
+  applyErrorInterceptor,
+} from './error-utils'
 
 /**
  * Options for the stub transport
@@ -34,15 +40,47 @@ export interface StubTransportBindingOptions extends TransportOptions {
 
 /**
  * Type guard to check if a value is a DurableObjectId.
- * Uses the `equals` method which is unique to DurableObjectId and not present on regular objects.
+ *
+ * Uses multiple checks to ensure the value is a real DurableObjectId:
+ * 1. Must be a non-null object
+ * 2. Must have an `equals` method (unique to DurableObjectId)
+ * 3. Must have a `toString` method
+ * 4. Must have a `name` property (present on all DurableObjectIds)
+ * 5. The `toString()` result must be a non-empty string (real IDs return hex strings)
+ *
+ * This is more robust than just checking for method existence, which could be
+ * spoofed by any object with matching method signatures.
  */
 function isDurableObjectId(id: unknown): id is DurableObjectId {
-  return (
-    typeof id === 'object' &&
-    id !== null &&
-    typeof (id as DurableObjectId).equals === 'function' &&
-    typeof (id as DurableObjectId).toString === 'function'
-  )
+  if (typeof id !== 'object' || id === null) {
+    return false
+  }
+
+  const candidate = id as DurableObjectId
+
+  // Check required methods exist
+  if (typeof candidate.equals !== 'function' || typeof candidate.toString !== 'function') {
+    return false
+  }
+
+  // Real DurableObjectIds have a 'name' property (may be undefined but property exists)
+  if (!('name' in candidate)) {
+    return false
+  }
+
+  // Additional validation: toString() should return a non-empty string
+  // Real DurableObjectIds return 64-character hex strings
+  try {
+    const str = candidate.toString()
+    if (typeof str !== 'string' || str.length === 0) {
+      return false
+    }
+  } catch {
+    // If toString() throws, it's not a valid DurableObjectId
+    return false
+  }
+
+  return true
 }
 
 /**
@@ -83,6 +121,7 @@ export class StubTransport implements Transport {
   private readonly baseCorrelationId?: string
   private readonly headers: Record<string, string>
   private readonly sourceDoId?: string
+  private readonly onError?: ErrorInterceptor
 
   constructor(options: StubTransportOptions) {
     this.stub = options.stub
@@ -94,6 +133,7 @@ export class StubTransport implements Transport {
     if (options.sourceDoId !== undefined) {
       this.sourceDoId = options.sourceDoId
     }
+    this.onError = options.onError
   }
 
   /**
@@ -101,6 +141,8 @@ export class StubTransport implements Transport {
    */
   async send<T = unknown>(message: RPCMessage): Promise<RPCResponse<T>> {
     const correlationId = message.correlationId ?? this.baseCorrelationId ?? generateCorrelationId()
+    const startTime = Date.now()
+    const endpoint = `${this.baseUrl}/rpc`
 
     // Build headers
     const headers: Record<string, string> = {
@@ -117,7 +159,7 @@ export class StubTransport implements Transport {
 
     let response: Response
     try {
-      response = await this.stub.fetch(`${this.baseUrl}/rpc`, {
+      response = await this.stub.fetch(endpoint, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -127,17 +169,17 @@ export class StubTransport implements Transport {
       })
     } catch (error) {
       // Handle transport-level errors (DO stub failures, network issues, etc.)
-      const transportError = TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
-      return {
-        error: {
-          type: transportError.name,
-          code: transportError.code,
-          message: transportError.message,
-          ...(transportError.details && { details: transportError.details }),
-          httpStatus: transportError.httpStatus,
-        },
+      const transportError = createTransportErrorFromCatch(error, 'stub', endpoint)
+
+      return createErrorResponse({
+        error: transportError,
         correlationId,
-      }
+        transportType: 'stub',
+        message,
+        endpoint,
+        startTime,
+        onError: this.onError,
+      })
     }
 
     const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) ?? correlationId
@@ -147,8 +189,19 @@ export class StubTransport implements Transport {
       try {
         const errorBody = await response.json() as SerializedError & { correlationId?: string }
         if (isSerializedError(errorBody)) {
-          return {
+          // Apply error interceptor even for server-returned errors
+          const context = createErrorContext({
+            transportType: 'stub',
+            message,
+            correlationId: responseCorrelationId,
             error: errorBody,
+            endpoint,
+            startTime,
+          })
+          const finalError = applyErrorInterceptor(errorBody, context, this.onError)
+
+          return {
+            error: finalError,
             correlationId: responseCorrelationId,
           }
         }
@@ -157,15 +210,17 @@ export class StubTransport implements Transport {
       }
 
       // Return generic error response
-      return {
-        error: {
-          type: 'RPCError',
-          code: 'INTERNAL_ERROR',
-          message: `DO RPC error: ${response.status}`,
-          httpStatus: response.status as ContentfulStatusCode,
-        },
+      const serverError = createServerErrorFromStatus(response.status, 'stub', response.statusText)
+
+      return createErrorResponse({
+        error: serverError,
         correlationId: responseCorrelationId,
-      }
+        transportType: 'stub',
+        message,
+        endpoint,
+        startTime,
+        onError: this.onError,
+      })
     }
 
     // Parse successful response
