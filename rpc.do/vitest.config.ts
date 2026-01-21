@@ -19,14 +19,12 @@
  */
 
 import { defineConfig } from 'vitest/config'
-import path from 'path'
+import { workspaceAliases } from '../vitest.config'
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '@dotdo/do': path.resolve(__dirname, '../do/index.ts'),
-      '@dotdo/utils': path.resolve(__dirname, '../utils/index.ts'),
-    },
+    // Use shared workspace aliases for all @dotdo/* packages
+    alias: workspaceAliases,
   },
   test: {
     name: 'rpc-client',

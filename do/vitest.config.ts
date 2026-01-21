@@ -20,8 +20,13 @@
  */
 
 import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
+import { workspaceAliases } from '../vitest.config'
 
 export default defineWorkersConfig({
+  // Inherit workspace aliases for package resolution
+  resolve: {
+    alias: workspaceAliases,
+  },
   test: {
     // Include ALL DO tests - they all benefit from real miniflare runtime
     include: [

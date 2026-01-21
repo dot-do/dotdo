@@ -24,8 +24,63 @@
  */
 
 import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
+import { resolve } from 'path'
+
+// Project root for resolving aliases
+const root = __dirname
+
+/**
+ * Shared resolve aliases for workspace packages
+ * Maps @dotdo/* package imports to source files for testing
+ * This is required because Vitest needs to resolve workspace packages
+ * to source files (not dist), including their subpath exports.
+ */
+export const workspaceAliases = {
+  // Core packages with subpath exports
+  '@dotdo/test-utils/helpers': resolve(root, 'test-utils/helpers.ts'),
+  '@dotdo/test-utils/factories': resolve(root, 'test-utils/factories.ts'),
+  '@dotdo/test-utils/assertions': resolve(root, 'test-utils/assertions.ts'),
+  '@dotdo/test-utils/miniflare': resolve(root, 'test-utils/miniflare.ts'),
+  '@dotdo/test-utils': resolve(root, 'test-utils/index.ts'),
+
+  '@dotdo/utils/proxy': resolve(root, 'utils/proxy.ts'),
+  '@dotdo/utils/logger': resolve(root, 'utils/logger.ts'),
+  '@dotdo/utils': resolve(root, 'utils/index.ts'),
+
+  // Main workspace packages
+  '@dotdo/do': resolve(root, 'do/index.ts'),
+  '@dotdo/db': resolve(root, 'db/index.ts'),
+  '@dotdo/rpc': resolve(root, 'rpc/index.ts'),
+  '@dotdo/api': resolve(root, 'api/index.ts'),
+  '@dotdo/auth': resolve(root, 'auth/index.ts'),
+  '@dotdo/mcp': resolve(root, 'mcp/index.ts'),
+  '@dotdo/ai': resolve(root, 'ai/index.ts'),
+  '@dotdo/app': resolve(root, 'app/index.ts'),
+  '@dotdo/testing': resolve(root, 'testing/index.ts'),
+  '@dotdo/fsx': resolve(root, 'fsx/index.ts'),
+  '@dotdo/observability': resolve(root, 'observability/index.ts'),
+
+  // Integrations package with subpath exports
+  '@dotdo/integrations/stripe': resolve(root, 'integrations/stripe/index.ts'),
+  '@dotdo/integrations/sendgrid': resolve(root, 'integrations/sendgrid/index.ts'),
+  '@dotdo/integrations/redis': resolve(root, 'integrations/redis/index.ts'),
+  '@dotdo/integrations/s3': resolve(root, 'integrations/s3/index.ts'),
+  '@dotdo/integrations/twilio': resolve(root, 'integrations/twilio/index.ts'),
+  '@dotdo/integrations': resolve(root, 'integrations/index.ts'),
+
+  // Business packages (including nested finance)
+  '@dotdo/business-finance': resolve(root, 'business/finance/index.ts'),
+  '@dotdo/business': resolve(root, 'business/index.ts'),
+
+  // Main package
+  'dotdo': resolve(root, 'dotdo/index.ts'),
+}
 
 export default defineWorkersConfig({
+  // Resolve aliases for workspace packages - required for subpath exports
+  resolve: {
+    alias: workspaceAliases,
+  },
   test: {
     name: 'workers',
     globals: true,

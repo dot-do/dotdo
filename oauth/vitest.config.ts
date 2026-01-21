@@ -18,8 +18,13 @@
  */
 
 import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
+import { workspaceAliases } from '../vitest.config'
 
 export default defineWorkersConfig({
+  // Inherit workspace aliases for package resolution
+  resolve: {
+    alias: workspaceAliases,
+  },
   test: {
     name: 'oauth',
 
