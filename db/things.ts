@@ -120,9 +120,8 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
 ): ThingsStore<T> {
   return {
     async create(data) {
-      if (!data.$type) {
-        throw new Error('$type is required')
-      }
+      // Validate input data (do-c8s8)
+      validateThingInput(data)
 
       const now = Date.now()
       const id = generateId()
@@ -139,11 +138,17 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
     },
 
     async get(id) {
+      // Validate ID (do-c8s8)
+      validateId(id, '$id')
       const thing = await adapter.get<Thing<T>>(`${THINGS_PREFIX}${id}`)
       return thing ?? null
     },
 
     async update(id, data) {
+      // Validate ID and update data (do-c8s8)
+      validateId(id, '$id')
+      validateThingUpdate(data)
+
       const existing = await adapter.get<Thing<T>>(`${THINGS_PREFIX}${id}`)
       if (!existing) {
         throw new Error(`Thing not found: ${id}`)
@@ -163,6 +168,8 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
     },
 
     async delete(id) {
+      // Validate ID (do-c8s8)
+      validateId(id, '$id')
       const exists = await adapter.has(`${THINGS_PREFIX}${id}`)
       if (!exists) {
         throw new Error(`Thing not found: ${id}`)
@@ -171,7 +178,9 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
     },
 
     async list(options = {}) {
-      const { type, limit = 100, offset = 0 } = options
+      // Validate list options (do-c8s8)
+      const validated = validateListOptions(options)
+      const { type, limit = 100, offset = 0 } = validated
 
       const result = await adapter.list<Thing<T>>({ prefix: THINGS_PREFIX, includeValues: true })
       let items = Array.from(result.entries.values()).filter((t): t is Thing<T> => t !== undefined)
@@ -191,11 +200,9 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
         return []
       }
 
-      // Validate all items first
+      // Validate all items first (do-c8s8)
       for (const data of items) {
-        if (!data.$type) {
-          throw new Error('$type is required')
-        }
+        validateThingInput(data)
       }
 
       const now = Date.now()
@@ -223,12 +230,15 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
         return []
       }
 
+      // Validate all items (do-c8s8)
+      const validatedItems = validateBulkUpdateItems<T>(items)
+
       // Get all existing items first
-      const keys = items.map(({ id }) => `${THINGS_PREFIX}${id}`)
+      const keys = validatedItems.map(({ id }) => `${THINGS_PREFIX}${id}`)
       const existingMap = await adapter.getMany<Thing<T>>(keys)
 
       // Validate all items exist
-      for (const { id } of items) {
+      for (const { id } of validatedItems) {
         if (!existingMap.has(`${THINGS_PREFIX}${id}`)) {
           throw new Error(`Thing not found: ${id}`)
         }
@@ -238,7 +248,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
       const updated: Thing<T>[] = []
       const entries = new Map<string, Thing<T>>()
 
-      for (const { id, data } of items) {
+      for (const { id, data } of validatedItems) {
         const existing = existingMap.get(`${THINGS_PREFIX}${id}`)!
         const updatedThing: Thing<T> = {
           ...existing,
@@ -261,11 +271,14 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
         return
       }
 
+      // Validate all IDs (do-c8s8)
+      const validatedIds = validateIds(ids, 'ids')
+
       // Validate all items exist first
-      const keys = ids.map(id => `${THINGS_PREFIX}${id}`)
+      const keys = validatedIds.map(id => `${THINGS_PREFIX}${id}`)
       const existingMap = await adapter.getMany(keys)
 
-      for (const id of ids) {
+      for (const id of validatedIds) {
         if (!existingMap.has(`${THINGS_PREFIX}${id}`)) {
           throw new Error(`Thing not found: ${id}`)
         }
@@ -290,9 +303,8 @@ export function createThingsStore(): ThingsStore {
 
   return {
     async create(data) {
-      if (!data.$type) {
-        throw new Error('$type is required')
-      }
+      // Validate input data (do-c8s8)
+      validateThingInput(data)
 
       const now = Date.now()
       const thing = {
@@ -307,11 +319,17 @@ export function createThingsStore(): ThingsStore {
     },
 
     async get(id) {
+      // Validate ID (do-c8s8)
+      validateId(id, '$id')
       const thingId = toThingId(id)
       return things.get(thingId) ?? null
     },
 
     async update(id, data) {
+      // Validate ID and update data (do-c8s8)
+      validateId(id, '$id')
+      validateThingUpdate(data)
+
       const thingId = toThingId(id)
       const existing = things.get(thingId)
       if (!existing) {
@@ -332,6 +350,8 @@ export function createThingsStore(): ThingsStore {
     },
 
     async delete(id) {
+      // Validate ID (do-c8s8)
+      validateId(id, '$id')
       const thingId = toThingId(id)
       if (!things.has(thingId)) {
         throw new Error(`Thing not found: ${id}`)
@@ -340,7 +360,9 @@ export function createThingsStore(): ThingsStore {
     },
 
     async list(options = {}) {
-      const { type, limit = 100, offset = 0 } = options
+      // Validate list options (do-c8s8)
+      const validated = validateListOptions(options)
+      const { type, limit = 100, offset = 0 } = validated
 
       let results = Array.from(things.values())
 
@@ -359,11 +381,9 @@ export function createThingsStore(): ThingsStore {
         return []
       }
 
-      // Validate all items first (atomic: fail before any changes)
+      // Validate all items first (atomic: fail before any changes) (do-c8s8)
       for (const data of items) {
-        if (!data.$type) {
-          throw new Error('$type is required')
-        }
+        validateThingInput(data)
       }
 
       // All valid, now create them
@@ -389,8 +409,11 @@ export function createThingsStore(): ThingsStore {
         return []
       }
 
+      // Validate all items (do-c8s8)
+      const validatedItems = validateBulkUpdateItems(items)
+
       // Validate all items exist first (atomic: fail before any changes)
-      for (const { id } of items) {
+      for (const { id } of validatedItems) {
         const thingId = toThingId(id)
         if (!things.has(thingId)) {
           throw new Error(`Thing not found: ${id}`)
@@ -401,7 +424,7 @@ export function createThingsStore(): ThingsStore {
       const now = Date.now()
       const updated: Thing[] = []
 
-      for (const { id, data } of items) {
+      for (const { id, data } of validatedItems) {
         const thingId = toThingId(id)
         const existing = things.get(thingId)!
         const updatedThing: Thing = {
@@ -424,8 +447,11 @@ export function createThingsStore(): ThingsStore {
         return
       }
 
+      // Validate all IDs (do-c8s8)
+      const validatedIds = validateIds(ids, 'ids')
+
       // Validate all items exist first (atomic: fail before any changes)
-      for (const id of ids) {
+      for (const id of validatedIds) {
         const thingId = toThingId(id)
         if (!things.has(thingId)) {
           throw new Error(`Thing not found: ${id}`)
@@ -433,7 +459,7 @@ export function createThingsStore(): ThingsStore {
       }
 
       // All valid, now delete them
-      for (const id of ids) {
+      for (const id of validatedIds) {
         const thingId = toThingId(id)
         things.delete(thingId)
       }

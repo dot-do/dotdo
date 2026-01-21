@@ -1,0 +1,457 @@
+// Input validation for @dotdo/db - see do-c8s8
+// Provides runtime validation for Things, IDs, and query parameters
+// Uses existing Zod schemas from schemas.ts and branded-types from branded-types.ts
+
+import { z } from 'zod'
+import { DbValidationError } from './errors'
+import { isThingId, type ThingId } from './branded-types'
+import type { StorableData, JsonValue } from './types'
+import {
+  ThingInputSchema,
+  ThingUpdateSchema,
+  ThingListOptionsSchema,
+  JsonValueSchema,
+  AnyIdSchema
+} from './schemas'
+
+// =============================================================================
+// Validation Configuration
+// =============================================================================
+
+/**
+ * Configuration for validation behavior
+ */
+export interface ValidationConfig {
+  /** Maximum length for string values (default: 10000) */
+  maxStringLength?: number
+  /** Maximum depth for nested objects (default: 10) */
+  maxObjectDepth?: number
+  /** Maximum number of keys in an object (default: 100) */
+  maxObjectKeys?: number
+  /** Maximum number of items in an array (default: 1000) */
+  maxArrayLength?: number
+  /** Whether to validate ID format strictly (default: false for backward compatibility) */
+  strictIdValidation?: boolean
+}
+
+const DEFAULT_CONFIG: Required<ValidationConfig> = {
+  maxStringLength: 10000,
+  maxObjectDepth: 10,
+  maxObjectKeys: 100,
+  maxArrayLength: 1000,
+  strictIdValidation: false
+}
+
+let validationConfig: ValidationConfig = {}
+
+/**
+ * Configure global validation settings
+ */
+export function configureValidation(config: ValidationConfig): void {
+  validationConfig = { ...validationConfig, ...config }
+}
+
+/**
+ * Get current validation configuration
+ */
+export function getValidationConfig(): Required<ValidationConfig> {
+  return {
+    ...DEFAULT_CONFIG,
+    ...validationConfig
+  }
+}
+
+/**
+ * Reset validation configuration to defaults
+ */
+export function resetValidationConfig(): void {
+  validationConfig = {}
+}
+
+// =============================================================================
+// Value Validation
+// =============================================================================
+
+/**
+ * Validate that a value is JSON-serializable and within size limits
+ * @param value - The value to validate
+ * @param path - Current path for error messages
+ * @param depth - Current nesting depth
+ * @throws DbValidationError if validation fails
+ */
+export function validateJsonValue(value: unknown, path: string = '', depth: number = 0): void {
+  const config = getValidationConfig()
+
+  // Check depth
+  if (depth > config.maxObjectDepth) {
+    throw DbValidationError.forField(path || 'root', `exceeds maximum nesting depth of ${config.maxObjectDepth}`)
+  }
+
+  // Null is valid
+  if (value === null) {
+    return
+  }
+
+  // Undefined is not valid JSON
+  if (value === undefined) {
+    throw DbValidationError.forField(path || 'root', 'undefined is not a valid JSON value')
+  }
+
+  // Primitives
+  if (typeof value === 'string') {
+    if (value.length > config.maxStringLength) {
+      throw DbValidationError.forField(path || 'root', `string length ${value.length} exceeds maximum of ${config.maxStringLength}`)
+    }
+    return
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw DbValidationError.forField(path || 'root', 'Infinity and NaN are not valid JSON values')
+    }
+    return
+  }
+
+  if (typeof value === 'boolean') {
+    return
+  }
+
+  // Arrays
+  if (Array.isArray(value)) {
+    if (value.length > config.maxArrayLength) {
+      throw DbValidationError.forField(path || 'root', `array length ${value.length} exceeds maximum of ${config.maxArrayLength}`)
+    }
+    for (let i = 0; i < value.length; i++) {
+      validateJsonValue(value[i], `${path}[${i}]`, depth + 1)
+    }
+    return
+  }
+
+  // Objects
+  if (typeof value === 'object') {
+    const keys = Object.keys(value as object)
+    if (keys.length > config.maxObjectKeys) {
+      throw DbValidationError.forField(path || 'root', `object has ${keys.length} keys, exceeds maximum of ${config.maxObjectKeys}`)
+    }
+    for (const key of keys) {
+      const fieldPath = path ? `${path}.${key}` : key
+      validateJsonValue((value as Record<string, unknown>)[key], fieldPath, depth + 1)
+    }
+    return
+  }
+
+  // Functions, symbols, etc. are not valid JSON
+  throw DbValidationError.forField(path || 'root', `${typeof value} is not a valid JSON value`)
+}
+
+// =============================================================================
+// ID Validation
+// =============================================================================
+
+/**
+ * Validate an ID string
+ * @param id - The ID to validate
+ * @param fieldName - Field name for error messages (default: 'id')
+ * @throws DbValidationError if validation fails
+ */
+export function validateId(id: unknown, fieldName: string = 'id'): string {
+  if (typeof id !== 'string') {
+    throw DbValidationError.forField(fieldName, 'must be a string', id)
+  }
+
+  if (id.length === 0) {
+    throw DbValidationError.forField(fieldName, 'cannot be empty')
+  }
+
+  // Max ID length to prevent abuse
+  if (id.length > 256) {
+    throw DbValidationError.forField(fieldName, 'exceeds maximum length of 256 characters')
+  }
+
+  const config = getValidationConfig()
+
+  // If strict validation is enabled, check ID format
+  if (config.strictIdValidation && !isThingId(id)) {
+    throw DbValidationError.forField(fieldName, 'must match ThingId format (timestamp-random)')
+  }
+
+  return id
+}
+
+/**
+ * Validate an array of IDs
+ * @param ids - The IDs to validate
+ * @param fieldName - Field name for error messages (default: 'ids')
+ * @throws DbValidationError if validation fails
+ */
+export function validateIds(ids: unknown, fieldName: string = 'ids'): string[] {
+  if (!Array.isArray(ids)) {
+    throw DbValidationError.forField(fieldName, 'must be an array')
+  }
+
+  return ids.map((id, index) => validateId(id, `${fieldName}[${index}]`))
+}
+
+// =============================================================================
+// Type Validation
+// =============================================================================
+
+/**
+ * Validate a $type string
+ * @param type - The type to validate
+ * @throws DbValidationError if validation fails
+ */
+export function validateType(type: unknown): string {
+  if (typeof type !== 'string') {
+    throw DbValidationError.forField('$type', 'must be a string', type)
+  }
+
+  if (type.length === 0) {
+    throw DbValidationError.forField('$type', 'is required')
+  }
+
+  if (type.length > 100) {
+    throw DbValidationError.forField('$type', 'exceeds maximum length of 100 characters')
+  }
+
+  // Type should be alphanumeric with optional underscores/hyphens
+  if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(type)) {
+    throw DbValidationError.forField(
+      '$type',
+      'must start with a letter and contain only alphanumeric characters, underscores, or hyphens',
+      type
+    )
+  }
+
+  return type
+}
+
+// =============================================================================
+// Thing Validation
+// =============================================================================
+
+/**
+ * Validation result with typed data
+ */
+export interface ValidationResult<T> {
+  success: boolean
+  data?: T
+  error?: DbValidationError
+}
+
+/**
+ * Validate Thing input data for create operations
+ * @param data - The input data to validate
+ * @throws DbValidationError if validation fails
+ */
+export function validateThingInput<T extends StorableData = StorableData>(
+  data: unknown
+): T & { $type: string } {
+  if (data === null || data === undefined) {
+    throw new DbValidationError('Input data is required')
+  }
+
+  if (typeof data !== 'object') {
+    throw new DbValidationError('Input data must be an object')
+  }
+
+  const obj = data as Record<string, unknown>
+
+  // Validate $type is present and valid
+  validateType(obj['$type'])
+
+  // Validate that user data is JSON-serializable
+  for (const [key, value] of Object.entries(obj)) {
+    // Skip $type as we've already validated it
+    if (key === '$type') continue
+
+    // Disallow overriding system fields
+    if (key === '$id' || key === '$createdAt' || key === '$updatedAt') {
+      throw DbValidationError.forField(key, 'is a system field and cannot be set on create')
+    }
+
+    // Validate the value is JSON-serializable
+    validateJsonValue(value, key)
+  }
+
+  return data as T & { $type: string }
+}
+
+/**
+ * Validate Thing update data
+ * @param data - The update data to validate
+ * @throws DbValidationError if validation fails
+ */
+export function validateThingUpdate<T extends StorableData = StorableData>(
+  data: unknown
+): Partial<T> {
+  if (data === null || data === undefined) {
+    throw new DbValidationError('Update data is required')
+  }
+
+  if (typeof data !== 'object') {
+    throw new DbValidationError('Update data must be an object')
+  }
+
+  const obj = data as Record<string, unknown>
+
+  // Check for disallowed system field updates
+  if ('$id' in obj) {
+    throw DbValidationError.forField('$id', 'is immutable and cannot be updated')
+  }
+  if ('$type' in obj) {
+    throw DbValidationError.forField('$type', 'is immutable and cannot be updated')
+  }
+  if ('$createdAt' in obj) {
+    throw DbValidationError.forField('$createdAt', 'is immutable and cannot be updated')
+  }
+
+  // Validate each field value
+  for (const [key, value] of Object.entries(obj)) {
+    // Skip $updatedAt - it's managed by the system but sometimes passed through
+    if (key === '$updatedAt') continue
+
+    validateJsonValue(value, key)
+  }
+
+  return data as Partial<T>
+}
+
+/**
+ * Safely validate Thing input without throwing
+ * @param data - The input data to validate
+ * @returns ValidationResult with either the validated data or error
+ */
+export function safeValidateThingInput<T extends StorableData = StorableData>(
+  data: unknown
+): ValidationResult<T & { $type: string }> {
+  try {
+    const validated = validateThingInput<T>(data)
+    return { success: true, data: validated }
+  } catch (error) {
+    if (error instanceof DbValidationError) {
+      return { success: false, error }
+    }
+    return {
+      success: false,
+      error: new DbValidationError(error instanceof Error ? error.message : String(error))
+    }
+  }
+}
+
+/**
+ * Safely validate Thing update without throwing
+ * @param data - The update data to validate
+ * @returns ValidationResult with either the validated data or error
+ */
+export function safeValidateThingUpdate<T extends StorableData = StorableData>(
+  data: unknown
+): ValidationResult<Partial<T>> {
+  try {
+    const validated = validateThingUpdate<T>(data)
+    return { success: true, data: validated }
+  } catch (error) {
+    if (error instanceof DbValidationError) {
+      return { success: false, error }
+    }
+    return {
+      success: false,
+      error: new DbValidationError(error instanceof Error ? error.message : String(error))
+    }
+  }
+}
+
+// =============================================================================
+// List/Query Options Validation
+// =============================================================================
+
+/**
+ * Validate list options
+ * @param options - The options to validate
+ * @throws DbValidationError if validation fails
+ */
+export function validateListOptions(options: unknown): { type?: string; limit?: number; offset?: number } {
+  if (options === null || options === undefined) {
+    return {}
+  }
+
+  if (typeof options !== 'object') {
+    throw new DbValidationError('List options must be an object')
+  }
+
+  const obj = options as Record<string, unknown>
+  const validated: { type?: string; limit?: number; offset?: number } = {}
+
+  // Validate type
+  if ('type' in obj && obj['type'] !== undefined) {
+    if (typeof obj['type'] !== 'string') {
+      throw DbValidationError.forField('type', 'must be a string', obj['type'])
+    }
+    validated.type = obj['type']
+  }
+
+  // Validate limit
+  if ('limit' in obj && obj['limit'] !== undefined) {
+    if (typeof obj['limit'] !== 'number') {
+      throw DbValidationError.forField('limit', 'must be a number', obj['limit'])
+    }
+    if (!Number.isInteger(obj['limit']) || obj['limit'] < 1) {
+      throw DbValidationError.forField('limit', 'must be a positive integer', obj['limit'])
+    }
+    if (obj['limit'] > 10000) {
+      throw DbValidationError.forField('limit', 'exceeds maximum of 10000', obj['limit'])
+    }
+    validated.limit = obj['limit']
+  }
+
+  // Validate offset
+  if ('offset' in obj && obj['offset'] !== undefined) {
+    if (typeof obj['offset'] !== 'number') {
+      throw DbValidationError.forField('offset', 'must be a number', obj['offset'])
+    }
+    if (!Number.isInteger(obj['offset']) || obj['offset'] < 0) {
+      throw DbValidationError.forField('offset', 'must be a non-negative integer', obj['offset'])
+    }
+    validated.offset = obj['offset']
+  }
+
+  return validated
+}
+
+// =============================================================================
+// Bulk Operation Validation
+// =============================================================================
+
+/**
+ * Validate bulk update items
+ * @param items - The items to validate
+ * @throws DbValidationError if validation fails
+ */
+export function validateBulkUpdateItems<T extends StorableData = StorableData>(
+  items: unknown
+): Array<{ id: string; data: Partial<T> }> {
+  if (!Array.isArray(items)) {
+    throw new DbValidationError('Bulk update items must be an array')
+  }
+
+  return items.map((item, index) => {
+    if (item === null || item === undefined || typeof item !== 'object') {
+      throw DbValidationError.forField(`items[${index}]`, 'must be an object')
+    }
+
+    const obj = item as Record<string, unknown>
+
+    if (!('id' in obj)) {
+      throw DbValidationError.forField(`items[${index}].id`, 'is required')
+    }
+
+    if (!('data' in obj)) {
+      throw DbValidationError.forField(`items[${index}].data`, 'is required')
+    }
+
+    const id = validateId(obj['id'], `items[${index}].id`)
+    const data = validateThingUpdate<T>(obj['data'])
+
+    return { id, data }
+  })
+}
