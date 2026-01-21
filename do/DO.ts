@@ -20,7 +20,7 @@
  */
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import type { WorkflowContext } from './context'
+import { createContext, type WorkflowContext } from './context'
 import type { ThingsStore, EventsStore, RelationshipsStore, AuditLogStore, AuditContext, QueryBuilder } from '../db'
 import { IntegrationRegistry } from '../integrations'
 import { createLogger } from '../utils/logger'
@@ -91,6 +91,9 @@ export class DO implements DurableObject {
 
     // Initialize integration registry
     this._integrations = new IntegrationRegistry()
+
+    // Initialize WorkflowContext ($) for event handlers, scheduling, and cross-DO RPC
+    this.$ = createContext(state, env)
 
     // Setup middleware
     if (options.cors !== false) {
