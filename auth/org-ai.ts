@@ -796,8 +796,8 @@ export async function initiateSSOFlow(options: SSOFlowOptions): Promise<SSOFlowR
     redirectUri,
     state,
     scopes,
-    codeChallenge,
-    codeChallengeMethod
+    ...(codeChallenge !== undefined && { codeChallenge }),
+    ...(codeChallengeMethod !== undefined && { codeChallengeMethod }),
   })
 
   // Emit event for telemetry

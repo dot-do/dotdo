@@ -226,9 +226,9 @@ export class ApiKeyManager {
       name: oldKey.name,
       prefix: oldKey.prefix.replace('_', ''),
       scopes: oldKey.scopes,
-      expiresAt: oldKey.expiresAt,
-      metadata: oldKey.metadata,
-      rateLimit: oldKey.rateLimit
+      ...(oldKey.expiresAt !== undefined && { expiresAt: oldKey.expiresAt }),
+      ...(oldKey.metadata !== undefined && { metadata: oldKey.metadata }),
+      ...(oldKey.rateLimit !== undefined && { rateLimit: oldKey.rateLimit }),
     })
 
     // Revoke old key

@@ -286,7 +286,9 @@ export function validateTokenWithJwks(options: JwksValidationOptions): Middlewar
     }
 
     // Extract token
-    const token = extractToken(c.req.raw, { cookieName })
+    const token = extractToken(c.req.raw, {
+      ...(cookieName !== undefined && { cookieName }),
+    })
 
     if (!token) {
       c.header('WWW-Authenticate', 'Bearer realm="dotdo", error="invalid_token"')
@@ -296,9 +298,9 @@ export function validateTokenWithJwks(options: JwksValidationOptions): Middlewar
     try {
       // Verify token with JWKS
       const payload = await verifyTokenWithJwks(token, jwksClient, {
-        issuer,
-        audience,
-        algorithms,
+        ...(issuer !== undefined && { issuer }),
+        ...(audience !== undefined && { audience }),
+        ...(algorithms !== undefined && { algorithms }),
       })
 
       // Check expiration

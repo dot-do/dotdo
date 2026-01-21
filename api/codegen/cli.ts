@@ -205,12 +205,13 @@ function generateCreateCommand(resource: ResourceDefinition<any>): CLICommand {
 
   // Generate options from fields
   for (const [fieldName, fieldDef] of Object.entries(resource.fields)) {
+    const choices = fieldDef.type === 'enum' ? getEnumChoices(resource, fieldName) : undefined
     options.push({
       name: fieldName,
       description: `${fieldName} field`,
       type: fieldDef.type,
       required: fieldDef.required || false,
-      choices: fieldDef.type === 'enum' ? getEnumChoices(resource, fieldName) : undefined,
+      ...(choices !== undefined && { choices }),
     })
   }
 
@@ -248,12 +249,13 @@ function generateUpdateCommand(resource: ResourceDefinition<any>): CLICommand {
 
   // Generate options from fields (all optional for update)
   for (const [fieldName, fieldDef] of Object.entries(resource.fields)) {
+    const choices = fieldDef.type === 'enum' ? getEnumChoices(resource, fieldName) : undefined
     options.push({
       name: fieldName,
       description: `${fieldName} field`,
       type: fieldDef.type,
       required: false,
-      choices: fieldDef.type === 'enum' ? getEnumChoices(resource, fieldName) : undefined,
+      ...(choices !== undefined && { choices }),
     })
   }
 

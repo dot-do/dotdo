@@ -282,7 +282,9 @@ export class DatabaseError extends DotdoError {
     message: string,
     details?: Record<string, unknown>
   ) {
-    super(ErrorCode.DATABASE_ERROR, message, { details })
+    super(ErrorCode.DATABASE_ERROR, message, {
+      ...(details !== undefined && { details }),
+    })
     this.name = 'DatabaseError'
   }
 }

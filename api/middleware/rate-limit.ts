@@ -559,7 +559,11 @@ export function rateLimitMiddleware(config: RateLimitConfig): MiddlewareHandler 
     const userId = c.get('userId') as string | undefined
     const tier = c.get('tier') as string | undefined
 
-    const result = await rateLimiter.check(c.req.raw, { tenantId, userId, tier })
+    const result = await rateLimiter.check(c.req.raw, {
+      ...(tenantId !== undefined && { tenantId }),
+      ...(userId !== undefined && { userId }),
+      ...(tier !== undefined && { tier }),
+    })
 
     // Set rate limit headers on context
     for (const [key, value] of Object.entries(result.headers)) {
@@ -571,7 +575,7 @@ export function rateLimitMiddleware(config: RateLimitConfig): MiddlewareHandler 
       const rateLimitError = RateLimitError.exceeded({
         limit: result.limit,
         window: `${Math.round(60000 / 1000)}s`, // Assumes 60s window, could be configurable
-        retryAfter: result.retryAfter,
+        ...(result.retryAfter !== undefined && { retryAfter: result.retryAfter }),
       })
       return c.json(rateLimitError.toJSON(), rateLimitError.httpStatus)
     }

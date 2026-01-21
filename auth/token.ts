@@ -174,7 +174,9 @@ export function validateToken(options: TokenValidationOptions): MiddlewareHandle
     }
 
     // Extract token
-    const token = extractToken(c.req.raw, { cookieName })
+    const token = extractToken(c.req.raw, {
+      ...(cookieName !== undefined && { cookieName }),
+    })
 
     if (!token) {
       c.header('WWW-Authenticate', 'Bearer realm="dotdo", error="invalid_token"')
@@ -185,8 +187,8 @@ export function validateToken(options: TokenValidationOptions): MiddlewareHandle
       // Verify signature and claims
       const payload = await verifyTokenSignature(token, {
         secret,
-        issuer,
-        audience,
+        ...(issuer !== undefined && { issuer }),
+        ...(audience !== undefined && { audience }),
       })
 
       // Check expiration
