@@ -479,7 +479,8 @@ export class EntityManager {
       recordRetryAttempt: (eventType, succeeded, retryCount) => baseStore.recordRetryAttempt(eventType, succeeded, retryCount),
       getRetryMetrics: () => baseStore.getRetryMetrics(),
       setDurabilityConfig: (config) => baseStore.setDurabilityConfig(config),
-      getDurabilityConfig: (eventType) => baseStore.getDurabilityConfig(eventType)
+      getDurabilityConfig: (eventType) => baseStore.getDurabilityConfig(eventType),
+      getDLQStats: () => baseStore.getDLQStats()
     }
   }
 

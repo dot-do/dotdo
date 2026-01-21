@@ -193,7 +193,7 @@ export class HealthChecker {
         lastCheck: now,
         lastSuccess: result.healthy ? now : this.checks.get(name)?.lastSuccess ?? null,
         latencyMs: result.latencyMs,
-        error: result.error,
+        ...(result.error !== undefined && { error: result.error }),
       }
 
       this.checks.set(name, checkResult)

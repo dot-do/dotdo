@@ -534,6 +534,7 @@ export {
  * ```
  */
 export {
+  // Basic sharding
   ShardRouter,
   createShardRouter,
   fnv1aHash,
@@ -545,4 +546,31 @@ export {
   type ShardContext,
   type ShardResult,
   type ShardRouterConfig,
+  // Load balancing
+  LoadMetricsStore,
+  LoadBalancedRouter,
+  createLoadBalancedRouter,
+  type LoadMetricsStoreConfig,
+  type LeastLoadedResult,
+  type LoadBalanceTelemetryEvent,
+  type LoadBalancedShardResult,
+  type LoadBalancedRouterConfig,
+  // Health monitoring (do-8x8l)
+  ShardHealthMonitor,
+  createShardHealthMonitor,
+  type ShardHealthStatus,
+  type ShardHealthMetrics,
+  type ShardHealthConfig,
+  // Dynamic rebalancing (do-8x8l)
+  ShardRebalancer,
+  createShardRebalancer,
+  type RebalanceAction,
+  type RebalanceDecision,
+  type ShardRebalancerConfig,
+  type ShardRegistryEntry,
+  type MigrationTask,
+  // Health-aware routing (do-8x8l)
+  HealthAwareRouter,
+  createHealthAwareRouter,
+  type HealthAwareRouterConfig,
 } from './shard'
