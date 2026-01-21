@@ -98,13 +98,25 @@ export function createDOAccessor(
 }
 
 /**
+ * Base context shape with _env and _stubCache fields.
+ * Used by createDORPCProxy to extract env and stubCache from the context,
+ * avoiding duplicate references. (do-1e3z)
+ */
+interface BaseContextWithInternals {
+  _env: unknown
+  _stubCache: Map<string, DOStubProxy>
+}
+
+/**
  * Create a proxy that dynamically provides DO accessors
  *
  * This creates the proxy that enables the $.Customer(id), $.Order(id), etc. syntax.
  * Unknown property accesses are treated as DO binding names.
  *
- * @param baseContext - The base context object with known properties
- * @param config - RPC configuration
+ * The function extracts _env and _stubCache from baseContext directly,
+ * avoiding duplicate references to these values. (do-1e3z)
+ *
+ * @param baseContext - The base context object with known properties (must include _env and _stubCache)
  * @returns A proxy wrapping the base context with dynamic DO accessors
  *
  * @example
@@ -113,20 +125,27 @@ export function createDOAccessor(
  *   send: (event) => { ... },
  *   on: onProxy,
  *   every: everyProxy,
+ *   _env: env,
+ *   _stubCache: stubCache,
  *   // ... other known properties
  * }
  *
- * const context = createDORPCProxy(baseContext, { env, stubCache })
+ * const context = createDORPCProxy(baseContext)
  *
  * // Dynamic DO access
  * const customer = context.Customer('user-123')
  * await customer.notify({ message: 'Hello' })
  * ```
  */
-export function createDORPCProxy<T extends object>(
-  baseContext: T,
-  config: CrossDORPCConfig
+export function createDORPCProxy<T extends BaseContextWithInternals>(
+  baseContext: T
 ): T & Record<string, DOStubFactory> {
+  // Extract env and stubCache from baseContext - single source of truth (do-1e3z)
+  const config: CrossDORPCConfig = {
+    env: baseContext._env,
+    stubCache: baseContext._stubCache
+  }
+
   return new Proxy(baseContext as T & Record<string, DOStubFactory>, {
     get(target, prop: string | symbol) {
       // Bypass symbols and internal properties

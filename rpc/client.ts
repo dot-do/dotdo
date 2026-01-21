@@ -3,7 +3,7 @@
 // Supports pluggable transports for different communication backends
 // Includes Cap'n Proto-style promise pipelining for efficient RPC chaining
 
-import { SerializedError, deserializeError, isRPCError } from './errors'
+import { deserializeError, isRPCError, type SerializedError } from './errors'
 import type { Transport, RPCMessage, RPCResponse } from './transport/types'
 import { PipelineBuilder, type PipelineRequest, type PipelineResponse } from './pipeline'
 

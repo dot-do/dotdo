@@ -386,9 +386,10 @@ describe('instrument', () => {
     const tracer = createTracer({ name: 'instrument-test' })
     let spanName: string | undefined
 
-    const fn = (x: number, y: number) => {
+    const fn = (...args: unknown[]) => {
       const span = tracer.getActiveSpan()
       spanName = span?.getName()
+      const [x, y] = args as [number, number]
       return x + y
     }
 

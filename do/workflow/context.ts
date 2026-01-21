@@ -22,6 +22,14 @@ import {
 } from '../fire-and-forget-errors'
 import { IntegrationRegistry, type Integration, type IntegrationConfig } from '../../integrations'
 import { createLogger } from '../../utils/logger'
+import {
+  runWithWorkflowContextSync,
+  getContextMetadata,
+  setContextMetadata,
+  getRequestId,
+  hasWorkflowContext,
+  initializeAsyncContext,
+} from './async-context'
 
 const logger = createLogger('[WorkflowContext]')
 
@@ -49,6 +57,18 @@ export interface WorkflowContext {
   // Cross-DO RPC (Proxy-based)
   // Accessed dynamically via $.Customer(id), $.Worker(id), etc.
   [doName: string]: DOStubFactory | unknown
+
+  // Context propagation methods (do-nexi)
+  /** Run with context propagation across async boundaries */
+  run<T>(fn: () => T): T
+  /** Get the current request ID */
+  getRequestId(): string | undefined
+  /** Get request-scoped metadata */
+  getMetadata<T = unknown>(key: string): T | undefined
+  /** Set request-scoped metadata */
+  setMetadata(key: string, value: unknown): void
+  /** Check if running within a propagated context */
+  hasContext(): boolean
 
   // Internal state (prefixed with _ to indicate private)
   _events: EventsStore
@@ -147,6 +167,11 @@ export function createContext(
   const stubCache = new Map<string, DOStubProxy>()
   const fireAndForgetErrors = options?.errorStore ?? createInMemoryErrorStore()
   const integrations = options?.integrationRegistry ?? new IntegrationRegistry()
+
+  // Initialize async context system (do-nexi)
+  initializeAsyncContext().catch((err) => {
+    logger.error('Failed to initialize async context:', err)
+  })
 
   // Initialize integrations if configs provided
   if (options?.integrationConfigs) {
@@ -340,6 +365,23 @@ export function createContext(
     // Integration registry for third-party services
     integrations,
 
+    // Context propagation methods (do-nexi)
+    run<T>(fn: () => T): T {
+      return runWithWorkflowContextSync(baseContext as unknown as WorkflowContext, fn)
+    },
+    getRequestId(): string | undefined {
+      return getRequestId()
+    },
+    getMetadata<T = unknown>(key: string): T | undefined {
+      return getContextMetadata<T>(key)
+    },
+    setMetadata(key: string, value: unknown): void {
+      setContextMetadata(key, value)
+    },
+    hasContext(): boolean {
+      return hasWorkflowContext()
+    },
+
     // Internal state
     _events: events,
     _handlers: handlers,
@@ -350,7 +392,8 @@ export function createContext(
   }
 
   // Wrap context in Proxy to support cross-DO RPC: $.Customer(id)
-  return createDORPCProxy(baseContext, { env, stubCache }) as WorkflowContext
+  // Uses _env and _stubCache from baseContext directly - no duplicate reference needed (do-1e3z)
+  return createDORPCProxy(baseContext) as WorkflowContext
 }
 
 // Re-export types for convenience

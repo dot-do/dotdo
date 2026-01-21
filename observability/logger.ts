@@ -253,7 +253,10 @@ export function createStructuredLogger(options: Partial<LoggerConfig> = {}): Str
     level: options.level ?? globalConfig.level,
     format: options.format ?? globalConfig.format,
     service: options.service ?? globalConfig.service,
-    output: options.output,
+  }
+  // Only set output if explicitly provided (avoid undefined assignment with exactOptionalPropertyTypes)
+  if ('output' in options && options.output !== undefined) {
+    config.output = options.output
   }
 
   let boundContext: LogContext = {}

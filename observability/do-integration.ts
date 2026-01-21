@@ -176,13 +176,16 @@ export function createDOObservability(config: DOObservabilityConfig = {}): {
         ...(parentTraceContext?.traceId && { traceId: parentTraceContext.traceId }),
       })
 
-      return {
+      const result: DOObservabilityContext = {
         logger: requestLogger,
         tracer,
         meter,
         correlationId: obsCtx.correlationId,
-        traceContext: parentTraceContext,
       }
+      if (parentTraceContext !== undefined) {
+        result.traceContext = parentTraceContext
+      }
+      return result
     },
 
     async wrapMethod<T>(name: string, fn: () => T | Promise<T>, context?: DOObservabilityContext): Promise<T> {

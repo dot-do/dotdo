@@ -68,6 +68,7 @@ export default defineConfig({
       'apps/**/tests/**/*.test.ts',
       'tests/benchmarks/**/*.test.ts',
       'testing/**/*.test.ts',
+      'observability/tests/**/*.test.ts',
     ],
 
     exclude: defaultExcludes,

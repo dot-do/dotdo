@@ -45,17 +45,25 @@ const CONTEXT_KEY = Symbol('observabilityContext')
 let contextStack: ObservabilityContext[] = []
 
 /**
+ * AsyncLocalStorage type (for compatibility)
+ */
+interface AsyncLocalStorageType<T> {
+  getStore(): T | undefined
+  run<R>(store: T, callback: () => R): R
+}
+
+/**
  * AsyncLocalStorage instance (if available)
  */
-let asyncLocalStorage: AsyncLocalStorage<ObservabilityContext> | undefined
+let asyncLocalStorage: AsyncLocalStorageType<ObservabilityContext> | undefined
 
 // AsyncLocalStorage is available in Cloudflare Workers as of 2024
 // but we provide a fallback for testing environments
 try {
-  // @ts-expect-error - AsyncLocalStorage might not be in types
-  if (typeof AsyncLocalStorage !== 'undefined') {
-    // @ts-expect-error - AsyncLocalStorage might not be in types
-    asyncLocalStorage = new AsyncLocalStorage<ObservabilityContext>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const AsyncLocalStorageClass = (globalThis as any).AsyncLocalStorage
+  if (typeof AsyncLocalStorageClass !== 'undefined') {
+    asyncLocalStorage = new AsyncLocalStorageClass()
   }
 } catch {
   // AsyncLocalStorage not available, use fallback

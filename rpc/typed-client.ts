@@ -2,7 +2,7 @@
 // Uses TypeScript utility types to infer methods, parameters, and return types from DO classes
 
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
-import { SerializedError, deserializeError, isRPCError } from './errors'
+import { deserializeError, isRPCError, type SerializedError } from './errors'
 import type {
   RPCClient,
   RPCClientWithOptions,
