@@ -21,9 +21,9 @@ export {
   RateLimiter,
   ConcurrencyLimiter,
   SandboxResourceEnforcer,
-  createScopedResourceEnforcer
+  getGlobalResourceEnforcer,
+  setGlobalResourceEnforcer
 } from './sandbox'
-
 export type {
   Sandbox,
   SandboxOptions,
@@ -37,8 +37,5 @@ export type {
 } from './sandbox'
 
 // Discovery exports
-export { ToolRegistry, ToolCategory } from './discovery'
+export { ToolRegistry, ToolCategory, createDefaultRegistry } from './discovery'
 export type { ToolMetadata } from './discovery'
-
-// Type exports (local definitions to avoid @dotdo/do dependency)
-export type { WorkflowContext, DoOptions } from './types'

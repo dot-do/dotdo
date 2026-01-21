@@ -26,8 +26,6 @@ export interface JwksClientOptions {
   refetchOnMissingKey?: boolean
   /** Minimum seconds between refetch attempts for missing keys (default: 30) */
   refetchCooldown?: number
-  /** Allow insecure HTTP for localhost/127.0.0.1 (for local development only, default: false) */
-  allowInsecureLocalhost?: boolean
 }
 
 /**
@@ -35,11 +33,11 @@ export interface JwksClientOptions {
  */
 export interface JwksVerifyOptions {
   /** Expected issuer(s) */
-  issuer?: string | string[] | undefined
+  issuer?: string | string[]
   /** Expected audience(s) */
-  audience?: string | string[] | undefined
+  audience?: string | string[]
   /** Algorithms to allow (default: RS256, RS384, RS512, ES256, ES384, ES512) */
-  algorithms?: string[] | undefined
+  algorithms?: string[]
 }
 
 /**
@@ -76,50 +74,16 @@ interface CacheEntry {
 }
 
 /**
- * Validate that a JWKS URI uses HTTPS for security
- * @param uri The JWKS URI to validate
- * @param allowInsecureLocalhost Allow HTTP for localhost/127.0.0.1 (for development)
- * @throws Error if the URI does not use HTTPS (unless localhost exception applies)
- */
-export function validateJwksUri(uri: string, allowInsecureLocalhost = false): void {
-  const url = new URL(uri)
-
-  // Check if using HTTPS
-  if (url.protocol === 'https:') {
-    return // HTTPS is always allowed
-  }
-
-  // HTTP is only allowed for localhost if explicitly enabled
-  if (url.protocol === 'http:') {
-    const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1'
-
-    if (isLocalhost && allowInsecureLocalhost) {
-      return // Allow HTTP for localhost in development
-    }
-
-    throw new Error(
-      'JWKS URI must use HTTPS for security. ' +
-        'HTTP is not allowed as it exposes keys to man-in-the-middle attacks.'
-    )
-  }
-
-  throw new Error(`JWKS URI must use HTTPS. Unsupported protocol: ${url.protocol}`)
-}
-
-/**
  * Fetch JWKS from a URL
  */
-export async function fetchJwks(jwksUri: string, allowInsecureLocalhost = false): Promise<Jwks> {
-  // Validate HTTPS requirement
-  validateJwksUri(jwksUri, allowInsecureLocalhost)
-
+export async function fetchJwks(jwksUri: string): Promise<Jwks> {
   const response = await fetch(jwksUri)
 
   if (!response.ok) {
     throw new Error(`Failed to fetch JWKS: ${response.status} ${response.statusText}`)
   }
 
-  const jwks = (await response.json()) as { keys?: unknown }
+  const jwks = await response.json()
 
   if (!jwks || !Array.isArray(jwks.keys)) {
     throw new Error('Invalid JWKS: missing keys array')
@@ -137,11 +101,7 @@ export function createJwksClient(options: JwksClientOptions): JwksClient {
     cacheTtl = 600,
     refetchOnMissingKey = true,
     refetchCooldown = 30,
-    allowInsecureLocalhost = false,
   } = options
-
-  // Validate JWKS URI uses HTTPS (security requirement)
-  validateJwksUri(jwksUri, allowInsecureLocalhost)
 
   let cache: CacheEntry | null = null
   let lastRefetchAttempt = 0
@@ -159,7 +119,7 @@ export function createJwksClient(options: JwksClientOptions): JwksClient {
    * Fetch and cache JWKS
    */
   async function fetchAndCache(): Promise<CacheEntry> {
-    const jwks = await fetchJwks(jwksUri, allowInsecureLocalhost)
+    const jwks = await fetchJwks(jwksUri)
     const keys = new Map<string, CryptoKey>()
 
     cache = {
@@ -278,14 +238,12 @@ export async function verifyTokenWithJwks(
   // Get the public key
   const key = await client.getKey(header.kid)
 
-  // Build verify options, only including defined values to satisfy exactOptionalPropertyTypes
-  const verifyOptions: { issuer?: string | string[]; audience?: string | string[]; algorithms?: string[] } = {}
-  if (issuer !== undefined) verifyOptions.issuer = issuer
-  if (audience !== undefined) verifyOptions.audience = audience
-  if (algorithms !== undefined) verifyOptions.algorithms = algorithms
-
   // Verify the token
-  const { payload } = await jwtVerify(token, key, verifyOptions)
+  const { payload } = await jwtVerify(token, key, {
+    issuer,
+    audience,
+    algorithms,
+  })
 
   return payload as TokenPayload
 }
