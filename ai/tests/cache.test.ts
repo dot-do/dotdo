@@ -25,17 +25,11 @@ import {
   type CacheStats,
   type MemoryCacheOptions,
 } from '../cache'
+import { sleep } from '../../test-utils'
 
 // =============================================================================
-// Helper Functions
+// Helper Functions - Using shared test-utils for sleep
 // =============================================================================
-
-/**
- * Sleep for a specified number of milliseconds
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
 
 // =============================================================================
 // 1. MemoryCache - Cache Hit/Miss Scenarios

@@ -21,17 +21,11 @@ import {
   MAX_WEBSOCKET_MESSAGE_SIZE,
   WEBSOCKET_CLOSE_CODES,
 } from '../websocket'
+import { generateTestId } from '../../test-utils'
 
 // ============================================================================
-// Test Helpers
+// Test Helpers - Using shared test-utils for generateTestId
 // ============================================================================
-
-/**
- * Generate a unique test identifier to isolate test data
- */
-function generateTestId(): string {
-  return `ws-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
 
 /**
  * Helper to manually register a connection with the manager for pure logic tests.

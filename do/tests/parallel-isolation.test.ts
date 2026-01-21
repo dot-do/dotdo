@@ -17,32 +17,20 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { env } from 'cloudflare:test'
+import { generateTestId, getTestDO, sleep } from '../../test-utils'
 
 // ============================================================================
-// TEST ISOLATION HELPERS
+// TEST ISOLATION HELPERS - Using shared test-utils
 // ============================================================================
 
 /**
- * Generate a unique test identifier to isolate test data.
- * Uses timestamp + random string to ensure uniqueness across parallel runs.
- */
-function generateTestId(): string {
-  return `isolation-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-/**
- * Get a fresh DO stub for testing with isolated namespace
+ * Get a fresh DO stub for testing with isolated namespace (delegates to shared test-utils)
  */
 function getIsolatedStub(testName?: string) {
-  const name = testName || generateTestId()
-  const id = env.DO.idFromName(name)
-  return { stub: env.DO.get(id), name }
+  const name = testName || generateTestId('isolation')
+  const stub = getTestDO(env, name)
+  return { stub, name }
 }
-
-/**
- * Sleep utility for timing-sensitive tests
- */
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 // ============================================================================
 // MODULE-LEVEL STATE ISOLATION TESTS

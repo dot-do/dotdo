@@ -19,7 +19,8 @@
 
 import { describe, it, expect } from 'vitest'
 import { env } from 'cloudflare:test'
-import type { Thing, Relationship } from '../../db'
+import type { Thing, Relationship } from '@dotdo/db'
+import { generateTestId, getTestDO, rpcMayFail } from '../../test-utils'
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -43,41 +44,28 @@ interface ThingWithName extends Thing {
 }
 
 // ============================================================================
-// HELPERS
+// HELPERS - Using shared test-utils
 // ============================================================================
 
 /**
- * Generate a unique test identifier to isolate test data
- */
-function generateTestId(): string {
-  return `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-/**
- * Get a fresh DO stub for testing
+ * Get a fresh DO stub for testing (delegates to shared test-utils)
  */
 function getStub(name?: string) {
-  const testName = name ?? generateTestId()
-  const id = env.DO.idFromName(testName)
-  return env.DO.get(id)
+  return getTestDO(env, name)
 }
 
 /**
- * Make an RPC call to the DO
+ * Make an RPC call to the DO (wraps shared rpcMayFail for void responses)
  */
 async function rpc<T>(stub: DurableObjectStub, method: string, args: unknown[] = []): Promise<T> {
-  const response = await stub.fetch('https://do/rpc', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ method, args })
-  })
+  const { response, data, error } = await rpcMayFail<T>(stub, method, args)
 
   // Handle void responses (delete, remove operations return no content)
-  const text = await response.text()
-  if (!text) {
-    return undefined as unknown as T
+  if (!response.ok && error) {
+    throw new Error(`RPC error (${response.status}): ${JSON.stringify(error)}`)
   }
-  return JSON.parse(text) as T
+
+  return data as T
 }
 
 // ============================================================================

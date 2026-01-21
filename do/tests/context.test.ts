@@ -13,24 +13,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { env, runInDurableObject } from 'cloudflare:test'
 import { DO } from '../DO'
 import type { WorkflowContext } from '../context'
+import { generateTestId, getTestDO as getTestDOFromUtils } from '../../test-utils'
 
 // ============================================================================
-// TEST HELPER FUNCTIONS
+// TEST HELPER FUNCTIONS - Using shared test-utils
 // ============================================================================
 
 /**
- * Generate unique test identifier to ensure test isolation
+ * Get a test DO stub with a unique name (delegates to shared test-utils)
  */
-function generateTestId(): string {
-  return `context-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-/**
- * Get a test DO stub with a unique name
- */
-function getTestDO(name: string = generateTestId()) {
-  const id = env.DO.idFromName(name)
-  return env.DO.get(id)
+function getTestDO(name: string = generateTestId('context-test')) {
+  return getTestDOFromUtils(env, name)
 }
 
 // ============================================================================
