@@ -349,16 +349,11 @@ describe('Static Build Configuration', () => {
 })
 
 describe('Build Process (Integration)', () => {
-  it.skip('should run build:static command successfully', () => {
+  it('should run build:static command successfully', () => {
     // This test actually runs the build command
-    // SKIPPED: TanStack Start has version misalignment issues between packages
-    // (1.120.x vs 1.153.x) causing build failures during prerendering.
-    // See: https://github.com/TanStack/router/issues - version compatibility
-    // Re-enable when @tanstack/start packages are version-aligned.
-    //
-    // To run manually: RUN_BUILD_TEST=true npx vitest run app/tests/build.test.ts
-    if (process.env.RUN_BUILD_TEST !== 'true') {
-      console.log('ℹ️  Skipping build test (set RUN_BUILD_TEST=true to enable)')
+    // Skip in CI if not explicitly enabled
+    if (process.env.SKIP_BUILD_TEST === 'true') {
+      console.log('ℹ️  Skipping build test (SKIP_BUILD_TEST=true)')
       expect(true).toBe(true)
       return
     }

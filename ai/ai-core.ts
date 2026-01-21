@@ -14,74 +14,10 @@
  * - Model configuration and routing
  * - Completion API compatibility
  * - Chat API support
- *
- * Error handling, mock model support, and model resolution are
- * extracted to separate modules for maintainability:
- * - ./errors.ts - Error class hierarchy
- * - ./mock.ts - Mock model configuration and creation
- * - ./models.ts - Model aliases and resolution
  */
 
+import type { LanguageModel, EmbeddingModel } from 'ai'
 import type { ZodTypeAny } from 'zod'
-
-// Import from extracted modules
-import {
-  AIError,
-  AIModelResolutionError,
-  AIProviderError,
-  AIGenerationError,
-  AIObjectGenerationError,
-  AIEmbeddingError,
-  AIStreamError,
-  MockModelNotAllowedError,
-  extractErrorDetails,
-  buildErrorOptions,
-} from './errors'
-
-import {
-  type MockModelConfig,
-  configureMockModel,
-  getMockConfig,
-  resetMockConfig,
-  isMockModel,
-  shouldAllowMock,
-  warnMockUsage,
-  generateMockEmbedding,
-} from './mock'
-
-import {
-  type LanguageModel,
-  type EmbeddingModel,
-  resolveModel,
-  resolveEmbeddingModel,
-} from './models'
-
-// Re-export error classes and utilities for backward compatibility
-export {
-  AIError,
-  AIModelResolutionError,
-  AIProviderError,
-  AIGenerationError,
-  AIObjectGenerationError,
-  AIEmbeddingError,
-  AIStreamError,
-  MockModelNotAllowedError,
-}
-
-// Re-export mock configuration functions for backward compatibility
-export {
-  type MockModelConfig,
-  configureMockModel,
-  getMockConfig,
-  resetMockConfig,
-}
-
-// Import Provider from router (don't re-export to avoid duplicate exports in index.ts)
-import type { Provider } from './router'
-
-// ============================================================================
-// Core Type Definitions
-// ============================================================================
 
 // Core types (defined inline to avoid dependency on primitives submodule)
 export interface JSONSchema {
@@ -129,284 +65,188 @@ export interface AIGenerateResult {
   }
 }
 
-// SimpleSchema is a recursive type for simple schema definitions
-// Use interface to avoid circular reference errors with Record<>
-export interface SimpleSchema {
-  [key: string]: string | string[] | SimpleSchema
-}
-
-/**
- * Minimal interface for AI SDK stream chunk types.
- * The actual AI SDK has many chunk types; we only define what we need.
- */
-type StreamChunk =
-  | { type: 'text-delta'; textDelta: string }
-  | { type: 'tool-call'; toolCallId: string; toolName: string; args: unknown }
-  | { type: 'tool-result'; toolCallId: string; result: unknown }
-  | { type: 'error'; error: Error }
-  | { type: 'finish'; finishReason: string; usage?: { promptTokens?: number; completionTokens?: number } }
-  | { type: string; [key: string]: unknown }
+export type SimpleSchema = Record<string, string | string[] | SimpleSchema>
 
 // ============================================================================
 // Provider Configuration
 // ============================================================================
 
-export interface AIProviderConfig {
+export type Provider = 'openai' | 'anthropic' | 'google' | 'cloudflare'
+
+export interface ProviderConfig {
   provider: Provider
   apiKey?: string
   accountId?: string
   defaultModel?: string
 }
 
-// ============================================================================
-// Request-Scoped Provider Context (do-9voby)
-// ============================================================================
-// The global provider registry causes state leakage between requests/tenants.
-// This module provides request-scoped contexts for proper isolation.
-//
-// Memory Management:
-// - ALS contexts are automatically cleaned up when the run() callback completes
-// - Stack-based fallback properly pops context in finally block (handles async)
-// - Global registry is deprecated; use runWithAIProviderContext() for isolation
-// - No memory leaks when using scoped contexts - they're GC'd with the request
+// Global provider registry
+const providers = new Map<Provider, ProviderConfig>()
+let defaultProvider: Provider | null = null
 
 /**
- * Provider context for request-scoped isolation
+ * Configure a provider for AI operations
  */
-export interface AIProviderContext {
-  providers: Map<Provider, AIProviderConfig>
-  defaultProvider: Provider | null
-}
+export function configureProvider(config: ProviderConfig): void {
+  providers.set(config.provider, config)
 
-/**
- * Minimal AsyncLocalStorage interface for type safety.
- * Compatible with Node.js AsyncLocalStorage and Cloudflare Workers.
- */
-interface AsyncLocalStorageInterface<T> {
-  run<R>(store: T, callback: () => R): R
-  getStore(): T | undefined
-}
-
-/**
- * AsyncLocalStorage instance for provider context - lazily initialized.
- */
-let providerContextALS: AsyncLocalStorageInterface<AIProviderContext> | null = null
-
-/**
- * Initialize the AsyncLocalStorage lazily to avoid issues in environments without it.
- * Uses a stack-based fallback for non-ALS environments.
- */
-async function getProviderContextALS(): Promise<AsyncLocalStorageInterface<AIProviderContext>> {
-  if (!providerContextALS) {
-    try {
-      // Dynamic import for cross-platform compatibility (Node.js vs Workers)
-      // Using string variable for module name avoids bundler resolution issues
-      const moduleName = 'node:async_hooks'
-      const asyncHooks = await (import(moduleName) as Promise<{
-        AsyncLocalStorage: new <T>() => AsyncLocalStorageInterface<T>
-      }>)
-
-      if (typeof asyncHooks?.AsyncLocalStorage !== 'function') {
-        throw new Error('AsyncLocalStorage not available')
-      }
-
-      providerContextALS = new asyncHooks.AsyncLocalStorage<AIProviderContext>()
-    } catch {
-      // Fallback: Simple stack-based implementation for non-ALS environments
-      const contextStack: AIProviderContext[] = []
-
-      providerContextALS = {
-        run<R>(store: AIProviderContext, callback: () => R): R {
-          contextStack.push(store)
-
-          try {
-            const result = callback()
-
-            // Handle promises
-            const isPromiseLike = (val: unknown): val is PromiseLike<unknown> =>
-              val !== null &&
-              typeof val === 'object' &&
-              typeof (val as PromiseLike<unknown>).then === 'function'
-
-            if (isPromiseLike(result)) {
-              const resultPromise = Promise.resolve(result).finally(() => {
-                contextStack.pop()
-              })
-              return resultPromise as unknown as R
-            }
-
-            contextStack.pop()
-            return result
-          } catch (error) {
-            contextStack.pop()
-            throw error
-          }
-        },
-        getStore(): AIProviderContext | undefined {
-          return contextStack[contextStack.length - 1]
-        },
-      }
-    }
-  }
-  return providerContextALS
-}
-
-/**
- * Run a function with a provider registry scoped to this request.
- *
- * Providers configured within the context are isolated from other requests,
- * preventing tenant data leakage in multi-tenant environments.
- *
- * @param fn - The async function to run with the scoped registry
- * @returns The result of the function
- *
- * @example
- * ```ts
- * // In middleware - ensures tenant isolation
- * app.use(async (c, next) => {
- *   await runWithAIProviderContext(async () => {
- *     await next()
- *   })
- * })
- *
- * // In handler - providers are isolated per request
- * await runWithAIProviderContext(async () => {
- *   configureProvider({
- *     provider: 'anthropic',
- *     apiKey: request.headers.get('X-Anthropic-Key'),
- *   })
- *
- *   // This provider config is only visible within this context
- * })
- * ```
- */
-export async function runWithAIProviderContext<T>(fn: () => T | Promise<T>): Promise<T> {
-  const als = await getProviderContextALS()
-  const context: AIProviderContext = {
-    providers: new Map(),
-    defaultProvider: null,
-  }
-  return als.run(context, fn) as T | Promise<T> as Promise<T>
-}
-
-/**
- * Get the current provider context from the request scope.
- * Returns undefined if not running within runWithAIProviderContext().
- *
- * @returns The current AIProviderContext or undefined
- */
-export function getCurrentAIProviderContext(): AIProviderContext | undefined {
-  if (!providerContextALS) {
-    return undefined
-  }
-  return providerContextALS.getStore()
-}
-
-/**
- * Get the active provider registry - context-scoped if available, otherwise global.
- *
- * When running within runWithAIProviderContext(), returns the request-scoped registry.
- * When running outside a context, falls back to the global registry (deprecated behavior).
- *
- * @returns The active provider context
- * @internal
- */
-function getActiveProviderContext(): AIProviderContext {
-  const contextStore = providerContextALS?.getStore()
-  return contextStore ?? globalProviderContext
-}
-
-// ============================================================================
-// Global Provider Registry (DEPRECATED - do-9voby)
-// ============================================================================
-// DEPRECATED: The global registry pattern causes state leakage between
-// requests/tenants. Use runWithAIProviderContext() for proper isolation.
-//
-// Migration guide:
-// 1. Wrap request handlers with runWithAIProviderContext()
-// 2. Providers configured within the context are automatically isolated
-// 3. Use configureProvider() and getProvider() as before - they now
-//    respect the context when available
-
-/**
- * @deprecated Global registry causes tenant state leakage. Use runWithAIProviderContext() instead.
- * @internal
- */
-const globalProviders = new Map<Provider, AIProviderConfig>()
-
-/**
- * @deprecated Global default provider causes tenant state leakage. Use runWithAIProviderContext() instead.
- * @internal
- */
-let globalDefaultProvider: Provider | null = null
-
-/**
- * Global provider context wrapped for backward compatibility.
- * @internal
- */
-const globalProviderContext: AIProviderContext = {
-  get providers() { return globalProviders },
-  get defaultProvider() { return globalDefaultProvider },
-  set defaultProvider(value: Provider | null) { globalDefaultProvider = value },
-}
-
-/**
- * Configure a provider for AI operations.
- *
- * When running inside runWithAIProviderContext(), configures the request-scoped context.
- * Otherwise, configures the global context (deprecated behavior).
- */
-export function configureProvider(config: AIProviderConfig): void {
-  const ctx = getActiveProviderContext()
-  ctx.providers.set(config.provider, config)
-
-  // Set as default if it's the first provider in this context
-  if (ctx.defaultProvider === null) {
-    ctx.defaultProvider = config.provider
+  // Set as default if it's the first provider
+  if (defaultProvider === null) {
+    defaultProvider = config.provider
   }
 }
 
 /**
- * Get provider configuration.
- *
- * When running inside runWithAIProviderContext(), returns from the request-scoped context.
- * Otherwise, returns from the global context (deprecated behavior).
+ * Get provider configuration
  */
-export function getProvider(provider?: Provider): AIProviderConfig | undefined {
-  const ctx = getActiveProviderContext()
-
+export function getProvider(provider?: Provider): ProviderConfig | undefined {
   if (provider) {
-    return ctx.providers.get(provider)
+    return providers.get(provider)
   }
 
-  if (ctx.defaultProvider) {
-    return ctx.providers.get(ctx.defaultProvider)
+  if (defaultProvider) {
+    return providers.get(defaultProvider)
   }
 
   return undefined
 }
 
 /**
- * Clear all provider configurations.
- *
- * When running inside runWithAIProviderContext(), clears the request-scoped context.
- * Otherwise, clears the global context (deprecated behavior).
+ * Clear all provider configurations (useful for testing)
  */
 export function clearProviders(): void {
-  const ctx = getActiveProviderContext()
-  ctx.providers.clear()
-  ctx.defaultProvider = null
+  providers.clear()
+  defaultProvider = null
+}
+
+// ============================================================================
+// Model Resolution
+// ============================================================================
+
+/**
+ * Model aliases for common models
+ */
+const MODEL_ALIASES: Record<string, string> = {
+  // Anthropic
+  'opus': 'claude-opus-4.5',
+  'sonnet': 'claude-sonnet-4.5',
+  'haiku': 'claude-3-5-haiku-20241022',
+
+  // OpenAI
+  'gpt-4o': 'gpt-4o',
+  'gpt-4': 'gpt-4-turbo',
+  'gpt-3.5': 'gpt-3.5-turbo',
+
+  // Google
+  'gemini': 'gemini-2.0-flash-exp',
+  'gemini-pro': 'gemini-1.5-pro',
 }
 
 /**
- * Clear the global provider registry.
- * Useful for testing to reset global state between tests.
- *
- * @deprecated Global registry is deprecated. Use runWithAIProviderContext() for proper isolation.
+ * Resolve model alias to full model ID
  */
-export function clearGlobalProviders(): void {
-  globalProviders.clear()
-  globalDefaultProvider = null
+function resolveModelAlias(model: string): string {
+  return MODEL_ALIASES[model] || model
+}
+
+/**
+ * Get provider from model name
+ */
+function getProviderFromModel(model: string): Provider {
+  const resolvedModel = resolveModelAlias(model)
+
+  if (resolvedModel.startsWith('claude')) return 'anthropic'
+  if (resolvedModel.startsWith('gpt')) return 'openai'
+  if (resolvedModel.startsWith('gemini')) return 'google'
+
+  // Default to configured provider
+  return defaultProvider || 'anthropic'
+}
+
+/**
+ * Check if an error is a module not found error
+ */
+function isModuleNotFoundError(error: unknown): boolean {
+  if (error instanceof Error) {
+    // Node.js/Vite MODULE_NOT_FOUND error codes
+    if ('code' in error && (
+      error.code === 'MODULE_NOT_FOUND' ||
+      error.code === 'ERR_MODULE_NOT_FOUND'
+    )) {
+      return true
+    }
+    // Bundler/ESM import errors - various message formats
+    if (error.message.includes('Cannot find module') ||
+        error.message.includes('Cannot find package') ||
+        error.message.includes('Failed to resolve') ||
+        error.message.includes('Cannot resolve module') ||
+        error.message.includes('Failed to load url')) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Create a mock LanguageModel for testing when ai-providers is not installed.
+ *
+ * IMPORTANT: This should only be used when the ai-providers module is genuinely
+ * not available (development/testing without the optional dependency).
+ * Real errors from ai-providers should propagate to the caller.
+ */
+function createMockModel(modelId: string): LanguageModel {
+  return {
+    provider: 'mock',
+    modelId,
+    specificationVersion: 'v1',
+    async doGenerate(options: any) {
+      return {
+        text: `Mock response for model: ${modelId}`,
+        finishReason: 'stop' as const,
+        usage: { promptTokens: 10, completionTokens: 20 },
+      }
+    },
+    async doStream(options: any) {
+      return {
+        stream: (async function* () {
+          yield { type: 'text-delta' as const, textDelta: 'Mock response' }
+          yield { type: 'finish' as const, finishReason: 'stop' as const, usage: { promptTokens: 10, completionTokens: 20 } }
+        })(),
+      }
+    },
+  } as unknown as LanguageModel
+}
+
+/**
+ * Resolve model string to LanguageModel instance
+ *
+ * Uses ai-providers when available, falls back to mock only when the module
+ * is not installed. Real errors (auth failures, API errors, etc.) are propagated.
+ */
+async function resolveModel(modelArg: string | LanguageModel): Promise<LanguageModel> {
+  // Already a LanguageModel instance
+  if (typeof modelArg !== 'string') {
+    return modelArg
+  }
+
+  // Resolve alias
+  const resolvedModel = resolveModelAlias(modelArg)
+
+  // Try to use ai-providers if available
+  try {
+    const aiProviders = await import('ai-providers')
+    // This may throw errors (auth, config, etc.) - let them propagate!
+    return await aiProviders.model(resolvedModel)
+  } catch (e) {
+    // Only use mock model if ai-providers module is not installed
+    // This allows tests to run without the optional dependency
+    if (isModuleNotFoundError(e)) {
+      return createMockModel(resolvedModel)
+    }
+    // Re-throw real errors (authentication, configuration, API errors, etc.)
+    // These should not be masked by the mock fallback
+    throw e
+  }
 }
 
 // ============================================================================
@@ -440,7 +280,7 @@ export interface GenerateTextResult {
     completionTokens: number
     totalTokens: number
   }
-  finishReason?: string | undefined
+  finishReason?: string
   toolCalls?: Array<{
     name: string
     arguments: unknown
@@ -458,22 +298,16 @@ export interface GenerateTextResult {
  * })
  * console.log(result.text)
  * ```
- *
- * @throws {AIModelResolutionError} When the model cannot be resolved
- * @throws {AIGenerationError} When text generation fails
  */
 export async function generateText(
   options: GenerateTextOptions
 ): Promise<GenerateTextResult> {
-  const modelName = typeof options.model === 'string' ? options.model : 'unknown'
-
-  // Resolve model - may throw AIModelResolutionError
   const model = await resolveModel(options.model)
 
   // Check if we're using the mock (ai-providers not available)
-  if (isMockModel(model)) {
+  if ((model as any).provider === 'mock') {
     // Use mock response directly
-    const mockResult = await model.doGenerate({})
+    const mockResult = await (model as any).doGenerate({})
     return {
       text: mockResult.text,
       usage: {
@@ -486,36 +320,21 @@ export async function generateText(
   }
 
   // Use real AI SDK for actual models
-  try {
-    const { generateText: aiGenerateText } = await import('ai')
+  const { generateText: aiGenerateText } = await import('ai')
 
-    const result = await aiGenerateText({
-      ...options,
-      model,
-    })
+  const result = await aiGenerateText({
+    ...options,
+    model,
+  })
 
-    return {
-      text: result.text,
-      usage: {
-        promptTokens: result.usage?.promptTokens || 0,
-        completionTokens: result.usage?.completionTokens || 0,
-        totalTokens: result.usage?.totalTokens || 0,
-      },
-      finishReason: result.finishReason,
-    }
-  } catch (e) {
-    // Don't wrap our own errors
-    if (e instanceof AIError) {
-      throw e
-    }
-
-    // Wrap provider errors with context
-    const details = extractErrorDetails(e)
-    const cause = e instanceof Error ? e : new Error(String(e))
-    throw new AIGenerationError(
-      `Text generation failed for model "${modelName}": ${details.message}`,
-      buildErrorOptions(modelName, cause, details)
-    )
+  return {
+    text: result.text,
+    usage: {
+      promptTokens: result.usage?.promptTokens || 0,
+      completionTokens: result.usage?.completionTokens || 0,
+      totalTokens: result.usage?.totalTokens || 0,
+    },
+    finishReason: result.finishReason,
   }
 }
 
@@ -549,7 +368,7 @@ export interface GenerateObjectResult<T = unknown> {
     completionTokens: number
     totalTokens: number
   }
-  finishReason?: string | undefined
+  finishReason?: string
 }
 
 /**
@@ -564,20 +383,14 @@ export interface GenerateObjectResult<T = unknown> {
  * })
  * console.log(result.object.colors)
  * ```
- *
- * @throws {AIModelResolutionError} When the model cannot be resolved
- * @throws {AIObjectGenerationError} When object generation fails
  */
 export async function generateObject<T>(
   options: GenerateObjectOptions<T>
 ): Promise<GenerateObjectResult<T>> {
-  const modelName = typeof options.model === 'string' ? options.model : 'unknown'
-
-  // Resolve model - may throw AIModelResolutionError
   const model = await resolveModel(options.model)
 
   // Check if we're using the mock (ai-providers not available)
-  if (isMockModel(model)) {
+  if ((model as any).provider === 'mock') {
     // Return mock object response
     return {
       object: {} as T,
@@ -591,40 +404,22 @@ export async function generateObject<T>(
   }
 
   // Use real AI SDK for actual models
-  try {
-    const { generateObject: aiGenerateObject } = await import('ai')
+  const { generateObject: aiGenerateObject } = await import('ai')
 
-    // The AI SDK's generateObject has complex type constraints that don't align well
-    // with our abstraction layer. We cast through unknown since we handle the result
-    // transformation ourselves.
-    const result = await aiGenerateObject({
-      ...options,
-      model,
-      output: 'object',
-    } as unknown as Parameters<typeof aiGenerateObject>[0])
+  const result = await aiGenerateObject({
+    ...options,
+    model,
+    output: 'object',
+  } as any)
 
-    return {
-      object: result.object as T,
-      usage: {
-        promptTokens: result.usage?.promptTokens || 0,
-        completionTokens: result.usage?.completionTokens || 0,
-        totalTokens: result.usage?.totalTokens || 0,
-      },
-      finishReason: result.finishReason,
-    }
-  } catch (e) {
-    // Don't wrap our own errors
-    if (e instanceof AIError) {
-      throw e
-    }
-
-    // Wrap provider errors with context
-    const details = extractErrorDetails(e)
-    const cause = e instanceof Error ? e : new Error(String(e))
-    throw new AIObjectGenerationError(
-      `Object generation failed for model "${modelName}": ${details.message}`,
-      buildErrorOptions(modelName, cause, details)
-    )
+  return {
+    object: result.object as T,
+    usage: {
+      promptTokens: result.usage?.promptTokens || 0,
+      completionTokens: result.usage?.completionTokens || 0,
+      totalTokens: result.usage?.totalTokens || 0,
+    },
+    finishReason: result.finishReason,
   }
 }
 
@@ -637,7 +432,7 @@ export interface StreamTextOptions extends GenerateTextOptions {
 
 export interface StreamTextResult {
   textStream: AsyncIterable<string>
-  fullStream: AsyncIterable<StreamChunk>
+  fullStream: AsyncIterable<any>
   usage: Promise<{
     promptTokens: number
     completionTokens: number
@@ -659,57 +454,27 @@ export interface StreamTextResult {
  *   process.stdout.write(chunk)
  * }
  * ```
- *
- * @throws {AIModelResolutionError} When the model cannot be resolved
- * @throws {AIStreamError} When streaming fails
  */
 export async function streamText(
   options: StreamTextOptions
 ): Promise<StreamTextResult> {
-  const modelName = typeof options.model === 'string' ? options.model : 'unknown'
+  const { streamText: aiStreamText } = await import('ai')
 
-  try {
-    // Dynamic import of 'ai' package with typed interface for the parts we use
-    interface AIStreamResult {
-      textStream: AsyncIterable<string>
-      fullStream: AsyncIterable<StreamChunk>
-      usage: Promise<{ promptTokens?: number; completionTokens?: number; totalTokens?: number }>
-    }
-    const aiModule = await import('ai') as unknown as {
-      streamText: (options: Record<string, unknown>) => AIStreamResult
-    }
+  const model = await resolveModel(options.model)
 
-    // Resolve model - may throw AIModelResolutionError
-    const model = await resolveModel(options.model)
+  const result = aiStreamText({
+    ...options,
+    model,
+  })
 
-    // streamText returns an object with async properties, not a Promise
-    const result = aiModule.streamText({
-      ...options,
-      model,
-    })
-
-    return {
-      textStream: result.textStream,
-      fullStream: result.fullStream,
-      usage: result.usage.then((u) => ({
-        promptTokens: u?.promptTokens || 0,
-        completionTokens: u?.completionTokens || 0,
-        totalTokens: u?.totalTokens || 0,
-      })),
-    }
-  } catch (e) {
-    // Don't wrap our own errors
-    if (e instanceof AIError) {
-      throw e
-    }
-
-    // Wrap provider errors with context
-    const details = extractErrorDetails(e)
-    const cause = e instanceof Error ? e : new Error(String(e))
-    throw new AIStreamError(
-      `Streaming failed for model "${modelName}": ${details.message}`,
-      buildErrorOptions(modelName, cause, details)
-    )
+  return {
+    textStream: result.textStream,
+    fullStream: result.fullStream,
+    usage: result.usage.then((u: any) => ({
+      promptTokens: u?.promptTokens || 0,
+      completionTokens: u?.completionTokens || 0,
+      totalTokens: u?.totalTokens || 0,
+    })),
   }
 }
 
@@ -723,6 +488,19 @@ export interface EmbedTextOptions {
 }
 
 /**
+ * Generate mock embeddings for testing when ai-providers is not installed.
+ * Returns deterministic mock embeddings based on text length.
+ */
+function generateMockEmbedding(text: string, dimensions: number = 1536): number[] {
+  // Use a simple deterministic algorithm based on text
+  // This ensures tests get consistent results
+  const seed = text.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+  return Array.from({ length: dimensions }, (_, i) =>
+    Math.sin(seed * (i + 1) * 0.001) * 0.5
+  )
+}
+
+/**
  * Generate embeddings for text
  *
  * @example
@@ -733,10 +511,6 @@ export interface EmbedTextOptions {
  * // Multiple texts
  * const embeddings = await embedText(['hello', 'world'])
  * ```
- *
- * @throws {AIModelResolutionError} When the embedding model cannot be resolved
- * @throws {AIEmbeddingError} When embedding generation fails
- * @throws {MockModelNotAllowedError} When mock is needed but not allowed
  */
 export async function embedText(
   text: string | string[],
@@ -745,18 +519,25 @@ export async function embedText(
   const modelName = options?.model || 'text-embedding-3-small'
 
   // Try to get embedding model from ai-providers
-  const model = await resolveEmbeddingModel(modelName)
+  let model: EmbeddingModel | null = null
+  try {
+    const aiProviders = await import('ai-providers')
+    // This may throw errors (auth, config, etc.) - let them propagate!
+    model = await aiProviders.embeddingModel(modelName)
+  } catch (e) {
+    // Only use mock embeddings if ai-providers module is not installed
+    // This allows tests to run without the optional dependency
+    if (isModuleNotFoundError(e)) {
+      model = null
+    } else {
+      // Re-throw real errors (authentication, configuration, API errors, etc.)
+      // These should not be masked by the mock fallback
+      throw e
+    }
+  }
 
   // If ai-providers is not available (module not installed), return mock embeddings
   if (model === null) {
-    // Check if mock is allowed
-    if (!shouldAllowMock()) {
-      throw new MockModelNotAllowedError(modelName)
-    }
-
-    // Warn about mock usage
-    warnMockUsage(modelName, 'embedding')
-
     if (typeof text === 'string') {
       return generateMockEmbedding(text, options?.dimensions)
     }
@@ -764,44 +545,25 @@ export async function embedText(
   }
 
   // Use real AI SDK with the model
-  try {
-    // Dynamic import of 'ai' package with typed interface for the parts we use
-    const aiModule = await import('ai') as unknown as {
-      embed: (options: { model: unknown; value: string }) => Promise<{ embedding: number[] }>
-    }
-    const embed = aiModule.embed
+  const { embed } = await import('ai')
 
-    if (typeof text === 'string') {
-      const result = await embed({
-        model,
-        value: text,
-      })
-      return result.embedding
-    }
-
-    // Multiple texts
-    const results = await Promise.all(
-      text.map(t => embed({
-        model,
-        value: t,
-      }))
-    )
-
-    return results.map((r) => r.embedding)
-  } catch (e) {
-    // Don't wrap our own errors
-    if (e instanceof AIError) {
-      throw e
-    }
-
-    // Wrap provider errors with context
-    const details = extractErrorDetails(e)
-    const cause = e instanceof Error ? e : new Error(String(e))
-    throw new AIEmbeddingError(
-      `Embedding generation failed for model "${modelName}": ${details.message}`,
-      buildErrorOptions(modelName, cause, details)
-    )
+  if (typeof text === 'string') {
+    const result = await embed({
+      model,
+      value: text,
+    })
+    return result.embedding
   }
+
+  // Multiple texts
+  const results = await Promise.all(
+    text.map(t => embed({
+      model,
+      value: t,
+    }))
+  )
+
+  return results.map(r => r.embedding)
 }
 
 // ============================================================================
@@ -851,6 +613,35 @@ export function createTool<TOutput = unknown, TInput = unknown>(
 }
 
 // ============================================================================
+// Completion API (backward compatibility)
+// ============================================================================
+
+export interface CompletionOptions {
+  model: string
+  prompt: string
+  system?: string
+  maxTokens?: number
+  temperature?: number
+  stop?: string[]
+}
+
+/**
+ * Complete a prompt (backward compatibility wrapper)
+ *
+ * @deprecated Use generateText instead
+ */
+export async function complete(options: CompletionOptions): Promise<string> {
+  const result = await generateText({
+    model: options.model,
+    prompt: options.prompt,
+    system: options.system,
+    maxTokens: options.maxTokens,
+    temperature: options.temperature,
+  })
+
+  return result.text
+}
+
 // ============================================================================
 // Chat API
 // ============================================================================
@@ -882,15 +673,12 @@ export interface ChatOptions {
  * ```
  */
 export async function chat(options: ChatOptions): Promise<string> {
-  // Build options with only defined values to satisfy exactOptionalPropertyTypes
-  const genOptions: GenerateTextOptions = {
+  const result = await generateText({
     model: options.model,
     messages: options.messages,
-  }
-  if (options.maxTokens !== undefined) genOptions.maxTokens = options.maxTokens
-  if (options.temperature !== undefined) genOptions.temperature = options.temperature
-
-  const result = await generateText(genOptions)
+    maxTokens: options.maxTokens,
+    temperature: options.temperature,
+  })
 
   return result.text
 }

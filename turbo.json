@@ -14,9 +14,6 @@
     },
     "typecheck": {
       "dependsOn": ["^build"]
-    },
-    "lint": {
-      "dependsOn": []
     }
   }
 }
