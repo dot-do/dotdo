@@ -26,6 +26,8 @@ import type {
   BusinessMetrics,
   DateRange
 } from './types'
+import type { FinancialClient, SaaSMetrics } from '@dotdo/business-finance'
+import { createStripeClient } from '@dotdo/business-finance'
 
 // =============================================================================
 // OKR Helper Functions
@@ -384,7 +386,7 @@ export class Business extends DO {
   // ===========================================================================
 
   get finance(): FinanceAPI {
-    return new FinanceAPI(this)
+    return new FinanceAPI(this, this.businessConfig.finance)
   }
 
   // ===========================================================================
@@ -1247,48 +1249,351 @@ class ExperimentsAPI {
   }
 }
 
+// =============================================================================
+// Feature Flags Helper Functions
+// =============================================================================
+
+/**
+ * Simple string hash function for deterministic percentage rollout.
+ * Uses djb2 algorithm - fast and produces good distribution.
+ *
+ * @param str - String to hash (typically flagKey + userId)
+ * @returns A number in range 0-99 for percentage comparison
+ */
+function hashForRollout(str: string): number {
+  let hash = 5381
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i)
+    // Ensure we stay within 32-bit integer range
+    hash = hash >>> 0
+  }
+  return hash % 100
+}
+
+// =============================================================================
+// FlagsAPI - Feature Flags
+// =============================================================================
+
 class FlagsAPI {
   constructor(private business: Business) {}
 
-  async get(key: string, userId?: string): Promise<boolean | string | number> {
-    throw new Error('Not implemented')
+  /**
+   * Create a new feature flag
+   */
+  async create(data: Omit<FeatureFlag, 'id' | 'createdAt' | 'updatedAt'>): Promise<FeatureFlag> {
+    const now = new Date()
+
+    // Build thing data with proper typing
+    const thingData: { $type: string } & Record<string, string | number | boolean | null> = {
+      $type: 'FeatureFlag',
+      key: data.key,
+      name: data.name,
+      enabled: data.enabled,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    }
+
+    // Add optional fields only if defined
+    if (data.description !== undefined) {
+      thingData['description'] = data.description
+    }
+    if (data.rolloutPercentage !== undefined) {
+      thingData['rolloutPercentage'] = data.rolloutPercentage
+    }
+    if (data.targetSegments !== undefined) {
+      thingData['targetSegments'] = JSON.stringify(data.targetSegments)
+    }
+    if (data.overrides !== undefined) {
+      thingData['overrides'] = JSON.stringify(data.overrides)
+    }
+    if (data.metadata !== undefined) {
+      thingData['metadata'] = JSON.stringify(data.metadata)
+    }
+
+    const thing = await this.business.things.create(thingData as { $type: string } & Record<string, unknown>)
+    return this.thingToFeatureFlag(thing)
   }
 
+  /**
+   * Get a feature flag by key
+   */
+  async get(key: string): Promise<FeatureFlag | null> {
+    const flag = await this.findFlagByKey(key)
+    return flag
+  }
+
+  /**
+   * Check if a feature flag is enabled for a user.
+   *
+   * Evaluation order:
+   * 1. If flag doesn't exist, return false
+   * 2. If flag is disabled (enabled=false), return false (unless user has override)
+   * 3. Check user-specific overrides first
+   * 4. Check rollout percentage using deterministic hash
+   * 5. If no rollout percentage, return flag.enabled
+   */
   async isEnabled(key: string, userId?: string): Promise<boolean> {
-    throw new Error('Not implemented')
+    const flag = await this.findFlagByKey(key)
+
+    // Flag doesn't exist
+    if (!flag) {
+      return false
+    }
+
+    // Check user-specific override first
+    if (userId && flag.overrides && userId in flag.overrides) {
+      return Boolean(flag.overrides[userId])
+    }
+
+    // If flag is disabled, return false
+    if (!flag.enabled) {
+      return false
+    }
+
+    // Check rollout percentage
+    if (flag.rolloutPercentage !== undefined) {
+      // If no userId, use empty string for deterministic result
+      const hashInput = key + (userId ?? '')
+      const bucket = hashForRollout(hashInput)
+      return bucket < flag.rolloutPercentage
+    }
+
+    // Default to enabled status
+    return flag.enabled
   }
 
-  async set(key: string, value: boolean | string | number): Promise<void> {
-    throw new Error('Not implemented')
-  }
-
+  /**
+   * List all feature flags
+   */
   async list(): Promise<FeatureFlag[]> {
-    throw new Error('Not implemented')
+    const things = await this.business.things.list({ type: 'FeatureFlag' })
+    return things.map((thing) => this.thingToFeatureFlag(thing))
+  }
+
+  /**
+   * Update a feature flag by key
+   */
+  async update(key: string, data: Partial<FeatureFlag>): Promise<FeatureFlag> {
+    const flag = await this.findFlagByKey(key)
+    if (!flag) {
+      throw new Error(`Feature flag not found: ${key}`)
+    }
+
+    const now = new Date()
+
+    // Build update data
+    const updateData: Record<string, string | number | boolean | null> = {
+      updatedAt: now.toISOString(),
+    }
+
+    if (data.name !== undefined) updateData['name'] = data.name
+    if (data.description !== undefined) updateData['description'] = data.description
+    if (data.enabled !== undefined) updateData['enabled'] = data.enabled
+    if (data.rolloutPercentage !== undefined) updateData['rolloutPercentage'] = data.rolloutPercentage
+    if (data.targetSegments !== undefined) updateData['targetSegments'] = JSON.stringify(data.targetSegments)
+    if (data.overrides !== undefined) updateData['overrides'] = JSON.stringify(data.overrides)
+    if (data.metadata !== undefined) updateData['metadata'] = JSON.stringify(data.metadata)
+
+    const updated = await this.business.things.update(flag.id, updateData as Record<string, unknown>)
+    return this.thingToFeatureFlag(updated)
+  }
+
+  /**
+   * Delete a feature flag by key
+   */
+  async delete(key: string): Promise<boolean> {
+    const flag = await this.findFlagByKey(key)
+    if (!flag) {
+      return false
+    }
+
+    await this.business.things.delete(flag.id)
+    return true
+  }
+
+  /**
+   * Find a flag by its key (not by id)
+   */
+  private async findFlagByKey(key: string): Promise<FeatureFlag | null> {
+    const all = await this.business.things.list({ type: 'FeatureFlag' })
+    const match = all.find((thing) => thing['key'] === key)
+    if (match) {
+      return this.thingToFeatureFlag(match)
+    }
+    return null
+  }
+
+  /**
+   * Convert a Thing to a FeatureFlag
+   */
+  private thingToFeatureFlag(thing: Record<string, unknown>): FeatureFlag {
+    const result: FeatureFlag = {
+      id: thing['$id'] as string,
+      key: thing['key'] as string,
+      name: thing['name'] as string,
+      enabled: thing['enabled'] as boolean,
+      createdAt: new Date(thing['createdAt'] as string),
+      updatedAt: new Date(thing['updatedAt'] as string),
+    }
+
+    // Conditionally add optional properties only if they exist
+    if (thing['description'] !== undefined) {
+      result.description = thing['description'] as string
+    }
+    if (thing['rolloutPercentage'] !== undefined) {
+      result.rolloutPercentage = thing['rolloutPercentage'] as number
+    }
+    if (thing['targetSegments'] !== undefined) {
+      result.targetSegments = typeof thing['targetSegments'] === 'string'
+        ? JSON.parse(thing['targetSegments'] as string)
+        : thing['targetSegments'] as string[]
+    }
+    if (thing['overrides'] !== undefined) {
+      result.overrides = typeof thing['overrides'] === 'string'
+        ? JSON.parse(thing['overrides'] as string)
+        : thing['overrides'] as Record<string, boolean | string | number>
+    }
+    if (thing['metadata'] !== undefined) {
+      result.metadata = typeof thing['metadata'] === 'string'
+        ? JSON.parse(thing['metadata'] as string)
+        : thing['metadata'] as Record<string, unknown>
+    }
+
+    return result
   }
 }
 
+/**
+ * Finance API - Delegates to FinancialClient (StripeProvider)
+ *
+ * Provides financial operations for SaaS businesses including:
+ * - Customer management
+ * - Subscription management
+ * - Invoice operations
+ * - Payment processing
+ * - SaaS metrics (MRR, ARR, etc.)
+ *
+ * @example
+ * ```typescript
+ * // Access via Business instance
+ * const customer = await business.finance.customers.create({
+ *   email: 'alice@example.com',
+ *   name: 'Alice',
+ * })
+ *
+ * const metrics = await business.finance.metrics.getSaaSMetrics()
+ * console.log(`MRR: $${metrics.mrr / 100}`)
+ * ```
+ */
 class FinanceAPI {
-  constructor(private business: Business) {}
+  private provider: FinancialClient | null = null
+  private config: BusinessConfig['finance']
 
-  // Delegate to @dotdo/business-finance
-  get customers() {
-    throw new Error('Not implemented - requires @dotdo/business-finance')
+  constructor(private business: Business | null, config: BusinessConfig['finance'] = {}) {
+    this.config = config
+
+    // Initialize Stripe provider if API key is provided
+    if (config?.stripeApiKey) {
+      const stripeConfig: { apiKey: string; webhookSecret?: string } = {
+        apiKey: config.stripeApiKey,
+      }
+      if (config.webhookSecret) {
+        stripeConfig.webhookSecret = config.webhookSecret
+      }
+      this.provider = createStripeClient(stripeConfig)
+    }
   }
 
-  get subscriptions() {
-    throw new Error('Not implemented - requires @dotdo/business-finance')
+  /**
+   * Ensure provider is configured, throw helpful error if not
+   */
+  private ensureProvider(): FinancialClient {
+    if (!this.provider) {
+      throw new Error('Stripe is not configured. Provide stripeApiKey in finance config.')
+    }
+    return this.provider
   }
 
-  get invoices() {
-    throw new Error('Not implemented - requires @dotdo/business-finance')
+  /**
+   * Customer operations
+   */
+  get customers(): FinancialClient['customers'] {
+    return this.ensureProvider().customers
   }
 
-  get payments() {
-    throw new Error('Not implemented - requires @dotdo/business-finance')
+  /**
+   * Subscription operations
+   */
+  get subscriptions(): FinancialClient['subscriptions'] {
+    return this.ensureProvider().subscriptions
   }
 
-  get metrics() {
-    throw new Error('Not implemented - requires @dotdo/business-finance')
+  /**
+   * Invoice operations
+   */
+  get invoices(): FinancialClient['invoices'] {
+    return this.ensureProvider().invoices
+  }
+
+  /**
+   * Payment operations
+   */
+  get payments(): FinancialClient['payments'] {
+    return this.ensureProvider().payments
+  }
+
+  /**
+   * SaaS metrics (MRR, ARR, etc.)
+   */
+  get metrics(): FinancialClient['metrics'] {
+    return this.ensureProvider().metrics
+  }
+
+  /**
+   * Webhook handling
+   */
+  get webhooks(): FinancialClient['webhooks'] {
+    return this.ensureProvider().webhooks
+  }
+}
+
+/**
+ * FinanceAPI variant that accepts a pre-configured FinancialClient
+ * This is primarily for testing with mocks
+ */
+class FinanceAPIWithProvider {
+  private provider: FinancialClient
+
+  constructor(
+    private business: Business | null,
+    config: BusinessConfig['finance'] = {},
+    provider: FinancialClient
+  ) {
+    this.provider = provider
+  }
+
+  get customers(): FinancialClient['customers'] {
+    return this.provider.customers
+  }
+
+  get subscriptions(): FinancialClient['subscriptions'] {
+    return this.provider.subscriptions
+  }
+
+  get invoices(): FinancialClient['invoices'] {
+    return this.provider.invoices
+  }
+
+  get payments(): FinancialClient['payments'] {
+    return this.provider.payments
+  }
+
+  get metrics(): FinancialClient['metrics'] {
+    return this.provider.metrics
+  }
+
+  get webhooks(): FinancialClient['webhooks'] {
+    return this.provider.webhooks
   }
 }
 
@@ -1309,4 +1614,4 @@ class AnalyticsAPI {
 // Export
 // =============================================================================
 
-export { GoalsAPI, AggregateBuilder, MetricRef }
+export { GoalsAPI, AggregateBuilder, MetricRef, FinanceAPI, FinanceAPIWithProvider }
