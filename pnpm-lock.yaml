@@ -151,6 +151,9 @@ importers:
       '@dotdo/rpc':
         specifier: workspace:*
         version: link:../rpc
+      ai-evaluate:
+        specifier: workspace:../primitives/packages/ai-evaluate
+        version: link:../primitives/packages/ai-evaluate
       hono:
         specifier: ^4.7.0
         version: 4.11.4
