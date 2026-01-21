@@ -2,24 +2,15 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to release (e.g., 0.1.0)'
-        required: true
-        type: string
-      dry_run:
-        description: 'Dry run (skip actual publish)'
-        required: false
-        default: false
-        type: boolean
+    branches:
+      - main
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
   release:
+    name: Release
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -31,7 +22,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
@@ -39,24 +30,18 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm run build
+        run: pnpm build
 
       - name: Run tests
-        run: pnpm run test:run
+        run: pnpm test:run
 
       - name: Typecheck
-        run: pnpm run typecheck
+        run: pnpm typecheck
 
-      - name: Publish to npm
-        if: ${{ !inputs.dry_run }}
-        run: pnpm publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Create GitHub Release
-        if: ${{ !inputs.dry_run && startsWith(github.ref, 'refs/tags/') }}
-        uses: softprops/action-gh-release@v1
+      - name: Create Release Pull Request or Publish
+        uses: changesets/action@v1
         with:
-          generate_release_notes: true
+          publish: pnpm changeset publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

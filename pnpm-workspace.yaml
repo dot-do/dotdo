@@ -3,6 +3,7 @@ packages:
   - rpc
   - rpc.do
   - sdk.do
+  - platform.do
   - mcp
   - auth
   - oauth
@@ -18,5 +19,11 @@ packages:
   - business
   - business/finance
   - observability
+  - testing
   - test-utils
+  - fsx
+  - npmx
+  - bashx
+  - gitx
+  - e2e
   - examples/*

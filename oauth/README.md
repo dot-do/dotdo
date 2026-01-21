@@ -1,78 +1,22 @@
 # @dotdo/oauth
 
-OAuth 2.1 + PKCE client for dotdo, designed for Cloudflare Workers with zero Node.js dependencies.
+> OAuth 2.1 + PKCE for Cloudflare Workers
 
-## Overview
+## OAuth Shouldn't Be This Hard
 
-`@dotdo/oauth` provides a complete OAuth 2.1 implementation:
+You need to add "Login with Google" to your app. Simple, right?
 
-- PKCE (Proof Key for Code Exchange) per RFC 7636
-- State token generation for CSRF protection
-- Built-in providers (Google, GitHub, Microsoft)
-- Session storage adapters (Memory, KV, D1)
-- Hono middleware for authorization flows
-- MCP (Model Context Protocol) OAuth 2.1 support per RFC 9728
-- Web Crypto API based (runs in Workers, no Node.js)
+Then you read the OAuth spec. And PKCE. And state tokens. And CSRF protection. And session management. And suddenly you're three days deep in RFCs, debugging cryptic token exchange failures, and questioning your career choices.
 
-## Installation
+**OAuth is notoriously complex:**
 
-```bash
-npm install @dotdo/oauth
-```
+- PKCE requires SHA-256 hashing and base64url encoding
+- State tokens need cryptographic randomness and timing-safe comparison
+- Session storage must handle TTL, rotation, and cross-request persistence
+- Each provider (Google, GitHub, Microsoft) has subtle differences
+- One mistake and you have a security vulnerability
 
-## Quick Start
-
-### Basic PKCE Flow
-
-```typescript
-import { generatePKCE, generateState, validatePKCE } from '@dotdo/oauth'
-
-// 1. Generate PKCE pair and state for authorization request
-const { verifier, challenge, method } = await generatePKCE()
-const state = await generateState()
-
-// Store verifier securely (e.g., session)
-sessionStorage.setItem('pkce_verifier', verifier)
-sessionStorage.setItem('oauth_state', state)
-
-// 2. Build authorization URL
-const authUrl = new URL('https://provider.com/authorize')
-authUrl.searchParams.set('client_id', 'your-client-id')
-authUrl.searchParams.set('redirect_uri', 'https://yourapp.com/callback')
-authUrl.searchParams.set('response_type', 'code')
-authUrl.searchParams.set('code_challenge', challenge)
-authUrl.searchParams.set('code_challenge_method', method)
-authUrl.searchParams.set('state', state)
-
-// 3. Redirect user to authUrl...
-
-// 4. On callback, validate and exchange code
-const isValid = await validatePKCE(storedVerifier, storedChallenge, 'S256')
-```
-
-### Using Providers
-
-```typescript
-import { createGoogleProvider, MemorySessionStore } from '@dotdo/oauth'
-
-const google = createGoogleProvider({
-  clientId: process.env.GOOGLE_CLIENT_ID,
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  redirectUri: 'https://yourapp.com/callback',
-  scopes: ['openid', 'email', 'profile'],
-})
-
-// Get authorization URL
-const authUrl = google.getAuthorizationUrl(state, codeChallenge)
-
-// Exchange code for tokens
-const tokens = await google.exchangeCode(code, codeVerifier)
-
-// Get user info
-const user = await google.getUser(tokens.access_token)
-```
-
-### With Hono Middleware
+## Make OAuth Easy
 
 ```typescript
 import { Hono } from 'hono'
@@ -81,171 +25,177 @@ import {
   createAuthorizeHandler,
   createCallbackHandler,
   createGoogleProvider,
-  MemorySessionStore,
+  KVSessionStore,
 } from '@dotdo/oauth'
 
 const app = new Hono()
-const sessionStore = new MemorySessionStore()
 
 const google = createGoogleProvider({
-  clientId: process.env.GOOGLE_CLIENT_ID,
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  redirectUri: 'https://yourapp.com/oauth/callback',
+  clientId: env.GOOGLE_CLIENT_ID,
+  clientSecret: env.GOOGLE_CLIENT_SECRET,
+  redirectUri: 'https://yourapp.com/auth/callback',
 })
 
-// Protect routes with session validation
+const sessions = new KVSessionStore(env.SESSIONS)
+
+// Login endpoint
+app.get('/auth/login', createAuthorizeHandler({
+  provider: google,
+  storePKCE: async (pkce, c) => { /* store in session */ },
+  storeState: async (state, c) => { /* store in session */ },
+}))
+
+// OAuth callback
+app.get('/auth/callback', createCallbackHandler({
+  provider: google,
+  sessionStore: sessions,
+  getStoredPKCE: async (c) => { /* retrieve from session */ },
+  getStoredState: async (c) => { /* retrieve from session */ },
+}))
+
+// Protect your routes
+app.use('/api/*', oauthMiddleware({ sessionStore: sessions }))
+
+// That's it. Secure OAuth with session management.
+```
+
+## Features
+
+- **OAuth 2.1 + PKCE** - Modern, secure by default. S256 challenge method, timing-safe comparisons
+- **Multiple Providers** - Google, GitHub, Microsoft built-in, plus custom provider support
+- **Session Storage** - Memory, KV, and D1 adapters with automatic TTL expiration
+- **MCP Support** - Full Model Context Protocol OAuth 2.1 (RFC 9728) compliance
+- **Workers Native** - Web Crypto API only, zero Node.js dependencies
+
+## Quick Start
+
+### Install
+
+```bash
+npm install @dotdo/oauth
+```
+
+### 1. Create a Provider
+
+```typescript
+import { createGoogleProvider } from '@dotdo/oauth'
+
+const google = createGoogleProvider({
+  clientId: 'your-client-id',
+  clientSecret: 'your-client-secret',
+  redirectUri: 'https://yourapp.com/callback',
+  scopes: ['openid', 'email', 'profile'],
+})
+```
+
+### 2. Choose Session Storage
+
+```typescript
+// For development
+import { MemorySessionStore } from '@dotdo/oauth'
+const sessions = new MemorySessionStore()
+
+// For production with Cloudflare KV
+import { KVSessionStore } from '@dotdo/oauth'
+const sessions = new KVSessionStore(env.SESSIONS)
+
+// For production with Cloudflare D1
+import { D1SessionStore, D1_SESSION_SCHEMA } from '@dotdo/oauth'
+const sessions = new D1SessionStore(env.DB)
+await env.DB.exec(D1_SESSION_SCHEMA) // Run once to create table
+```
+
+### 3. Set Up Routes
+
+```typescript
+import { Hono } from 'hono'
+import {
+  createAuthorizeHandler,
+  createCallbackHandler,
+  oauthMiddleware,
+} from '@dotdo/oauth'
+
+const app = new Hono()
+
+// Start OAuth flow
+app.get('/auth/login', createAuthorizeHandler({
+  provider: google,
+  storePKCE: async (pkce, c) => { /* store PKCE pair */ },
+  storeState: async (state, c) => { /* store state token */ },
+}))
+
+// Handle OAuth callback
+app.get('/auth/callback', createCallbackHandler({
+  provider: google,
+  sessionStore: sessions,
+  getStoredPKCE: async (c) => { /* retrieve PKCE pair */ },
+  getStoredState: async (c) => { /* retrieve state token */ },
+}))
+
+// Protect routes
 app.use('/api/*', oauthMiddleware({
-  sessionStore,
+  sessionStore: sessions,
   excludePaths: ['/api/public'],
 }))
 
-// Authorization endpoint
-app.get('/oauth/authorize', createAuthorizeHandler({
-  provider: google,
-  sessionStore,
-}))
-
-// Callback endpoint
-app.get('/oauth/callback', createCallbackHandler({
-  provider: google,
-  sessionStore,
-  onSuccess: async (c, session) => {
-    return c.redirect('/dashboard')
-  },
-}))
-
-// Protected route
-app.get('/api/profile', (c) => {
+// Access session in protected routes
+app.get('/api/me', (c) => {
   const session = c.get('session')
   return c.json({ userId: session.userId })
 })
-
-export default app
 ```
 
-## API Reference
+## Providers
 
-### PKCE Functions
-
-#### `generatePKCE(method?)`
-
-Generate a complete PKCE pair (verifier + challenge).
+### Google
 
 ```typescript
-const { verifier, challenge, method } = await generatePKCE('S256')
-```
+import { createGoogleProvider } from '@dotdo/oauth'
 
-**Parameters:**
-- `method` - Challenge method: `'S256'` (default, recommended) or `'plain'`
-
-**Returns:** `PKCEPair` with `verifier`, `challenge`, and `method`
-
-#### `generateVerifier(byteLength?)`
-
-Generate a cryptographically random code verifier.
-
-```typescript
-const verifier = await generateVerifier(32) // 43 characters
-```
-
-#### `createChallenge(verifier, method?)`
-
-Create a code challenge from a verifier.
-
-```typescript
-const challenge = await createChallenge(verifier, 'S256')
-```
-
-#### `validatePKCE(verifier, challenge, method)`
-
-Validate a PKCE code verifier against a stored challenge.
-
-```typescript
-const isValid = await validatePKCE(verifier, challenge, 'S256')
-```
-
-### State Functions
-
-#### `generateState(byteLength?)`
-
-Generate a cryptographically random state token.
-
-```typescript
-const state = await generateState()
-```
-
-#### `validateState(received, expected)`
-
-Validate state token (timing-safe comparison).
-
-```typescript
-const isValid = validateState(receivedState, expectedState)
-```
-
-#### `createStateWithMetadata(metadata)`
-
-Create state with embedded metadata (JSON encoded).
-
-```typescript
-const state = await createStateWithMetadata({
-  returnTo: '/dashboard',
-  provider: 'google',
-})
-```
-
-#### `parseStateMetadata(state)`
-
-Parse metadata from state token.
-
-```typescript
-const metadata = parseStateMetadata(state)
-// { returnTo: '/dashboard', provider: 'google' }
-```
-
-### Providers
-
-#### `createGoogleProvider(config)`
-
-```typescript
 const google = createGoogleProvider({
-  clientId: 'your-client-id',
-  clientSecret: 'your-client-secret',
+  clientId: env.GOOGLE_CLIENT_ID,
+  clientSecret: env.GOOGLE_CLIENT_SECRET,
   redirectUri: 'https://yourapp.com/callback',
   scopes: ['openid', 'email', 'profile'],
-  accessType: 'offline', // For refresh tokens
-  prompt: 'consent',
-  hostedDomain: 'example.com', // Restrict to domain
+  accessType: 'offline', // Get refresh tokens
+  prompt: 'consent',     // Force consent screen
+  hostedDomain: 'acme.com', // Restrict to domain
 })
 ```
 
-#### `createGitHubProvider(config)`
+### GitHub
 
 ```typescript
+import { createGitHubProvider } from '@dotdo/oauth'
+
 const github = createGitHubProvider({
-  clientId: 'your-client-id',
-  clientSecret: 'your-client-secret',
+  clientId: env.GITHUB_CLIENT_ID,
+  clientSecret: env.GITHUB_CLIENT_SECRET,
   redirectUri: 'https://yourapp.com/callback',
-  scopes: ['user:email', 'read:user'],
+  scopes: ['read:user', 'user:email'],
+  allowSignup: true,
 })
 ```
 
-#### `createMicrosoftProvider(config)`
+### Microsoft
 
 ```typescript
+import { createMicrosoftProvider } from '@dotdo/oauth'
+
 const microsoft = createMicrosoftProvider({
-  clientId: 'your-client-id',
-  clientSecret: 'your-client-secret',
+  clientId: env.MICROSOFT_CLIENT_ID,
+  clientSecret: env.MICROSOFT_CLIENT_SECRET,
   redirectUri: 'https://yourapp.com/callback',
-  tenant: 'common', // or specific tenant ID
+  tenant: 'common', // or 'organizations', 'consumers', or tenant ID
   scopes: ['openid', 'email', 'profile'],
 })
 ```
 
-#### `createCustomProvider(config)`
-
-For any OAuth 2.1 compliant provider:
+### Custom Provider
 
 ```typescript
+import { createCustomProvider } from '@dotdo/oauth'
+
 const custom = createCustomProvider({
   name: 'my-provider',
   clientId: 'your-client-id',
@@ -258,105 +208,50 @@ const custom = createCustomProvider({
 })
 ```
 
-### Session Storage
+## Session Storage
 
-#### `MemorySessionStore`
-
-In-memory storage (for testing/development):
+### Memory (Development)
 
 ```typescript
-const store = new MemorySessionStore({
-  ttl: 3600000, // 1 hour in milliseconds
+import { MemorySessionStore } from '@dotdo/oauth'
+
+const sessions = new MemorySessionStore({
+  defaultTTL: 24 * 60 * 60 * 1000, // 24 hours in ms
 })
 ```
 
-#### `KVSessionStore`
+### Cloudflare KV (Production)
 
-Cloudflare KV storage:
+Best for read-heavy workloads with global distribution.
 
 ```typescript
-const store = new KVSessionStore({
-  kv: env.SESSIONS,
+import { KVSessionStore } from '@dotdo/oauth'
+
+const sessions = new KVSessionStore(env.SESSIONS, {
   prefix: 'session:',
-  ttl: 3600, // 1 hour in seconds
+  defaultTTL: 24 * 60 * 60 * 1000, // 24 hours
 })
 ```
 
-#### `D1SessionStore`
+### Cloudflare D1 (Production)
 
-Cloudflare D1 storage:
+Best for strong consistency and complex queries.
 
 ```typescript
-const store = new D1SessionStore({
-  db: env.DB,
-  tableName: 'sessions',
-})
+import { D1SessionStore, D1_SESSION_SCHEMA } from '@dotdo/oauth'
 
-// Create table (run once)
+// Create table (run once during setup)
 await env.DB.exec(D1_SESSION_SCHEMA)
+
+const sessions = new D1SessionStore(env.DB, {
+  tableName: 'sessions',
+  defaultTTL: 24 * 60 * 60 * 1000,
+})
 ```
 
-### Middleware
+## MCP OAuth 2.1
 
-#### `oauthMiddleware(options)`
-
-Session validation middleware for Hono.
-
-```typescript
-app.use('/*', oauthMiddleware({
-  sessionStore,
-  cookieName: 'session', // Default
-  excludePaths: ['/public', '/health'],
-  verifyToken: async (token) => {
-    // Optional: Custom JWT verification
-    return { sub: 'user-id', email: 'user@example.com' }
-  },
-}))
-```
-
-#### `createAuthorizeHandler(options)`
-
-Creates the `/authorize` endpoint handler.
-
-```typescript
-app.get('/oauth/authorize', createAuthorizeHandler({
-  provider: google,
-  sessionStore,
-}))
-```
-
-#### `createCallbackHandler(options)`
-
-Creates the `/callback` endpoint handler.
-
-```typescript
-app.get('/oauth/callback', createCallbackHandler({
-  provider: google,
-  sessionStore,
-  onSuccess: async (c, session) => {
-    return c.redirect('/dashboard')
-  },
-  onError: async (c, error) => {
-    return c.redirect('/login?error=' + error.message)
-  },
-}))
-```
-
-#### `createTokenEndpoint(options)`
-
-Creates a token endpoint (for acting as an OAuth server).
-
-```typescript
-app.post('/oauth/token', createTokenEndpoint({
-  sessionStore,
-  issuer: 'https://yourapp.com',
-  audience: 'api.yourapp.com',
-}))
-```
-
-### MCP OAuth 2.1 Support
-
-For Model Context Protocol servers per RFC 9728:
+Full Model Context Protocol OAuth support per RFC 9728.
 
 ```typescript
 import {
@@ -372,21 +267,89 @@ const app = new Hono()
 
 // Discovery endpoints
 app.get('/.well-known/mcp-server', createMCPServerMetadataHandler({
-  name: 'My MCP Server',
-  version: '1.0.0',
-  capabilities: ['tools', 'prompts'],
+  resourceServer: 'https://api.yourapp.com',
+  authorizationServers: ['https://yourapp.com'],
 }))
 
 app.get('/.well-known/oauth-authorization-server', createAuthServerMetadataHandler({
   issuer: 'https://yourapp.com',
   authorizationEndpoint: 'https://yourapp.com/oauth/authorize',
   tokenEndpoint: 'https://yourapp.com/oauth/token',
+  responseTypesSupported: ['code'],
+  codeChallengeMethodsSupported: ['S256'],
 }))
 
-// MCP-specific OAuth flow
+app.get('/.well-known/oauth-protected-resource', createProtectedResourceMetadataHandler({
+  resource: 'https://api.yourapp.com',
+  authorizationServers: ['https://yourapp.com'],
+  bearerMethodsSupported: ['header'],
+}))
+
+// MCP OAuth endpoints
 app.get('/oauth/authorize', createMCPAuthorizeHandler({ /* ... */ }))
 app.get('/oauth/callback', createMCPCallbackHandler({ /* ... */ }))
 app.post('/oauth/token', createMCPTokenEndpoint({ /* ... */ }))
+```
+
+## Low-Level API
+
+For custom implementations, use the core functions directly.
+
+### PKCE
+
+```typescript
+import { generatePKCE, generateVerifier, createChallenge, validatePKCE } from '@dotdo/oauth'
+
+// Generate complete PKCE pair
+const { verifier, challenge, method } = await generatePKCE('S256')
+
+// Or build manually
+const verifier = await generateVerifier(32) // 43 characters
+const challenge = await createChallenge(verifier, 'S256')
+
+// Validate on callback (timing-safe)
+const isValid = await validatePKCE(receivedVerifier, storedChallenge, 'S256')
+```
+
+### State Tokens
+
+```typescript
+import {
+  generateState,
+  validateState,
+  createStateWithMetadata,
+  parseStateMetadata,
+  createStateWithExpiry,
+  isStateExpired,
+} from '@dotdo/oauth'
+
+// Simple state
+const state = await generateState()
+const isValid = validateState(receivedState, storedState)
+
+// State with metadata
+const state = await createStateWithMetadata({
+  returnTo: '/dashboard',
+  provider: 'google',
+})
+const metadata = parseStateMetadata(state) // { returnTo: '/dashboard', provider: 'google' }
+
+// State with expiry
+const state = await createStateWithExpiry(5 * 60 * 1000) // 5 minutes
+const expired = isStateExpired(state)
+```
+
+## Subpath Exports
+
+Import specific modules for smaller bundles:
+
+```typescript
+import { generatePKCE } from '@dotdo/oauth/pkce'
+import { generateState } from '@dotdo/oauth/state'
+import { KVSessionStore } from '@dotdo/oauth/storage'
+import { createGoogleProvider } from '@dotdo/oauth/providers'
+import { oauthMiddleware } from '@dotdo/oauth/middleware'
+import { createMCPServerMetadataHandler } from '@dotdo/oauth/mcp'
 ```
 
 ## Types
@@ -407,37 +370,42 @@ import type {
   OAuthProvider,
   OAuthProviderConfig,
   UserInfo,
+  GoogleProviderConfig,
+  GitHubProviderConfig,
+  MicrosoftProviderConfig,
+  CustomProviderConfig,
 
   // Session
   SessionData,
   SessionStore,
+  SessionStoreOptions,
+  KVSessionStoreOptions,
+  D1SessionStoreOptions,
 
   // Middleware
   OAuthMiddlewareOptions,
+  JwtPayload,
   CallbackHandlerOptions,
+  CookieOptions,
+  AuthorizeHandlerOptions,
+  TokenEndpointOptions,
 
   // MCP
   MCPServerMetadata,
   AuthServerMetadata,
+  ProtectedResourceMetadata,
+  BearerMethod,
+  MCPOAuthProvider,
+  MCPAuthorizeHandlerOptions,
+  MCPCallbackHandlerOptions,
+  MCPTokenEndpointOptions,
+  MCPScopeValidationResult,
 } from '@dotdo/oauth'
-```
-
-## Subpath Exports
-
-Import specific modules for smaller bundles:
-
-```typescript
-import { generatePKCE } from '@dotdo/oauth/pkce'
-import { generateState } from '@dotdo/oauth/state'
-import { MemorySessionStore } from '@dotdo/oauth/storage'
-import { createGoogleProvider } from '@dotdo/oauth/providers'
-import { oauthMiddleware } from '@dotdo/oauth/middleware'
-import { createMCPServerMetadataHandler } from '@dotdo/oauth/mcp'
 ```
 
 ## Related Packages
 
-- [@dotdo/auth](/auth) - JWT/API key authentication middleware
+- [@dotdo/auth](/auth) - JWT and API key authentication
 - [@dotdo/api](/api) - Self-describing API framework
 - [@dotdo/do](/do) - Durable Object base class
 
