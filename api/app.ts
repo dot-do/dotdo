@@ -9,6 +9,10 @@ import { getErrorMessage } from '../rpc/errors'
 import { HealthService, DiscoveryService } from './services'
 import { rateLimitMiddleware, type RateLimitConfig, type RateLimitTier } from './middleware/rate-limit'
 import { bodySizeLimitMiddleware, DEFAULT_MAX_BODY_SIZE } from './middleware/body-size-limit'
+import { createStructuredLogger } from '../observability/logger'
+
+// Create a structured logger for the API
+const logger = createStructuredLogger({ service: 'dotdo-api' })
 
 export interface APIOptions {
   basePath?: string
@@ -94,17 +98,14 @@ function loggingMiddleware(): MiddlewareHandler {
     const status = c.res.status
     const requestId = c.get('requestId')
 
-    // Simple console logging (would be replaced with structured logging in production)
-    console.log(
-      JSON.stringify({
-        requestId,
-        method,
-        url,
-        status,
-        duration: `${duration}ms`,
-        timestamp: new Date().toISOString()
-      })
-    )
+    // Structured logging with observability
+    logger.info('Request completed', {
+      requestId,
+      method,
+      url,
+      status,
+      duration: `${duration}ms`,
+    })
   }
 }
 
@@ -140,7 +141,7 @@ export function createAPI(options?: APIOptions) {
     }
 
     // Handle all other errors as 500
-    console.error('Unhandled error:', error)
+    logger.error('Unhandled error', error instanceof Error ? error : new Error(String(error)))
     return c.json(
       {
         error: getErrorMessage(error),

@@ -11,16 +11,19 @@ import { HTTPException } from 'hono/http-exception'
 describe('api/app.ts - createAPI', () => {
   // Suppress console output during tests
   let consoleLogSpy: ReturnType<typeof vi.spyOn>
+  let consoleInfoSpy: ReturnType<typeof vi.spyOn>
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
-    // Current implementation uses console.log with JSON.stringify for logging
+    // Structured logger uses console.info for info-level logs
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
   afterEach(() => {
     consoleLogSpy.mockRestore()
+    consoleInfoSpy.mockRestore()
     consoleErrorSpy.mockRestore()
   })
 
@@ -309,17 +312,21 @@ describe('api/app.ts - createAPI', () => {
   })
 
   describe('Logging Middleware', () => {
-    it('should log request details as JSON', async () => {
+    it('should log request details as JSON using structured logger', async () => {
       const app = createAPI()
       await app.request('http://localhost/health')
 
-      // Current implementation uses console.log with JSON.stringify
-      expect(consoleLogSpy).toHaveBeenCalled()
+      // Structured logger uses console.info for info-level logs
+      expect(consoleInfoSpy).toHaveBeenCalled()
 
       // Parse the JSON log output
-      const logCall = consoleLogSpy.mock.calls[0][0]
+      const logCall = consoleInfoSpy.mock.calls[0][0]
       const logData = JSON.parse(logCall)
 
+      // Structured logger adds standard fields
+      expect(logData).toHaveProperty('level', 'info')
+      expect(logData).toHaveProperty('service', 'dotdo-api')
+      expect(logData).toHaveProperty('message', 'Request completed')
       expect(logData).toHaveProperty('method', 'GET')
       expect(logData).toHaveProperty('url', 'http://localhost/health')
       expect(logData).toHaveProperty('status', 200)
@@ -334,11 +341,11 @@ describe('api/app.ts - createAPI', () => {
       await app.request('http://localhost/health')
       await app.request('http://localhost/not-found')
 
-      expect(consoleLogSpy).toHaveBeenCalledTimes(2)
+      expect(consoleInfoSpy).toHaveBeenCalledTimes(2)
 
       // Parse JSON from both calls
-      const successLog = JSON.parse(consoleLogSpy.mock.calls[0][0])
-      const errorLog = JSON.parse(consoleLogSpy.mock.calls[1][0])
+      const successLog = JSON.parse(consoleInfoSpy.mock.calls[0][0])
+      const errorLog = JSON.parse(consoleInfoSpy.mock.calls[1][0])
 
       expect(successLog.status).toBe(200)
       expect(errorLog.status).toBe(404)
@@ -348,7 +355,7 @@ describe('api/app.ts - createAPI', () => {
       const app = createAPI()
       await app.request('http://localhost/health')
 
-      const logData = JSON.parse(consoleLogSpy.mock.calls[0][0])
+      const logData = JSON.parse(consoleInfoSpy.mock.calls[0][0])
       expect(logData.duration).toMatch(/^\d+ms$/)
     })
   })
