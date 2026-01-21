@@ -1,4 +1,5 @@
 // @dotdo/utils - Shared utility functions
-// Provides logging, helpers, and common utilities
+// Provides logging, helpers, proxy utilities, and common utilities
 
 export * from './logger'
+export * from './proxy'

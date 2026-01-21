@@ -45,14 +45,14 @@ import type { Transport } from './transport/types'
 import { FetchTransport, generateCorrelationId, CORRELATION_ID_HEADER } from './transport/fetch'
 import { fromSerializedError, RPCError } from './errors'
 
-// Import shared proxy utilities from @dotdo/do
+// Import shared proxy utilities from @dotdo/utils
 // These provide the core proxy patterns used across the codebase
 import {
   createDeepRPCProxy,
   createEventProxy,
   createScheduleProxy,
   PROMISE_PROPS,
-} from '../../do/utils/proxy'
+} from '@dotdo/utils'
 
 /**
  * Extended options for createClient with transport support

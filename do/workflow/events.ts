@@ -18,9 +18,8 @@
  * @module do/workflow/events
  */
 
-import { createNestedProxy } from '../utils/proxy'
+import { createNestedProxy, createLogger } from '@dotdo/utils'
 import { isRetryableError, ValidationError } from '@dotdo/rpc'
-import { createLogger } from '../../utils/logger'
 
 const logger = createLogger('[EventHandlers]')
 
