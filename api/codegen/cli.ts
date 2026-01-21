@@ -1,7 +1,8 @@
 // CLI command generation from API schema
 // Implements: do-7rf.7.6 - CLI command generation for @dotdo/api
 
-import type { ResourceDefinition } from '../resource'
+import type { ResourceDefinition, ActionDef, RelationDef } from '../resource'
+import type { StorableData, JsonValue } from '@dotdo/db'
 
 /**
  * Options for CLI generation
@@ -46,7 +47,7 @@ export interface CLIOption {
   description: string
   type: string
   required: boolean
-  default?: any
+  default?: JsonValue
   choices?: string[]
 }
 
@@ -60,8 +61,8 @@ export interface CLIStructure {
 /**
  * Generate CLI commands from resource definitions
  */
-export function generateCLI(
-  resources: ResourceDefinition<any>[],
+export function generateCLI<T extends StorableData = StorableData>(
+  resources: ResourceDefinition<T>[],
   options?: CLIGeneratorOptions
 ): CLIStructure | string {
   const format = options?.format
@@ -87,7 +88,7 @@ export function generateCLI(
 /**
  * Generate a command for a single resource
  */
-function generateResourceCommand(resource: ResourceDefinition<any>): CLICommand {
+function generateResourceCommand<T extends StorableData>(resource: ResourceDefinition<T>): CLICommand {
   const resourceNamePlural = pluralize(resource.name.toLowerCase())
 
   const subcommands: CLICommand[] = [
@@ -123,7 +124,7 @@ function generateResourceCommand(resource: ResourceDefinition<any>): CLICommand 
 /**
  * Generate list command
  */
-function generateListCommand(resource: ResourceDefinition<any>): CLICommand {
+function generateListCommand<T extends StorableData>(resource: ResourceDefinition<T>): CLICommand {
   return {
     name: 'list',
     description: `List all ${resource.name} resources`,
@@ -164,7 +165,7 @@ function generateListCommand(resource: ResourceDefinition<any>): CLICommand {
 /**
  * Generate get command
  */
-function generateGetCommand(resource: ResourceDefinition<any>): CLICommand {
+function generateGetCommand<T extends StorableData>(resource: ResourceDefinition<T>): CLICommand {
   return {
     name: 'get',
     description: `Get a ${resource.name} by ID`,
@@ -200,17 +201,18 @@ function generateGetCommand(resource: ResourceDefinition<any>): CLICommand {
 /**
  * Generate create command
  */
-function generateCreateCommand(resource: ResourceDefinition<any>): CLICommand {
+function generateCreateCommand<T extends StorableData>(resource: ResourceDefinition<T>): CLICommand {
   const options: CLIOption[] = []
 
   // Generate options from fields
   for (const [fieldName, fieldDef] of Object.entries(resource.fields)) {
+    const choices = fieldDef.type === 'enum' ? getEnumChoices(resource, fieldName) : undefined
     options.push({
       name: fieldName,
       description: `${fieldName} field`,
       type: fieldDef.type,
       required: fieldDef.required || false,
-      choices: fieldDef.type === 'enum' ? getEnumChoices(resource, fieldName) : undefined,
+      ...(choices !== undefined && { choices }),
     })
   }
 
@@ -243,17 +245,18 @@ function generateCreateCommand(resource: ResourceDefinition<any>): CLICommand {
 /**
  * Generate update command
  */
-function generateUpdateCommand(resource: ResourceDefinition<any>): CLICommand {
+function generateUpdateCommand<T extends StorableData>(resource: ResourceDefinition<T>): CLICommand {
   const options: CLIOption[] = []
 
   // Generate options from fields (all optional for update)
   for (const [fieldName, fieldDef] of Object.entries(resource.fields)) {
+    const choices = fieldDef.type === 'enum' ? getEnumChoices(resource, fieldName) : undefined
     options.push({
       name: fieldName,
       description: `${fieldName} field`,
       type: fieldDef.type,
       required: false,
-      choices: fieldDef.type === 'enum' ? getEnumChoices(resource, fieldName) : undefined,
+      ...(choices !== undefined && { choices }),
     })
   }
 
@@ -294,7 +297,7 @@ function generateUpdateCommand(resource: ResourceDefinition<any>): CLICommand {
 /**
  * Generate delete command
  */
-function generateDeleteCommand(resource: ResourceDefinition<any>): CLICommand {
+function generateDeleteCommand<T extends StorableData>(resource: ResourceDefinition<T>): CLICommand {
   return {
     name: 'delete',
     description: `Delete a ${resource.name}`,
@@ -333,10 +336,10 @@ function generateDeleteCommand(resource: ResourceDefinition<any>): CLICommand {
 /**
  * Generate action command
  */
-function generateActionCommand(
-  resource: ResourceDefinition<any>,
+function generateActionCommand<T extends StorableData>(
+  resource: ResourceDefinition<T>,
   actionName: string,
-  _actionDef: any
+  _actionDef: ActionDef
 ): CLICommand {
   return {
     name: actionName,
@@ -372,10 +375,10 @@ function generateActionCommand(
 /**
  * Generate relation command
  */
-function generateRelationCommand(
-  resource: ResourceDefinition<any>,
+function generateRelationCommand<T extends StorableData>(
+  resource: ResourceDefinition<T>,
   relationName: string,
-  relationDef: any
+  relationDef: RelationDef
 ): CLICommand {
   const parentIdName = `${resource.name.toLowerCase()}Id`
   const relatedResource = relationDef.resource
@@ -414,9 +417,10 @@ function generateRelationCommand(
 /**
  * Extract enum choices from resource schema
  */
-function getEnumChoices(resource: ResourceDefinition<any>, fieldName: string): string[] | undefined {
+function getEnumChoices<T extends StorableData>(resource: ResourceDefinition<T>, fieldName: string): string[] | undefined {
   // Extract from Zod schema if available
-  const schema = resource.schema as any
+  // Use type assertion for Zod internal structure access
+  const schema = resource.schema as { shape?: Record<string, { _def?: { values?: string[]; innerType?: { _def?: { values?: string[] } } } }> }
   if (schema && schema.shape && schema.shape[fieldName]) {
     const fieldSchema = schema.shape[fieldName]
     if (fieldSchema._def?.values) {
@@ -465,7 +469,7 @@ const client = createAPIClient('${baseUrl}')
 /**
  * Format output based on format option
  */
-function formatOutput(data: any, format: string = 'table') {
+function formatOutput(data: unknown, format: string = 'table') {
   if (format === 'json') {
     console.log(JSON.stringify(data, null, 2))
   } else if (format === 'yaml') {
