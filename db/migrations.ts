@@ -1,7 +1,7 @@
 // SQLite Migration System for @dotdo/db
 // Provides versioned schema migrations with rollback support
 
-import type { SqlStorage } from './types'
+import type { SqlStorage } from './sqlite'
 
 /**
  * Represents a database migration
@@ -102,7 +102,7 @@ export class MigrationRunner {
       .bind()
       .first()
 
-    return row ? (row['version'] as number) : 0
+    return row ? (row.version as number) : 0
   }
 
   /**
@@ -114,7 +114,7 @@ export class MigrationRunner {
       .bind()
       .all()
 
-    return result.results as unknown as MigrationState[]
+    return result.results as MigrationState[]
   }
 
   /**

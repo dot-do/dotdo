@@ -2,45 +2,38 @@
 // Generic types added per do-jqrj
 // Storage abstraction added per do-68rr
 // Branded types added per do-e3my
-// Types moved to types.ts per do-stc2d.1 to break circular dependencies
 
-import type { StorableData } from './types'
+import type { StorableData, JsonValue } from './types'
 import type { StorageAdapter } from './storage'
-import { applyCursorPagination } from './pagination'
-
-// Re-export types from types.ts for backward compatibility
-export type {
-  BaseRelationship,
-  Relationship,
-  RelationshipInput,
-  RelationshipQuery,
-} from './types'
-
-// Import types for local use
-import type {
-  BaseRelationship,
-  Relationship,
-  RelationshipInput,
-  RelationshipQuery,
-} from './types'
+import type { ThingId } from './branded-types'
 
 /**
- * Cursor-based pagination result for relationships
+ * Base Relationship interface with system fields
+ * Uses branded ThingId for subject/object for type safety - see do-e3my
  */
-export interface RelationshipCursorResult<M extends StorableData = StorableData> {
-  items: Relationship<M>[]
-  cursor?: string
-  hasMore: boolean
+export interface BaseRelationship {
+  subject: ThingId | string    // Thing $id (accepts both for backward compat)
+  predicate: string  // Verb (e.g., "owns", "created", "belongsTo")
+  object: ThingId | string     // Thing $id (accepts both for backward compat)
+  $createdAt: number
 }
 
 /**
- * Options for cursor-based relationship queries
+ * Relationship type combining system fields with custom metadata
+ * Use Relationship<M> for typed relationship metadata
  */
-export interface RelationshipCursorOptions extends RelationshipQuery {
-  cursor?: string
-  limit?: number
-  direction?: 'forward' | 'backward'
-}
+export type Relationship<M extends StorableData = StorableData> = BaseRelationship & M
+
+/**
+ * Input type for adding a Relationship (excludes auto-generated fields)
+ */
+export type RelationshipInput<M extends StorableData = StorableData> =
+  Omit<BaseRelationship, '$createdAt'> & M
+
+/**
+ * Query type for finding relationships (core fields only)
+ */
+export type RelationshipQuery = Partial<Pick<BaseRelationship, 'subject' | 'predicate' | 'object'>>
 
 /**
  * RelationshipsStore interface with generic type parameter
@@ -50,7 +43,6 @@ export interface RelationshipsStore<M extends StorableData = StorableData> {
   add(rel: RelationshipInput<M>): Promise<Relationship<M>>
   remove(rel: Pick<BaseRelationship, 'subject' | 'predicate' | 'object'>): Promise<void>
   find(query: RelationshipQuery): Promise<Relationship<M>[]>
-  findWithCursor?(options: RelationshipCursorOptions): Promise<RelationshipCursorResult<M>>
 
   // Convenience methods
   getRelated(subjectId: string, predicate: string): Promise<string[]>
@@ -71,45 +63,8 @@ function relationshipKey(rel: Pick<BaseRelationship, 'subject' | 'predicate' | '
 }
 
 /**
- * Creates a RelationshipsStore backed by a StorageAdapter.
- *
- * This factory function creates a relationship store that persists relationships
- * using the provided storage adapter. Relationships are subject-predicate-object
- * triples (e.g., "User owns Order", "Order belongsTo Customer").
- *
- * @typeParam M - The metadata type for relationships, defaults to StorableData
- * @param adapter - The storage adapter to use for persistence
- * @returns A RelationshipsStore instance for managing entity relationships
- *
- * @example
- * ```typescript
- * import { createRelationshipsStoreWithAdapter, SQLiteAdapter } from '@dotdo/db'
- *
- * // Create store with SQLite backend
- * const adapter = new SQLiteAdapter(storage)
- * const relationships = createRelationshipsStoreWithAdapter(adapter)
- *
- * // Add a relationship
- * await relationships.add({
- *   subject: 'user-123',
- *   predicate: 'owns',
- *   object: 'order-456'
- * })
- *
- * // Find relationships
- * const userOrders = await relationships.find({ subject: 'user-123', predicate: 'owns' })
- *
- * // Get related object IDs
- * const ownedOrderIds = await relationships.getRelated('user-123', 'owns')
- * // ['order-456', 'order-789', ...]
- *
- * // Get subjects related to an object
- * const orderOwners = await relationships.getRelatedTo('order-456', 'owns')
- * // ['user-123']
- * ```
- *
- * @stable
- * @since 1.0.0
+ * Create a RelationshipsStore backed by a StorageAdapter
+ * This allows using any storage backend (SQLite, memory, etc.)
  */
 export function createRelationshipsStoreWithAdapter<M extends StorableData = StorableData>(
   adapter: StorageAdapter
@@ -170,36 +125,8 @@ export function createRelationshipsStoreWithAdapter<M extends StorableData = Sto
 }
 
 /**
- * Creates an in-memory RelationshipsStore for testing and development.
- *
- * This factory function creates a relationship store backed by in-memory storage.
- * Relationships will be lost when the process ends. Use
- * `createRelationshipsStoreWithAdapter()` with a persistent adapter for production.
- *
- * @typeParam M - The metadata type for relationships, defaults to StorableData
- * @returns A RelationshipsStore instance for managing entity relationships
- *
- * @example
- * ```typescript
- * import { createRelationshipsStore } from '@dotdo/db'
- *
- * const relationships = createRelationshipsStore()
- *
- * // With typed metadata
- * interface RelationshipMeta { createdBy: string; note?: string }
- * const typedRels = createRelationshipsStore<RelationshipMeta>()
- *
- * await typedRels.add({
- *   subject: 'user-123',
- *   predicate: 'follows',
- *   object: 'user-456',
- *   createdBy: 'system',
- *   note: 'Auto-follow on signup'
- * })
- * ```
- *
- * @stable
- * @since 1.0.0
+ * Create an in-memory RelationshipsStore with generic type parameter
+ * M defaults to StorableData for backward compatibility
  */
 export function createRelationshipsStore<M extends StorableData = StorableData>(): RelationshipsStore<M> {
   const relationships: Relationship<M>[] = []
@@ -243,35 +170,6 @@ export function createRelationshipsStore<M extends StorableData = StorableData>(
         if (query.object && r.object !== query.object) return false
         return true
       })
-    },
-
-    async findWithCursor(options = {}) {
-      let results = relationships.filter(r => {
-        if (options.subject && r.subject !== options.subject) return false
-        if (options.predicate && r.predicate !== options.predicate) return false
-        if (options.object && r.object !== options.object) return false
-        return true
-      })
-
-      // Generate a unique ID for relationships based on the triple
-      const getRelId = (r: Relationship<M>) => `${r.subject}:${r.predicate}:${r.object}`
-
-      // Sort by createdAt descending, then by ID descending for stable ordering
-      results.sort((a, b) => {
-        const timeDiff = b.$createdAt - a.$createdAt
-        if (timeDiff !== 0) return timeDiff
-        // Secondary sort by ID descending for stable cursor pagination
-        return getRelId(b).localeCompare(getRelId(a))
-      })
-
-      return applyCursorPagination(
-        results,
-        options,
-        '$createdAt',
-        'desc',
-        getRelId,
-        (item) => item.$createdAt
-      )
     },
 
     async getRelated(subjectId, predicate) {
