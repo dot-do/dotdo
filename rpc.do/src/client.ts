@@ -28,7 +28,24 @@ interface ClientContext {
   schedules: Map<string, { cron: string; handler: (...args: unknown[]) => unknown }>
   /** Cache for nested proxies keyed by path string */
   proxyCache: Map<string, unknown>
+  /** Cache for reflection results (_types, _schema, md) */
+  reflectionCache: Map<string, unknown>
 }
+
+/**
+ * Symbol for Node.js custom inspect (console.log)
+ */
+const INSPECT_SYMBOL = Symbol.for('nodejs.util.inspect.custom')
+
+/**
+ * Well-known top-level resources exposed by the $ proxy
+ */
+const TOP_LEVEL_KEYS = ['on', 'every', '_types', '_schema', 'md', 'send', 'try', 'do']
+
+/**
+ * Methods that should have their results cached
+ */
+const CACHEABLE_METHODS = new Set(['_types', '_schema', 'md'])
 
 /**
  * Promise-like properties to exclude from proxy handling
@@ -201,6 +218,63 @@ function buildCron(parts: string[]): string {
 }
 
 /**
+ * Create an inspect function for a given path
+ */
+function createInspectFunction(path: string[]): () => string {
+  return () => {
+    if (path.length === 0) {
+      return `$ { on, every, _types, _schema, md, send, try, do }`
+    }
+    return `$.${path.join('.')}`
+  }
+}
+
+/**
+ * Create a cached method invoker that caches results for reflection methods
+ */
+function createCachedInvoker(
+  transport: Transport,
+  context: ClientContext,
+  methodPath: string[],
+  boundId?: string
+): (...args: unknown[]) => Promise<unknown> {
+  const method = methodPath.join('.')
+  const isCacheable = methodPath.length === 1 && CACHEABLE_METHODS.has(method)
+
+  return async (...args: unknown[]) => {
+    // Check cache for reflection methods
+    if (isCacheable && args.length === 0) {
+      const cached = context.reflectionCache.get(method)
+      if (cached !== undefined) {
+        return cached
+      }
+    }
+
+    // If we have a bound ID, prepend it to params
+    const params = boundId !== undefined ? [boundId, ...args] : args
+
+    const response = await transport.send({
+      method,
+      args: params,
+    })
+
+    // Handle error responses
+    if (response.error) {
+      throw new Error(response.error.message)
+    }
+
+    const result = response.result
+
+    // Cache reflection results
+    if (isCacheable && args.length === 0) {
+      context.reflectionCache.set(method, result)
+    }
+
+    return result
+  }
+}
+
+/**
  * Create a nested proxy that tracks the property path and supports ID binding
  * This supports:
  * - Flat APIs (client.greet())
@@ -223,9 +297,23 @@ function createNestedProxyWithTransport(
     if (cached !== undefined) return cached
   }
 
-  const proxy = new Proxy(() => {}, {
+  // Create inspect function for this path
+  const inspectFn = createInspectFunction(path)
+
+  // Target object with the inspect symbol pre-defined
+  // This is needed because Proxy get trap can't return functions for symbols in some cases
+  const target = Object.assign(() => {}, {
+    [INSPECT_SYMBOL]: inspectFn,
+  })
+
+  const proxy = new Proxy(target, {
     get(_, prop: string | symbol) {
-      // Don't intercept symbols or promise methods (client should not be thenable)
+      // Handle the custom inspect symbol for console.log($)
+      if (prop === INSPECT_SYMBOL) {
+        return inspectFn
+      }
+
+      // Don't intercept other symbols or promise methods (client should not be thenable)
       if (typeof prop === 'symbol') {
         return undefined
       }
@@ -248,6 +336,27 @@ function createNestedProxyWithTransport(
       return createNestedProxyWithTransport(transport, context, [...path, prop as string], boundId)
     },
 
+    // Handle Object.keys($) and for...in enumeration
+    ownKeys(_) {
+      if (path.length === 0) {
+        return TOP_LEVEL_KEYS
+      }
+      // Nested proxies don't enumerate
+      return []
+    },
+
+    // Required for ownKeys to work correctly
+    getOwnPropertyDescriptor(_, prop) {
+      if (path.length === 0 && typeof prop === 'string' && TOP_LEVEL_KEYS.includes(prop)) {
+        return {
+          configurable: true,
+          enumerable: true,
+          value: undefined,
+        }
+      }
+      return undefined
+    },
+
     apply(_, __, args: unknown[]) {
       // Check if this is an ID-binding call ($.EntityType('id'))
       // This happens when path has one element (the entity type name) and
@@ -258,15 +367,16 @@ function createNestedProxyWithTransport(
         args.length === 1 &&
         typeof args[0] === 'string' &&
         firstPathElement !== undefined &&
-        !firstPathElement.startsWith('$') // Not a special method
+        !firstPathElement.startsWith('$') && // Not a special method
+        !firstPathElement.startsWith('_') // Not a reflection method
       ) {
         const entityId = args[0] as string
         // Return a proxy bound to this entity ID (not cached - IDs are dynamic)
         return createNestedProxyWithTransport(transport, context, [firstPathElement], entityId)
       }
 
-      // When called as a function, invoke the RPC method using transport
-      return createTransportInvoker(transport, path, boundId)(...args)
+      // When called as a function, invoke the RPC method using cached invoker
+      return createCachedInvoker(transport, context, path, boundId)(...args)
     },
   })
 
@@ -356,6 +466,7 @@ export function createClient<T extends object>(
         handlers: new Map(),
         schedules: new Map(),
         proxyCache: new Map(),
+        reflectionCache: new Map(),
       }
       return createNestedProxyWithTransport(transport, context) as T
     }

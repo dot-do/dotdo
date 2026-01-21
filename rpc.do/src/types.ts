@@ -86,3 +86,101 @@ export type RPCClientNested<T> = {
  * 2. Nested namespaces with their own methods
  */
 export type RPCClient<T> = RPCClientMethods<T> & RPCClientNested<T>
+
+// ============================================================================
+// Reflection Types
+// ============================================================================
+
+/**
+ * Method parameter definition in schema
+ */
+export interface MethodParam {
+  /** Parameter name */
+  name: string
+  /** Parameter type (TypeScript type name) */
+  type: string
+  /** Whether the parameter is optional */
+  optional?: boolean
+  /** Description of the parameter */
+  description?: string
+}
+
+/**
+ * Method signature definition in schema
+ */
+export interface MethodSignature {
+  /** Method parameters */
+  params: MethodParam[]
+  /** Return type (TypeScript type name) */
+  returns: string
+  /** Description of the method */
+  description?: string
+}
+
+/**
+ * Entity definition in schema
+ */
+export interface EntityDefinition {
+  /** Methods available on this entity */
+  methods: string[]
+  /** Events this entity can emit */
+  events?: string[]
+  /** Description of the entity */
+  description?: string
+}
+
+/**
+ * Schema returned by $._schema() reflection method
+ * Provides machine-readable API structure for code generation
+ */
+export interface DOSchema {
+  /** Schema version */
+  $version?: string
+  /** Entity definitions indexed by entity name */
+  entities?: Record<string, EntityDefinition>
+  /** Method signatures indexed by method path (e.g., "things.create") */
+  methods?: Record<string, MethodSignature>
+  /** Event definitions */
+  events?: Record<string, { description?: string; payload?: string }>
+  /** Additional metadata */
+  meta?: Record<string, unknown>
+}
+
+/**
+ * $ Proxy with reflection capabilities
+ * Provides introspection methods for discovering API structure
+ */
+export interface ReflectiveProxy {
+  /**
+   * Get TypeScript type definitions (.d.ts format)
+   * @returns Promise resolving to TypeScript interface definitions
+   */
+  _types(): Promise<string>
+
+  /**
+   * Get JSON schema describing the API structure
+   * @returns Promise resolving to DOSchema object
+   */
+  _schema(): Promise<DOSchema>
+
+  /**
+   * Get markdown documentation for the API
+   * @returns Promise resolving to markdown string
+   */
+  md(): Promise<string>
+
+  /** Event handler namespace */
+  on: unknown
+
+  /** Schedule builder namespace */
+  every: unknown
+
+  /** Fire-and-forget event dispatch */
+  send(event: unknown): Promise<unknown>
+
+  /** Single attempt action */
+  try(action: unknown): Promise<unknown>
+
+  /** Durable action with retries */
+  do(action: unknown): Promise<unknown>
+}
