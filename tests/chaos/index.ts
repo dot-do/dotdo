@@ -18,6 +18,7 @@
  *
  * @module tests/chaos
  * @see do-fhng.9
+ * @see do-g63y - Graceful degradation chaos testing
  */
 
 export {
@@ -58,3 +59,26 @@ export {
   type StorageChaosConfig,
   type ChaosStats,
 } from './ChaosProxy'
+
+// Graceful Degradation Chaos Utilities (do-g63y)
+export {
+  // DO failure simulation
+  DOFailureSimulator,
+  type DOFailureConfig,
+  type DOFailureStats,
+
+  // Gradual degradation simulation
+  GradualDegradationSimulator,
+  type GradualDegradationConfig,
+  type GradualDegradationStats,
+  type DegradationPhase,
+
+  // Concurrent failure simulation
+  ConcurrentFailureSimulator,
+  type ConcurrentFailureConfig,
+  type ConcurrentFailureStats,
+
+  // Circuit breaker chaos wrapper
+  CircuitBreakerChaosWrapper,
+  type CircuitBreakerChaosConfig,
+} from './GracefulDegradationChaos'
