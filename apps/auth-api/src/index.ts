@@ -180,7 +180,7 @@ app.post('/auth/register', async (c) => {
     return c.json(error, response.status as 400 | 401 | 403 | 404 | 409 | 500)
   }
 
-  const user = await response.json<AuthUser>()
+  const user = await response.json<AppAuthUser>()
 
   // Generate token
   const token = await createToken(user, c.env.JWT_SECRET)
@@ -223,7 +223,7 @@ app.post('/auth/login', async (c) => {
     return c.json(error, response.status as 400 | 401 | 403 | 404 | 409 | 500)
   }
 
-  const user = await response.json<AuthUser>()
+  const user = await response.json<AppAuthUser>()
 
   // Generate token
   const token = await createToken(user, c.env.JWT_SECRET)

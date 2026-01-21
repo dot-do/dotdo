@@ -241,18 +241,26 @@ export function createMockSqlStorage(): MockSqlStorage {
                 }
 
                 // Handle LIMIT/OFFSET with bound parameters
-                let limit = rows.length
-                let offset = 0
+                // Only apply if SQL actually has LIMIT clause
+                if (lowerSql.includes('limit')) {
+                  let limit = rows.length
+                  let offset = 0
 
-                // Find limit and offset values from bound parameters
-                const questionMarks = (sql.match(/\?/g) || []).length
-                if (questionMarks >= 2) {
-                  // Last two params are typically LIMIT and OFFSET
-                  limit = boundValues[boundValues.length - 2] as number || limit
-                  offset = boundValues[boundValues.length - 1] as number || offset
+                  // LIMIT is typically the second-to-last param, OFFSET is last
+                  // But only if we have bound params after the filter params
+                  if (lowerSql.includes('offset')) {
+                    // Both LIMIT and OFFSET - last two params
+                    limit = boundValues[boundValues.length - 2] as number || limit
+                    offset = boundValues[boundValues.length - 1] as number || offset
+                  } else {
+                    // Just LIMIT - last param
+                    limit = boundValues[boundValues.length - 1] as number || limit
+                  }
+
+                  return { results: rows.slice(offset, offset + limit) }
                 }
 
-                return { results: rows.slice(offset, offset + limit) }
+                return { results: rows }
               }
 
               return { results: [] }
