@@ -89,6 +89,7 @@ export default defineConfig({
       'platform.do': resolve(__dirname, '../platform.do/src'),
       '@dotdo/auth': resolve(__dirname, '../auth'),
       '@dotdo/oauth': resolve(__dirname, '../oauth/src'),
+      '@dotdo/utils': resolve(__dirname, '../utils'),
     },
   },
 })

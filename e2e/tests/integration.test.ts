@@ -366,12 +366,10 @@ describe('E2E: Full Auth + REPL Integration', () => {
   // ==========================================================================
 
   describe('Authenticated REPL Session', () => {
-    // NOTE: These tests document the expected behavior of authenticated REPL sessions.
-    // They currently fail because FetchTransport uses globalThis.fetch which doesn't
-    // understand our mock URLs. Future implementation should support custom fetch.
+    // NOTE: These tests verify REPL behavior with authenticated/unauthenticated sessions.
+    // FetchTransport supports custom fetch via options.fetch parameter.
 
-    it.skip('should connect to RPC endpoint with valid auth token', async () => {
-      // TODO: Implement when FetchTransport supports custom fetch function
+    it('should connect to RPC endpoint with valid auth token', async () => {
       // Set up valid tokens
       const validTokens: StoredTokens = {
         access_token: mockOAuth.createAccessToken('test-user'),
@@ -384,10 +382,10 @@ describe('E2E: Full Auth + REPL Integration', () => {
       const { ReplService } = await import('rpc.do/cli/repl')
       const { FetchTransport } = await import('rpc.do/transport/fetch')
 
-      // Create authenticated transport
-      // Note: In real implementation, AuthTransport wraps FetchTransport
+      // Create authenticated transport with mock fetch
       const transport = new FetchTransport({
         url: mockOAuth.rpcEndpoint,
+        fetch: mockOAuth.fetch,
         headers: {
           Authorization: `Bearer ${validTokens.access_token}`,
         },
@@ -405,14 +403,14 @@ describe('E2E: Full Auth + REPL Integration', () => {
       expect(result.error).toBeUndefined()
     })
 
-    it.skip('should reject REPL commands without valid auth', async () => {
-      // TODO: Implement when FetchTransport supports custom fetch function
+    it('should reject REPL commands without valid auth', async () => {
       const { ReplService } = await import('rpc.do/cli/repl')
       const { FetchTransport } = await import('rpc.do/transport/fetch')
 
-      // Create unauthenticated transport
+      // Create unauthenticated transport with mock fetch
       const transport = new FetchTransport({
         url: mockOAuth.rpcEndpoint,
+        fetch: mockOAuth.fetch,
         // No auth header
       })
 
@@ -421,11 +419,12 @@ describe('E2E: Full Auth + REPL Integration', () => {
         prompt: 'test> ',
       })
 
-      // REPL should fail with auth error
+      // REPL should fail with auth error (things.list requires auth)
       const result = await repl.processLine('$.things.list()')
 
       expect(result.complete).toBe(true)
-      expect(result.error).toContain('Unauthorized')
+      // Error message can be either "Unauthorized" or "RPC error: 401"
+      expect(result.error).toMatch(/Unauthorized|401/)
     })
   })
 
@@ -434,11 +433,10 @@ describe('E2E: Full Auth + REPL Integration', () => {
   // ==========================================================================
 
   describe('Things CRUD via REPL', () => {
-    // NOTE: These tests document the expected CRUD behavior.
-    // They currently skip because FetchTransport uses globalThis.fetch.
+    // NOTE: These tests verify CRUD operations via REPL.
+    // FetchTransport supports custom fetch via options.fetch parameter.
 
-    it.skip('should create and retrieve a thing via REPL', async () => {
-      // TODO: Implement when FetchTransport supports custom fetch function
+    it('should create and retrieve a thing via REPL', async () => {
       // Set up valid tokens
       const validTokens: StoredTokens = {
         access_token: mockOAuth.createAccessToken('test-user'),
@@ -452,6 +450,7 @@ describe('E2E: Full Auth + REPL Integration', () => {
 
       const transport = new FetchTransport({
         url: mockOAuth.rpcEndpoint,
+        fetch: mockOAuth.fetch,
         headers: {
           Authorization: `Bearer ${validTokens.access_token}`,
         },
@@ -493,26 +492,32 @@ describe('E2E: Full Auth + REPL Integration', () => {
   // ==========================================================================
 
   describe('CLI Pull and Eval Flow', () => {
-    // NOTE: These tests document the expected CLI behavior.
-    // They currently skip because evalCommand/runCommand use globalThis.fetch.
-    // pullTypes function may not exist yet - documented for future implementation.
+    // NOTE: These tests are skipped because evalCommand, runCommand, and pull() in rpc.do/cli
+    // use globalThis.fetch directly without supporting custom fetch injection.
+    //
+    // To enable these tests, the following changes would be needed in rpc.do:
+    // 1. Add `fetch?: typeof globalThis.fetch` option to EvalOptions
+    // 2. Add `fetch?: typeof globalThis.fetch` option to PullOptions
+    // 3. Use the provided fetch instead of global fetch in evalCommand, runCommand, and pull
+    //
+    // TODO(do-xxxx): Add custom fetch support to CLI commands for testability
 
     it.skip('should pull types from endpoint', async () => {
-      // TODO: Implement pullTypes function in rpc.do/cli/pull
-      const { pullTypes } = await import('rpc.do/cli/pull')
+      // BLOCKED: pull() in rpc.do/cli/pull uses globalThis.fetch directly
+      // Fix: Add `fetch?: typeof globalThis.fetch` to PullOptions and use it
+      const { pull } = await import('rpc.do/cli/pull')
 
-      const types = await pullTypes(mockOAuth.rpcEndpoint, {
-        fetch: mockOAuth.fetch,
+      const result = await pull({
+        endpoint: mockOAuth.rpcEndpoint,
+        // Would need: fetch: mockOAuth.fetch,
       })
 
-      expect(types).toBeDefined()
-      expect(typeof types).toBe('string')
-      // Types should contain interface definitions
-      expect(types).toContain('interface')
+      expect(result.success).toBe(true)
     })
 
     it.skip('should eval code against endpoint', async () => {
-      // TODO: Implement when evalCommand supports custom fetch function
+      // BLOCKED: evalCommand uses globalThis.fetch directly
+      // Fix: Add `fetch?: typeof globalThis.fetch` to EvalOptions and use it
       const { evalCommand } = await import('rpc.do/cli/eval')
 
       const output: string[] = []
@@ -522,6 +527,7 @@ describe('E2E: Full Auth + REPL Integration', () => {
         {
           authToken: mockOAuth.createAccessToken('test-user'),
           onOutput: (msg) => output.push(msg),
+          // Would need: fetch: mockOAuth.fetch,
         }
       )
 
@@ -530,7 +536,8 @@ describe('E2E: Full Auth + REPL Integration', () => {
     })
 
     it.skip('should eval RPC call via CLI', async () => {
-      // TODO: Implement when evalCommand supports custom fetch function
+      // BLOCKED: evalCommand uses globalThis.fetch directly
+      // Fix: Add `fetch?: typeof globalThis.fetch` to EvalOptions and use it
       const { evalCommand } = await import('rpc.do/cli/eval')
 
       const output: string[] = []
@@ -540,6 +547,7 @@ describe('E2E: Full Auth + REPL Integration', () => {
         {
           authToken: mockOAuth.createAccessToken('test-user'),
           onOutput: (msg) => output.push(msg),
+          // Would need: fetch: mockOAuth.fetch,
         }
       )
 
@@ -548,7 +556,8 @@ describe('E2E: Full Auth + REPL Integration', () => {
     })
 
     it.skip('should run script file against endpoint', async () => {
-      // TODO: Implement when runCommand supports custom fetch function
+      // BLOCKED: runCommand uses globalThis.fetch directly via evalCommand
+      // Fix: Add `fetch?: typeof globalThis.fetch` to RunOptions and propagate it
       const { runCommand } = await import('rpc.do/cli/eval')
 
       // Create test script
@@ -562,6 +571,7 @@ describe('E2E: Full Auth + REPL Integration', () => {
         {
           authToken: mockOAuth.createAccessToken('test-user'),
           onOutput: (msg) => output.push(msg),
+          // Would need: fetch: mockOAuth.fetch,
         }
       )
 
@@ -616,20 +626,24 @@ describe('E2E: Full Auth + REPL Integration', () => {
   // ==========================================================================
 
   describe('platform.do Typed Context', () => {
-    // NOTE: These tests document the expected platform.do typed API behavior.
-    // They currently skip because createClient uses globalThis.fetch.
-    // These tests verify TypeScript compilation and type safety.
+    // NOTE: These tests verify platform.do typed API behavior using FetchTransport with mock fetch.
+    // createClient accepts a transport option, allowing use with mock OAuth server.
 
-    it.skip('should compile and execute $.Functions.create() with types', async () => {
-      // TODO: Implement when createClient supports custom fetch/transport
+    it('should compile and execute $.Functions.create() with types', async () => {
       // This test verifies that platform.do types are correctly exported
       // and can be used with the RPC client
-
       const { createClient } = await import('platform.do')
+      const { FetchTransport } = await import('rpc.do/transport/fetch')
 
-      const client = createClient({
+      const transport = new FetchTransport({
         url: mockOAuth.rpcEndpoint,
-      }) as unknown as PlatformContext
+        fetch: mockOAuth.fetch,
+        headers: {
+          Authorization: `Bearer ${mockOAuth.createAccessToken('test-user')}`,
+        },
+      })
+
+      const client = createClient(mockOAuth.rpcEndpoint, { transport }) as unknown as PlatformContext
 
       // Type check: FunctionDef should be typed
       const fnDef: FunctionDef = {
@@ -646,13 +660,19 @@ describe('E2E: Full Auth + REPL Integration', () => {
       expect(created.name).toBe('test-function')
     })
 
-    it.skip('should compile $.Workflows.create() with types', async () => {
-      // TODO: Implement when createClient supports custom fetch/transport
+    it('should compile $.Workflows.create() with types', async () => {
       const { createClient } = await import('platform.do')
+      const { FetchTransport } = await import('rpc.do/transport/fetch')
 
-      const client = createClient({
+      const transport = new FetchTransport({
         url: mockOAuth.rpcEndpoint,
-      }) as unknown as PlatformContext
+        fetch: mockOAuth.fetch,
+        headers: {
+          Authorization: `Bearer ${mockOAuth.createAccessToken('test-user')}`,
+        },
+      })
+
+      const client = createClient(mockOAuth.rpcEndpoint, { transport }) as unknown as PlatformContext
 
       const wfDef = {
         name: 'test-workflow',
@@ -668,13 +688,19 @@ describe('E2E: Full Auth + REPL Integration', () => {
       expect(created.name).toBe('test-workflow')
     })
 
-    it.skip('should compile $.Agents.create() with types', async () => {
-      // TODO: Implement when createClient supports custom fetch/transport
+    it('should compile $.Agents.create() with types', async () => {
       const { createClient } = await import('platform.do')
+      const { FetchTransport } = await import('rpc.do/transport/fetch')
 
-      const client = createClient({
+      const transport = new FetchTransport({
         url: mockOAuth.rpcEndpoint,
-      }) as unknown as PlatformContext
+        fetch: mockOAuth.fetch,
+        headers: {
+          Authorization: `Bearer ${mockOAuth.createAccessToken('test-user')}`,
+        },
+      })
+
+      const client = createClient(mockOAuth.rpcEndpoint, { transport }) as unknown as PlatformContext
 
       const agentDef = {
         name: 'test-agent',
@@ -689,13 +715,19 @@ describe('E2E: Full Auth + REPL Integration', () => {
       expect(created.name).toBe('test-agent')
     })
 
-    it.skip('should compile $.Database.query() with types', async () => {
-      // TODO: Implement when createClient supports custom fetch/transport
+    it('should compile $.Database.query() with types', async () => {
       const { createClient } = await import('platform.do')
+      const { FetchTransport } = await import('rpc.do/transport/fetch')
 
-      const client = createClient({
+      const transport = new FetchTransport({
         url: mockOAuth.rpcEndpoint,
-      }) as unknown as PlatformContext
+        fetch: mockOAuth.fetch,
+        headers: {
+          Authorization: `Bearer ${mockOAuth.createAccessToken('test-user')}`,
+        },
+      })
+
+      const client = createClient(mockOAuth.rpcEndpoint, { transport }) as unknown as PlatformContext
 
       const result = await client.Database.query<{ id: number; name: string }>(
         'SELECT id, name FROM users WHERE id = ?',

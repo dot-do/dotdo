@@ -349,15 +349,13 @@ export async function createMockOAuthServer(): Promise<MockOAuthServer> {
     switch (namespace) {
       case 'health':
         return Response.json(
-          { result: { status: 'ok', timestamp: Date.now() } },
+          { status: 'ok', timestamp: Date.now() },
           { headers: getTelemetryHeaders() }
         )
 
       case '_types':
         return Response.json(
-          {
-            result: `
-interface $Context {
+          `interface $Context {
   things: ThingsService
   events: EventsService
   health(): Promise<{ status: string }>
@@ -392,12 +390,11 @@ interface Event {
   timestamp: string
 }
 `,
-          },
           { headers: getTelemetryHeaders() }
         )
 
       case '_eval':
-        // Simple eval for testing
+        // Simple eval for testing - returns wrapped results since CLI expects { result: ... }
         try {
           const code = body.args[0] as string
           // Very basic evaluation for test purposes
@@ -454,6 +451,8 @@ interface Event {
 
   /**
    * Handle things.* methods
+   * Note: Returns unwrapped results since FetchTransport returns raw JSON
+   * and the client proxy handles result extraction
    */
   function handleThingsMethod(method: string | null, args: unknown[]): Response {
     switch (method) {
@@ -468,7 +467,7 @@ interface Event {
           updatedAt: new Date().toISOString(),
         }
         things.set(thing.$id, thing)
-        return Response.json({ result: thing }, { headers: getTelemetryHeaders() })
+        return Response.json(thing, { headers: getTelemetryHeaders() })
       }
 
       case 'get': {
@@ -480,12 +479,12 @@ interface Event {
             { status: 404, headers: getTelemetryHeaders() }
           )
         }
-        return Response.json({ result: thing }, { headers: getTelemetryHeaders() })
+        return Response.json(thing, { headers: getTelemetryHeaders() })
       }
 
       case 'list':
         return Response.json(
-          { result: Array.from(things.values()) },
+          Array.from(things.values()),
           { headers: getTelemetryHeaders() }
         )
 
@@ -500,13 +499,13 @@ interface Event {
         }
         const updated = { ...thing, ...updates, updatedAt: new Date().toISOString() }
         things.set(id, updated)
-        return Response.json({ result: updated }, { headers: getTelemetryHeaders() })
+        return Response.json(updated, { headers: getTelemetryHeaders() })
       }
 
       case 'delete': {
         const id = args[0] as string
         things.delete(id)
-        return Response.json({ result: undefined }, { headers: getTelemetryHeaders() })
+        return Response.json(null, { headers: getTelemetryHeaders() })
       }
 
       default:
@@ -519,6 +518,7 @@ interface Event {
 
   /**
    * Handle Functions.* methods (platform.do)
+   * Note: Returns unwrapped results since FetchTransport returns raw JSON
    */
   function handleFunctionsMethod(method: string | null, args: unknown[]): Response {
     switch (method) {
@@ -526,14 +526,12 @@ interface Event {
         const data = args[0] as { name: string; description?: string; code?: string; runtime?: string }
         return Response.json(
           {
-            result: {
-              $id: generateId('fn'),
-              name: data.name,
-              description: data.description,
-              runtime: data.runtime || 'javascript',
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            },
+            $id: generateId('fn'),
+            name: data.name,
+            description: data.description,
+            runtime: data.runtime || 'javascript',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
           },
           { headers: getTelemetryHeaders() }
         )
@@ -541,12 +539,12 @@ interface Event {
 
       case 'invoke':
         return Response.json(
-          { result: { output: 'mock function result' } },
+          { output: 'mock function result' },
           { headers: getTelemetryHeaders() }
         )
 
       case 'list':
-        return Response.json({ result: [] }, { headers: getTelemetryHeaders() })
+        return Response.json([], { headers: getTelemetryHeaders() })
 
       default:
         return Response.json(
@@ -558,6 +556,7 @@ interface Event {
 
   /**
    * Handle Workflows.* methods (platform.do)
+   * Note: Returns unwrapped results since FetchTransport returns raw JSON
    */
   function handleWorkflowsMethod(method: string | null, args: unknown[]): Response {
     switch (method) {
@@ -565,14 +564,12 @@ interface Event {
         const data = args[0] as { name: string; description?: string; steps?: unknown[] }
         return Response.json(
           {
-            result: {
-              $id: generateId('wf'),
-              name: data.name,
-              description: data.description,
-              steps: data.steps || [],
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            },
+            $id: generateId('wf'),
+            name: data.name,
+            description: data.description,
+            steps: data.steps || [],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
           },
           { headers: getTelemetryHeaders() }
         )
@@ -581,12 +578,10 @@ interface Event {
       case 'run':
         return Response.json(
           {
-            result: {
-              $id: generateId('run'),
-              workflowId: 'mock',
-              status: 'pending',
-              startedAt: new Date().toISOString(),
-            },
+            $id: generateId('run'),
+            workflowId: 'mock',
+            status: 'pending',
+            startedAt: new Date().toISOString(),
           },
           { headers: getTelemetryHeaders() }
         )
@@ -594,13 +589,11 @@ interface Event {
       case 'get':
         return Response.json(
           {
-            result: {
-              $id: args[0],
-              workflowId: 'mock',
-              status: 'completed',
-              startedAt: new Date().toISOString(),
-              completedAt: new Date().toISOString(),
-            },
+            $id: args[0],
+            workflowId: 'mock',
+            status: 'completed',
+            startedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
           },
           { headers: getTelemetryHeaders() }
         )
@@ -615,6 +608,7 @@ interface Event {
 
   /**
    * Handle Agents.* methods (platform.do)
+   * Note: Returns unwrapped results since FetchTransport returns raw JSON
    */
   function handleAgentsMethod(method: string | null, args: unknown[]): Response {
     switch (method) {
@@ -622,15 +616,13 @@ interface Event {
         const data = args[0] as { name: string; description?: string; systemPrompt?: string; model?: string }
         return Response.json(
           {
-            result: {
-              $id: generateId('agent'),
-              name: data.name,
-              description: data.description,
-              systemPrompt: data.systemPrompt,
-              model: data.model || 'gpt-4',
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            },
+            $id: generateId('agent'),
+            name: data.name,
+            description: data.description,
+            systemPrompt: data.systemPrompt,
+            model: data.model || 'gpt-4',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
           },
           { headers: getTelemetryHeaders() }
         )
@@ -638,7 +630,7 @@ interface Event {
 
       case 'invoke':
         return Response.json(
-          { result: 'Hello! I am a mock agent response.' },
+          'Hello! I am a mock agent response.',
           { headers: getTelemetryHeaders() }
         )
 
@@ -652,17 +644,16 @@ interface Event {
 
   /**
    * Handle Database.* methods (platform.do)
+   * Note: Returns unwrapped results since FetchTransport returns raw JSON
    */
   function handleDatabaseMethod(method: string | null, args: unknown[]): Response {
     switch (method) {
       case 'query':
         return Response.json(
           {
-            result: {
-              rows: [],
-              columns: ['id', 'name'],
-              rowCount: 0,
-            },
+            rows: [],
+            columns: ['id', 'name'],
+            rowCount: 0,
           },
           { headers: getTelemetryHeaders() }
         )
@@ -670,9 +661,7 @@ interface Event {
       case 'execute':
         return Response.json(
           {
-            result: {
-              rowsAffected: 0,
-            },
+            rowsAffected: 0,
           },
           { headers: getTelemetryHeaders() }
         )
