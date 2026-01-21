@@ -2,9 +2,12 @@
 // Testing generate(), AIPromise, and context management from @org.ai/core
 // These tests are written TDD-style - some will fail until implementation is complete
 //
-// SKIPPED: The @org.ai/core package alias is not configured in vitest.config.ts.
-// These tests require the primitives/packages/ai-core package to be properly aliased.
-// Re-enable when the vitest configuration includes the @org.ai/core alias.
+// The @org.ai/core package alias is configured in ai/vitest.config.ts
+// to point to primitives/packages/ai-core/src/index.ts
+//
+// These tests use mock stubs for the AI SDK (ai/stubs/ai.ts) and
+// ai-providers (ai/stubs/ai-providers.ts) to enable testing without
+// actual AI API calls.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
@@ -12,14 +15,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
  * NOTE: @org.ai/core is imported from primitives/packages/ai-core/src
  * via vitest alias configuration in vitest.config.ts
  *
- * SKIPPED: Alias not configured - see issue for vitest config updates
+ * Mock stubs provide working implementations of the AI SDK functions
+ * so that tests can run without external API calls.
  */
 
 // ============================================================================
 // Import Tests - Verify all exports are available
 // ============================================================================
 
-describe.skip('@org.ai/core exports', () => {
+describe('@org.ai/core exports', () => {
   it('should export core generate function', async () => {
     const { generate } = await import('@org.ai/core')
     expect(typeof generate).toBe('function')
@@ -113,7 +117,7 @@ describe.skip('@org.ai/core exports', () => {
 // generate() - Core Generate Primitive Tests
 // ============================================================================
 
-describe.skip('generate() primitive', () => {
+describe('generate() primitive', () => {
   it('should accept GenerateType and return appropriate result', async () => {
     const { generate } = await import('@org.ai/core')
 
@@ -210,7 +214,7 @@ describe.skip('generate() primitive', () => {
 // AIPromise - Promise Pipelining Tests
 // ============================================================================
 
-describe.skip('AIPromise', () => {
+describe('AIPromise', () => {
   it('should create AIPromise from factory functions', async () => {
     const { createTextPromise, isAIPromise } = await import('@org.ai/core')
 
@@ -347,7 +351,7 @@ describe.skip('AIPromise', () => {
 // Template Literal Functions Tests
 // ============================================================================
 
-describe.skip('Template literal functions', () => {
+describe('Template literal functions', () => {
   it('ai() should return AIPromise', async () => {
     const { ai, isAIPromise } = await import('@org.ai/core')
 
@@ -457,7 +461,7 @@ describe.skip('Template literal functions', () => {
 // Context Management Tests
 // ============================================================================
 
-describe.skip('Context management', () => {
+describe('Context management', () => {
   beforeEach(async () => {
     const { resetContext } = await import('@org.ai/core')
     resetContext()
@@ -575,7 +579,7 @@ describe.skip('Context management', () => {
 // Streaming Tests
 // ============================================================================
 
-describe.skip('Streaming', () => {
+describe('Streaming', () => {
   it('streamText should return AsyncIterable', async () => {
     const { streamText } = await import('@org.ai/core')
 
@@ -641,7 +645,7 @@ describe.skip('Streaming', () => {
 // Schema Helper Tests
 // ============================================================================
 
-describe.skip('Schema helper', () => {
+describe('Schema helper', () => {
   it('should create schema from simple object', async () => {
     const { schema } = await import('@org.ai/core')
 
@@ -685,7 +689,7 @@ describe.skip('Schema helper', () => {
 // Integration Scenarios Tests
 // ============================================================================
 
-describe.skip('Integration scenarios', () => {
+describe('Integration scenarios', () => {
   it('should support promise pipelining without intermediate await', async () => {
     const { ai, is, isAIPromise } = await import('@org.ai/core')
 
@@ -726,13 +730,17 @@ describe.skip('Integration scenarios', () => {
 
     const outerPromise = ai`Test outer`
 
-    const innerPromise = await withContext({ model: 'opus' }, () => {
+    // withContext returns the result of the inner function
+    // When the inner function returns an AIPromise, withContext returns it directly
+    // Only when you await the withContext call does the inner promise get resolved
+    const innerPromise = withContext({ model: 'opus' }, () => {
       const ctx = getContext()
       expect(ctx.model).toBe('opus')
       return ai`Test inner`
     })
 
     expect(isAIPromise(outerPromise)).toBe(true)
+    // innerPromise is the AIPromise (not awaited)
     expect(isAIPromise(innerPromise)).toBe(true)
   })
 })
@@ -741,7 +749,7 @@ describe.skip('Integration scenarios', () => {
 // Type Guards Tests
 // ============================================================================
 
-describe.skip('Type guards', () => {
+describe('Type guards', () => {
   it('isAIPromise should correctly identify AIPromise instances', async () => {
     const { AIPromise, isAIPromise, createTextPromise } = await import('@org.ai/core')
 

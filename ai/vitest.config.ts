@@ -24,14 +24,17 @@ import { workspaceAliases } from '../vitest.config'
 
 // Directory for this package
 const aiDir = __dirname
+const rootDir = resolve(aiDir, '..')
 
 export default defineWorkersConfig({
   // Inherit workspace aliases and add stubs for optional AI dependencies
   resolve: {
     alias: {
       ...workspaceAliases,
-      // Map optional AI packages to stubs that throw MODULE_NOT_FOUND errors
-      // This triggers the mock fallback behavior in models.ts and providers/index.ts
+      // Map @org.ai/core to primitives package for integration tests
+      '@org.ai/core': resolve(rootDir, 'primitives/packages/ai-core/src/index.ts'),
+      // Map optional AI packages to mock stubs that provide working implementations
+      // These stubs return mock responses instead of throwing errors
       'ai-providers': resolve(aiDir, 'stubs/ai-providers.ts'),
       'ai': resolve(aiDir, 'stubs/ai.ts'),
       '@ai-sdk/openai': resolve(aiDir, 'stubs/@ai-sdk/openai.ts'),
