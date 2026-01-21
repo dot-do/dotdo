@@ -20,6 +20,7 @@ import {
   deserializeAlarmStore,
   type AlarmStore,
 } from '../workflow/alarm'
+import type { ScheduleRegistration } from '../workflow/schedule'
 import type { DOHandler } from './registry'
 
 const logger = createLogger('[AlarmHandler]')
@@ -131,7 +132,7 @@ export class AlarmHandler implements DOHandler {
   /**
    * Schedule the next alarm based on registered schedules.
    */
-  async scheduleNextAlarm(schedules: Map<string, unknown>): Promise<void> {
+  async scheduleNextAlarm(schedules: Map<string, ScheduleRegistration>): Promise<void> {
     if (!this.state) {
       throw new Error('AlarmHandler: state not set. Call setState() first.')
     }
@@ -141,7 +142,7 @@ export class AlarmHandler implements DOHandler {
     }
 
     const nextTime = calculateNextAlarmTime(
-      schedules as Map<string, { cron: string }>,
+      schedules,
       this.alarmStore
     )
 
@@ -164,7 +165,7 @@ export class AlarmHandler implements DOHandler {
    * @returns Results of schedule and one-time alarm execution
    */
   async processAlarm(
-    schedules: Map<string, { cron: string; handler: () => Promise<void> }>
+    schedules: Map<string, ScheduleRegistration>
   ): Promise<{
     scheduleResults: Array<{ id: string; success: boolean; error?: Error }>
     oneTimeResults: Array<{ id: string; success: boolean; error?: Error }>
@@ -208,7 +209,7 @@ export class AlarmHandler implements DOHandler {
   async scheduleOneTimeAlarm(
     delayMs: number,
     handler: () => Promise<void>,
-    schedules: Map<string, unknown>
+    schedules: Map<string, ScheduleRegistration>
   ): Promise<void> {
     await this.initializeAlarms()
 

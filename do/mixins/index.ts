@@ -134,6 +134,7 @@ export {
  * >
  * ```
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ComposedType<
   T1 extends (base: any) => any,
   T2 extends (base: any) => any = (base: any) => any,
@@ -150,4 +151,5 @@ export type ComposedType<
  * type MyDOInstance = InstanceOf<typeof MyDO>
  * ```
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type InstanceOf<T> = T extends new (...args: any[]) => infer R ? R : never

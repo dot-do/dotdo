@@ -192,7 +192,7 @@ describe('Event Retention Policy (do-luhm.6)', () => {
       expect(events.length).toBe(10)
 
       // Verify we kept the newest ones (order 40-49)
-      const orders = events.map((e: any) => e.payload.order).sort((a: number, b: number) => a - b)
+      const orders = events.map((e: unknown) => (e as { payload: { order: number } }).payload.order).sort((a: number, b: number) => a - b)
       expect(orders[0]).toBeGreaterThanOrEqual(40)
     })
 

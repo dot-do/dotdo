@@ -289,7 +289,7 @@ class TanStackDBClient implements DataClient {
   private baseUrl: string
   private timeout: number
   private token?: string
-  private pendingRequests: Map<string, (value: any) => void> = new Map()
+  private pendingRequests: Map<string, (value: unknown) => void> = new Map()
   private requestCounter = 0
   private updateListeners: Set<UpdateListener> = new Set()
   private restFallback: RESTClient
@@ -374,7 +374,7 @@ class TanStackDBClient implements DataClient {
     }
   }
 
-  private async sendRequest(message: any): Promise<any> {
+  private async sendRequest(message: Record<string, unknown>): Promise<unknown> {
     if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       // Fallback to REST
       logger.warn('WebSocket not connected, falling back to REST')
@@ -399,7 +399,7 @@ class TanStackDBClient implements DataClient {
     })
   }
 
-  private async fallbackToREST(message: any): Promise<any> {
+  private async fallbackToREST(message: Record<string, unknown>): Promise<unknown> {
     const { type, resource, id, data } = message
 
     switch (type) {

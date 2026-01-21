@@ -33,7 +33,7 @@ describe('Cross-DO RPC via $', () => {
           toString: () => id,
           name
         })),
-        get: vi.fn((doId: any) => {
+        get: vi.fn((doId: unknown) => {
           // The key should match what createDOStub uses
           const key = `${name}-${doId.toString()}`
           if (!mockStubs.has(key)) {

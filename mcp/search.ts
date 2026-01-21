@@ -147,21 +147,48 @@ function createSimpleQueryBuilder(store: ThingsStore): QueryBuilder {
 }
 
 /**
- * Create a search tool that operates on a ThingsStore
+ * Factory function to create a search tool that operates on a ThingsStore
  *
- * @param deps - Dependencies: store (required), query factory (optional)
+ * This is the correct way to create a search tool. The default `searchTool` export
+ * is a placeholder and will throw an error if used directly.
  *
- * @example
+ * @param deps - Dependencies object or ThingsStore
+ * @param deps.store - The ThingsStore to search (required)
+ * @param deps.query - Optional query factory for advanced query building (compatible with @dotdo/db)
+ *
+ * @returns A configured MCPTool ready to be added to an MCP server
+ *
+ * @example Basic usage with just a store
  * ```typescript
- * // Simple usage with just a store
- * const searchTool = createSearchTool({ store: myThingsStore })
+ * import { createSearchTool } from '@dotdo/mcp'
+ * import { createMCPServer } from '@dotdo/mcp'
  *
- * // With @dotdo/db query factory for advanced features
+ * const server = createMCPServer()
+ * const searchTool = createSearchTool({ store: myThingsStore })
+ * server.addTool(searchTool)
+ *
+ * // Now clients can search
+ * const results = await searchTool.execute({
+ *   $type: 'User',
+ *   where: { role: 'admin' },
+ *   limit: 10
+ * })
+ * ```
+ *
+ * @example Advanced usage with @dotdo/db query factory
+ * ```typescript
+ * import { createSearchTool } from '@dotdo/mcp'
  * import { query } from '@dotdo/db'
+ *
  * const searchTool = createSearchTool({
  *   store: myThingsStore,
- *   query: (store) => query(store)
+ *   query: (store) => query(store) // Enables advanced SQL queries
  * })
+ * ```
+ *
+ * @example Backward compatible API (just pass store directly)
+ * ```typescript
+ * const searchTool = createSearchTool(myThingsStore)
  * ```
  */
 export function createSearchTool(deps: SearchToolDeps | ThingsStore): MCPTool {
@@ -253,7 +280,7 @@ export function createSearchTool(deps: SearchToolDeps | ThingsStore): MCPTool {
 
       // Apply where filters
       if (where && Object.keys(where).length > 0) {
-        q = q.where(where)
+        q = q.where(where as StorableData)
       }
 
       // Apply ordering
@@ -301,8 +328,42 @@ export function createSearchTool(deps: SearchToolDeps | ThingsStore): MCPTool {
 }
 
 /**
- * Default search tool (requires store injection via createSearchTool)
- * This export maintains backward compatibility with the existing import
+ * Default search tool export - NOT DIRECTLY USABLE
+ *
+ * IMPORTANT: This is a placeholder export that cannot be used directly.
+ * You must create a configured instance using the factory function.
+ *
+ * Why? The search tool needs access to a ThingsStore instance to perform
+ * searches. Since this is injected at runtime, we use a factory pattern.
+ *
+ * @example Correct usage - Create tool with factory
+ * ```typescript
+ * import { createSearchTool } from '@dotdo/mcp'
+ *
+ * // Simple usage with just a store
+ * const searchTool = createSearchTool({ store: myThingsStore })
+ * server.addTool(searchTool)
+ *
+ * // With @dotdo/db query factory for advanced features
+ * import { query } from '@dotdo/db'
+ * const searchTool = createSearchTool({
+ *   store: myThingsStore,
+ *   query: (store) => query(store)
+ * })
+ * server.addTool(searchTool)
+ * ```
+ *
+ * @example INCORRECT usage - This will throw an error
+ * ```typescript
+ * import { searchTool } from '@dotdo/mcp'
+ *
+ * // ❌ This will fail at runtime when execute() is called
+ * server.addTool(searchTool)
+ * await searchTool.execute({ $type: 'User' }) // throws error
+ * ```
+ *
+ * @throws Error with instructions when execute() is called without proper initialization
+ * @see createSearchTool for the factory function to create a working tool
  */
 export const searchTool: MCPTool = {
   name: 'search',
@@ -317,7 +378,25 @@ export const searchTool: MCPTool = {
       offset: { type: 'number', description: 'Results to skip' }
     }
   },
+  /**
+   * Placeholder execute method - WILL THROW ERROR
+   *
+   * This method always throws an error to guide developers to use the factory pattern.
+   * The searchTool export cannot function without a ThingsStore dependency injected
+   * at runtime via createSearchTool().
+   *
+   * @throws Always throws with instructions to use createSearchTool() instead
+   */
   execute: async (_params: unknown) => {
-    throw new Error('searchTool must be created with createSearchTool(store)')
+    throw new Error(
+      'searchTool cannot be used directly - it requires dependency injection.\n\n' +
+      'Use the factory pattern instead:\n\n' +
+      '  import { createSearchTool } from "@dotdo/mcp"\n' +
+      '  const searchTool = createSearchTool({ store: myThingsStore })\n' +
+      '  server.addTool(searchTool)\n\n' +
+      'Why? The search tool needs a ThingsStore instance to perform searches.\n' +
+      'Since dependencies are injected at runtime, we use a factory function.\n\n' +
+      'See createSearchTool() JSDoc for complete examples and options.'
+    )
   }
 }

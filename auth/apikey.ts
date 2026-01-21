@@ -394,6 +394,7 @@ export function createApiKeyMiddleware(manager: ApiKeyManager, options: {
 } = {}) {
   const { header = 'X-API-Key', requireScopes = [] } = options
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return async (c: any, next: any) => {
     const key = c.req.header(header)
 

@@ -159,10 +159,10 @@ async function initializeAsyncLocalStorage(): Promise<AsyncLocalStorageInterface
 
   try {
     // Check if AsyncLocalStorage is available globally (Cloudflare Workers 2024+)
-    // @ts-expect-error - AsyncLocalStorage may be globally available in Workers
-    if (typeof AsyncLocalStorage !== 'undefined') {
-      // @ts-expect-error - Use global AsyncLocalStorage
-      asyncLocalStorage = new AsyncLocalStorage<RequestScopedContext>()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const globalALS = (globalThis as any).AsyncLocalStorage
+    if (typeof globalALS !== 'undefined') {
+      asyncLocalStorage = new globalALS()
       return asyncLocalStorage
     }
   } catch {

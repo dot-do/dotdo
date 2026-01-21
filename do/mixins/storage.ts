@@ -40,6 +40,7 @@ import type {
 /**
  * Constructor type for mixin pattern
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Constructor<T = object> = new (...args: any[]) => T
 
 /**
@@ -121,6 +122,7 @@ export function WithStorage<TBase extends Constructor>(
   return class StorageMixin extends Base implements HasStorage {
     private _entityManager: EntityManager
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
       this._entityManager = new EntityManager(options.entityManagerOptions)
@@ -286,4 +288,5 @@ export function WithStorage<TBase extends Constructor>(
  * type MyDOInstance = MixinInstance<typeof WithStorage<typeof BaseDO>>
  * ```
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type MixinInstance<T> = T extends new (...args: any[]) => infer R ? R : never

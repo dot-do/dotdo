@@ -18,7 +18,7 @@ export interface MCPTool {
 
 export interface MCPServer {
   tools: MCPTool[]
-  registry?: ToolRegistry
+  registry?: ToolRegistry | undefined
   addTool(tool: MCPTool): void
   fetch: (request: Request, env?: unknown, ctx?: ExecutionContext) => Response | Promise<Response>
 }
@@ -88,7 +88,7 @@ export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
 
   return {
     tools,
-    registry,
+    registry: registry,
     addTool(tool: MCPTool) {
       tools.push(tool)
       // Also register in registry if provided

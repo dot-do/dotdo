@@ -47,13 +47,13 @@ export interface ResourceUsage {
   /** Whether output was truncated due to size limits */
   outputTruncated: boolean
   /** Memory used in MB (approximate) */
-  memoryUsedMB?: number
+  memoryUsedMB?: number | undefined
   /** Peak memory usage in MB */
-  peakMemoryMB?: number
+  peakMemoryMB?: number | undefined
   /** CPU time consumed in milliseconds */
-  cpuTimeMs?: number
+  cpuTimeMs?: number | undefined
   /** Which limit was violated (if any) */
-  limitViolated?: 'timeout' | 'memory' | 'cpu' | 'network'
+  limitViolated?: 'timeout' | 'memory' | 'cpu' | 'network' | undefined
 }
 
 export interface SandboxOptions {
@@ -71,12 +71,12 @@ export interface SandboxOptions {
 
 export interface SandboxResult {
   success: boolean
-  value?: unknown
-  error?: string
+  value?: unknown | undefined
+  error?: string | undefined
   duration: number
-  logs?: Array<{ level: string; message: string; timestamp?: number }>
+  logs?: Array<{ level: string; message: string; timestamp?: number | undefined }> | undefined
   /** Resource usage statistics */
-  resourceUsage?: ResourceUsage
+  resourceUsage?: ResourceUsage | undefined
 }
 
 export interface Sandbox {
@@ -508,8 +508,8 @@ export function setGlobalResourceEnforcer(enforcer: SandboxResourceEnforcer | nu
 // Storage for captured operations (shared between sandbox instances)
 interface CapturedOperation {
   type: 'send' | 'try' | 'do' | 'on' | 'every'
-  data: any
-  actionResult?: any
+  data: unknown
+  actionResult?: unknown
 }
 
 /**
@@ -1249,7 +1249,7 @@ export function createSandbox(options: SandboxOptions): Sandbox {
         const resourceUsage: ResourceUsage = {
           executionTime: duration,
           codeSize,
-          timedOut,
+          timedOut: false,
           outputTruncated,
           memoryUsedMB: sandboxStats.memoryUsedMB,
           peakMemoryMB: sandboxStats.peakMemoryMB,
@@ -1261,6 +1261,7 @@ export function createSandbox(options: SandboxOptions): Sandbox {
         if (userError) {
           return {
             success: false,
+            value: undefined,
             error: userError,
             duration,
             logs: result.logs,
@@ -1297,12 +1298,13 @@ export function createSandbox(options: SandboxOptions): Sandbox {
 
         return {
           success: false,
+          value: undefined,
           error: message,
           duration,
           resourceUsage: {
             executionTime: duration,
             codeSize,
-            timedOut,
+            timedOut: timedOut,
             outputTruncated: false,
             limitViolated: errorLimitViolated
           }

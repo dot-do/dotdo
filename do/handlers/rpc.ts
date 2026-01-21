@@ -115,15 +115,15 @@ export class RPCHandler implements DOHandler {
     args: unknown[]
   ): Promise<unknown> {
     const parts = method.split('.')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let current: any = target
+    let current = target as Record<string, unknown>
 
     // Navigate to the parent object
     for (let i = 0; i < parts.length - 1; i++) {
-      current = current[parts[i]]
-      if (!current) {
+      const next = current[parts[i]]
+      if (!next || typeof next !== 'object') {
         throw new NotFoundError(`Method not found: ${method}`)
       }
+      current = next as Record<string, unknown>
     }
 
     // Get the final method
@@ -132,6 +132,6 @@ export class RPCHandler implements DOHandler {
       throw new NotFoundError(`Method not found: ${method}`)
     }
 
-    return fn.apply(current, args)
+    return (fn as Function).apply(current, args)
   }
 }

@@ -56,74 +56,128 @@ export const providers = {
 }
 
 // Model catalog with cost and capability info
+// TODO: Verify pricing - these are estimates and may need updating based on latest provider pricing
 const MODEL_CATALOG: Record<string, ModelInfo> = {
   // OpenAI models
-  'gpt-4': {
+  // TODO: Verify OpenAI pricing for gpt-4o and latest models
+  'gpt-4o': {
     provider: 'openai',
-    model: 'gpt-4',
-    costPer1kTokens: 0.03,
-    maxTokens: 8192,
-    speed: 'medium'
+    model: 'gpt-4o',
+    costPer1kTokens: 0.005, // TODO: Verify pricing
+    maxTokens: 128000,
+    speed: 'fast'
+  },
+  'gpt-4o-mini': {
+    provider: 'openai',
+    model: 'gpt-4o-mini',
+    costPer1kTokens: 0.00015, // TODO: Verify pricing
+    maxTokens: 128000,
+    speed: 'fast'
   },
   'gpt-4-turbo': {
     provider: 'openai',
     model: 'gpt-4-turbo',
-    costPer1kTokens: 0.01,
+    costPer1kTokens: 0.01, // TODO: Verify pricing
     maxTokens: 128000,
     speed: 'fast'
   },
   'gpt-3.5-turbo': {
     provider: 'openai',
     model: 'gpt-3.5-turbo',
-    costPer1kTokens: 0.001,
-    maxTokens: 4096,
+    costPer1kTokens: 0.001, // TODO: Verify pricing
+    maxTokens: 16385,
     speed: 'fast'
   },
 
   // Anthropic models
-  'claude-3-opus': {
+  // TODO: Verify Anthropic pricing for Claude 3.5 and 4 models
+  'claude-opus-4-5': {
     provider: 'anthropic',
-    model: 'claude-3-opus',
-    costPer1kTokens: 0.015,
+    model: 'claude-opus-4-5-20251101',
+    costPer1kTokens: 0.015, // TODO: Verify pricing
     maxTokens: 200000,
     speed: 'medium'
   },
-  'claude-3-sonnet': {
+  'claude-sonnet-4-5': {
     provider: 'anthropic',
-    model: 'claude-3-sonnet',
-    costPer1kTokens: 0.003,
+    model: 'claude-sonnet-4-5-20250929',
+    costPer1kTokens: 0.003, // TODO: Verify pricing
     maxTokens: 200000,
     speed: 'fast'
   },
+  'claude-3.5-sonnet': {
+    provider: 'anthropic',
+    model: 'claude-3-5-sonnet-20241022',
+    costPer1kTokens: 0.003, // TODO: Verify pricing
+    maxTokens: 200000,
+    speed: 'fast'
+  },
+  'claude-3.5-haiku': {
+    provider: 'anthropic',
+    model: 'claude-3-5-haiku-20241022',
+    costPer1kTokens: 0.001, // TODO: Verify pricing
+    maxTokens: 200000,
+    speed: 'fast'
+  },
+  'claude-3-opus': {
+    provider: 'anthropic',
+    model: 'claude-3-opus-20240229',
+    costPer1kTokens: 0.015, // TODO: Verify pricing
+    maxTokens: 200000,
+    speed: 'medium'
+  },
   'claude-3-haiku': {
     provider: 'anthropic',
-    model: 'claude-3-haiku',
-    costPer1kTokens: 0.00025,
+    model: 'claude-3-haiku-20240307',
+    costPer1kTokens: 0.00025, // TODO: Verify pricing
     maxTokens: 200000,
     speed: 'fast'
   },
 
   // Google models
+  // TODO: Verify Google pricing for Gemini 2.0 and latest models
+  'gemini-2.0-flash': {
+    provider: 'google',
+    model: 'gemini-2.0-flash-exp',
+    costPer1kTokens: 0.0001, // TODO: Verify pricing
+    maxTokens: 1000000,
+    speed: 'fast'
+  },
+  'gemini-1.5-pro': {
+    provider: 'google',
+    model: 'gemini-1.5-pro',
+    costPer1kTokens: 0.00125, // TODO: Verify pricing
+    maxTokens: 2000000,
+    speed: 'medium'
+  },
+  'gemini-1.5-flash': {
+    provider: 'google',
+    model: 'gemini-1.5-flash',
+    costPer1kTokens: 0.000075, // TODO: Verify pricing
+    maxTokens: 1000000,
+    speed: 'fast'
+  },
   'gemini-pro': {
     provider: 'google',
     model: 'gemini-pro',
-    costPer1kTokens: 0.00025,
+    costPer1kTokens: 0.00025, // TODO: Verify pricing
     maxTokens: 32000,
     speed: 'fast'
   },
-  'gemini-ultra': {
-    provider: 'google',
-    model: 'gemini-ultra',
-    costPer1kTokens: 0.01,
-    maxTokens: 32000,
-    speed: 'medium'
-  },
 
   // Cloudflare Workers AI
+  // TODO: Verify Cloudflare Workers AI pricing and latest models
+  '@cf/meta/llama-3.1-8b-instruct': {
+    provider: 'cloudflare',
+    model: '@cf/meta/llama-3.1-8b-instruct',
+    costPer1kTokens: 0.0001, // TODO: Verify pricing
+    maxTokens: 8192,
+    speed: 'fast'
+  },
   '@cf/meta/llama-2-7b-chat-int8': {
     provider: 'cloudflare',
     model: '@cf/meta/llama-2-7b-chat-int8',
-    costPer1kTokens: 0.0001,
+    costPer1kTokens: 0.0001, // TODO: Verify pricing
     maxTokens: 4096,
     speed: 'fast'
   }
@@ -131,16 +185,45 @@ const MODEL_CATALOG: Record<string, ModelInfo> = {
 
 // Capability-based model selection
 const CAPABILITY_MODELS: Record<Capability, string> = {
-  fast: 'claude-3-haiku',
-  smart: 'claude-3-opus',
-  cheap: 'gemini-pro'
+  fast: 'claude-3.5-haiku',
+  smart: 'claude-opus-4-5',
+  cheap: 'gemini-1.5-flash'
 }
 
+/**
+ * AI Router with health tracking and load balancing.
+ *
+ * IMPORTANT: Health state is INTENTIONALLY instance-level, not request-scoped.
+ *
+ * Why instance-level health tracking?
+ * - Circuit breaker pattern requires persistent health state across requests
+ * - Prevents repeatedly hitting providers that are known to be unhealthy
+ * - Load balancing (least-loaded) requires tracking active requests globally
+ * - Router is designed as a long-lived singleton service, not per-request
+ *
+ * Usage:
+ * ```typescript
+ * // Create once at startup
+ * const router = new Router({
+ *   providers: [...],
+ *   loadBalancing: 'least-loaded'
+ * })
+ *
+ * // Reuse across requests
+ * const result1 = await router.execute('prompt1')
+ * const result2 = await router.execute('prompt2') // Shares health state
+ * ```
+ *
+ * If you need request-scoped routing, create a new Router instance per request.
+ *
+ * Reviewed: do-ghnx - Instance-level health state is intentional and correct.
+ */
 export class Router {
   private config: RouterConfig
   private providerConfigs: Map<Provider, ProviderConfig>
   private currentProviderIndex: number = 0
-  private healthStatus: Map<Provider, ProviderHealth>
+  private healthStatus: Map<Provider, ProviderHealth>  // Instance-level for circuit breaker
+  private activeRequests: Map<Provider, number> = new Map()  // Instance-level for load balancing
   private executor?: (prompt: string, options: ExecuteOptions) => Promise<ExecuteResult>
   private delayCallback?: (delay: number) => void
 
@@ -163,6 +246,7 @@ export class Router {
           lastCheck: Date.now(),
           consecutiveFailures: 0
         })
+        this.activeRequests.set(pc.provider, 0)
       })
     } else {
       // Initialize default providers
@@ -172,6 +256,7 @@ export class Router {
           lastCheck: Date.now(),
           consecutiveFailures: 0
         })
+        this.activeRequests.set(provider, 0)
       })
     }
   }
@@ -359,21 +444,48 @@ export class Router {
     return health as Record<Provider, ProviderHealth | undefined>
   }
 
+  /**
+   * Get active request counts for all providers (used by least-loaded strategy)
+   */
+  getActiveRequests(): Record<Provider, number> {
+    const counts: Record<string, number> = {}
+    Object.values(providers).forEach(provider => {
+      counts[provider] = this.activeRequests.get(provider) || 0
+    })
+    return counts as Record<Provider, number>
+  }
+
   // Internal methods
 
   private async _executeWithProvider(
     prompt: string,
     options: ExecuteOptions
   ): Promise<ExecuteResult> {
-    if (this.executor) {
-      return this.executor(prompt, options)
+    const provider = options.provider
+
+    // Track active request for least-loaded load balancing
+    if (provider) {
+      const current = this.activeRequests.get(provider) || 0
+      this.activeRequests.set(provider, current + 1)
     }
 
-    // Default implementation (placeholder)
-    // Real implementation would call actual provider APIs
-    return {
-      result: `Response from ${options.provider}: ${prompt}`,
-      provider: options.provider
+    try {
+      if (this.executor) {
+        return await this.executor(prompt, options)
+      }
+
+      // Default implementation (placeholder)
+      // Real implementation would call actual provider APIs
+      return {
+        result: `Response from ${options.provider}: ${prompt}`,
+        provider: options.provider
+      }
+    } finally {
+      // Decrement active request counter
+      if (provider) {
+        const current = this.activeRequests.get(provider) || 0
+        this.activeRequests.set(provider, Math.max(0, current - 1))
+      }
     }
   }
 
@@ -400,8 +512,12 @@ export class Router {
         break
 
       case 'least-loaded':
-        // TODO: Implement least-loaded strategy
-        selectedProvider = healthyProviders[0]
+        // Select provider with fewest active requests
+        selectedProvider = healthyProviders.reduce((least, current) => {
+          const leastLoad = this.activeRequests.get(least) || 0
+          const currentLoad = this.activeRequests.get(current) || 0
+          return currentLoad < leastLoad ? current : least
+        })
         break
 
       default:
@@ -426,7 +542,7 @@ export class Router {
     })
   }
 
-  _markUnhealthy(provider: Provider): void {
+  private _markUnhealthy(provider: Provider): void {
     const current = this.healthStatus.get(provider)
     this.healthStatus.set(provider, {
       healthy: false,

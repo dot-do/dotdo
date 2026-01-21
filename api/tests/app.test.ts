@@ -472,10 +472,7 @@ describe('api/app.ts - createAPI', () => {
       expect(res.status).toBe(404)
     })
 
-    // Note: HATEOAS links in 404 responses require the DiscoveryService to be properly
-    // initialized. When running with certain vitest configurations, the service imports
-    // may be different. These tests document the expected behavior.
-    it.skip('should include HATEOAS links in 404 response', async () => {
+    it('should include HATEOAS links in 404 response', async () => {
       const app = createAPI()
       const res = await app.request('http://localhost/not-found')
       const body = await res.json()
@@ -488,7 +485,7 @@ describe('api/app.ts - createAPI', () => {
       })
     })
 
-    it.skip('should include help link in 404 response', async () => {
+    it('should include help link in 404 response', async () => {
       const app = createAPI()
       const res = await app.request('http://localhost/not-found')
       const body = await res.json()
@@ -500,14 +497,14 @@ describe('api/app.ts - createAPI', () => {
       })
     })
 
-    it.skip('should include health link in 404 response', async () => {
+    it('should include health link in 404 response', async () => {
       const app = createAPI()
       const res = await app.request('http://localhost/not-found')
       const body = await res.json()
 
       expect(body._links.health).toMatchObject({
         href: expect.stringContaining('/health'),
-        rel: 'related',
+        rel: 'health',
         method: 'GET'
       })
     })

@@ -324,8 +324,7 @@ export class IntegrationRegistry {
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error))
           results.set(name, err)
-          // Log error but continue shutting down others
-          console.error(`Failed to shutdown integration "${name}":`, error)
+          // Continue shutting down other integrations even if one fails
         }
       }
     }

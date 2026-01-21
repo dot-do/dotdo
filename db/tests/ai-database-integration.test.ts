@@ -18,6 +18,50 @@
  * This file uses @dotdo/db primitives to test the integration layer that
  * will bridge to ai-database functionality.
  *
+ * OVERALL INTEGRATION STRATEGY:
+ *
+ * The ai-database integration provides an AI-powered layer on top of @dotdo/db's
+ * core Thing/Relationship/Event primitives. The integration has two main approaches:
+ *
+ * A. Adapter Pattern (Current - Working):
+ *    - DigitalObjectsThingsStore wraps a DigitalObjectsProvider
+ *    - Implements ThingsStore interface
+ *    - 14 tests PASS: Basic CRUD operations work
+ *    - Located in: db/digital-objects.ts
+ *
+ * B. AI Features Layer (Future - 10 Skipped Tests):
+ *    - Natural Language Queries (2 tests) - Transform NL to SQL using @dotdo/ai
+ *    - AI Generation (3 tests) - Draft/resolve pattern with LLM field generation
+ *    - Relationship Traversal (1 test) - Verb-based relationship operations
+ *    - Events API (2 tests) - Event emission and subscription
+ *    - Semantic Search (1 test) - Vector embeddings and similarity search
+ *    - Promise Pipelining (1 test) - Lazy evaluation with method chaining
+ *
+ * IMPLEMENTATION PHASES:
+ *
+ * Phase 1: Core AI Integration (Priority)
+ *    - Integrate @dotdo/ai module for LLM calls
+ *    - Implement Natural Language Query translation
+ *    - Add AI value generation for prompt fields
+ *
+ * Phase 2: Advanced Features
+ *    - Implement semantic search with embeddings
+ *    - Add event emission and subscription
+ *    - Build promise pipelining for lazy queries
+ *
+ * Phase 3: Relationship Enhancements
+ *    - Extend verb actions API
+ *    - Add relationship traversal methods
+ *    - Support cascade operations
+ *
+ * DEPENDENCIES:
+ *    - @dotdo/ai - LLM routing and template literal syntax
+ *    - primitives/digital-objects - Provider abstraction layer
+ *    - sqlite-vss (optional) - Vector similarity search
+ *
+ * Each describe block below contains detailed implementation requirements
+ * for its specific feature area.
+ *
  * @module db/tests/ai-database-integration
  */
 
@@ -287,6 +331,26 @@ describe('ai-database Integration', () => {
     /**
      * These tests define the expected AI query API.
      * They will FAIL until the integration layer is implemented.
+     *
+     * IMPLEMENTATION REQUIREMENTS:
+     *
+     * 1. Natural Language Query Support:
+     *    - Add `queryNL(question: string, type?: string)` method to ThingsStore
+     *    - Parse natural language questions into SQL/query operations
+     *    - Return NLQueryResult<Thing> with interpretation, confidence, and results
+     *    - Examples: "show all customers", "find customers from acme"
+     *
+     * 2. Integration Points:
+     *    - Use @dotdo/ai template literal syntax for LLM routing
+     *    - Transform NL to structured queries (SQL or filter predicates)
+     *    - Return both results and explanation for transparency
+     *
+     * 3. Dependencies:
+     *    - Requires @dotdo/ai module for LLM integration
+     *    - May need prompt templates for query translation
+     *    - Should support multiple LLM providers via ai module
+     *
+     * TESTS TO IMPLEMENT: 2 skipped tests
      */
 
     it.skip('should support natural language queries via Things API', async () => {
@@ -331,6 +395,32 @@ describe('ai-database Integration', () => {
     /**
      * These tests define the expected AI generation API.
      * They will FAIL until the integration layer is implemented.
+     *
+     * IMPLEMENTATION REQUIREMENTS:
+     *
+     * 1. Draft/Resolve Pattern:
+     *    - Add `createDraft(data)` method that returns Draft objects
+     *    - Draft has $phase: 'draft' and $refs for unresolved references
+     *    - Add `resolveDraft(draft)` method to convert drafts to Things
+     *    - Natural language references like "the CEO of Acme Corp" → actual entity IDs
+     *
+     * 2. AI Value Generation:
+     *    - Detect prompt fields in schema (fields with spaces/questions/slashes)
+     *    - Add `setValueGenerator(generator)` to configure AI generation
+     *    - Generate field values using LLM when prompt fields detected
+     *    - Support both async and sync generation
+     *
+     * 3. Cascade Generation:
+     *    - Create related entities automatically from natural language
+     *    - Support maxDepth option to prevent infinite recursion
+     *    - Track generated entities for rollback on failure
+     *
+     * 4. Integration Points:
+     *    - Use @dotdo/ai module for LLM calls
+     *    - Schema parsing to identify prompt fields vs type fields
+     *    - Entity resolution using semantic matching
+     *
+     * TESTS TO IMPLEMENT: 3 skipped tests
      */
 
     it.skip('should support draft/resolve pattern for AI-generated fields', async () => {
@@ -453,6 +543,26 @@ describe('ai-database Integration', () => {
       expect(customer.companyId).toBe(company.$id)
     })
 
+    /**
+     * IMPLEMENTATION REQUIREMENTS:
+     *
+     * 1. Verb Actions (Relationship Operations):
+     *    - Add `perform(verb, fromId, toId)` method to DigitalObjectsProvider
+     *    - Create bidirectional relationships between entities
+     *    - Support verb-based relationship queries
+     *
+     * 2. Relationship Traversal:
+     *    - Add `related(entityId, verb, direction)` method
+     *    - Direction: 'forward' (from → to), 'backward' (to → from), 'both'
+     *    - Return array of related entities
+     *
+     * 3. Integration Points:
+     *    - Leverage existing Relationships table in @dotdo/db
+     *    - Map verb actions to relationship records
+     *    - Support relationship metadata (timestamps, properties)
+     *
+     * TESTS TO IMPLEMENT: 1 skipped test
+     */
     it.skip('should support relationship traversal via verb actions', async () => {
       const company = await store.create({ $type: 'Company', name: 'Acme Corp' })
       const customer = await store.create({
@@ -473,6 +583,27 @@ describe('ai-database Integration', () => {
   })
 
   describe('Events API Integration', () => {
+    /**
+     * IMPLEMENTATION REQUIREMENTS:
+     *
+     * 1. Event Emission:
+     *    - Add `on(eventType, handler)` method to DigitalObjectsProvider
+     *    - Emit events on CRUD operations: created, updated, deleted
+     *    - Event naming: 'Noun.verb' (e.g., 'Customer.created')
+     *    - Return unsubscribe function
+     *
+     * 2. Custom Event Support:
+     *    - Add `emit(eventType, data)` method
+     *    - Store events in Events table (event sourcing)
+     *    - Return event record with unique ID
+     *
+     * 3. Integration Points:
+     *    - Use existing Events table from @dotdo/db
+     *    - Support WorkflowContext ($) event handlers
+     *    - Enable $.on.Customer.created() patterns
+     *
+     * TESTS TO IMPLEMENT: 2 skipped tests
+     */
     let doProvider: DigitalObjectsProvider
     let store: DigitalObjectsThingsStore
 
@@ -514,6 +645,32 @@ describe('ai-database Integration', () => {
   })
 
   describe('Semantic Search Integration (Expected API)', () => {
+    /**
+     * IMPLEMENTATION REQUIREMENTS:
+     *
+     * 1. Embeddings Configuration:
+     *    - Add embeddings config to store creation: { fields: [], dimensions: number }
+     *    - Store vector embeddings alongside entity data
+     *    - Use SQLite vector search or external vector DB
+     *
+     * 2. Semantic Search API:
+     *    - Add `semanticSearch(query, options)` method to ThingsStore
+     *    - Generate query embedding using @dotdo/ai
+     *    - Return results with similarity scores ($score field)
+     *    - Support minScore and limit options
+     *
+     * 3. Vector Operations:
+     *    - Cosine similarity or dot product for ranking
+     *    - Automatic embedding generation on create/update
+     *    - Re-embedding when configured fields change
+     *
+     * 4. Integration Points:
+     *    - Use @dotdo/ai for embedding generation
+     *    - May use sqlite-vss extension or external vector DB
+     *    - Support multiple embedding models
+     *
+     * TESTS TO IMPLEMENT: 1 skipped test
+     */
     it.skip('should support semantic search when embeddings configured', async () => {
       const store = createThingsStore()
 
@@ -547,6 +704,31 @@ describe('ai-database Integration', () => {
   })
 
   describe('Promise Pipelining Integration (Expected API)', () => {
+    /**
+     * IMPLEMENTATION REQUIREMENTS:
+     *
+     * 1. Lazy Evaluation:
+     *    - Create PipelineList<T> that extends Promise<T[]>
+     *    - Support method chaining: filter, map, reduce, etc.
+     *    - Execute query only when awaited (promise resolved)
+     *
+     * 2. Pipeline Methods:
+     *    - filter(predicate) - SQL WHERE clause generation
+     *    - map(transform) - SQL projection or post-query transform
+     *    - Chainable operations accumulate before execution
+     *
+     * 3. Optimization:
+     *    - Translate pipeline operations to SQL when possible
+     *    - Batch database queries
+     *    - Avoid N+1 queries through intelligent batching
+     *
+     * 4. Integration Points:
+     *    - Wrap ThingsStore.list() with pipeline interface
+     *    - Use query builder pattern for SQL generation
+     *    - Support both eager and lazy loading strategies
+     *
+     * TESTS TO IMPLEMENT: 1 skipped test
+     */
     it.skip('should support lazy evaluation with chaining', async () => {
       const store = createThingsStore()
 

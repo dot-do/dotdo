@@ -320,8 +320,9 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       let current: Record<string, unknown> = target as Record<string, unknown>
 
       for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i]!
         // Only access own properties to prevent prototype chain traversal
-        if (!Object.prototype.hasOwnProperty.call(current, parts[i])) {
+        if (!Object.prototype.hasOwnProperty.call(current, part)) {
           // Return same error as whitelist rejection to prevent method enumeration
           if (currentWhitelist !== undefined) {
             const error = createMethodNotAllowedError()
@@ -330,7 +331,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
           const error = NotFoundError.forResource('Method', method)
           return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
         }
-        const next = current[parts[i]]
+        const next = current[part]
         if (!next || typeof next !== 'object') {
           // Return same error as whitelist rejection to prevent method enumeration
           if (currentWhitelist !== undefined) {
@@ -370,7 +371,17 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       }
 
       // fn is now known to be a function, cast to callable type for apply()
-      const result = await (fn as (...args: unknown[]) => unknown).apply(current, args)
+      let result = await (fn as (...args: unknown[]) => unknown).apply(current, args)
+
+      // Handle async generators by consuming them into an array
+      if (result && typeof result === 'object' && Symbol.asyncIterator in result) {
+        const items: unknown[] = []
+        for await (const item of result as AsyncIterable<unknown>) {
+          items.push(item)
+        }
+        result = items
+      }
+
       return c.json(result)
     } catch (error) {
       // If it's already an RPCError, serialize it with its proper status code

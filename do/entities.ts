@@ -251,10 +251,12 @@ export class EntityManager {
 /**
  * Mixin to add entity management to DO classes
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function withEntities<T extends new (...args: any[]) => any>(Base: T) {
   return class extends Base {
     private entityManager: EntityManager
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
       this.entityManager = new EntityManager()

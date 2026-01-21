@@ -2,7 +2,7 @@
 // Used for client-to-worker communication over HTTP
 
 import { generateCorrelationId, CORRELATION_ID_HEADER } from '../client'
-import { isSerializedError, type SerializedError } from '../errors'
+import { isSerializedError, TransportError, type SerializedError } from '../errors'
 import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportState } from './types'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 
@@ -70,19 +70,35 @@ export class FetchTransport implements Transport {
   async send<T = unknown>(message: RPCMessage): Promise<RPCResponse<T>> {
     const correlationId = message.correlationId ?? this.baseCorrelationId ?? generateCorrelationId()
 
-    const response = await this.fetchImpl(`${this.url}/rpc`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        [CORRELATION_ID_HEADER]: correlationId,
-        ...this.headers,
-      },
-      body: JSON.stringify({
-        method: message.method,
-        args: message.args,
-      }),
-      signal: AbortSignal.timeout(this.timeout),
-    })
+    let response: Response
+    try {
+      response = await this.fetchImpl(`${this.url}/rpc`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          [CORRELATION_ID_HEADER]: correlationId,
+          ...this.headers,
+        },
+        body: JSON.stringify({
+          method: message.method,
+          args: message.args,
+        }),
+        signal: AbortSignal.timeout(this.timeout),
+      })
+    } catch (error) {
+      // Handle transport-level errors (network failures, timeouts, DNS resolution, etc.)
+      const transportError = TransportError.fetchFailed(this.url, error instanceof Error ? error : new Error(String(error)))
+      return {
+        error: {
+          type: transportError.name,
+          code: transportError.code,
+          message: transportError.message,
+          ...(transportError.details && { details: transportError.details }),
+          httpStatus: transportError.httpStatus,
+        },
+        correlationId,
+      }
+    }
 
     const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) ?? correlationId
 

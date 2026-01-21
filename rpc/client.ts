@@ -3,7 +3,7 @@
 // Supports pluggable transports for different communication backends
 // Includes Cap'n Proto-style promise pipelining for efficient RPC chaining
 
-import { deserializeError, isRPCError, type SerializedError } from './errors'
+import { deserializeError, isRPCError, TransportError, type SerializedError } from './errors'
 import type { Transport, RPCMessage, RPCResponse } from './transport/types'
 import { PipelineBuilder, type PipelineRequest, type PipelineResponse } from './pipeline'
 
@@ -21,6 +21,40 @@ export function generateCorrelationId(): string {
 
 /** Header name for correlation ID */
 export const CORRELATION_ID_HEADER = 'X-Correlation-ID'
+
+/**
+ * Handles error responses from RPC calls by parsing structured errors
+ * or falling back to generic error messages.
+ *
+ * @param response - The HTTP response object
+ * @param correlationId - The correlation ID for this request
+ * @param errorPrefix - Optional prefix for the fallback error message
+ * @throws Deserialized RPCError if response contains structured error
+ * @throws Generic Error if response is not ok and no structured error found
+ */
+async function handleErrorResponse(
+  response: Response,
+  correlationId: string,
+  errorPrefix = 'RPC error'
+): Promise<void> {
+  if (!response.ok) {
+    const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
+    // Try to parse the structured error response
+    try {
+      const errorBody = await response.json() as SerializedError & { correlationId?: string }
+      if (errorBody.code && errorBody.message) {
+        throw deserializeError(errorBody)
+      }
+    } catch (e) {
+      // If it's already an RPCError from deserialization, re-throw it
+      if (isRPCError(e)) {
+        throw e
+      }
+    }
+    // Fallback to generic error
+    throw new Error(`${errorPrefix}: ${response.status} [${responseCorrelationId}]`)
+  }
+}
 
 /**
  * Options for creating an RPC client
@@ -58,24 +92,7 @@ function createMethodInvoker(
       signal: AbortSignal.timeout(timeout),
     })
 
-    if (!response.ok) {
-      const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
-      // Try to parse the structured error response
-      try {
-        const errorBody = await response.json() as SerializedError & { correlationId?: string }
-        if (errorBody.code && errorBody.message) {
-          throw deserializeError(errorBody)
-        }
-      } catch (e) {
-        // If it's already an RPCError from deserialization, re-throw it
-        if (isRPCError(e)) {
-          throw e
-        }
-      }
-      // Fallback to generic error
-      throw new Error(`RPC error: ${response.status} [${responseCorrelationId}]`)
-    }
-
+    await handleErrorResponse(response, correlationId)
     return response.json()
   }
 }
@@ -329,33 +346,22 @@ export function createDOStub<T extends object>(
         // Generate a correlation ID for each request, or use the provided base correlation ID
         const correlationId = baseCorrelationId || generateCorrelationId()
 
-        const response = await stub.fetch('https://do/rpc', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            [CORRELATION_ID_HEADER]: correlationId,
-          },
-          body: JSON.stringify({ method: prop, args }),
-        })
-
-        if (!response.ok) {
-          const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
-          // Try to parse the structured error response
-          try {
-            const errorBody = await response.json() as SerializedError & { correlationId?: string }
-            if (errorBody.code && errorBody.message) {
-              throw deserializeError(errorBody)
-            }
-          } catch (e) {
-            // If it's already an RPCError from deserialization, re-throw it
-            if (isRPCError(e)) {
-              throw e
-            }
-          }
-          // Fallback to generic error
-          throw new Error(`DO RPC error: ${response.status} [${responseCorrelationId}]`)
+        let response: Response
+        try {
+          response = await stub.fetch('https://do/rpc', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              [CORRELATION_ID_HEADER]: correlationId,
+            },
+            body: JSON.stringify({ method: prop, args }),
+          })
+        } catch (error) {
+          // Handle transport-level errors (DO stub failures, network issues, etc.)
+          throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
         }
 
+        await handleErrorResponse(response, correlationId, 'DO RPC error')
         return response.json()
       }
     }
@@ -429,30 +435,19 @@ export function createSecureDOStub<T extends object>(
         // Create secure headers with HMAC signature
         const headers = await createDOToDoHeaders(sourceDoId, '/rpc', correlationId)
 
-        const response = await stub.fetch('https://do/rpc', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ method: prop, args }),
-        })
-
-        if (!response.ok) {
-          const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
-          // Try to parse the structured error response
-          try {
-            const errorBody = await response.json() as SerializedError & { correlationId?: string }
-            if (errorBody.code && errorBody.message) {
-              throw deserializeError(errorBody)
-            }
-          } catch (e) {
-            // If it's already an RPCError from deserialization, re-throw it
-            if (isRPCError(e)) {
-              throw e
-            }
-          }
-          // Fallback to generic error
-          throw new Error(`DO RPC error: ${response.status} [${responseCorrelationId}]`)
+        let response: Response
+        try {
+          response = await stub.fetch('https://do/rpc', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ method: prop, args }),
+          })
+        } catch (error) {
+          // Handle transport-level errors (DO stub failures, network issues, etc.)
+          throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
         }
 
+        await handleErrorResponse(response, correlationId, 'DO RPC error')
         return response.json()
       }
     }
@@ -637,24 +632,48 @@ export function createDOStubWithPipeline<T extends object>(
     async send<R>(message: RPCMessage): Promise<RPCResponse<R>> {
       const correlationId = message.correlationId || generateCorrelationId()
 
-      const response = await stub.fetch('https://do/rpc', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          [CORRELATION_ID_HEADER]: correlationId,
-        },
-        body: JSON.stringify({ method: message.method, args: message.args }),
-      })
-
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({})) as SerializedError
+      let response: Response
+      try {
+        response = await stub.fetch('https://do/rpc', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            [CORRELATION_ID_HEADER]: correlationId,
+          },
+          body: JSON.stringify({ method: message.method, args: message.args }),
+        })
+      } catch (error) {
+        // Handle transport-level errors (DO stub failures, network issues, etc.)
+        const transportError = TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
         return {
-          error: errorBody.code ? errorBody : {
-            code: 'INTERNAL_ERROR',
-            message: `DO RPC error: ${response.status}`,
-            type: 'InternalError',
+          error: {
+            code: transportError.code,
+            message: transportError.message,
+            type: transportError.name,
           },
           correlationId,
+        }
+      }
+
+      if (!response.ok) {
+        const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
+        // Try to parse the structured error response
+        try {
+          const errorBody = await response.json() as SerializedError & { correlationId?: string }
+          if (errorBody.code && errorBody.message) {
+            return { error: errorBody, correlationId: responseCorrelationId }
+          }
+        } catch (e) {
+          // If JSON parsing fails, fall through to generic error
+        }
+        // Fallback to generic error
+        return {
+          error: {
+            code: 'INTERNAL_ERROR',
+            message: `DO RPC error: ${response.status} [${responseCorrelationId}]`,
+            type: 'InternalError',
+          },
+          correlationId: responseCorrelationId,
         }
       }
 
@@ -693,30 +712,22 @@ export function createDOStubWithPipeline<T extends object>(
       return async (...args: unknown[]) => {
         const correlationId = baseCorrelationId || generateCorrelationId()
 
-        const response = await stub.fetch('https://do/rpc', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            [CORRELATION_ID_HEADER]: correlationId,
-          },
-          body: JSON.stringify({ method: prop, args }),
-        })
-
-        if (!response.ok) {
-          const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
-          try {
-            const errorBody = await response.json() as SerializedError & { correlationId?: string }
-            if (errorBody.code && errorBody.message) {
-              throw deserializeError(errorBody)
-            }
-          } catch (e) {
-            if (isRPCError(e)) {
-              throw e
-            }
-          }
-          throw new Error(`DO RPC error: ${response.status} [${responseCorrelationId}]`)
+        let response: Response
+        try {
+          response = await stub.fetch('https://do/rpc', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              [CORRELATION_ID_HEADER]: correlationId,
+            },
+            body: JSON.stringify({ method: prop, args }),
+          })
+        } catch (error) {
+          // Handle transport-level errors (DO stub failures, network issues, etc.)
+          throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
         }
 
+        await handleErrorResponse(response, correlationId, 'DO RPC error')
         return response.json()
       }
     }

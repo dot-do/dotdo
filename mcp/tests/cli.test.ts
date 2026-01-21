@@ -38,7 +38,7 @@ describe('MCP CLI', () => {
       // Mock stdout and capture output
       const logs: string[] = []
       const originalLog = console.log
-      console.log = (...args: any[]) => logs.push(args.join(' '))
+      console.log = (...args: unknown[]) => logs.push(args.join(' '))
 
       try {
         await main(['--help'])
@@ -59,7 +59,7 @@ describe('MCP CLI', () => {
 
       const logs: string[] = []
       const originalLog = console.log
-      console.log = (...args: any[]) => logs.push(args.join(' '))
+      console.log = (...args: unknown[]) => logs.push(args.join(' '))
 
       try {
         await main(['--version'])

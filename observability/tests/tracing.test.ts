@@ -418,9 +418,9 @@ describe('SpanExporter', () => {
 describe('SpanProcessor', () => {
   describe('createBatchSpanProcessor', () => {
     it('should batch spans for export', async () => {
-      const exported: any[] = []
+      const exported: unknown[] = []
       const exporter = {
-        async export(spans: any[]) {
+        async export(spans: unknown[]) {
           exported.push(...spans)
         },
         async shutdown() {},
@@ -446,9 +446,9 @@ describe('SpanProcessor', () => {
     })
 
     it('should force flush on demand', async () => {
-      const exported: any[] = []
+      const exported: unknown[] = []
       const exporter = {
-        async export(spans: any[]) {
+        async export(spans: unknown[]) {
           exported.push(...spans)
         },
         async shutdown() {},

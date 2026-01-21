@@ -114,7 +114,8 @@ export class MCPGenerator {
       description,
       inputSchema,
       handler: async (params: unknown) => {
-        return await actionDef.handler(params)
+        // ActionDef.handler expects a Hono Context, but MCP provides raw params
+        return await actionDef.handler(params as Parameters<typeof actionDef.handler>[0])
       }
     }
   }

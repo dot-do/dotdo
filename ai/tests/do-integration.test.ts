@@ -145,7 +145,7 @@ describe('AI <-> DO Integration', () => {
 
   describe('AI with $.send events', () => {
     it('should emit AI-generated content via $.send', async () => {
-      const receivedEvents: any[] = []
+      const receivedEvents: unknown[] = []
 
       $.on.AI.generated(async (event) => {
         receivedEvents.push(event)
@@ -216,7 +216,7 @@ describe('AI <-> DO Integration', () => {
     })
 
     it('should handle AI results in wildcard handlers', async () => {
-      const allAIEvents: any[] = []
+      const allAIEvents: unknown[] = []
 
       // Catch all AI-related events
       $.on.AI['*'](async (event) => {
@@ -237,7 +237,7 @@ describe('AI <-> DO Integration', () => {
     })
 
     it('should pass AI metadata through events', async () => {
-      const capturedMeta: any[] = []
+      const capturedMeta: unknown[] = []
 
       $.on.AI.result(async (event) => {
         capturedMeta.push((event as any).payload)
@@ -466,7 +466,7 @@ describe('AI <-> DO Integration', () => {
 
   describe('AI with WorkflowContext configuration', () => {
     it('should use AI with custom model via .with()', async () => {
-      const metaCaptures: any[] = []
+      const metaCaptures: unknown[] = []
 
       $.on.Custom.generate(async () => {
         const result = ai`Generate with custom model`.with({
@@ -488,7 +488,7 @@ describe('AI <-> DO Integration', () => {
     })
 
     it('should track AI usage within DO context', async () => {
-      const usageLog: any[] = []
+      const usageLog: unknown[] = []
 
       $.on.Analytics.track(async (event) => {
         const prompt = (event as any).payload?.prompt ?? 'default'
@@ -540,7 +540,7 @@ describe('AI <-> DO Integration', () => {
     })
 
     it('should batch embed multiple documents', async () => {
-      const results: any[] = []
+      const results: unknown[] = []
 
       $.on.Batch.embed(async (event) => {
         const documents = (event as any).payload?.documents ?? []

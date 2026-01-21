@@ -79,7 +79,7 @@ describe('Sandbox MCP Integration', () => {
       expect(response.status).toBe(200)
       const json = await response.json()
 
-      const sandboxTool = json.tools.find((t: any) => t.name === 'sandbox')
+      const sandboxTool = json.tools.find((t: unknown) => (t as { name: string }).name === 'sandbox')
       expect(sandboxTool).toBeDefined()
       expect(sandboxTool.inputSchema.properties.code).toBeDefined()
       expect(sandboxTool.inputSchema.properties.permissions).toBeDefined()
@@ -431,7 +431,7 @@ describe('Sandbox MCP Integration', () => {
           type: 'object',
           properties: { message: { type: 'string' } }
         },
-        execute: async (params: any) => params.message
+        execute: async (params: unknown) => (params as { message: string }).message
       })
 
       // List tools - should have both
@@ -440,8 +440,8 @@ describe('Sandbox MCP Integration', () => {
       const listJson = await listResponse.json()
 
       expect(listJson.tools.length).toBeGreaterThanOrEqual(2)
-      expect(listJson.tools.map((t: any) => t.name)).toContain('sandbox')
-      expect(listJson.tools.map((t: any) => t.name)).toContain('echo')
+      expect(listJson.tools.map((t: unknown) => (t as { name: string }).name)).toContain('sandbox')
+      expect(listJson.tools.map((t: unknown) => (t as { name: string }).name)).toContain('echo')
 
       // Execute both tools
       const sandboxRequest = new Request('http://localhost/mcp/tools/call', {

@@ -131,9 +131,9 @@ function showVersion(): void {
  */
 async function handleMessage(
   server: ReturnType<typeof createMCPServer>,
-  message: any,
+  message: Record<string, unknown>,
   verbose: boolean
-): Promise<any> {
+): Promise<unknown> {
   const { method, params, id } = message
 
   if (verbose) {
@@ -141,7 +141,7 @@ async function handleMessage(
   }
 
   try {
-    let result: any
+    let result: unknown
 
     switch (method) {
       case 'initialize':

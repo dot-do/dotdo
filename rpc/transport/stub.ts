@@ -2,7 +2,7 @@
 // Used for Worker-to-DO and DO-to-DO communication within Cloudflare Workers
 
 import { generateCorrelationId, CORRELATION_ID_HEADER } from '../client'
-import { isSerializedError, type SerializedError } from '../errors'
+import { isSerializedError, TransportError, type SerializedError } from '../errors'
 import { DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER } from '../headers'
 import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportState } from './types'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
@@ -110,14 +110,30 @@ export class StubTransport implements Transport {
       headers[DO_SOURCE_ID_HEADER] = this.sourceDoId
     }
 
-    const response = await this.stub.fetch(`${this.baseUrl}/rpc`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        method: message.method,
-        args: message.args,
-      }),
-    })
+    let response: Response
+    try {
+      response = await this.stub.fetch(`${this.baseUrl}/rpc`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          method: message.method,
+          args: message.args,
+        }),
+      })
+    } catch (error) {
+      // Handle transport-level errors (DO stub failures, network issues, etc.)
+      const transportError = TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
+      return {
+        error: {
+          type: transportError.name,
+          code: transportError.code,
+          message: transportError.message,
+          ...(transportError.details && { details: transportError.details }),
+          httpStatus: transportError.httpStatus,
+        },
+        correlationId,
+      }
+    }
 
     const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) ?? correlationId
 

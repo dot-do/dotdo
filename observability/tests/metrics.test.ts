@@ -290,9 +290,9 @@ describe('MetricsExporter', () => {
 describe('PeriodicReporter', () => {
   it('should flush metrics on demand', async () => {
     const meter = createMeter({ name: 'reporter-test' })
-    const exported: any[] = []
+    const exported: unknown[] = []
     const exporter = {
-      async export(metrics: any[]) {
+      async export(metrics: unknown[]) {
         exported.push(...metrics)
       },
       async shutdown() {},

@@ -11,8 +11,7 @@ export default defineConfig({
     },
   },
   vite: {
-    // @ts-expect-error Vite version mismatch between root and @tanstack/start-config
-    plugins: [tailwindcss()],
+    plugins: [tailwindcss()] as any, // Vite version mismatch between root and @tanstack/start-config
   },
   // Enable static export for Cloudflare Pages
   react: {

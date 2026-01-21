@@ -52,7 +52,7 @@ export function createMockSqlStorage(): MockSqlStorage {
               if (lowerSql.startsWith('select')) {
                 // Extract table name
                 const tableMatch = sql.match(/from\s+(\w+)/i)
-                if (!tableMatch) return null
+                if (!tableMatch || !tableMatch[1]) return null
 
                 const tableName = tableMatch[1]
                 const rows = tables.get(tableName)
@@ -90,7 +90,7 @@ export function createMockSqlStorage(): MockSqlStorage {
 
               if (lowerSql.startsWith('select')) {
                 const tableMatch = sql.match(/from\s+(\w+)/i)
-                if (!tableMatch) return { results: [] }
+                if (!tableMatch || !tableMatch[1]) return { results: [] }
 
                 const tableName = tableMatch[1]
                 const tableRows = tables.get(tableName)
@@ -258,7 +258,7 @@ export function createMockSqlStorage(): MockSqlStorage {
 
               if (lowerSql.startsWith('insert')) {
                 const tableMatch = sql.match(/insert into\s+(\w+)/i)
-                if (!tableMatch) return
+                if (!tableMatch || !tableMatch[1]) return
 
                 const tableName = tableMatch[1]
                 const rows = tables.get(tableName)
@@ -279,7 +279,7 @@ export function createMockSqlStorage(): MockSqlStorage {
                 rows.push(row)
               } else if (lowerSql.startsWith('update')) {
                 const tableMatch = sql.match(/update\s+(\w+)/i)
-                if (!tableMatch) return
+                if (!tableMatch || !tableMatch[1]) return
 
                 const tableName = tableMatch[1]
                 const rows = tables.get(tableName)
@@ -303,7 +303,7 @@ export function createMockSqlStorage(): MockSqlStorage {
                 }
               } else if (lowerSql.startsWith('delete')) {
                 const tableMatch = sql.match(/delete from\s+(\w+)/i)
-                if (!tableMatch) return
+                if (!tableMatch || !tableMatch[1]) return
 
                 const tableName = tableMatch[1]
                 const rows = tables.get(tableName)

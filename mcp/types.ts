@@ -65,52 +65,37 @@
 // ============================================================================
 // Store Abstractions
 // ============================================================================
-// Minimal interfaces for store operations needed by MCP tools.
-// Implementations can use @dotdo/db or any compatible store.
+// Re-export core types from @dotdo/db to avoid duplication (do-4exm)
 
-/**
- * JSON-safe value types for storable data
- */
-export type JsonPrimitive = string | number | boolean | null
-export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
-export type StorableData = Record<string, JsonValue>
+// Import base types from @dotdo/db
+import type {
+  Thing as DBThing,
+  Relationship as DBRelationship,
+  Event as DBEvent,
+  StorableData,
+  JsonValue
+} from '@dotdo/db'
 
 /**
  * Base Thing interface with system fields
- * Minimal interface for MCP search and fetch operations
+ * Re-exported from @dotdo/db to avoid duplication
  */
-export interface Thing<T extends StorableData = StorableData> {
-  $id: string
-  $type: string
-  $createdAt: number
-  $updatedAt: number
-  [key: string]: unknown
-}
+export type Thing<T extends StorableData = StorableData> = DBThing<T>
 
 /**
  * Base Relationship interface
- * Minimal interface for MCP fetch enrichments
+ * Re-exported from @dotdo/db to avoid duplication
  */
-export interface Relationship {
-  subject: string
-  predicate: string
-  object: string
-  $createdAt: number
-  [key: string]: unknown
-}
+export type Relationship = DBRelationship
 
 /**
  * Base Event interface
- * Minimal interface for MCP fetch enrichments
+ * Re-exported from @dotdo/db to avoid duplication
  */
-export interface Event<P = unknown> {
-  $id: string
-  type: string
-  payload: P
-  $timestamp: number
-  source?: string
-  correlationId?: string
-}
+export type Event<P extends JsonValue = JsonValue> = DBEvent<P>
+
+// Re-export JSON types for convenience
+export type { StorableData, JsonValue } from '@dotdo/db'
 
 /**
  * Minimal ThingsStore interface for MCP tools

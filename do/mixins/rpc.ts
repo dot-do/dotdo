@@ -159,6 +159,7 @@ export function WithRPC<TBase extends Constructor>(
     private _stubCache: Map<string, DOStubProxy>
     private _rpcConfig: CrossDORPCConfig | null = null
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
       this._stubCache = new Map()
@@ -267,6 +268,7 @@ export function WithRPC<TBase extends Constructor>(
 
           // Navigate to method using dot notation
           const parts = method.split('.')
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let current: any = this
 
           for (let i = 0; i < parts.length - 1; i++) {

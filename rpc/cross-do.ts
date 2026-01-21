@@ -2,7 +2,7 @@
 // Provides typed RPC between DOs with stub caching and connection pooling
 
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
-import { RPCError, RPCErrorCode, isSerializedError, deserializeError } from './errors'
+import { RPCError, RPCErrorCode, isSerializedError, deserializeError, TransportError } from './errors'
 import { DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER } from './headers'
 
 // Re-export for convenience
@@ -165,7 +165,14 @@ export function createCrossDOClient<T extends object>(
             headers.set(DO_SOURCE_ID_HEADER, sourceDoId)
           }
 
-          const response = await stub.fetch(url, { ...init, headers })
+          let response: Response
+          try {
+            response = await stub.fetch(url, { ...init, headers })
+          } catch (error) {
+            // Handle transport-level errors (DO stub failures, network issues, etc.)
+            throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
+          }
+
           if (!response.ok) {
             const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
             const errorBody = await response.json().catch(() => null) as { message?: string } | null
@@ -211,11 +218,17 @@ export function createCrossDOClient<T extends object>(
           headers[DO_SOURCE_ID_HEADER] = sourceDoId
         }
 
-        const response = await stub.fetch('https://do/rpc', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ method: prop, args }),
-        })
+        let response: Response
+        try {
+          response = await stub.fetch('https://do/rpc', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ method: prop, args }),
+          })
+        } catch (error) {
+          // Handle transport-level errors (DO stub failures, network issues, etc.)
+          throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
+        }
 
         if (!response.ok) {
           const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId

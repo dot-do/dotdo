@@ -53,10 +53,16 @@ let globalConfig: OrgAiClientConfig = {
  *
  * @example
  * ```typescript
+ * // Production configuration
  * configureOrgAiClient({
  *   baseUrl: 'https://staging.id.org.ai',
  *   cacheTtl: 600,
- *   apiKey: process.env.ORG_AI_API_KEY
+ *   apiKey: env.ORG_AI_API_KEY
+ * })
+ *
+ * // Development/testing with mock mode
+ * configureOrgAiClient({
+ *   mockMode: true
  * })
  * ```
  */
@@ -108,21 +114,11 @@ function setCacheEntry<T>(cache: Map<string, CacheEntry<T>>, key: string, value:
 }
 
 /**
- * Check if mock mode is enabled via config or environment variable
+ * Check if mock mode is enabled via config
  * @internal
  */
 function isMockModeEnabled(): boolean {
-  if (globalConfig.mockMode === true) return true
-  // Check environment variables (for both Node.js and Vite/Vitest)
-  try {
-    if (typeof process !== 'undefined' && process.env) {
-      if (process.env['ORG_AI_MOCK'] === 'true') return true
-      if (process.env.NODE_ENV === 'development') return true
-    }
-  } catch {
-    // process.env may not be available in all environments
-  }
-  return false
+  return globalConfig.mockMode === true
 }
 
 // === Types ===
@@ -189,7 +185,7 @@ export interface SSOFlowOptions {
   /** Use PKCE for enhanced security */
   usePKCE?: boolean
   /** Event handler for telemetry */
-  onEvent?: (event: any) => void
+  onEvent?: (event: unknown) => void
 }
 
 /**
@@ -501,7 +497,7 @@ function extractIdFromUri(uri: string, expectedType: string): string | null {
  * Normalize user response from org.ai API to standard User type
  * @internal
  */
-function normalizeUserResponse(data: any, originalId: string): User | null {
+function normalizeUserResponse(data: unknown, originalId: string): User | null {
   if (!data || typeof data !== 'object') return null
 
   // Try to extract required fields from various API response formats
@@ -649,7 +645,7 @@ export async function checkOrganizationMembership(
  * Normalize membership response from org.ai API to standard OrganizationMembership type
  * @internal
  */
-function normalizeMembershipResponse(data: any, orgId: string): OrganizationMembership {
+function normalizeMembershipResponse(data: unknown, orgId: string): OrganizationMembership {
   if (!data || typeof data !== 'object') {
     return { isMember: false }
   }

@@ -478,7 +478,7 @@ describe('Sandbox with $ context', () => {
 
   describe('Red: Failing Tests - Audit logging', () => {
     it('should log $ operations when audit enabled', async () => {
-      const auditLog: any[] = []
+      const auditLog: unknown[] = []
       const sandbox = createSandbox({
         context: context,
         audit: true,
@@ -498,7 +498,7 @@ describe('Sandbox with $ context', () => {
     })
 
     it('should not log when audit disabled', async () => {
-      const auditLog: any[] = []
+      const auditLog: unknown[] = []
       const sandbox = createSandbox({
         context: context,
         audit: false,

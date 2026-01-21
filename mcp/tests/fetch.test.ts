@@ -184,10 +184,10 @@ describe('Fetch Tool', () => {
 
       expect(result._relationships.length).toBe(2)
 
-      const placedRel = result._relationships.find((r: any) => r.predicate === 'placed')
+      const placedRel = result._relationships.find((r: unknown) => (r as { predicate: string }).predicate === 'placed')
       expect(placedRel.subject).toBe(customer.$id)
 
-      const employsRel = result._relationships.find((r: any) => r.predicate === 'employs')
+      const employsRel = result._relationships.find((r: unknown) => (r as { predicate: string }).predicate === 'employs')
       expect(employsRel.object).toBe(customer.$id)
     })
   })

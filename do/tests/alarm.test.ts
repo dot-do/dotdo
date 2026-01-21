@@ -69,7 +69,7 @@ describe('DO.alarm() implementation', () => {
 
       // Create a subclass that sets up schedules
       class ScheduledDO extends DO {
-        constructor(state: DurableObjectState, env: any) {
+        constructor(state: DurableObjectState, env: unknown) {
           super(state, env)
           // Register a schedule via $.every
           this.$.every.hour(async () => {
@@ -100,7 +100,7 @@ describe('DO.alarm() implementation', () => {
       const executed: string[] = []
 
       class MultiScheduleDO extends DO {
-        constructor(state: DurableObjectState, env: any) {
+        constructor(state: DurableObjectState, env: unknown) {
           super(state, env)
           this.$.every.hour(async () => {
             executed.push('hourly')
@@ -132,7 +132,7 @@ describe('DO.alarm() implementation', () => {
       const executed: string[] = []
 
       class ErrorScheduleDO extends DO {
-        constructor(state: DurableObjectState, env: any) {
+        constructor(state: DurableObjectState, env: unknown) {
           super(state, env)
           this.$.every.hour(async () => {
             throw new Error('Handler error')
@@ -160,7 +160,7 @@ describe('DO.alarm() implementation', () => {
   describe('recurring alarm scheduling', () => {
     it('should re-schedule alarm after execution for recurring schedules', async () => {
       class RecurringDO extends DO {
-        constructor(state: DurableObjectState, env: any) {
+        constructor(state: DurableObjectState, env: unknown) {
           super(state, env)
           this.$.every.hour(async () => {})
         }
@@ -184,7 +184,7 @@ describe('DO.alarm() implementation', () => {
       vi.setSystemTime(now)
 
       class IntervalDO extends DO {
-        constructor(state: DurableObjectState, env: any) {
+        constructor(state: DurableObjectState, env: unknown) {
           super(state, env)
           // Every 5 minutes
           this.$.every(5).minutes(async () => {})
@@ -217,7 +217,7 @@ describe('DO.alarm() implementation', () => {
       vi.setSystemTime(monday8am)
 
       class CronDO extends DO {
-        constructor(state: DurableObjectState, env: any) {
+        constructor(state: DurableObjectState, env: unknown) {
           super(state, env)
           // Every Monday at 9am
           this.$.every.Monday.at9am(async () => {})
@@ -246,7 +246,7 @@ describe('DO.alarm() implementation', () => {
       vi.setSystemTime(now)
 
       class OneTimeDO extends DO {
-        constructor(state: DurableObjectState, env: any) {
+        constructor(state: DurableObjectState, env: unknown) {
           super(state, env)
         }
 
@@ -282,7 +282,7 @@ describe('DO.alarm() implementation', () => {
 
     it('should not re-schedule one-time alarms after execution', async () => {
       class OneTimeDO extends DO {
-        constructor(state: DurableObjectState, env: any) {
+        constructor(state: DurableObjectState, env: unknown) {
           super(state, env)
         }
 
@@ -310,7 +310,7 @@ describe('DO.alarm() implementation', () => {
   describe('alarm initialization', () => {
     it('should set initial alarm when schedules are registered', async () => {
       class InitDO extends DO {
-        constructor(state: DurableObjectState, env: any) {
+        constructor(state: DurableObjectState, env: unknown) {
           super(state, env)
           this.$.every.hour(async () => {})
         }
@@ -335,7 +335,7 @@ describe('DO.alarm() implementation', () => {
       })
 
       class RestoreDO extends DO {
-        constructor(state: DurableObjectState, env: any) {
+        constructor(state: DurableObjectState, env: unknown) {
           super(state, env)
           this.$.every.hour(async () => {})
         }
@@ -362,7 +362,7 @@ describe('DO.alarm() implementation', () => {
       // the alarm only executes what's actually due
 
       class SelectiveDO extends DO {
-        constructor(state: DurableObjectState, env: any) {
+        constructor(state: DurableObjectState, env: unknown) {
           super(state, env)
           this.$.every.minute(async () => {
             executed.push('minute')
@@ -391,7 +391,7 @@ describe('DO.alarm() implementation', () => {
   describe('alarm cancellation', () => {
     it('should allow cancelling scheduled alarms', async () => {
       class CancellableDO extends DO {
-        constructor(state: DurableObjectState, env: any) {
+        constructor(state: DurableObjectState, env: unknown) {
           super(state, env)
           this.$.every.hour(async () => {})
         }

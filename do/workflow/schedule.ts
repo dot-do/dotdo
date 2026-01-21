@@ -175,6 +175,7 @@ function combineWithTime(baseCron: string, time: { hour: number; minute: number 
  * })
  * ```
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createEveryProxy(
   schedules: Map<string, ScheduleRegistration>
 ): any {
@@ -190,7 +191,9 @@ export function createEveryProxy(
   /**
    * Create a chainable proxy builder
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function createBuilder(state: BuilderState): any {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const builder = function(arg?: any) {
       // If called with a number: $.every(5).minutes(handler)
       if (typeof arg === 'number') {
@@ -303,6 +306,7 @@ export function createEveryProxy(
   /**
    * Create a proxy for interval patterns: $.every(5).minutes(handler)
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function createIntervalProxy(value: number, _state: BuilderState): any {
     return new Proxy({}, {
       get(_target, prop: string) {

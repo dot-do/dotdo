@@ -276,12 +276,36 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
 
       await adapter.put(`${EVENTS_PREFIX}${event.$id}`, event)
 
-      // Notify subscribers
-      subscribers.forEach(handler => {
+      // Notify subscribers with DLQ tracking for failures
+      subscribers.forEach((handler, index) => {
         try {
-          handler(event)
+          const result = handler(event)
+          // Handle async handlers
+          if (result && typeof result === 'object' && 'then' in result) {
+            (result as Promise<void>).catch((error) => {
+              const errorMessage = error instanceof Error ? error.message : String(error)
+              logger.error('Event subscriber async error:', error)
+
+              // Track in DLQ
+              this.addToDeadLetterQueue({
+                event,
+                attempts: 1,
+                lastError: errorMessage,
+                handlerIndex: index
+              })
+            })
+          }
         } catch (e) {
+          const errorMessage = e instanceof Error ? e.message : String(e)
           logger.error('Event subscriber error:', e)
+
+          // Track in DLQ
+          this.addToDeadLetterQueue({
+            event,
+            attempts: 1,
+            lastError: errorMessage,
+            handlerIndex: index
+          })
         }
       })
 
@@ -590,12 +614,36 @@ export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStor
 
       events.push(event)
 
-      // Notify subscribers
-      subscribers.forEach(handler => {
+      // Notify subscribers with DLQ tracking for failures
+      subscribers.forEach((handler, index) => {
         try {
-          handler(event)
+          const result = handler(event)
+          // Handle async handlers
+          if (result && typeof result === 'object' && 'then' in result) {
+            (result as Promise<void>).catch((error) => {
+              const errorMessage = error instanceof Error ? error.message : String(error)
+              logger.error('Event subscriber async error:', error)
+
+              // Track in DLQ
+              this.addToDeadLetterQueue({
+                event,
+                attempts: 1,
+                lastError: errorMessage,
+                handlerIndex: index
+              })
+            })
+          }
         } catch (e) {
+          const errorMessage = e instanceof Error ? e.message : String(e)
           logger.error('Event subscriber error:', e)
+
+          // Track in DLQ
+          this.addToDeadLetterQueue({
+            event,
+            attempts: 1,
+            lastError: errorMessage,
+            handlerIndex: index
+          })
         }
       })
 

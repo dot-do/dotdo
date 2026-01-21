@@ -171,7 +171,7 @@ function generateErrorId(): string {
  */
 export function extractErrorInfo(error: unknown): {
   message: string
-  stack?: string
+  stack?: string | undefined
   errorType: string
   retriable: boolean
 } {
