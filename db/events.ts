@@ -116,7 +116,55 @@ export interface RetryMetrics {
 export interface DLQQueryOptions {
   type?: string
   since?: number
+  until?: number
   limit?: number
+  order?: 'asc' | 'desc'
+}
+
+/**
+ * DLQ cleanup options
+ */
+export interface DLQCleanupOptions {
+  /** Remove entries older than this timestamp */
+  olderThan?: number
+  /** Remove entries older than N days */
+  olderThanDays?: number
+  /** Only remove entries of these event types */
+  types?: string[]
+  /** Only remove entries with these error types (e.g., 'NetworkError', 'TimeoutError') */
+  errorTypes?: string[]
+  /** Maximum number of entries to remove */
+  limit?: number
+}
+
+/**
+ * Result of a DLQ cleanup operation
+ */
+export interface DLQCleanupResult {
+  /** Total number of entries removed */
+  removed: number
+  /** Number of entries removed by event type */
+  removedByType: Record<string, number>
+}
+
+/**
+ * DLQ statistics
+ */
+export interface DLQStats {
+  /** Total number of entries in the DLQ */
+  total: number
+  /** Count by event type */
+  byEventType: Record<string, number>
+  /** Count by error type */
+  byErrorType: Record<string, number>
+  /** Average number of attempts per entry */
+  averageAttempts: number
+  /** Number of unique events */
+  uniqueEvents: number
+  /** Timestamp of oldest entry */
+  oldestEntry?: number
+  /** Timestamp of newest entry */
+  newestEntry?: number
 }
 
 /**
@@ -151,6 +199,9 @@ export interface EventsStore<P extends JsonValue = JsonValue> {
   queryDeadLetterQueue(options?: DLQQueryOptions): DLQEntry<P>[]
   removeFromDeadLetterQueue(eventId: string): boolean
   replayDeadLetterQueue(options?: DLQQueryOptions): Promise<Event<P>[]>
+  getDLQEntry(eventId: string): DLQEntry<P> | null
+  getDLQStats(): DLQStats
+  cleanupDeadLetterQueue(options: DLQCleanupOptions): DLQCleanupResult
 
   // Validation failure tracking
   addValidationFailure(failure: Omit<ValidationFailure<P>, 'timestamp'>): void

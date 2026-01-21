@@ -2,15 +2,22 @@
 // See do-luhm.21 - Replace Record<string, unknown> with bounded generics
 
 /**
+ * JSON primitive type - basic JSON values (string, number, boolean, null)
+ */
+export type JsonPrimitive = string | number | boolean | null
+
+/**
+ * JSON array type - an array of JSON values
+ */
+export type JsonArray = JsonValue[]
+
+/**
  * JSON-safe value type for database storage
  * This type represents all valid JSON values that can be safely serialized/deserialized
  */
 export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
+  | JsonPrimitive
+  | JsonArray
   | { [key: string]: JsonValue }
 
 /**

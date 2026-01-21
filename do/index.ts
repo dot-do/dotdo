@@ -348,50 +348,9 @@ export {
   type SendGridMethods,
 } from '../integrations/sendgrid'
 
-// Extended primitives with AI assistance (fsx, gitx, bashx)
-export {
-  // File System Extended
-  FSX,
-  createFSX,
-  fsx,
-  type FileInfo,
-  type ReadOptions,
-  type WriteOptions,
-  type ListOptions,
-  type CopyMoveOptions,
-  type AIFileResult,
-  type FSXAIOptions,
-
-  // Git Extended
-  GitX,
-  createGitX,
-  gitx,
-  type Commit,
-  type Branch,
-  type FileStatus,
-  type RepoStatus,
-  type DiffInfo,
-  type DiffHunk,
-  type DiffLine,
-  type CommitOptions,
-  type BranchOptions,
-  type MergeOptions,
-  type AIGitOptions,
-  type AICommitMessage,
-  type AIReviewResult,
-
-  // Bash Extended
-  BashX,
-  createBashX,
-  bashx,
-  type ExecResult,
-  type ExecOptions,
-  type Command,
-  type PipelineResult,
-  type AIBashOptions,
-  type AICommandResult,
-  type AIDiagnosisResult,
-} from './primitives'
+// NOTE: Extended primitives (fsx, gitx, bashx) are in v1 worktree only
+// See .worktrees/v1/do/capabilities/ for reference implementations
+// These will be reimplemented in v3 when needed
 
 /**
  * Circuit Breaker pattern implementation for protecting against cascading failures.
