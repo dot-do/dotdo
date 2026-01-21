@@ -30,7 +30,7 @@
     "@dotdo/utils": "workspace:*",
     "commander": "^14.0.2",
     "hono": "^4.11.4",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.3"
   },
   "devDependencies": {
     "@dotdo/do": "workspace:*",

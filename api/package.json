@@ -78,6 +78,6 @@
   },
   "devDependencies": {
     "@dotdo/test-utils": "workspace:*",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.3"
   }
 }
