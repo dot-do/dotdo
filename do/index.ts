@@ -186,6 +186,67 @@ export {
   type ErrorStats
 } from './fire-and-forget-errors'
 
+// WebSocket management
+export {
+  WebSocketManager,
+  type WebSocketMessage,
+  type WebSocketHandler,
+  type BroadcastResult,
+  type ConnectionMetadata,
+  type ConnectionHandler
+} from './websocket'
+
+// WebSocket hibernation with reconnection protocol (do-hb5s)
+export {
+  HibernationManager,
+  type HibernationAttachment,
+  type HibernationState,
+  type HibernationConfig,
+  DEFAULT_HIBERNATION_CONFIG,
+  estimateHibernationSavings,
+  isHibernationError,
+  createHibernationPayload,
+} from './hibernation'
+
+// WebSocket reconnection protocol (do-hb5s)
+export {
+  SessionManager,
+  type SessionState,
+  type BufferedEvent,
+  type ReconnectionConfig,
+  DEFAULT_RECONNECTION_CONFIG,
+  RECONNECTION_PROTOCOL_VERSION,
+  DEFAULT_SESSION_TIMEOUT_MS,
+  DEFAULT_MAX_EVENT_BUFFER,
+  type ProtocolMessage,
+  type SessionInitMessage,
+  type SessionResumeMessage,
+  type SessionResumedMessage,
+  type SessionExpiredMessage,
+  type SessionErrorMessage,
+  type EventMessage,
+  type HeartbeatPingMessage,
+  type HeartbeatPongMessage,
+  type ReconnectionProtocolMessage,
+  type SessionErrorCode,
+  type BackoffConfig,
+  DEFAULT_BACKOFF_CONFIG,
+  calculateBackoffDelay,
+  shouldRetry,
+  type ClientReconnectionState,
+  createClientState,
+  handleSessionInit,
+  handleSessionResumed,
+  handleSessionExpired,
+  handleEvent,
+  handleDisconnect,
+  createResumeMessage,
+  shouldAttemptResume,
+  getNextRetryDelay,
+  parseProtocolMessage,
+  isProtocolMessage,
+} from './websocket-reconnection'
+
 // Admin interface hooks
 export {
   AdminDO,
