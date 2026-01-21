@@ -103,7 +103,7 @@ describe('api/sdk.ts - SDK Generation', () => {
 
       expect(sdk).toContain('class APIError extends Error')
       expect(sdk).toContain('public status: number')
-      expect(sdk).toContain('public response?: any')
+      expect(sdk).toContain('public response?: unknown')
     })
 
     it('should export createClient function', () => {
@@ -405,7 +405,7 @@ describe('api/sdk.ts - SDK Generation', () => {
       const generator = new SDKGenerator([resource])
       const types = generator.generateTypes()
 
-      expect(types).toContain('tags: any[]')
+      expect(types).toContain('tags: unknown[]')
     })
 
     it('should map object type correctly', () => {
@@ -417,7 +417,7 @@ describe('api/sdk.ts - SDK Generation', () => {
       const generator = new SDKGenerator([resource])
       const types = generator.generateTypes()
 
-      expect(types).toContain('metadata: any')
+      expect(types).toContain('metadata: Record<string, unknown>')
     })
   })
 
@@ -474,7 +474,7 @@ describe('api/sdk.ts - SDK Generation', () => {
       const generator = new SDKGenerator([postResource])
       const code = generator.generate()
 
-      expect(code).toContain('params?: any')
+      expect(code).toContain('params?: Record<string, unknown>')
     })
   })
 

@@ -29,7 +29,7 @@ export class APIError extends Error {
   constructor(
     message: string,
     public status: number,
-    public response?: any
+    public response?: unknown
   ) {
     super(message)
     this.name = 'APIError'
@@ -92,7 +92,7 @@ export function createClient(options: ClientOptions) {
   async function request<T>(
     path: string,
     method: string = 'GET',
-    body?: any
+    body?: unknown
   ): Promise<T> {
     const url = \`\${baseUrl}\${path}\`
 
@@ -153,7 +153,7 @@ ${this.resources.map(r => `    ${r.name}: ${this.generateResourceProxy(r)}`).joi
      */
     list: async (): Promise<${typeName}[]> => {
       const response = await request<{ data: ${typeName}[] }>('/${resourceName}')
-      return response.data || response as any
+      return response.data || (response as unknown as ${typeName}[])
     }`)
 
     methods.push(`
@@ -243,7 +243,7 @@ ${this.resources.map(r => `    ${r.name}: ${this.generateResourceProxy(r)}`).joi
            */
           list: async (): Promise<${relationType}[]> => {
             const response = await request<{ data: ${relationType}[] }>(\`/${resourceName}/\${id}/${relationName}\`)
-            return response.data || response as any
+            return response.data || (response as unknown as ${relationType}[])
           }
         }`)
         } else if (relationDef.type === 'belongsTo') {
@@ -278,7 +278,7 @@ ${this.resources.map(r => `    ${r.name}: ${this.generateResourceProxy(r)}`).joi
          * Execute ${actionName} action
          * @param params - Action parameters
          */
-        ${actionName}: async (params?: any): Promise<any> => {
+        ${actionName}: async (params?: Record<string, unknown>): Promise<unknown> => {
           return request(\`/${resourceName}/\${id}/${actionName}\`, '${actionDef.method}', params)
         }`)
       }
@@ -370,10 +370,10 @@ ${instanceMethods.join(',\n')}
       number: 'number',
       boolean: 'boolean',
       date: 'Date',
-      array: 'any[]',
-      object: 'any'
+      array: 'unknown[]',
+      object: 'Record<string, unknown>'
     }
-    return typeMap[type] || 'any'
+    return typeMap[type] || 'unknown'
   }
 }
 

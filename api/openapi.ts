@@ -2,6 +2,18 @@
 import type { Hono } from 'hono'
 import type { ZodTypeAny } from 'zod'
 import type { ResourceDefinition } from './resource'
+import type { StorableData } from '@dotdo/db'
+
+// Hono internal route type for extracting routes from Hono apps
+interface HonoRoute {
+  method?: string
+  path?: string
+}
+
+// Type for Hono app with routes (internal structure)
+interface HonoAppWithRoutes {
+  routes?: HonoRoute[]
+}
 
 // OpenAPI 3.0 types
 export interface OpenAPISpec {
@@ -153,7 +165,7 @@ export interface GenerateOpenAPIOptions {
   info?: Partial<InfoObject>
   servers?: ServerObject[]
   schemas?: Record<string, ZodTypeAny>
-  resources?: ResourceDefinition<any>[]
+  resources?: ResourceDefinition<StorableData>[]
   operations?: Record<string, OperationConfig>
   security?: Record<string, Omit<SecuritySchemeObject, 'type'> & { type: SecuritySchemeObject['type'] }>
   tags?: TagObject[]
@@ -341,7 +353,7 @@ export function generateOpenAPI(options: GenerateOpenAPIOptions): OpenAPISpec {
 
   // Extract routes from Hono app
   const paths: PathsObject = {}
-  const routes = (app as any).routes || []
+  const routes = (app as HonoAppWithRoutes).routes || []
 
   // Process routes from Hono
   for (const route of routes) {
@@ -524,7 +536,7 @@ export function specToYAML(spec: OpenAPISpec): string {
     return '  '.repeat(level)
   }
 
-  function valueToYAML(value: any, level = 0): string {
+  function valueToYAML(value: unknown, level = 0): string {
     if (value === null || value === undefined) {
       return 'null'
     }
