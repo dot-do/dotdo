@@ -34,8 +34,8 @@ export interface Order {
   tax: number
   total: number
   status: OrderStatus
-  paymentId?: string
-  shippingAddress?: ShippingAddress
+  paymentId?: string | undefined
+  shippingAddress?: ShippingAddress | undefined
 }
 
 export interface OrderItem {
@@ -60,7 +60,7 @@ export type OrderStatus =
 export interface ShippingAddress {
   name: string
   line1: string
-  line2?: string
+  line2?: string | undefined
   city: string
   state: string
   postalCode: string
@@ -73,13 +73,13 @@ export interface Payment {
   amount: number
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'refunded'
   provider: string
-  transactionId?: string
-  errorMessage?: string
+  transactionId?: string | undefined
+  errorMessage?: string | undefined
 }
 
 export interface Customer {
   $type: 'Customer'
   email: string
   name: string
-  defaultShippingAddress?: ShippingAddress
+  defaultShippingAddress?: ShippingAddress | undefined
 }

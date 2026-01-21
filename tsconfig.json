@@ -16,7 +16,10 @@
       "@dotdo/testing": ["./testing/index.ts"],
       "@dotdo/fsx": ["./fsx/index.ts"],
       "@dotdo/test-utils": ["./test-utils/index.ts"],
+      "@dotdo/utils": ["./utils/index.ts"],
+      "@dotdo/integrations": ["./integrations/index.ts"],
       "dotdo": ["./dotdo/index.ts"]
     }
-  }
+  },
+  "exclude": ["node_modules", "dist", "app/**", "gitx/**", "primitives/**", "**/primitives/**", "**/*.test.ts", "tests/**", "fsx/tests/**", "fsx/examples/**", "bashx/**"]
 }

@@ -1,6 +1,16 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { createThingsStore, type ThingsStore } from '../things'
-import { query, createQuery, WhereOperator, buildWhereClause, type QueryOptions } from '../query'
+import {
+  query,
+  createQuery,
+  WhereOperator,
+  buildWhereClause,
+  type QueryOptions,
+  configureQueryLimits,
+  getQueryLimits,
+  QueryLimitError,
+  DEFAULT_QUERY_LIMITS,
+} from '../query'
 
 describe('Query Interface', () => {
   let store: ThingsStore
@@ -8,12 +18,21 @@ describe('Query Interface', () => {
   beforeEach(async () => {
     store = createThingsStore()
 
+    // Use warn mode for existing tests to maintain backwards compatibility
+    // New code should use strict mode (default) with explicit limits
+    configureQueryLimits({ mode: 'warn' })
+
     // Seed test data
     await store.create({ $type: 'User', name: 'Alice', age: 30, role: 'admin', email: 'alice@example.com' })
     await store.create({ $type: 'User', name: 'Bob', age: 25, role: 'user', email: 'bob@test.org' })
     await store.create({ $type: 'User', name: 'Charlie', age: 35, role: 'user', email: null })
     await store.create({ $type: 'Order', total: 100, status: 'pending' })
     await store.create({ $type: 'Order', total: 200, status: 'completed' })
+  })
+
+  afterEach(() => {
+    // Reset to strict mode (default)
+    configureQueryLimits({ mode: 'strict' })
   })
 
   describe('type()', () => {
@@ -542,6 +561,217 @@ describe('buildWhereClause', () => {
 
       expect(clause).toBe("WHERE type = ? AND json_extract(data, '$.role') = ? AND json_extract(data, '$.age') >= ?")
       expect(params).toEqual(['User', 'admin', 21])
+    })
+  })
+})
+
+// ============================================================
+// Query Limit Enforcement Tests (do-grp5.6)
+// These tests verify strict mode limit enforcement
+// ============================================================
+
+describe('Query Limit Enforcement (do-grp5.6)', () => {
+  let store: ThingsStore
+
+  beforeEach(async () => {
+    store = createThingsStore()
+
+    // Seed test data
+    for (let i = 0; i < 5; i++) {
+      await store.create({ $type: 'User', name: `User ${i}`, index: i })
+    }
+  })
+
+  afterEach(() => {
+    // Reset to default configuration after each test
+    configureQueryLimits({
+      mode: 'strict',
+      defaultLimit: DEFAULT_QUERY_LIMITS.DEFAULT_LIMIT,
+      maxLimit: DEFAULT_QUERY_LIMITS.MAX_LIMIT,
+    })
+  })
+
+  describe('QueryLimitError', () => {
+    it('should create exceedsMax error with correct details', () => {
+      const error = QueryLimitError.exceedsMax('test-op', 20000, 10000)
+
+      expect(error).toBeInstanceOf(QueryLimitError)
+      expect(error.operation).toBe('test-op')
+      expect(error.requested).toBe(20000)
+      expect(error.maxAllowed).toBe(10000)
+      expect(error.message).toContain('Query limit exceeded')
+      expect(error.message).toContain('20000')
+      expect(error.message).toContain('10000')
+    })
+
+    it('should create unbounded error with correct details', () => {
+      const error = QueryLimitError.unbounded('test-op', 10000)
+
+      expect(error).toBeInstanceOf(QueryLimitError)
+      expect(error.operation).toBe('test-op')
+      expect(error.requested).toBe(Infinity)
+      expect(error.maxAllowed).toBe(10000)
+      expect(error.message).toContain('Unbounded query not allowed')
+    })
+  })
+
+  describe('strict mode (default)', () => {
+    beforeEach(() => {
+      configureQueryLimits({ mode: 'strict', maxLimit: 100 })
+    })
+
+    it('should throw when query has no limit specified', async () => {
+      // Note: In strict mode, execute() requires a limit
+      // We need to directly test the enforceLimit behavior
+      await expect(
+        query(store).type('User').execute()
+      ).rejects.toThrow(QueryLimitError)
+    })
+
+    it('should throw when limit exceeds MAX_LIMIT', async () => {
+      configureQueryLimits({ mode: 'strict', maxLimit: 10 })
+
+      await expect(
+        query(store).type('User').limit(100).execute()
+      ).rejects.toThrow(QueryLimitError)
+    })
+
+    it('should include operation name in error', async () => {
+      try {
+        await query(store).type('User').execute()
+        expect.fail('Should have thrown')
+      } catch (error) {
+        expect(error).toBeInstanceOf(QueryLimitError)
+        expect((error as QueryLimitError).operation).toBe('query.execute')
+      }
+    })
+
+    it('should allow queries with valid limits', async () => {
+      configureQueryLimits({ mode: 'strict', maxLimit: 100 })
+
+      const results = await query(store).type('User').limit(10).execute()
+
+      expect(results).toHaveLength(5) // We only have 5 users
+    })
+
+    it('should allow limit equal to MAX_LIMIT', async () => {
+      configureQueryLimits({ mode: 'strict', maxLimit: 100 })
+
+      const results = await query(store).type('User').limit(100).execute()
+
+      expect(results).toHaveLength(5)
+    })
+  })
+
+  describe('warn mode (backwards compatible)', () => {
+    beforeEach(() => {
+      configureQueryLimits({ mode: 'warn', maxLimit: 10 })
+    })
+
+    it('should not throw for unbounded queries', async () => {
+      const results = await query(store).type('User').execute()
+
+      // Should succeed and return results (clamped to default limit)
+      expect(results.length).toBeGreaterThan(0)
+    })
+
+    it('should clamp limit to MAX_LIMIT silently', async () => {
+      configureQueryLimits({ mode: 'warn', maxLimit: 3 })
+
+      const results = await query(store).type('User').limit(100).execute()
+
+      // Should be clamped to max limit of 3
+      expect(results).toHaveLength(3)
+    })
+
+    it('should call onWarning when threshold is exceeded', async () => {
+      const warnings: string[] = []
+      configureQueryLimits({
+        mode: 'warn',
+        maxLimit: 1000,
+        warningThreshold: 2,
+        onWarning: (msg) => warnings.push(msg),
+      })
+
+      await query(store).type('User').limit(5).execute()
+
+      expect(warnings.length).toBeGreaterThan(0)
+      expect(warnings[0]).toContain('Large query detected')
+    })
+  })
+
+  describe('getQueryLimits', () => {
+    it('should return strict mode by default', () => {
+      // Reset to clean state
+      configureQueryLimits({})
+      const limits = getQueryLimits()
+
+      expect(limits.mode).toBe('strict')
+    })
+
+    it('should return configured mode', () => {
+      configureQueryLimits({ mode: 'warn' })
+      expect(getQueryLimits().mode).toBe('warn')
+
+      configureQueryLimits({ mode: 'strict' })
+      expect(getQueryLimits().mode).toBe('strict')
+    })
+
+    it('should return default limits when not configured', () => {
+      configureQueryLimits({})
+      const limits = getQueryLimits()
+
+      expect(limits.defaultLimit).toBe(DEFAULT_QUERY_LIMITS.DEFAULT_LIMIT)
+      expect(limits.maxLimit).toBe(DEFAULT_QUERY_LIMITS.MAX_LIMIT)
+      expect(limits.defaultJoinLimit).toBe(DEFAULT_QUERY_LIMITS.DEFAULT_JOIN_LIMIT)
+    })
+  })
+
+  describe('executePaginated with limits', () => {
+    beforeEach(() => {
+      // Set maxLimit high enough to accommodate the +1 buffer for pagination
+      configureQueryLimits({ mode: 'strict', maxLimit: 1000 })
+    })
+
+    it('should allow executePaginated with explicit limit', async () => {
+      // executePaginated should work with explicit limit
+      const result = await query(store).type('User').limit(10).executePaginated({ limit: 3 })
+
+      expect(result.results.length).toBeLessThanOrEqual(3)
+    })
+
+    it('should throw when paginated limit exceeds MAX_LIMIT', async () => {
+      configureQueryLimits({ mode: 'strict', maxLimit: 10 })
+
+      await expect(
+        query(store).type('User').limit(5).executePaginated({ limit: 100 })
+      ).rejects.toThrow(QueryLimitError)
+    })
+
+    it('should work with default paginated limit when query has a limit set', async () => {
+      // When query.limit() is called, executePaginated uses that as the base
+      const result = await query(store).type('User').limit(10).executePaginated()
+
+      expect(result.results.length).toBeLessThanOrEqual(10)
+    })
+  })
+
+  describe('first() and count() methods', () => {
+    beforeEach(() => {
+      configureQueryLimits({ mode: 'strict', maxLimit: 100 })
+    })
+
+    it('first() should work in strict mode (uses limit(1))', async () => {
+      const result = await query(store).type('User').first()
+
+      expect(result).not.toBeNull()
+      expect(result?.$type).toBe('User')
+    })
+
+    it('count() should work in strict mode', async () => {
+      const count = await query(store).type('User').limit(100).count()
+
+      expect(count).toBe(5)
     })
   })
 })

@@ -1,7 +1,7 @@
 // sandbox tool - Execute code in a secure sandbox with $ context injection
 import type { MCPTool } from '../server'
-import { createSandbox, type SandboxOptions, type SandboxResult, type SandboxPermissions, type ResourceLimits } from '../sandbox'
-import type { WorkflowContext } from '../../do/context'
+import { createSandbox, type SandboxOptions, type SandboxResult, type SandboxPermissions, type ResourceLimits, type SandboxResourceEnforcer } from '../sandbox'
+import type { WorkflowContext } from '../types'
 
 export interface SandboxParams {
   code: string
@@ -15,6 +15,27 @@ export interface SandboxToolDeps {
   context: WorkflowContext
   defaultPermissions?: SandboxPermissions
   defaultResourceLimits?: ResourceLimits
+  /**
+   * Optional DO-scoped enforcer for rate limiting and concurrency control.
+   *
+   * **IMPORTANT**: Use `createScopedResourceEnforcer()` to create one, NOT `new SandboxResourceEnforcer()`.
+   * The factory function ensures proper isolation between requests/DOs.
+   *
+   * @example
+   * import { createScopedResourceEnforcer } from '@dotdo/mcp'
+   *
+   * class MyDO {
+   *   private enforcer = createScopedResourceEnforcer()
+   *
+   *   createTool() {
+   *     return createSandboxTool({
+   *       context: this.context,
+   *       enforcer: this.enforcer
+   *     })
+   *   }
+   * }
+   */
+  enforcer?: SandboxResourceEnforcer
 }
 
 /**
@@ -96,7 +117,6 @@ export function createSandboxTool(deps: SandboxToolDeps): MCPTool {
 
       // Collect audit logs if enabled
       const auditLog: unknown[] = []
-      const onAudit = audit ? (log: unknown) => auditLog.push(log) : undefined
 
       // Merge permissions and resource limits with defaults
       const sandboxOptions: SandboxOptions = {
@@ -107,8 +127,12 @@ export function createSandboxTool(deps: SandboxToolDeps): MCPTool {
           ...resourceLimits,
           timeout: effectiveTimeout
         },
-        audit,
-        onAudit
+        audit
+      }
+
+      // Only set onAudit when audit is enabled (avoid undefined with exactOptionalPropertyTypes)
+      if (audit) {
+        sandboxOptions.onAudit = (log: unknown) => auditLog.push(log)
       }
 
       // Create and execute sandbox

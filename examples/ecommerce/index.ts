@@ -20,13 +20,19 @@ export default {
     // Check for store in subdomain
     const hostParts = url.hostname.split('.')
     if (hostParts.length > 2) {
-      storeId = hostParts[0]
+      const subdomainId = hostParts[0]
+      if (subdomainId) {
+        storeId = subdomainId
+      }
     }
 
     // Check for store in path
     const storeMatch = url.pathname.match(/^\/store\/([^/]+)/)
     if (storeMatch) {
-      storeId = storeMatch[1]
+      const matchedId = storeMatch[1]
+      if (matchedId) {
+        storeId = matchedId
+      }
       // Rewrite URL to remove /store/{storeId} prefix
       url.pathname = url.pathname.replace(/^\/store\/[^/]+/, '') || '/'
     }

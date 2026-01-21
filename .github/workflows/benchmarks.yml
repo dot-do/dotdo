@@ -5,10 +5,24 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      update_baseline:
+        description: 'Update baseline after benchmarks'
+        required: false
+        default: 'false'
+        type: boolean
+
+# Performance regression thresholds (configured in tests/benchmarks/config.json):
+# - Warning threshold: 10% slower than baseline
+# - Failure threshold: 20% slower than baseline (fails CI for critical benchmarks)
 
 jobs:
   benchmark:
     runs-on: ubuntu-latest
+    outputs:
+      has_regressions: ${{ steps.check.outputs.has_regressions }}
+      has_critical: ${{ steps.check.outputs.has_critical }}
 
     steps:
       - uses: actions/checkout@v4
@@ -30,11 +44,34 @@ jobs:
       - name: Run benchmark tests
         run: pnpm run benchmark
 
-      - name: Compare with baseline
-        run: pnpm run benchmark:compare -- --ci
-        if: github.event_name == 'pull_request'
+      - name: Check for regressions
+        id: check
+        run: |
+          # Run regression check and capture exit code
+          set +e
+          npx tsx tests/benchmarks/check-regression.ts --json > regression-check.json
+          EXIT_CODE=$?
+          set -e
 
-      - name: Generate benchmark report
+          # Output results
+          cat regression-check.json
+
+          # Set outputs based on exit code
+          if [ $EXIT_CODE -eq 1 ]; then
+            echo "has_regressions=true" >> $GITHUB_OUTPUT
+            echo "has_critical=true" >> $GITHUB_OUTPUT
+          elif [ $EXIT_CODE -eq 2 ]; then
+            echo "has_regressions=true" >> $GITHUB_OUTPUT
+            echo "has_critical=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_regressions=false" >> $GITHUB_OUTPUT
+            echo "has_critical=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Generate human-readable report
+          npx tsx tests/benchmarks/check-regression.ts > benchmark-report.txt || true
+
+      - name: Generate JSON report
         run: pnpm run benchmark:report
 
       - name: Upload benchmark results
@@ -43,8 +80,11 @@ jobs:
           name: benchmark-results
           path: |
             tests/benchmarks/results.json
+            tests/benchmarks/benchmarks.json
+            tests/benchmarks/config.json
             benchmark-report.txt
             benchmark-report.json
+            regression-check.json
 
       - name: Comment PR with benchmark results
         if: github.event_name == 'pull_request'
@@ -53,45 +93,108 @@ jobs:
           script: |
             const fs = require('fs');
             const reportPath = 'benchmark-report.txt';
+            const checkPath = 'regression-check.json';
+
+            let report = '';
+            let checkResult = null;
 
             if (fs.existsSync(reportPath)) {
-              const report = fs.readFileSync(reportPath, 'utf-8');
+              report = fs.readFileSync(reportPath, 'utf-8');
+            }
 
-              // Find existing comment
-              const { data: comments } = await github.rest.issues.listComments({
+            if (fs.existsSync(checkPath)) {
+              try {
+                checkResult = JSON.parse(fs.readFileSync(checkPath, 'utf-8'));
+              } catch (e) {
+                console.warn('Could not parse regression check results');
+              }
+            }
+
+            // Build summary badges
+            let statusBadge = ':white_check_mark: **PASS**';
+            if (checkResult) {
+              if (checkResult.exitCode === 1) {
+                statusBadge = ':x: **FAIL** - Critical regressions detected';
+              } else if (checkResult.exitCode === 2) {
+                statusBadge = ':warning: **WARN** - Non-critical regressions detected';
+              }
+            }
+
+            // Build summary table if we have check results
+            let summaryTable = '';
+            if (checkResult && checkResult.summary) {
+              const s = checkResult.summary;
+              summaryTable = `
+            | Metric | Count |
+            |--------|-------|
+            | Total Benchmarks | ${s.total} |
+            | Passed | ${s.passed} |
+            | Warnings | ${s.warnings} |
+            | Regressions | ${s.regressions} (${s.criticalRegressions} critical) |
+            | Improvements | ${s.improvements} |
+            | New | ${s.newBenchmarks} |
+            `;
+            }
+
+            const body = `## Performance Benchmark Report
+
+            ${statusBadge}
+
+            ${summaryTable}
+
+            <details>
+            <summary>Full Report</summary>
+
+            \`\`\`
+            ${report}
+            \`\`\`
+
+            </details>
+
+            > Thresholds: Warning at 10% regression, Failure at 20% regression (for critical benchmarks)
+            `;
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Performance Benchmark Report')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
+                body,
               });
-
-              const botComment = comments.find(comment =>
-                comment.user.type === 'Bot' &&
-                comment.body.includes('Performance Benchmark Report')
-              );
-
-              const body = `## Performance Benchmark Report\n\n\`\`\`\n${report}\n\`\`\``;
-
-              if (botComment) {
-                await github.rest.issues.updateComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: botComment.id,
-                  body,
-                });
-              } else {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: context.issue.number,
-                  body,
-                });
-              }
             }
+
+      - name: Fail on critical regressions
+        if: github.event_name == 'pull_request' && steps.check.outputs.has_critical == 'true'
+        run: |
+          echo "::error::Critical performance regressions detected!"
+          echo "Review the benchmark report above for details."
+          exit 1
 
   update-baseline:
     runs-on: ubuntu-latest
     needs: benchmark
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: |
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && inputs.update_baseline == 'true')
 
     steps:
       - uses: actions/checkout@v4

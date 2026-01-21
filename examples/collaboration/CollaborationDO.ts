@@ -3,7 +3,7 @@
 // Key patterns: $.on.Noun.verb event handlers, $.every scheduling, WebSocket manager
 
 import { Hono } from 'hono'
-import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
+import { DO, type DOEnv } from '../../do'
 import type {
   Document,
   Collaborator,
@@ -22,15 +22,14 @@ const CURSOR_COLORS = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
   '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F',
   '#BB8FCE', '#85C1E9', '#F8B500', '#00CED1',
-]
+] as const
 
 function getRandomColor(): string {
-  return CURSOR_COLORS[Math.floor(Math.random() * CURSOR_COLORS.length)]
+  const index = Math.floor(Math.random() * CURSOR_COLORS.length)
+  return CURSOR_COLORS[index] ?? '#FF6B6B'
 }
 
 export class CollaborationDO extends DO {
-  private $: WorkflowContext
-
   // In-memory state for active session
   private cursors: Map<string, CursorPosition> = new Map()
   private userConnections: Map<string, WebSocket> = new Map()
@@ -38,16 +37,20 @@ export class CollaborationDO extends DO {
   constructor(state: DurableObjectState, env: DOEnv) {
     super(state, env)
 
-    // Initialize WorkflowContext for event handling and scheduling
-    this.$ = createContext(state, env)
+    // $ is already initialized in the base DO class
 
     // ========================================================================
     // Event Handlers using $.on.Noun.verb pattern
     // ========================================================================
 
+    // Helper function to safely get event noun proxy with proper typing
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const on = this.$.on as any
+
     // Track document edits for analytics
-    this.$.on.Document.edited(async (event) => {
-      const { documentId, userId, version, operationCount } = event.payload as {
+    on.Document.edited(async (event: unknown) => {
+      const e = event as { type: string; payload: unknown }
+      const { documentId, userId, version, operationCount } = e.payload as {
         documentId: string
         userId: string
         version: number
@@ -56,9 +59,16 @@ export class CollaborationDO extends DO {
       console.log(`[Event] Document ${documentId} edited by ${userId}, v${version} (${operationCount} ops)`)
     })
 
+    // Audit log all document events
+    on.Document['*'](async (event: unknown) => {
+      const e = event as { type: string; payload: unknown }
+      console.log(`[Audit] Document event: ${e.type}`, e.payload)
+    })
+
     // Track collaborator join/leave
-    this.$.on.Collaborator.joined(async (event) => {
-      const { documentId, userId, userName } = event.payload as {
+    on.Collaborator.joined(async (event: unknown) => {
+      const e = event as { type: string; payload: unknown }
+      const { documentId, userId, userName } = e.payload as {
         documentId: string
         userId: string
         userName: string
@@ -66,8 +76,9 @@ export class CollaborationDO extends DO {
       console.log(`[Event] ${userName} (${userId}) joined document ${documentId}`)
     })
 
-    this.$.on.Collaborator.left(async (event) => {
-      const { documentId, userId } = event.payload as {
+    on.Collaborator.left(async (event: unknown) => {
+      const e = event as { type: string; payload: unknown }
+      const { documentId, userId } = e.payload as {
         documentId: string
         userId: string
       }
@@ -75,8 +86,9 @@ export class CollaborationDO extends DO {
     })
 
     // Track comments
-    this.$.on.Comment.added(async (event) => {
-      const { documentId, commentId, userId } = event.payload as {
+    on.Comment.added(async (event: unknown) => {
+      const e = event as { type: string; payload: unknown }
+      const { documentId, commentId, userId } = e.payload as {
         documentId: string
         commentId: string
         userId: string
@@ -84,17 +96,13 @@ export class CollaborationDO extends DO {
       console.log(`[Event] Comment ${commentId} added to document ${documentId} by ${userId}`)
     })
 
-    // Audit log all document events
-    this.$.on.Document['*'](async (event) => {
-      console.log(`[Audit] Document event: ${event.type}`, event.payload)
-    })
-
     // ========================================================================
     // Scheduled Tasks using $.every pattern
     // ========================================================================
 
     // Every hour - check for stale connections and cleanup
-    this.$.every.hour(async () => {
+    const everyHour = this.$.every as unknown as { hour: (handler: () => Promise<void>) => void }
+    everyHour.hour(async () => {
       console.log('[Scheduled] Cleaning up stale connections...')
       // In production: timeout inactive connections
     })
@@ -198,19 +206,20 @@ export class CollaborationDO extends DO {
         userId: string
         name: string
         color: string
-        cursor?: CursorPosition
+        cursor?: CursorPosition | undefined
       }> = []
 
       // Get all collaborators who have joined this document
       const allCollaborators = await this.things.list({ type: 'Collaborator' })
       for (const collab of allCollaborators) {
-        const c = collab as unknown as Collaborator
-        if (this.userConnections.has(c.userId)) {
+        const collaborator = collab as unknown as Collaborator
+        if (this.userConnections.has(collaborator.userId)) {
+          const cursor = this.cursors.get(collaborator.userId)
           collaborators.push({
-            userId: c.userId,
-            name: c.name,
-            color: c.color,
-            cursor: this.cursors.get(c.userId),
+            userId: collaborator.userId,
+            name: collaborator.name,
+            color: collaborator.color,
+            ...(cursor ? { cursor } : {}),
           })
         }
       }
@@ -421,7 +430,7 @@ export class CollaborationDO extends DO {
       documentId,
       userId,
       version: newVersion,
-      operations,
+      operations: operations as unknown as import('@dotdo/db').JsonValue,
       timestamp: new Date().toISOString(),
     })
 
@@ -458,12 +467,15 @@ export class CollaborationDO extends DO {
     const { documentId, userId, position, selection } = msg
 
     // Update cursor position
-    this.cursors.set(userId, {
+    const cursorPosition: CursorPosition = {
       userId,
       position,
-      selection,
       updatedAt: new Date().toISOString(),
-    })
+    }
+    if (selection) {
+      cursorPosition.selection = selection
+    }
+    this.cursors.set(userId, cursorPosition)
 
     // Broadcast cursor to others
     const sockets = this.state.getWebSockets(`doc:${documentId}`)
@@ -506,19 +518,20 @@ export class CollaborationDO extends DO {
       userId: string
       name: string
       color: string
-      cursor?: CursorPosition
+      cursor?: CursorPosition | undefined
     }> = []
 
     // Get active collaborators
     const allCollaborators = await this.things.list({ type: 'Collaborator' })
     for (const collab of allCollaborators) {
-      const c = collab as unknown as Collaborator
-      if (this.userConnections.has(c.userId)) {
+      const collaborator = collab as unknown as Collaborator
+      if (this.userConnections.has(collaborator.userId)) {
+        const cursor = this.cursors.get(collaborator.userId)
         collaborators.push({
-          userId: c.userId,
-          name: c.name,
-          color: c.color,
-          cursor: this.cursors.get(c.userId),
+          userId: collaborator.userId,
+          name: collaborator.name,
+          color: collaborator.color,
+          ...(cursor ? { cursor } : {}),
         })
       }
     }
@@ -557,7 +570,7 @@ export class CollaborationDO extends DO {
   // WebSocket Lifecycle Overrides
   // ==========================================================================
 
-  async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
+  async webSocketClose(ws: WebSocket, code: number, reason: string, _wasClean: boolean): Promise<void> {
     // Find and clean up the user who disconnected
     for (const [userId, socket] of this.userConnections.entries()) {
       if (socket === ws) {
@@ -575,7 +588,7 @@ export class CollaborationDO extends DO {
       }
     }
 
-    await super.webSocketClose(ws, code, reason, wasClean)
+    await super.webSocketClose(ws, code, reason, _wasClean)
   }
 }
 
