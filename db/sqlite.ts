@@ -275,13 +275,13 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
       if (!row) return null
 
       // Parse JSON data and merge with metadata
-      const customData = JSON.parse(row.data as string)
+      const customData = JSON.parse(row['data'] as string)
 
       return {
-        $id: row.id as string,
-        $type: row.type as string,
-        $createdAt: row.created_at as number,
-        $updatedAt: row.updated_at as number,
+        $id: row['id'] as string,
+        $type: row['type'] as string,
+        $createdAt: row['created_at'] as number,
+        $updatedAt: row['updated_at'] as number,
         ...customData
       }
     },
@@ -349,12 +349,12 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
       const result = await sql.prepare(query).bind(...params).all()
 
       return result.results.map((row) => {
-        const customData = JSON.parse(row.data as string)
+        const customData = JSON.parse(row['data'] as string)
         return {
-          $id: row.id as string,
-          $type: row.type as string,
-          $createdAt: row.created_at as number,
-          $updatedAt: row.updated_at as number,
+          $id: row['id'] as string,
+          $type: row['type'] as string,
+          $createdAt: row['created_at'] as number,
+          $updatedAt: row['updated_at'] as number,
           ...customData
         }
       })
@@ -377,12 +377,12 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
       const queryResult = await sql.prepare(query).bind(...ids).all()
 
       for (const row of queryResult.results) {
-        const customData = JSON.parse(row.data as string)
+        const customData = JSON.parse(row['data'] as string)
         const thing: Thing = {
-          $id: row.id as string,
-          $type: row.type as string,
-          $createdAt: row.created_at as number,
-          $updatedAt: row.updated_at as number,
+          $id: row['id'] as string,
+          $type: row['type'] as string,
+          $createdAt: row['created_at'] as number,
+          $updatedAt: row['updated_at'] as number,
           ...customData
         }
         result.set(thing.$id, thing)
@@ -444,12 +444,12 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
       const result = await sql.prepare(query).bind(...params).all()
 
       let items = result.results.map((row) => {
-        const customData = JSON.parse(row.data as string)
+        const customData = JSON.parse(row['data'] as string)
         return {
-          $id: row.id as string,
-          $type: row.type as string,
-          $createdAt: row.created_at as number,
-          $updatedAt: row.updated_at as number,
+          $id: row['id'] as string,
+          $type: row['type'] as string,
+          $createdAt: row['created_at'] as number,
+          $updatedAt: row['updated_at'] as number,
           ...customData
         }
       })
@@ -602,12 +602,12 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
       const result = await sql.prepare(query).bind(...allParams).all()
 
       let results = result.results.map((row) => {
-        const customData = JSON.parse(row.data as string)
+        const customData = JSON.parse(row['data'] as string)
         return {
-          $id: row.id as string,
-          $type: row.type as string,
-          $createdAt: row.created_at as number,
-          $updatedAt: row.updated_at as number,
+          $id: row['id'] as string,
+          $type: row['type'] as string,
+          $createdAt: row['created_at'] as number,
+          $updatedAt: row['updated_at'] as number,
           ...customData
         }
       })
@@ -642,7 +642,7 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
 
       const result = await sql.prepare(query).bind(...whereParams).first()
 
-      return (result?.count as number) ?? 0
+      return (result?.['count'] as number) ?? 0
     }
   }
 }
@@ -721,16 +721,16 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
 
       // Build event with only defined properties for exactOptionalPropertyTypes
       const event: Event = {
-        $id: row.id as EventId,
-        type: row.type as string,
-        payload: JSON.parse(row.payload as string),
-        $timestamp: row.timestamp as number,
+        $id: row['id'] as EventId,
+        type: row['type'] as string,
+        payload: JSON.parse(row['payload'] as string),
+        $timestamp: row['timestamp'] as number,
       }
-      if (row.source) {
-        event.source = row.source as string
+      if (row['source']) {
+        event.source = row['source'] as string
       }
-      if (row.correlation_id) {
-        event.correlationId = row.correlation_id as string
+      if (row['correlation_id']) {
+        event.correlationId = row['correlation_id'] as string
       }
       return event
     },
@@ -786,16 +786,16 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
 
       return result.results.map((row) => {
         const event: Event = {
-          $id: row.id as EventId,
-          type: row.type as string,
-          payload: JSON.parse(row.payload as string),
-          $timestamp: row.timestamp as number,
+          $id: row['id'] as EventId,
+          type: row['type'] as string,
+          payload: JSON.parse(row['payload'] as string),
+          $timestamp: row['timestamp'] as number,
         }
-        if (row.source) {
-          event.source = row.source as string
+        if (row['source']) {
+          event.source = row['source'] as string
         }
-        if (row.correlation_id) {
-          event.correlationId = row.correlation_id as string
+        if (row['correlation_id']) {
+          event.correlationId = row['correlation_id'] as string
         }
         return event
       })
@@ -861,7 +861,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
       }
 
       const result = await sql.prepare(query).bind(...params).first()
-      return (result?.count as number) ?? 0
+      return (result?.['count'] as number) ?? 0
     },
 
     async cleanup(_options) {
@@ -884,7 +884,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
       // Delete by count (keep the newest events)
       if (retentionPolicy.maxEvents) {
         const countResult = await sql.prepare('SELECT COUNT(*) as count FROM events').bind().first()
-        const total = (countResult?.count as number) ?? 0
+        const total = (countResult?.['count'] as number) ?? 0
 
         if (total > retentionPolicy.maxEvents) {
           const toDelete = total - retentionPolicy.maxEvents
@@ -907,14 +907,14 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
     async getStorageUsage() {
       // Get count
       const countResult = await sql.prepare('SELECT COUNT(*) as count FROM events').bind().first()
-      const eventCount = (countResult?.count as number) ?? 0
+      const eventCount = (countResult?.['count'] as number) ?? 0
 
       // Estimate bytes - get average payload size from sample
       const sampleResult = await sql
         .prepare('SELECT AVG(LENGTH(payload)) as avg_size FROM events')
         .bind()
         .first()
-      const avgPayloadSize = (sampleResult?.avg_size as number) ?? 100
+      const avgPayloadSize = (sampleResult?.['avg_size'] as number) ?? 100
 
       // Estimate total bytes: count * (avg payload + overhead for other fields)
       const overhead = 200 // Estimate for id, type, timestamp, source, correlation_id
@@ -965,23 +965,23 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
 
       return result.results.map((row: Record<string, unknown>): DLQEntry => {
         const event: Event = {
-          $id: row.event_id as EventId,
-          type: row.event_type as string,
-          payload: JSON.parse(row.event_payload as string),
-          $timestamp: row.event_timestamp as number,
+          $id: row['event_id'] as EventId,
+          type: row['event_type'] as string,
+          payload: JSON.parse(row['event_payload'] as string),
+          $timestamp: row['event_timestamp'] as number,
         }
-        if (row.event_source) {
-          event.source = row.event_source as string
+        if (row['event_source']) {
+          event.source = row['event_source'] as string
         }
-        if (row.event_correlation_id) {
-          event.correlationId = row.event_correlation_id as string
+        if (row['event_correlation_id']) {
+          event.correlationId = row['event_correlation_id'] as string
         }
         return {
           event,
-          attempts: row.attempts as number,
-          lastError: row.last_error as string,
-          handlerIndex: row.handler_index as number | undefined,
-          timestamp: row.timestamp as number
+          attempts: row['attempts'] as number,
+          lastError: row['last_error'] as string,
+          handlerIndex: row['handler_index'] as number | undefined,
+          timestamp: row['timestamp'] as number
         }
       })
     },
@@ -1019,23 +1019,23 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
 
       return result.results.map((row: Record<string, unknown>): DLQEntry => {
         const event: Event = {
-          $id: row.event_id as EventId,
-          type: row.event_type as string,
-          payload: JSON.parse(row.event_payload as string),
-          $timestamp: row.event_timestamp as number,
+          $id: row['event_id'] as EventId,
+          type: row['event_type'] as string,
+          payload: JSON.parse(row['event_payload'] as string),
+          $timestamp: row['event_timestamp'] as number,
         }
-        if (row.event_source) {
-          event.source = row.event_source as string
+        if (row['event_source']) {
+          event.source = row['event_source'] as string
         }
-        if (row.event_correlation_id) {
-          event.correlationId = row.event_correlation_id as string
+        if (row['event_correlation_id']) {
+          event.correlationId = row['event_correlation_id'] as string
         }
         return {
           event,
-          attempts: row.attempts as number,
-          lastError: row.last_error as string,
-          handlerIndex: row.handler_index as number | undefined,
-          timestamp: row.timestamp as number
+          attempts: row['attempts'] as number,
+          lastError: row['last_error'] as string,
+          handlerIndex: row['handler_index'] as number | undefined,
+          timestamp: row['timestamp'] as number
         }
       })
     },
@@ -1083,7 +1083,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
         .prepare('SELECT COUNT(*) as count FROM dead_letter_queue')
         .bind()
         .first()
-      const total = (totalRow?.count as number) || 0
+      const total = (totalRow?.['count'] as number) || 0
 
       if (total === 0) {
         return {
@@ -1102,7 +1102,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
         .all()
       const byEventType: Record<string, number> = {}
       for (const row of typeResult.results) {
-        byEventType[row.event_type as string] = row.count as number
+        byEventType[row['event_type'] as string] = row['count'] as number
       }
 
       // Get count by error type (extract from last_error using pattern)
@@ -1112,7 +1112,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
         .all()
       const byErrorType: Record<string, number> = {}
       for (const row of allEntries.results) {
-        const lastError = row.last_error as string
+        const lastError = row['last_error'] as string
         const errorMatch = lastError.match(/^(\w+Error|Error):?/)
         const errorType = errorMatch?.[1] ?? 'UnknownError'
         byErrorType[errorType] = (byErrorType[errorType] || 0) + 1
@@ -1145,15 +1145,15 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
         total,
         byEventType,
         byErrorType,
-        averageAttempts: (avgRow?.avg_attempts as number) || 0,
-        uniqueEvents: (uniqueRow?.unique_count as number) || 0
+        averageAttempts: (avgRow?.['avg_attempts'] as number) || 0,
+        uniqueEvents: (uniqueRow?.['unique_count'] as number) || 0
       }
 
-      if (oldestRow?.oldest != null) {
-        stats.oldestEntry = oldestRow.oldest as number
+      if (oldestRow?.['oldest'] != null) {
+        stats.oldestEntry = oldestRow['oldest'] as number
       }
-      if (newestRow?.newest != null) {
-        stats.newestEntry = newestRow.newest as number
+      if (newestRow?.['newest'] != null) {
+        stats.newestEntry = newestRow['newest'] as number
       }
 
       return stats
@@ -1171,23 +1171,23 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
       if (!row) return null
 
       const event: Event = {
-        $id: row.event_id as EventId,
-        type: row.event_type as string,
-        payload: JSON.parse(row.event_payload as string),
-        $timestamp: row.event_timestamp as number,
+        $id: row['event_id'] as EventId,
+        type: row['event_type'] as string,
+        payload: JSON.parse(row['event_payload'] as string),
+        $timestamp: row['event_timestamp'] as number,
       }
-      if (row.event_source) {
-        event.source = row.event_source as string
+      if (row['event_source']) {
+        event.source = row['event_source'] as string
       }
-      if (row.event_correlation_id) {
-        event.correlationId = row.event_correlation_id as string
+      if (row['event_correlation_id']) {
+        event.correlationId = row['event_correlation_id'] as string
       }
       return {
         event,
-        attempts: row.attempts as number,
-        lastError: row.last_error as string,
-        handlerIndex: row.handler_index as number | undefined,
-        timestamp: row.timestamp as number
+        attempts: row['attempts'] as number,
+        lastError: row['last_error'] as string,
+        handlerIndex: row['handler_index'] as number | undefined,
+        timestamp: row['timestamp'] as number
       }
     },
 
@@ -1227,8 +1227,8 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
       const countResult = await sql.prepare(countQuery).bind(...params).all()
 
       for (const row of countResult.results) {
-        result.removedByType[row.event_type as string] = row.count as number
-        result.removed += row.count as number
+        result.removedByType[row['event_type'] as string] = row['count'] as number
+        result.removed += row['count'] as number
       }
 
       // If error type filtering is needed, we need to fetch IDs and filter
@@ -1242,14 +1242,14 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
         result.removedByType = {}
 
         for (const row of entries.results) {
-          const lastError = row.last_error as string
+          const lastError = row['last_error'] as string
           const errorMatch = lastError.match(/^(\w+Error|Error):?/)
           const errorType = errorMatch?.[1] ?? 'UnknownError'
 
           if (options.errorTypes.includes(errorType)) {
             if (options.limit === undefined || idsToDelete.length < options.limit) {
-              idsToDelete.push(row.id as string)
-              const eventType = row.event_type as string
+              idsToDelete.push(row['id'] as string)
+              const eventType = row['event_type'] as string
               result.removedByType[eventType] = (result.removedByType[eventType] || 0) + 1
               result.removed++
             }
@@ -1287,8 +1287,8 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
         result.removed = 0
         result.removedByType = {}
         for (const row of limitedCountResult.results) {
-          result.removedByType[row.event_type as string] = row.count as number
-          result.removed += row.count as number
+          result.removedByType[row['event_type'] as string] = row['count'] as number
+          result.removed += row['count'] as number
         }
       }
 
@@ -1332,11 +1332,11 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
       const result = await sql.prepare(query).bind(...params).all()
 
       return result.results.map((row: Record<string, unknown>) => ({
-        type: row.type as string,
-        payload: JSON.parse(row.payload as string),
-        error: row.error as string,
-        details: row.details ? JSON.parse(row.details as string) : undefined,
-        timestamp: row.timestamp as number
+        type: row['type'] as string,
+        payload: JSON.parse(row['payload'] as string),
+        error: row['error'] as string,
+        details: row['details'] ? JSON.parse(row['details'] as string) : undefined,
+        timestamp: row['timestamp'] as number
       }))
     },
 
@@ -1367,10 +1367,10 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
       if (!row) return undefined
 
       return {
-        attempts: row.attempts as number,
-        succeeded: (row.succeeded as number) === 1,
-        lastAttempt: row.last_attempt as number,
-        errors: row.errors ? JSON.parse(row.errors as string) : undefined
+        attempts: row['attempts'] as number,
+        succeeded: (row['succeeded'] as number) === 1,
+        lastAttempt: row['last_attempt'] as number,
+        errors: row['errors'] ? JSON.parse(row['errors'] as string) : undefined
       }
     },
 
@@ -1415,11 +1415,11 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
       const metrics: Record<string, RetryMetrics> = {}
 
       for (const row of result.results) {
-        const totalEvents = row.total_events as number
-        const successes = row.successes as number
-        metrics[row.event_type as string] = {
+        const totalEvents = row['total_events'] as number
+        const successes = row['successes'] as number
+        metrics[row['event_type'] as string] = {
           totalEvents,
-          totalRetries: row.total_retries as number,
+          totalRetries: row['total_retries'] as number,
           successRate: totalEvents > 0 ? successes / totalEvents : 0
         }
       }
@@ -1527,10 +1527,10 @@ export function createSQLiteRelationshipsStore(
       const result = await sql.prepare(sql_query).bind(...params).all()
 
       return result.results.map((row) => ({
-        subject: row.subject as string,
-        predicate: row.predicate as string,
-        object: row.object as string,
-        $createdAt: row.created_at as number
+        subject: row['subject'] as string,
+        predicate: row['predicate'] as string,
+        object: row['object'] as string,
+        $createdAt: row['created_at'] as number
       }))
     },
 

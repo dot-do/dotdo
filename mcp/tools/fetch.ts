@@ -41,17 +41,17 @@ export function isFetchParams(value: unknown): value is FetchParams {
   const obj = value as Record<string, unknown>
 
   // $id is required and must be a non-empty string
-  if (typeof obj.$id !== 'string' || obj.$id.length === 0) {
+  if (typeof obj['$id'] !== 'string' || obj['$id'].length === 0) {
     return false
   }
 
   // include is optional, but if present must be an array of valid values
-  if (obj.include !== undefined) {
-    if (!Array.isArray(obj.include)) {
+  if (obj['include'] !== undefined) {
+    if (!Array.isArray(obj['include'])) {
       return false
     }
     const validIncludes = ['relationships', 'events']
-    for (const item of obj.include) {
+    for (const item of obj['include']) {
       if (typeof item !== 'string' || !validIncludes.includes(item)) {
         return false
       }

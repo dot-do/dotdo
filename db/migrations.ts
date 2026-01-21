@@ -102,7 +102,7 @@ export class MigrationRunner {
       .bind()
       .first()
 
-    return row ? (row.version as number) : 0
+    return row ? (row['version'] as number) : 0
   }
 
   /**

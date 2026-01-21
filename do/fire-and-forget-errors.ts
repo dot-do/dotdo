@@ -27,27 +27,27 @@ export interface FireAndForgetError {
   /** Operation type (e.g., 'event.handler', 'workflow.send') */
   operation: string
   /** Event type if applicable (e.g., 'Order.placed') */
-  eventType?: string
+  eventType?: string | undefined
   /** Handler index if multiple handlers for same event */
-  handlerIndex?: number
+  handlerIndex?: number | undefined
   /** Error message */
   message: string
   /** Error stack trace if available */
-  stack?: string
+  stack?: string | undefined
   /** Error name/type (e.g., 'NetworkError', 'ValidationError') */
   errorType: string
   /** Whether the error is retriable */
   retriable: boolean
   /** Additional context data */
-  context?: Record<string, unknown>
+  context?: Record<string, unknown> | undefined
   /** Timestamp when error occurred */
   timestamp: number
   /** Number of attempts made before final failure */
-  attempts?: number
+  attempts?: number | undefined
   /** Whether error was recovered (retried successfully) */
   recovered: boolean
   /** Recovery timestamp if recovered */
-  recoveredAt?: number
+  recoveredAt?: number | undefined
 }
 
 /**
@@ -180,9 +180,9 @@ export function extractErrorInfo(error: unknown): {
   if (error && typeof error === 'object') {
     const obj = error as Record<string, unknown>
     return {
-      message: obj.message ? String(obj.message) : JSON.stringify(error),
-      errorType: obj.name ? String(obj.name) : 'ObjectError',
-      retriable: 'retriable' in obj ? Boolean(obj.retriable) : false
+      message: obj['message'] ? String(obj['message']) : JSON.stringify(error),
+      errorType: obj['name'] ? String(obj['name']) : 'ObjectError',
+      retriable: 'retriable' in obj ? Boolean(obj['retriable']) : false
     }
   }
 
@@ -541,19 +541,19 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
  */
 function mapRowToError(row: Record<string, unknown>): FireAndForgetError {
   return {
-    id: row.id as string,
-    operation: row.operation as string,
-    eventType: row.event_type as string | undefined,
-    handlerIndex: row.handler_index as number | undefined,
-    message: row.message as string,
-    stack: row.stack as string | undefined,
-    errorType: row.error_type as string,
-    retriable: (row.retriable as number) === 1,
-    context: row.context ? JSON.parse(row.context as string) : undefined,
-    timestamp: row.timestamp as number,
-    attempts: row.attempts as number | undefined,
-    recovered: (row.recovered as number) === 1,
-    recoveredAt: row.recovered_at as number | undefined
+    id: row['id'] as string,
+    operation: row['operation'] as string,
+    eventType: row['event_type'] as string | undefined,
+    handlerIndex: row['handler_index'] as number | undefined,
+    message: row['message'] as string,
+    stack: row['stack'] as string | undefined,
+    errorType: row['error_type'] as string,
+    retriable: (row['retriable'] as number) === 1,
+    context: row['context'] ? JSON.parse(row['context'] as string) : undefined,
+    timestamp: row['timestamp'] as number,
+    attempts: row['attempts'] as number | undefined,
+    recovered: (row['recovered'] as number) === 1,
+    recoveredAt: row['recovered_at'] as number | undefined
   }
 }
 
@@ -624,7 +624,7 @@ export interface RetryQueueItem {
   /** Event payload to pass to handlers */
   payload: unknown
   /** Handler function to retry */
-  handlerFn?: () => Promise<void>
+  handlerFn?: (() => Promise<void>) | undefined
   /** Number of attempts so far */
   attempts: number
   /** Maximum retry attempts allowed */
@@ -638,7 +638,7 @@ export interface RetryQueueItem {
   /** Status of this retry item */
   status: 'pending' | 'processing' | 'succeeded' | 'failed' | 'abandoned'
   /** Last error message if failed */
-  lastError?: string
+  lastError?: string | undefined
 }
 
 /**
@@ -1047,20 +1047,20 @@ export function createSQLiteRetryQueue(
   `)
 
   function mapRowToItem(row: Record<string, unknown>): RetryQueueItem {
-    const id = row.id as string
+    const id = row['id'] as string
     return {
       id,
-      errorId: row.error_id as string,
-      eventType: row.event_type as string,
-      payload: row.payload ? JSON.parse(row.payload as string) : undefined,
+      errorId: row['error_id'] as string,
+      eventType: row['event_type'] as string,
+      payload: row['payload'] ? JSON.parse(row['payload'] as string) : undefined,
       handlerFn: handlerFns.get(id),
-      attempts: row.attempts as number,
-      maxAttempts: row.max_attempts as number,
-      addedAt: row.added_at as number,
-      nextRetryAt: row.next_retry_at as number,
-      backoffDelay: row.backoff_delay as number,
-      status: row.status as RetryQueueItem['status'],
-      lastError: row.last_error as string | undefined
+      attempts: row['attempts'] as number,
+      maxAttempts: row['max_attempts'] as number,
+      addedAt: row['added_at'] as number,
+      nextRetryAt: row['next_retry_at'] as number,
+      backoffDelay: row['backoff_delay'] as number,
+      status: row['status'] as RetryQueueItem['status'],
+      lastError: row['last_error'] as string | undefined
     }
   }
 
@@ -1194,7 +1194,7 @@ export function createSQLiteRetryQueue(
 
       // Get current attempts from DB (already incremented during processItem)
       const row = sql.prepare('SELECT attempts FROM retry_queue WHERE id = ?').bind(id).first() as Record<string, unknown> | null
-      const attempts = (row?.attempts as number) || item.attempts
+      const attempts = (row?.['attempts'] as number) || item.attempts
 
       if (attempts >= item.maxAttempts) {
         sql.prepare(`UPDATE retry_queue SET status = 'abandoned', last_error = ? WHERE id = ?`)

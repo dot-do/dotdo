@@ -542,7 +542,7 @@ function ThingForm({
           </label>
           <input
             type="text"
-            value={(data.$type as string) || ''}
+            value={(data['$type'] as string) || ''}
             onChange={e => handleFieldChange('$type', e.target.value)}
             disabled={isEdit}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100"
@@ -618,7 +618,7 @@ function RelationshipForm({
           </label>
           <input
             type="text"
-            value={(data.subject as string) || ''}
+            value={(data['subject'] as string) || ''}
             onChange={e => handleFieldChange('subject', e.target.value)}
             disabled={isEdit}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 font-mono"
@@ -632,7 +632,7 @@ function RelationshipForm({
           </label>
           <input
             type="text"
-            value={(data.predicate as string) || ''}
+            value={(data['predicate'] as string) || ''}
             onChange={e => handleFieldChange('predicate', e.target.value)}
             disabled={isEdit}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100"
@@ -649,7 +649,7 @@ function RelationshipForm({
           </label>
           <input
             type="text"
-            value={(data.object as string) || ''}
+            value={(data['object'] as string) || ''}
             onChange={e => handleFieldChange('object', e.target.value)}
             disabled={isEdit}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 font-mono"

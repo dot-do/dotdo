@@ -289,15 +289,15 @@ export function createSQLiteAuditLogStore(adapter: SQLiteAdapter): AuditLogStore
       if (!row) return null
 
       return {
-        $id: row.id as string,
-        $timestamp: row.timestamp as number,
-        actor: row.actor as string,
-        action: row.action as AuditAction,
-        resource: row.resource as string,
-        resourceId: (row.resource_id as string) || undefined,
-        level: row.level as AuditLogLevel,
-        details: row.details ? JSON.parse(row.details as string) : undefined,
-        correlationId: (row.correlation_id as string) || undefined
+        $id: row['id'] as string,
+        $timestamp: row['timestamp'] as number,
+        actor: row['actor'] as string,
+        action: row['action'] as AuditAction,
+        resource: row['resource'] as string,
+        resourceId: (row['resource_id'] as string) || undefined,
+        level: row['level'] as AuditLogLevel,
+        details: row['details'] ? JSON.parse(row['details'] as string) : undefined,
+        correlationId: (row['correlation_id'] as string) || undefined
       }
     },
 
@@ -352,15 +352,15 @@ export function createSQLiteAuditLogStore(adapter: SQLiteAdapter): AuditLogStore
       const result = await sql.prepare(query).bind(...params).all()
 
       return result.results.map((row) => ({
-        $id: row.id as string,
-        $timestamp: row.timestamp as number,
-        actor: row.actor as string,
-        action: row.action as AuditAction,
-        resource: row.resource as string,
-        resourceId: (row.resource_id as string) || undefined,
-        level: row.level as AuditLogLevel,
-        details: row.details ? JSON.parse(row.details as string) : undefined,
-        correlationId: (row.correlation_id as string) || undefined
+        $id: row['id'] as string,
+        $timestamp: row['timestamp'] as number,
+        actor: row['actor'] as string,
+        action: row['action'] as AuditAction,
+        resource: row['resource'] as string,
+        resourceId: (row['resource_id'] as string) || undefined,
+        level: row['level'] as AuditLogLevel,
+        details: row['details'] ? JSON.parse(row['details'] as string) : undefined,
+        correlationId: (row['correlation_id'] as string) || undefined
       }))
     },
 
@@ -406,7 +406,7 @@ export function createSQLiteAuditLogStore(adapter: SQLiteAdapter): AuditLogStore
       }
 
       const row = await sql.prepare(query).bind(...params).first()
-      return (row?.count as number) || 0
+      return (row?.['count'] as number) || 0
     },
 
     async deleteOlderThan(timestamp: number) {
@@ -415,7 +415,7 @@ export function createSQLiteAuditLogStore(adapter: SQLiteAdapter): AuditLogStore
         .prepare('SELECT COUNT(*) as count FROM audit_logs WHERE timestamp < ?')
         .bind(timestamp)
         .first()
-      const count = (countRow?.count as number) || 0
+      const count = (countRow?.['count'] as number) || 0
 
       // Then delete
       await sql
@@ -432,7 +432,7 @@ export function createSQLiteAuditLogStore(adapter: SQLiteAdapter): AuditLogStore
         .prepare('SELECT COUNT(*) as count FROM audit_logs')
         .bind()
         .first()
-      const count = (countRow?.count as number) || 0
+      const count = (countRow?.['count'] as number) || 0
 
       // Then delete
       await sql.prepare('DELETE FROM audit_logs').bind().run()

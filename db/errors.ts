@@ -541,25 +541,25 @@ export function isSerializedDotdoError(value: unknown): value is SerializedDotdo
   const obj = value as Record<string, unknown>
 
   // Must have a message
-  if (typeof obj.message !== 'string') {
+  if (typeof obj['message'] !== 'string') {
     return false
   }
 
   // Must have either 'type' or 'name'
-  const hasType = typeof obj.type === 'string'
-  const hasName = typeof obj.name === 'string'
+  const hasType = typeof obj['type'] === 'string'
+  const hasName = typeof obj['name'] === 'string'
   if (!hasType && !hasName) {
     return false
   }
 
   // Optional fields must be correct types if present
-  if (obj.code !== undefined && typeof obj.code !== 'string') {
+  if (obj['code'] !== undefined && typeof obj['code'] !== 'string') {
     return false
   }
-  if (obj.httpStatus !== undefined && typeof obj.httpStatus !== 'number') {
+  if (obj['httpStatus'] !== undefined && typeof obj['httpStatus'] !== 'number') {
     return false
   }
-  if (obj.details !== undefined && typeof obj.details !== 'object') {
+  if (obj['details'] !== undefined && typeof obj['details'] !== 'object') {
     return false
   }
 

@@ -259,10 +259,10 @@ export function createSQLiteRevocationStore(sql: SqlStorage): TokenRevocationSto
       if (!row) return null
 
       return {
-        jti: row.jti as string,
-        revokedAt: row.revoked_at as number,
-        expiresAt: row.expires_at as number,
-        reason: (row.reason as string) || undefined,
+        jti: row['jti'] as string,
+        revokedAt: row['revoked_at'] as number,
+        expiresAt: row['expires_at'] as number,
+        reason: (row['reason'] as string) || undefined,
       }
     },
 
@@ -275,7 +275,7 @@ export function createSQLiteRevocationStore(sql: SqlStorage): TokenRevocationSto
         .bind(now)
         .first()
 
-      const count = (countResult?.count as number) ?? 0
+      const count = (countResult?.['count'] as number) ?? 0
 
       if (count > 0) {
         await sql.prepare('DELETE FROM revoked_tokens WHERE expires_at < ?').bind(now).run()
@@ -306,10 +306,10 @@ export function createSQLiteRevocationStore(sql: SqlStorage): TokenRevocationSto
       const result = await sql.prepare(query).bind(...params).all()
 
       return result.results.map((row): TokenRevocation => ({
-        jti: row.jti as string,
-        revokedAt: row.revoked_at as number,
-        expiresAt: row.expires_at as number,
-        reason: (row.reason as string | undefined) || undefined,
+        jti: row['jti'] as string,
+        revokedAt: row['revoked_at'] as number,
+        expiresAt: row['expires_at'] as number,
+        reason: (row['reason'] as string | undefined) || undefined,
       }))
     },
 
@@ -319,11 +319,11 @@ export function createSQLiteRevocationStore(sql: SqlStorage): TokenRevocationSto
       if (!includeExpired) {
         query += ' WHERE expires_at >= ?'
         const result = await sql.prepare(query).bind(Date.now()).first()
-        return (result?.count as number) ?? 0
+        return (result?.['count'] as number) ?? 0
       }
 
       const result = await sql.prepare(query).bind().first()
-      return (result?.count as number) ?? 0
+      return (result?.['count'] as number) ?? 0
     },
   }
 }

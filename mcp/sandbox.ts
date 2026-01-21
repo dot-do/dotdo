@@ -1070,20 +1070,20 @@ export function createSandbox(options: SandboxOptions): Sandbox {
 
           // Check for sandbox wrapper format
           if ('__sandbox_captured__' in wrappedValue) {
-            captured = (wrappedValue.__sandbox_captured__ as CapturedOperation[]) || []
+            captured = (wrappedValue['__sandbox_captured__'] as CapturedOperation[]) || []
           }
 
           if ('__sandbox_result__' in wrappedValue) {
-            userResult = wrappedValue.__sandbox_result__
+            userResult = wrappedValue['__sandbox_result__']
           }
 
           if ('__sandbox_error__' in wrappedValue) {
-            userError = wrappedValue.__sandbox_error__ as string
+            userError = wrappedValue['__sandbox_error__'] as string
           }
 
           // Extract resource stats from sandbox
           if ('__sandbox_stats__' in wrappedValue) {
-            sandboxStats = (wrappedValue.__sandbox_stats__ as typeof sandboxStats) || {}
+            sandboxStats = (wrappedValue['__sandbox_stats__'] as typeof sandboxStats) || {}
           }
         }
 

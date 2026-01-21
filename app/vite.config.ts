@@ -92,7 +92,7 @@ export default defineConfig({
 
   // Define global constants
   define: {
-    __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '0.0.1'),
+    __APP_VERSION__: JSON.stringify(process.env['npm_package_version'] || '0.0.1'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
 

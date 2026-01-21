@@ -116,7 +116,7 @@ function isMockModeEnabled(): boolean {
   // Check environment variables (for both Node.js and Vite/Vitest)
   try {
     if (typeof process !== 'undefined' && process.env) {
-      if (process.env.ORG_AI_MOCK === 'true') return true
+      if (process.env['ORG_AI_MOCK'] === 'true') return true
       if (process.env.NODE_ENV === 'development') return true
     }
   } catch {
@@ -203,11 +203,11 @@ export interface SSOFlowResult {
   /** State parameter for validation */
   state: string
   /** PKCE code verifier (if usePKCE is true) */
-  codeVerifier?: string
+  codeVerifier?: string | undefined
   /** PKCE code challenge (if usePKCE is true) */
-  codeChallenge?: string
+  codeChallenge?: string | undefined
   /** PKCE code challenge method */
-  codeChallengeMethod?: 'S256' | 'plain'
+  codeChallengeMethod?: 'S256' | 'plain' | undefined
 }
 
 /**
@@ -835,11 +835,11 @@ function isSessionExpired(session: Session): boolean {
  * Extract organizations from session metadata
  */
 function extractOrganizations(session: Session): OrgAiOrganization[] {
-  if (!session.metadata?.organizations) {
+  if (!session.metadata?.['organizations']) {
     return []
   }
 
-  const orgs = session.metadata.organizations as any[]
+  const orgs = session.metadata['organizations'] as any[]
   return orgs.map(org => ({
     $id: org.$id || org.id,
     name: org.name,
