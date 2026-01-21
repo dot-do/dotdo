@@ -44,6 +44,15 @@ import type { RPCClientOptions, RPCResponse, SerializedError } from './types'
 import type { Transport } from './transport/types'
 import { FetchTransport, generateCorrelationId, CORRELATION_ID_HEADER } from './transport/fetch'
 
+// Import shared proxy utilities from @dotdo/do
+// These provide the core proxy patterns used across the codebase
+import {
+  createDeepRPCProxy,
+  createEventProxy,
+  createScheduleProxy,
+  PROMISE_PROPS,
+} from '../../do/utils/proxy'
+
 /**
  * Extended options for createClient with transport support
  * When transport is provided, url becomes optional
@@ -85,11 +94,6 @@ const TOP_LEVEL_KEYS = ['on', 'every', '_types', '_schema', 'md', 'send', 'try',
  * Methods that should have their results cached
  */
 const CACHEABLE_METHODS = new Set(['_types', '_schema', 'md'])
-
-/**
- * Promise-like properties to exclude from proxy handling
- */
-const PROMISE_PROPS = new Set(['then', 'catch', 'finally'])
 
 /**
  * Internal helper to create a method invoker function using transport
@@ -159,92 +163,36 @@ function getCacheKey(path: string[], boundId?: string): string {
 
 /**
  * Create a nested proxy for event handlers ($.on.Entity.action)
- * Uses caching to avoid creating duplicate proxies for the same path
+ * Uses shared createEventProxy utility with caching
  */
-function createOnProxy(context: ClientContext, path: string[] = []): unknown {
-  const cacheKey = `on:${path.join('.')}`
-  const cached = context.proxyCache.get(cacheKey)
-  if (cached !== undefined) return cached
-
-  const proxy = new Proxy(() => {}, {
-    get(_, prop: string | symbol) {
-      if (typeof prop === 'symbol') return undefined
-      if (PROMISE_PROPS.has(prop as string)) return undefined
-      return createOnProxy(context, [...path, prop])
-    },
-    apply(_, __, args: unknown[]) {
-      // Register the handler
+function createOnProxyForContext(context: ClientContext): unknown {
+  return createEventProxy({
+    onRegister: (path, handler) => {
       const eventPath = path.join('.')
-      const handler = args[0] as (...args: unknown[]) => unknown
       const handlers = context.handlers.get(eventPath)
       if (handlers) {
         handlers.push(handler)
       } else {
         context.handlers.set(eventPath, [handler])
       }
-      return undefined
     },
+    cache: context.proxyCache,
   })
-
-  context.proxyCache.set(cacheKey, proxy)
-  return proxy
 }
 
 /**
  * Create a schedule builder for $.every DSL
- * Supports fluent chaining like $.every.Monday.at('9am')(handler)
+ * Uses shared createScheduleProxy utility with caching
  */
-function createScheduleBuilder(
-  context: ClientContext,
-  parts: string[] = []
-): unknown {
-  const cacheKey = `every:${parts.join('.')}`
-  const cached = context.proxyCache.get(cacheKey)
-  if (cached !== undefined) return cached
-
-  // The schedule builder is both a callable (for $.every.day(handler)) and
-  // has properties (for $.every.Monday.at('9am'))
-  const builder = function(handlerOrTime: unknown) {
-    if (typeof handlerOrTime === 'function') {
-      // Direct call like $.every.day(handler)
+function createScheduleBuilderForContext(context: ClientContext): unknown {
+  return createScheduleProxy({
+    onRegister: (parts, handler) => {
       const cron = buildCron(parts)
       const id = `schedule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      context.schedules.set(id, { cron, handler: handlerOrTime as (...args: unknown[]) => unknown })
-      return undefined
-    }
-    // Otherwise it's a time string for .at()
-    return undefined
-  }
-
-  const proxy = new Proxy(builder, {
-    get(target, prop: string | symbol) {
-      if (typeof prop === 'symbol') return undefined
-      if (PROMISE_PROPS.has(prop as string)) return undefined
-
-      if (prop === 'at') {
-        // Return a function that takes time and returns a callable
-        return (time: string) => {
-          const newParts = [...parts, `at:${time}`]
-          // Return a callable that registers the handler
-          return (handler: (...args: unknown[]) => unknown) => {
-            const cron = buildCron(newParts)
-            const id = `schedule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-            context.schedules.set(id, { cron, handler })
-            return undefined
-          }
-        }
-      }
-
-      // Continue building the schedule ($.every.Monday, $.every.day)
-      return createScheduleBuilder(context, [...parts, prop as string])
+      context.schedules.set(id, { cron, handler })
     },
-    apply(target, thisArg, args) {
-      return target(args[0])
-    },
+    cache: context.proxyCache,
   })
-
-  context.proxyCache.set(cacheKey, proxy)
-  return proxy
 }
 
 /**
@@ -363,12 +311,12 @@ function createNestedProxyWithTransport(
 
       // Special namespace: $.on for event handlers
       if (path.length === 0 && prop === 'on') {
-        return createOnProxy(context)
+        return createOnProxyForContext(context)
       }
 
       // Special namespace: $.every for scheduling
       if (path.length === 0 && prop === 'every') {
-        return createScheduleBuilder(context)
+        return createScheduleBuilderForContext(context)
       }
 
       // Return a nested proxy for property access
@@ -429,33 +377,17 @@ function createNestedProxyWithTransport(
 
 /**
  * Create a nested proxy that tracks the property path (legacy version)
- * This supports both flat APIs (client.greet()) and nested APIs (client.users.create())
+ * Uses shared createDeepRPCProxy utility
  */
-function createNestedProxy(
+function createLegacyNestedProxy(
   url: string,
   timeout: number,
-  path: string[] = [],
   correlationId?: string
 ): unknown {
-  return new Proxy(() => {}, {
-    get(_, prop: string | symbol) {
-      // Don't intercept symbols or promise methods (client should not be thenable)
-      if (typeof prop === 'symbol') {
-        return undefined
-      }
-
-      if (PROMISE_PROPS.has(prop as string)) {
-        return undefined // Not a promise
-      }
-
-      // Return a nested proxy for property access
-      return createNestedProxy(url, timeout, [...path, prop as string], correlationId)
-    },
-
-    apply(_, __, args: unknown[]) {
-      // When called as a function, invoke the RPC method
+  return createDeepRPCProxy({
+    invoke: async (path, args) => {
       return createMethodInvoker(url, timeout, path, correlationId)(...args)
-    },
+    }
   })
 }
 
@@ -513,12 +445,12 @@ export function createClient<T extends object>(
     // Fall back to legacy fetch-based client
     const timeout = opts.timeout ?? 30000
     const correlationId = opts.correlationId
-    return createNestedProxy(url, timeout, [], correlationId) as T
+    return createLegacyNestedProxy(url, timeout, correlationId) as T
   }
 
   // createClient({ url: 'http://test', ... })
   const { url, timeout = 30000, correlationId } = urlOrOptions
-  return createNestedProxy(url, timeout, [], correlationId) as T
+  return createLegacyNestedProxy(url, timeout, correlationId) as T
 }
 
 /**
@@ -526,6 +458,7 @@ export function createClient<T extends object>(
  *
  * This is a low-level utility for creating RPC-like proxies where each
  * property access and method call is handled by the provided handler.
+ * Uses the shared createDeepRPCProxy utility.
  *
  * @example
  * ```typescript
@@ -544,25 +477,7 @@ export function createClient<T extends object>(
 export function createProxy(
   handler: (path: string[], args: unknown[]) => Promise<unknown>
 ): object {
-  function createNestedHandler(path: string[] = []): unknown {
-    return new Proxy(() => {}, {
-      get(_, prop: string | symbol) {
-        if (typeof prop === 'symbol') {
-          return undefined
-        }
-
-        if (PROMISE_PROPS.has(prop as string)) {
-          return undefined
-        }
-
-        return createNestedHandler([...path, prop as string])
-      },
-
-      apply(_, __, args: unknown[]) {
-        return handler(path, args)
-      },
-    })
-  }
-
-  return createNestedHandler() as object
+  return createDeepRPCProxy({
+    invoke: handler
+  }) as object
 }

@@ -8,6 +8,15 @@ export {
   createNestedProxy,
   createMethodProxy,
   createCallableNestedProxy,
+  createDeepRPCProxy,
+  createEventProxy,
+  createScheduleProxy,
+  createEntityAccessProxy,
+  PROMISE_PROPS,
+  type DeepRPCProxyOptions,
+  type EventProxyOptions,
+  type ScheduleProxyOptions,
+  type EntityProxyOptions,
 } from './proxy'
 
 export {

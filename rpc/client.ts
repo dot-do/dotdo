@@ -2,11 +2,15 @@
 // Implements typed proxy for remote method invocation via fetch-based RPC
 // Supports pluggable transports for different communication backends
 // Includes Cap'n Proto-style promise pipelining for efficient RPC chaining
+//
+// This module uses shared proxy utilities from @dotdo/do/utils/proxy for
+// common patterns like deep nested RPC proxies.
 
 import { deserializeError, isRPCError, TransportError, type SerializedError } from './errors'
 import type { Transport, RPCMessage, RPCResponse } from './transport/types'
 import { PipelineBuilder, type PipelineRequest, type PipelineResponse } from './pipeline'
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
+import { createDeepRPCProxy, PROMISE_PROPS } from '../do/utils/proxy'
 
 // Re-export for backward compatibility
 export { generateCorrelationId, CORRELATION_ID_HEADER }
@@ -127,42 +131,20 @@ function createMethodInvoker<R = unknown>(
 
 /**
  * Create a nested proxy that tracks the property path
- * This supports both flat APIs (client.greet()) and nested APIs (client.users.create())
+ * Uses shared createDeepRPCProxy utility for consistent proxy behavior
  *
  * @typeParam T - The expected type at this point in the path (used for type inference)
  */
-function createNestedProxy<T = unknown>(
+function createNestedProxyForFetch<T = unknown>(
   url: string,
   timeout: number,
-  path: string[] = [],
   correlationId?: string
 ): T {
-  // Use a typed proxy target that can be both accessed as an object and called as a function
-  const proxyTarget: ProxyableFunction = Object.assign(
-    () => {},
-    {}
-  )
-
-  return new Proxy(proxyTarget, {
-    get(_target: ProxyableFunction, prop: string | symbol): unknown {
-      // Don't intercept symbols or promise methods (client should not be thenable)
-      if (typeof prop === 'symbol') {
-        return undefined
-      }
-
-      if (prop === 'then' || prop === 'catch' || prop === 'finally') {
-        return undefined // Not a promise
-      }
-
-      // Return a nested proxy for property access
-      return createNestedProxy(url, timeout, [...path, prop], correlationId)
-    },
-
-    apply(_target: ProxyableFunction, _thisArg: unknown, args: unknown[]): Promise<unknown> {
-      // When called as a function, invoke the RPC method
+  return createDeepRPCProxy<T>({
+    invoke: async (path, args) => {
       return createMethodInvoker(url, timeout, path, correlationId)(...args)
-    },
-  }) as T
+    }
+  })
 }
 
 /**
@@ -194,7 +176,7 @@ function createNestedProxy<T = unknown>(
 export function createClient<T extends object>(options: RPCClientOptions): T {
   const { url, timeout = 30000, correlationId } = options
 
-  return createNestedProxy(url, timeout, [], correlationId) as T
+  return createNestedProxyForFetch(url, timeout, correlationId)
 }
 
 // ============================================================================
@@ -237,45 +219,26 @@ function createTransportMethodInvoker<R = unknown>(
 
 /**
  * Create a nested proxy that tracks the property path for transport-based client
+ * Uses shared createDeepRPCProxy utility with special property support for $transport
  *
  * @typeParam T - The expected type at this point in the path (used for type inference)
  */
-function createTransportNestedProxy<T = unknown>(
+function createTransportNestedProxyWithShared<T = unknown>(
   transport: Transport,
-  path: string[] = [],
   correlationId?: string
 ): T {
-  // Use a typed proxy target that can be both accessed as an object and called as a function
-  const proxyTarget: ProxyableFunction = Object.assign(
-    () => {},
-    {}
-  )
-
-  return new Proxy(proxyTarget, {
-    get(_target: ProxyableFunction, prop: string | symbol): unknown {
-      // Don't intercept symbols or promise methods (client should not be thenable)
-      if (typeof prop === 'symbol') {
-        return undefined
-      }
-
-      if (prop === 'then' || prop === 'catch' || prop === 'finally') {
-        return undefined // Not a promise
-      }
-
+  return createDeepRPCProxy<T>({
+    invoke: async (path, args) => {
+      return createTransportMethodInvoker(transport, path, correlationId)(...args)
+    },
+    getSpecialProperty: (prop) => {
       // Special property to access the underlying transport
       if (prop === '$transport') {
         return transport
       }
-
-      // Return a nested proxy for property access
-      return createTransportNestedProxy(transport, [...path, prop], correlationId)
-    },
-
-    apply(_target: ProxyableFunction, _thisArg: unknown, args: unknown[]): Promise<unknown> {
-      // When called as a function, invoke the RPC method
-      return createTransportMethodInvoker(transport, path, correlationId)(...args)
-    },
-  }) as T
+      return undefined
+    }
+  })
 }
 
 /**
@@ -313,7 +276,7 @@ function createTransportNestedProxy<T = unknown>(
  */
 export function createClientWithTransport<T extends object>(options: TransportClientOptions): T & { $transport: Transport } {
   const { transport, correlationId } = options
-  return createTransportNestedProxy(transport, [], correlationId) as T & { $transport: Transport }
+  return createTransportNestedProxyWithShared(transport, correlationId) as T & { $transport: Transport }
 }
 
 /**
