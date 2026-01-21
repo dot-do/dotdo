@@ -13,6 +13,7 @@
     "declarationMap": true,
     "sourceMap": true,
     "composite": true,
+    "jsx": "react-jsx",
     "types": ["@cloudflare/workers-types"]
   },
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
