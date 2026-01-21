@@ -33,3 +33,4 @@ export * from './types'
 
 // Transports
 export * from './fetch'
+export * from './websocket'

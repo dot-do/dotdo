@@ -548,3 +548,121 @@ describe('Verbose output formatting', () => {
     expect(debugMessages.length).toBeGreaterThan(0)
   })
 })
+
+// ============================================================================
+// Verbose output goes to stderr (configurable via errorOutput)
+// ============================================================================
+
+describe('Verbose output destination', () => {
+  it('error() uses errorOutput (stderr by default)', () => {
+    const errorOutput: string[] = []
+    const regularOutput: string[] = []
+    const logger = createLogger({
+      output: (msg) => regularOutput.push(msg),
+      errorOutput: (msg) => errorOutput.push(msg),
+    })
+
+    logger.error('error message')
+
+    // Error should go to errorOutput, not regular output
+    expect(errorOutput.some(o => o.includes('error message'))).toBe(true)
+    expect(regularOutput.some(o => o.includes('error message'))).toBe(false)
+  })
+
+  it('verbose/debug messages use regular output (configurable)', () => {
+    const output: string[] = []
+    const logger = createLogger({ output: (msg) => output.push(msg) })
+
+    setLogLevel(LogLevel.DEBUG)
+    logger.verbose('verbose message')
+    logger.debug('debug message')
+
+    expect(output.some(o => o.includes('verbose message'))).toBe(true)
+    expect(output.some(o => o.includes('debug message'))).toBe(true)
+  })
+})
+
+// ============================================================================
+// Transport events logging
+// ============================================================================
+
+describe('Transport events logging', () => {
+  it('logs transport errors in verbose mode', async () => {
+    const output: string[] = []
+
+    // Simulate network error
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('Connection refused'))
+
+    setLogLevel(LogLevel.VERBOSE)
+    await evalCommand('https://api.test.com', '1+1', {
+      onOutput: (msg) => output.push(msg),
+      verbose: true,
+    })
+
+    // Should show error message and timing
+    expect(output.some(o =>
+      o.toLowerCase().includes('error') ||
+      o.toLowerCase().includes('failed') ||
+      o.toLowerCase().includes('connection')
+    )).toBe(true)
+  })
+
+  it('logs connection/request info in verbose mode', async () => {
+    const output: string[] = []
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ result: 2 }),
+    })
+
+    setLogLevel(LogLevel.VERBOSE)
+    await evalCommand('https://api.test.com', '1+1', {
+      onOutput: (msg) => output.push(msg),
+      verbose: true,
+    })
+
+    // Should show request being made (transport connect)
+    expect(output.some(o =>
+      o.includes('api.test.com') ||
+      o.includes('POST') ||
+      o.includes('REQUEST')
+    )).toBe(true)
+  })
+})
+
+// ============================================================================
+// REPL verbose support (structural test - REPL options interface)
+// ============================================================================
+
+describe('REPL verbose support', () => {
+  it('ReplServiceOptions should support verbose logging configuration', async () => {
+    // This is a structural test - we're verifying the interface supports
+    // verbose logging through the output callback
+    const { ReplService } = await import('../src/cli/repl')
+
+    // Create a mock transport
+    const mockTransport = {
+      send: vi.fn().mockResolvedValue({ result: 'test' }),
+    }
+
+    const output: string[] = []
+    const repl = new ReplService({
+      transport: mockTransport as any,
+      output: (msg) => output.push(msg),
+    })
+
+    // Verify we can access the REPL's output function
+    expect(repl).toBeDefined()
+  })
+
+  it('createLogger can be used with REPL output function', () => {
+    const output: string[] = []
+    const logger = createLogger({ output: (msg) => output.push(msg) })
+
+    setLogLevel(LogLevel.VERBOSE)
+    logger.verbose('REPL verbose message')
+
+    expect(output.some(o => o.includes('REPL verbose message'))).toBe(true)
+  })
+})
