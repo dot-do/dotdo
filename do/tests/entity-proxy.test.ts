@@ -289,6 +289,186 @@ describe('Entity Proxy (do-lekf.2)', () => {
     })
   })
 
+  describe('$.DB() with DDL generation (do-lekf.3)', () => {
+    /**
+     * Mock SQL storage for testing DDL execution
+     */
+    function createMockSqlStorage() {
+      const executedStatements: string[] = []
+      return {
+        exec(sql: string) {
+          executedStatements.push(sql)
+          return { results: [] }
+        },
+        prepare() {
+          return {
+            bind: () => ({
+              first: () => null,
+              all: () => ({ results: [] }),
+              run: () => ({ changes: 0, lastRowId: 0, duration: 0 }),
+            }),
+          }
+        },
+        getExecutedStatements() {
+          return executedStatements
+        },
+      }
+    }
+
+    it('should execute DDL when sql storage is provided', () => {
+      const things = createThingsStore()
+      const sql = createMockSqlStorage()
+      const mockState = { id: { toString: () => 'test-id' } } as unknown as DurableObjectState
+      const $ = createContext(mockState, {}, { things, sql })
+
+      $.DB({
+        Product: {
+          sku: 'string!#',
+          name: 'string!',
+          price: 'decimal(10,2)!',
+        },
+      })
+
+      const statements = sql.getExecutedStatements()
+      expect(statements.length).toBeGreaterThan(0)
+      expect(statements.some(s => s.includes('CREATE TABLE IF NOT EXISTS "product"'))).toBe(true)
+      expect(statements.some(s => s.includes('"sku"'))).toBe(true)
+      expect(statements.some(s => s.includes('"name"'))).toBe(true)
+      expect(statements.some(s => s.includes('"price"'))).toBe(true)
+    })
+
+    it('should create indexes from # modifier', () => {
+      const things = createThingsStore()
+      const sql = createMockSqlStorage()
+      const mockState = { id: { toString: () => 'test-id' } } as unknown as DurableObjectState
+      const $ = createContext(mockState, {}, { things, sql })
+
+      $.DB({
+        User: {
+          email: 'string!#',
+          name: 'string!',
+        },
+      })
+
+      const statements = sql.getExecutedStatements()
+      // The # modifier creates UNIQUE constraint inline
+      expect(statements.some(s => s.includes('UNIQUE ("email")'))).toBe(true)
+    })
+
+    it('should create composite indexes from $index directive', () => {
+      const things = createThingsStore()
+      const sql = createMockSqlStorage()
+      const mockState = { id: { toString: () => 'test-id' } } as unknown as DurableObjectState
+      const $ = createContext(mockState, {}, { things, sql })
+
+      $.DB({
+        Product: {
+          $index: [['category', 'status']],
+          name: 'string!',
+          category: 'string',
+          status: 'string',
+        },
+      })
+
+      const statements = sql.getExecutedStatements()
+      expect(statements.some(s => s.includes('idx_product_category_status'))).toBe(true)
+    })
+
+    it('should create foreign key constraints for relations', () => {
+      const things = createThingsStore()
+      const sql = createMockSqlStorage()
+      const mockState = { id: { toString: () => 'test-id' } } as unknown as DurableObjectState
+      const $ = createContext(mockState, {}, { things, sql })
+
+      $.DB({
+        Product: {
+          name: 'string!',
+          vendor: '-> Vendor?',
+        },
+        Vendor: {
+          name: 'string!',
+          products: '<- Product.vendor[]',
+        },
+      })
+
+      const statements = sql.getExecutedStatements()
+      expect(statements.some(s => s.includes('FOREIGN KEY ("vendor") REFERENCES "vendor"("$id")'))).toBe(true)
+    })
+
+    it('should not execute DDL when sql storage is not provided', () => {
+      const things = createThingsStore()
+      const mockState = { id: { toString: () => 'test-id' } } as unknown as DurableObjectState
+      const $ = createContext(mockState, {}, { things })
+
+      // Should not throw even without sql storage
+      $.DB({
+        Product: {
+          name: 'string!',
+        },
+      })
+
+      // Schema should still be registered
+      expect($._entitySchemas.has('Product')).toBe(true)
+    })
+
+    it('should generate migration statements for schema updates', () => {
+      const things = createThingsStore()
+      const sql = createMockSqlStorage()
+      const mockState = { id: { toString: () => 'test-id' } } as unknown as DurableObjectState
+      const $ = createContext(mockState, {}, { things, sql })
+
+      // Define initial schema
+      $.DB({
+        Product: {
+          name: 'string!',
+        },
+      })
+
+      const initialStatements = [...sql.getExecutedStatements()]
+
+      // Update schema with new field
+      $.DB({
+        Product: {
+          name: 'string!',
+          description: 'string?',
+        },
+      })
+
+      const allStatements = sql.getExecutedStatements()
+      const newStatements = allStatements.slice(initialStatements.length)
+
+      // Should have ALTER TABLE statement for the new field
+      expect(newStatements.some(s => s.includes('ALTER TABLE "product" ADD COLUMN "description"'))).toBe(true)
+    })
+
+    it('should register schemas in both entity and legacy schema maps', () => {
+      const things = createThingsStore()
+      const sql = createMockSqlStorage()
+      const mockState = { id: { toString: () => 'test-id' } } as unknown as DurableObjectState
+      const $ = createContext(mockState, {}, { things, sql })
+
+      $.DB({
+        Product: {
+          name: 'string!',
+          price: 'decimal(10,2)',
+        },
+      })
+
+      // Unified entity schema (from parser)
+      expect($._entitySchemas.has('Product')).toBe(true)
+      const schema = $._entitySchemas.get('Product')!
+      // Handle both Map and plain object
+      const fields = schema.fields instanceof Map
+        ? schema.fields
+        : new Map(Object.entries(schema.fields))
+      expect(fields.has('name')).toBe(true)
+      expect(fields.has('price')).toBe(true)
+
+      // Legacy entity schema (for entity accessor)
+      expect($._legacyEntitySchemas.has('Product')).toBe(true)
+    })
+  })
+
   describe('Integration with DO class', () => {
     it('should work within DO instance via runInDurableObject', async () => {
       const stub = getTestDO()

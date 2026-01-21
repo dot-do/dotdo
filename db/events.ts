@@ -186,6 +186,7 @@ export interface EventsStore<P extends JsonValue = JsonValue> {
   emit(event: EventInput<P>): Promise<Event<P>>
   get(id: string): Promise<Event<P> | null>
   query(options?: EventQueryOptions): Promise<Event<P>[]>
+  queryWithCursor?(options?: EventCursorOptions): Promise<EventCursorResult<P>>
   subscribe(handler: (event: Event<P>) => void): () => void
 
   // Retention policy methods
@@ -627,6 +628,51 @@ function getDurabilityConfigForType<P extends JsonValue>(
   return state.defaultDurabilityConfig
 }
 
+/**
+ * Set event retry status with automatic cleanup when bounds exceeded
+ * Removes oldest entries (by lastAttempt timestamp) and expired entries when maxRetryStatuses is reached
+ */
+function setEventRetryStatusBounded<P extends JsonValue>(
+  eventId: string,
+  status: EventRetryStatus,
+  state: SharedEventState<P>
+): void {
+  // If we're at or above the limit, perform cleanup
+  if (state.eventRetryStatus.size >= state.bounds.maxRetryStatuses) {
+    const now = Date.now()
+    const maxAge = state.bounds.retryStatusMaxAge
+
+    // First pass: remove expired entries (older than maxAge)
+    const expiredKeys: string[] = []
+    for (const [key, value] of state.eventRetryStatus) {
+      if (now - value.lastAttempt > maxAge) {
+        expiredKeys.push(key)
+      }
+    }
+    for (const key of expiredKeys) {
+      state.eventRetryStatus.delete(key)
+    }
+
+    // If still over limit, remove oldest 10% by lastAttempt
+    if (state.eventRetryStatus.size >= state.bounds.maxRetryStatuses) {
+      const entries = Array.from(state.eventRetryStatus.entries())
+      entries.sort((a, b) => a[1].lastAttempt - b[1].lastAttempt)
+      const removeCount = Math.max(1, Math.floor(state.bounds.maxRetryStatuses * 0.1))
+      for (let i = 0; i < removeCount && i < entries.length; i++) {
+        const entry = entries[i]
+        if (entry) {
+          state.eventRetryStatus.delete(entry[0])
+        }
+      }
+      logger.warn(`Event retry status exceeded max entries (${state.bounds.maxRetryStatuses}), removed ${expiredKeys.length} expired + ${removeCount} oldest entries`)
+    } else if (expiredKeys.length > 0) {
+      logger.debug(`Event retry status cleanup: removed ${expiredKeys.length} expired entries`)
+    }
+  }
+
+  state.eventRetryStatus.set(eventId, status)
+}
+
 // ============================================================================
 // End of Shared Helper Functions
 // ============================================================================
@@ -811,9 +857,9 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
       return queryValidationFailureEntries(options, state)
     },
 
-    // Retry status tracking
+    // Retry status tracking - delegate to shared helper with bounds enforcement
     setEventRetryStatus(eventId, status) {
-      state.eventRetryStatus.set(eventId, status)
+      setEventRetryStatusBounded(eventId, status, state)
     },
 
     getEventRetryStatus(eventId) {

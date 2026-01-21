@@ -156,8 +156,9 @@ export interface QueryOptions<T extends StorableData = StorableData> {
 
 /**
  * Extended Thing type with joined data
+ * Note: _joined is omitted from index signature compatibility via intersection
  */
-export interface ThingWithJoins extends Thing {
+export type ThingWithJoins = Thing & {
   _joined?: Record<string, Thing[]>
 }
 

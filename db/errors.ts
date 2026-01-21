@@ -211,9 +211,10 @@ export class DotdoError extends Error {
     }
     Object.setPrototypeOf(this, new.target.prototype)
 
-    // Capture stack trace properly for V8
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, this.constructor)
+    // Capture stack trace properly for V8 (Node.js environment)
+    const ErrorWithCapture = Error as typeof Error & { captureStackTrace?: (target: Error, constructor: unknown) => void }
+    if (ErrorWithCapture.captureStackTrace) {
+      ErrorWithCapture.captureStackTrace(this, this.constructor)
     }
   }
 

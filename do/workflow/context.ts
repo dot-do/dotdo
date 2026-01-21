@@ -10,12 +10,12 @@
  * @module do/workflow/context
  */
 
-import { createEventsStore, type Event, type EventsStore, type JsonValue, type ThingsStore } from '../../db'
+import { createEventsStore, type Event, type EventsStore, type JsonValue, type ThingsStore, type SqlStorage } from '../../db'
 import { createEveryProxy } from './schedule'
 import { createOnProxy, matchHandlers, invokeHandlers, type RetryOptions } from './events'
 import { createDORPCProxy } from './rpc'
 import { type EntitySchema as LegacyEntitySchema } from './entity'
-import { parseSchema, type EntitySchema, type RawDatabaseSchema } from '../schema'
+import { parseSchema, generateSchemaDDL, generateMigrationDDL, type EntitySchema, type RawDatabaseSchema, type DDLOptions } from '../schema'
 import { RPCError, TimeoutError, InternalError, ValidationError } from '@dotdo/rpc'
 import {
   createInMemoryErrorStore,
@@ -76,6 +76,8 @@ interface ContextState {
   integrations: IntegrationRegistry
   /** Things store for entity operations (do-lekf.8) */
   things?: ThingsStore
+  /** SQL storage for DDL execution (do-lekf.3) */
+  sql?: SqlStorage
   /** Entity schema registry - parsed from DB() calls (do-lekf.8) */
   entitySchemas: Map<string, EntitySchema>
   /** Legacy entity schemas for backward compatibility with entity proxy */
@@ -93,6 +95,7 @@ function initializeContextState(options?: CreateContextOptions): ContextState {
   const fireAndForgetErrors = options?.errorStore ?? createInMemoryErrorStore()
   const integrations = options?.integrationRegistry ?? new IntegrationRegistry()
   const things = options?.things
+  const sql = options?.sql
   const entitySchemas = new Map<string, EntitySchema>()
   const legacyEntitySchemas = new Map<string, LegacyEntitySchema>()
 
@@ -108,7 +111,7 @@ function initializeContextState(options?: CreateContextOptions): ContextState {
     })
   }
 
-  return { events, handlers, schedules, stubCache, fireAndForgetErrors, integrations, things, entitySchemas, legacyEntitySchemas }
+  return { events, handlers, schedules, stubCache, fireAndForgetErrors, integrations, things, sql, entitySchemas, legacyEntitySchemas }
 }
 
 /**
@@ -352,7 +355,7 @@ function createBaseContext(
   env: unknown,
   options?: CreateContextOptions
 ): Record<string, unknown> {
-  const { events, handlers, schedules, stubCache, fireAndForgetErrors, integrations, things, entitySchemas, legacyEntitySchemas } = state
+  const { events, handlers, schedules, stubCache, fireAndForgetErrors, integrations, things, sql, entitySchemas, legacyEntitySchemas } = state
 
   const baseContext: Record<string, unknown> = {
     // Fire-and-forget event emission with retry support
@@ -412,7 +415,8 @@ function createBaseContext(
     // Database Schema Methods (do-lekf.8)
     /**
      * Define entire database schema at once (ai-database style).
-     * Parses the schema using the unified parser and registers all entities.
+     * Parses the schema using the unified parser, registers all entities,
+     * and generates/executes DDL when sql storage is provided (do-lekf.3).
      */
     DB(schemas: RawDatabaseSchema): void {
       if (!things) {
@@ -422,8 +426,21 @@ function createBaseContext(
       // Parse the raw schema using the unified parser
       const parsed = parseSchema(schemas)
 
-      // Register each entity schema
+      // DDL options for table/index generation (do-lekf.3)
+      const ddlOptions: DDLOptions = {
+        ifNotExists: true,
+        foreignKeys: true,
+        indexes: true,
+        compositeIndexes: true,
+        fullTextSearch: true,
+      }
+
+      // Register each entity schema and generate DDL (do-lekf.3)
       for (const [name, schema] of parsed.entities) {
+        // Check if this is a new entity or an update (for migrations)
+        const existingSchema = entitySchemas.get(name)
+
+        // Register the new schema
         entitySchemas.set(name, schema)
 
         // Convert fields Map to array of entries - handle both Map and plain object
@@ -447,6 +464,32 @@ function createBaseContext(
           ),
           strict: false,
         })
+
+        // Generate and execute DDL if sql storage is provided (do-lekf.3)
+        if (sql) {
+          try {
+            if (existingSchema) {
+              // Schema migration: generate ALTER TABLE statements
+              const migrationStatements = generateMigrationDDL(existingSchema, schema, ddlOptions)
+              for (const statement of migrationStatements) {
+                // Skip comments (warnings about removed fields)
+                if (!statement.startsWith('--')) {
+                  sql.exec(statement)
+                  logger.debug(`Executed migration: ${statement.substring(0, 80)}...`)
+                }
+              }
+              logger.info(`Migrated schema for entity "${name}"`)
+            } else {
+              // New entity: generate CREATE TABLE and indexes
+              const { ddl } = generateSchemaDDL(new Map([[name, schema]]), ddlOptions)
+              sql.exec(ddl)
+              logger.info(`Created table and indexes for entity "${name}"`)
+            }
+          } catch (err) {
+            logger.error(`Failed to execute DDL for entity "${name}":`, err)
+            throw err
+          }
+        }
       }
 
       logger.info(`Registered ${parsed.entities.size} entity schemas: ${Array.from(parsed.entities.keys()).join(', ')}`)
@@ -465,6 +508,8 @@ function createBaseContext(
     _things: things,
     _entitySchemas: entitySchemas,
     _legacyEntitySchemas: legacyEntitySchemas,
+    // SQL storage for DDL execution (do-lekf.3)
+    _sql: sql,
   }
 
   return baseContext

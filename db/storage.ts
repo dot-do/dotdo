@@ -30,6 +30,14 @@ export interface ListResult<T = unknown> {
 }
 
 /**
+ * Options for transaction operations
+ */
+export interface TransactionOptions {
+  /** Allow nested transactions */
+  allowNesting?: boolean
+}
+
+/**
  * Storage Adapter Interface
  *
  * Provides a key-value storage abstraction that can be backed by different
@@ -96,7 +104,7 @@ export interface StorageAdapter {
    * @param options Optional transaction options
    * @returns The result of the function
    */
-  transaction<T>(fn: () => Promise<T>, options?: { allowNesting?: boolean }): Promise<T>
+  transaction<T>(fn: () => Promise<T>, options?: TransactionOptions): Promise<T>
 
   /**
    * Check if currently inside a transaction

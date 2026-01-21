@@ -76,8 +76,8 @@ export * from './events'
  */
 export * from './query'
 
-/** Digital Objects integration from primitives */
-export * from './digital-objects'
+// Digital Objects integration excluded from build - requires primitives submodule
+// Import directly from ./digital-objects.ts for primitives integration
 
 /** SQLite-specific utilities and helpers */
 export * from './sqlite'

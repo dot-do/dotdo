@@ -114,7 +114,7 @@ export class MigrationRunner {
       .bind()
       .all()
 
-    return result.results as MigrationState[]
+    return result.results as unknown as MigrationState[]
   }
 
   /**

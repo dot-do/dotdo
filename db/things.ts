@@ -132,7 +132,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
         $id: id,
         $createdAt: now,
         $updatedAt: now,
-      } as Thing<T>
+      } as unknown as Thing<T>
 
       await adapter.put(`${THINGS_PREFIX}${id}`, thing)
       return thing as Thing<T> & typeof data

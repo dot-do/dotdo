@@ -7,12 +7,14 @@
  * @module do/workflow/types
  */
 
-import type { EventsStore, JsonValue, ThingsStore } from '../../db'
+import type { EventsStore, ThingsStore, SqlStorage } from '../../db'
 import type { OnProxy, EventHandler } from './events'
 import type { ScheduleRegistration } from './schedule'
 import type { DOStubProxy, CircuitBreakerRPCConfig } from './rpc'
 import type { FireAndForgetErrorStore } from '../fire-and-forget-errors'
 import type { IntegrationRegistry, IntegrationConfig } from '@dotdo/integrations'
+import type { EntitySchema as UnifiedEntitySchema } from '../schema/types'
+import type { EntitySchema as LegacyEntitySchema } from './entity'
 
 // Re-export for external use
 export type { CircuitBreakerRPCConfig }
@@ -238,6 +240,16 @@ export interface CreateContextOptions extends PrimitivesConfig {
    * - $.Product(id).delete()
    */
   things?: ThingsStore
+
+  /**
+   * SQL storage for executing DDL statements (do-lekf.3)
+   *
+   * When provided with a schema definition via $.DB(), the DDL generator
+   * will automatically create tables and indexes.
+   *
+   * This should be the DurableObjectState.storage.sql instance.
+   */
+  sql?: SqlStorage
 }
 
 /**
@@ -266,6 +278,31 @@ export interface WorkflowContext {
 
   // Integration registry for third-party services
   integrations: IntegrationRegistry
+
+  // Database Schema (do-lekf.3)
+  /**
+   * Define entire database schema at once (ai-database style).
+   * Parses the schema using the unified parser, registers all entities,
+   * and generates/executes DDL when sql storage is provided.
+   *
+   * @example
+   * ```typescript
+   * $.DB({
+   *   Product: {
+   *     sku: 'string!#',
+   *     name: 'string!',
+   *     price: 'decimal(10,2)!',
+   *     vendor: '-> Vendor?',
+   *   },
+   *   Vendor: {
+   *     name: 'string!',
+   *     email: 'string!#',
+   *     products: '<- Product.vendor[]',
+   *   },
+   * })
+   * ```
+   */
+  DB(schemas: Record<string, Record<string, string | unknown>>): void
 
   // Extended primitives (fsx, gitx, bashx, npmx)
   /** Filesystem operations - available when wired via primitives config */
@@ -305,9 +342,11 @@ export interface WorkflowContext {
   /** Things store for entity operations (do-lekf.2) */
   _things?: ThingsStore
   /** Entity schema registry - parsed from DB() calls */
-  _entitySchemas: Map<string, EntitySchema>
+  _entitySchemas: Map<string, UnifiedEntitySchema>
   /** Legacy entity schemas for entity proxy (do-lekf.2) */
-  _legacyEntitySchemas: Map<string, EntitySchema>
+  _legacyEntitySchemas: Map<string, LegacyEntitySchema>
+  /** SQL storage for DDL execution (do-lekf.3) */
+  _sql?: SqlStorage
 }
 
 /**

@@ -25,6 +25,7 @@ import {
 } from '@dotdo/rpc'
 import type { ThingsStore } from '../../db'
 import { createEntityAccessor, isEntityName, isReservedProperty, type EntitySchema, type EntityProxy } from './entity'
+import type { EntitySchema as UnifiedEntitySchema } from '../schema/types'
 
 /**
  * A proxy type representing a DO stub that intercepts method calls
@@ -136,6 +137,8 @@ interface BaseContextWithInternals {
   _things?: ThingsStore
   /** Legacy entity schemas for entity accessor (do-lekf.8) */
   _legacyEntitySchemas?: Map<string, EntitySchema>
+  /** Unified entity schemas with relation definitions (do-lekf.5) and AI field support (do-lekf.4) */
+  _entitySchemas?: Map<string, UnifiedEntitySchema>
 }
 
 /**
@@ -206,9 +209,12 @@ export function createDORPCProxy<T extends BaseContextWithInternals>(
       if (things && isEntityName(prop)) {
         // Return cached entity accessor or create new one
         if (!entityAccessorCache.has(prop)) {
+          // Get unified schemas for relation expansion (do-lekf.5) and AI field generation (do-lekf.4)
+          const unifiedSchemas = baseContext._entitySchemas
+
           entityAccessorCache.set(
             prop,
-            createEntityAccessor({ things, schemas: entitySchemas }, prop)
+            createEntityAccessor({ things, schemas: entitySchemas, unifiedSchemas }, prop)
           )
         }
         return entityAccessorCache.get(prop)

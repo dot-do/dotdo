@@ -12,32 +12,14 @@
  * @module do/schema/ddl
  */
 
-import type { EntitySchema, FieldDefinition, SchemaDirectives } from './types'
+import type { EntitySchema, FieldDefinition } from './types'
 
-// IceType DDL generation imports
-import {
-  parseSchema as parseIceTypeSchema,
-  type IceTypeSchema,
-  type SchemaDefinition,
-  // SQLite adapter
-  SQLiteAdapter,
-  transformToSQLiteDDL,
-  generateSQLiteDDL,
-  type SQLiteAdapterOptions,
-  type SQLiteDDL,
-  // PostgreSQL adapter
-  PostgresAdapter,
-  transformToPostgresDDL,
-  generatePostgresDDL,
-  type PostgresAdapterOptions,
-  type PostgresDDL,
-  // MySQL adapter
-  MySQLAdapter,
-  transformToMySQLDDL,
-  generateMySQLDDL,
-  type MySQLAdapterOptions,
-  type MySQLDDL,
-} from 'icetype'
+// Note: IceType DDL adapters (SQLiteAdapter, PostgresAdapter, MySQLAdapter) are
+// not yet available in the icetype package. This module provides native DDL generation
+// for SQLite which is the primary dotdo database. PostgreSQL and MySQL support
+// can be added when IceType exposes these adapters.
+//
+// For now, we use the native generateEntityDDL and generateSchemaDDL functions below.
 
 /**
  * Options for DDL generation
