@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { Hono } from 'hono'
-import { createTestProvider, createTestSessionStore, type TestProviderConfig } from './test-utils'
+import { createTestProvider, createTestSessionStore, createMinimalProvider, type TestProviderConfig } from './test-utils'
 import type { TokenResponse } from '../src/core/types'
 
 /**
