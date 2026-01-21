@@ -1,5 +1,13 @@
 // Multi-provider routing for @dotdo/ai
 // Implements intelligent routing across LLM providers with fallback, cost optimization, and load balancing
+//
+// PRICING: Model pricing is sourced from OpenRouter via the language-models package.
+// This ensures accurate, up-to-date pricing for cost optimization routing.
+
+import {
+  get as getLanguageModel,
+  perTokenToPerKTokens,
+} from './language-models'
 
 export type Provider = 'openai' | 'anthropic' | 'google' | 'cloudflare'
 export type Capability = 'fast' | 'smart' | 'cheap'
@@ -55,153 +63,164 @@ export const providers = {
   cloudflare: 'cloudflare' as const,
 }
 
-// Model catalog with cost and capability info
-// TODO: Verify pricing - these are estimates and may need updating based on latest provider pricing
+/**
+ * Model catalog with cost and capability information.
+ *
+ * PRICING SOURCE: OpenRouter via language-models package
+ * Pricing is automatically updated from OpenRouter's API data.
+ * See: primitives/packages/language-models/data/models.json
+ *
+ * Router ID mappings to OpenRouter IDs:
+ * - 'claude-opus-4-5' -> 'anthropic/claude-opus-4.5'
+ * - 'gpt-4o' -> 'openai/gpt-4o'
+ * - 'gemini-1.5-flash' -> 'google/gemini-1.5-flash'
+ */
+
+// Map Router model IDs to OpenRouter model IDs
+const ROUTER_TO_OPENROUTER_ID: Record<string, string> = {
+  // OpenAI
+  'gpt-4o': 'openai/gpt-4o',
+  'gpt-4o-mini': 'openai/gpt-4o-mini',
+  'gpt-4': 'openai/gpt-4',
+  'gpt-4-turbo': 'openai/gpt-4-turbo',
+  'gpt-3.5-turbo': 'openai/gpt-3.5-turbo',
+  // Anthropic
+  'claude-opus-4-5': 'anthropic/claude-opus-4.5',
+  'claude-sonnet-4-5': 'anthropic/claude-sonnet-4.5',
+  'claude-3.5-sonnet': 'anthropic/claude-3.5-sonnet',
+  'claude-3-sonnet': 'anthropic/claude-3-sonnet-20240229',
+  'claude-3.5-haiku': 'anthropic/claude-3.5-haiku',
+  'claude-3-opus': 'anthropic/claude-3-opus',
+  'claude-3-haiku': 'anthropic/claude-3-haiku',
+  // Google
+  'gemini-2.0-flash': 'google/gemini-2.0-flash-exp',
+  'gemini-1.5-pro': 'google/gemini-1.5-pro',
+  'gemini-1.5-flash': 'google/gemini-1.5-flash',
+  'gemini-pro': 'google/gemini-pro',
+}
+
+// Provider model ID mappings (Router model -> provider's native model ID)
+const PROVIDER_MODEL_IDS: Record<string, string> = {
+  'claude-opus-4-5': 'claude-opus-4-5-20251101',
+  'claude-sonnet-4-5': 'claude-sonnet-4-5-20250929',
+  'claude-3.5-sonnet': 'claude-3-5-sonnet-20241022',
+  'claude-3-sonnet': 'claude-3-sonnet-20240229',
+  'claude-3.5-haiku': 'claude-3-5-haiku-20241022',
+  'claude-3-opus': 'claude-3-opus-20240229',
+  'claude-3-haiku': 'claude-3-haiku-20240307',
+  'gemini-2.0-flash': 'gemini-2.0-flash-exp',
+}
+
+// Speed classification based on model characteristics
+const MODEL_SPEEDS: Record<string, 'fast' | 'medium' | 'slow'> = {
+  // Fast models (smaller, optimized for speed)
+  'gpt-4o': 'fast',
+  'gpt-4o-mini': 'fast',
+  'gpt-4-turbo': 'fast',
+  'gpt-3.5-turbo': 'fast',
+  'claude-sonnet-4-5': 'fast',
+  'claude-3.5-sonnet': 'fast',
+  'claude-3.5-haiku': 'fast',
+  'claude-3-haiku': 'fast',
+  'gemini-2.0-flash': 'fast',
+  'gemini-1.5-flash': 'fast',
+  'gemini-pro': 'fast',
+  '@cf/meta/llama-3.1-8b-instruct': 'fast',
+  '@cf/meta/llama-2-7b-chat-int8': 'fast',
+  // Medium models (balanced)
+  'gpt-4': 'medium',
+  'claude-opus-4-5': 'medium',
+  'claude-3-opus': 'medium',
+  'claude-3-sonnet': 'fast',
+  'gemini-1.5-pro': 'medium',
+  'gemini-ultra': 'medium',
+}
+
+// Fallback pricing for models not in OpenRouter (per 1K tokens)
+const FALLBACK_PRICING: Record<string, number> = {
+  'gemini-ultra': 0.005,
+  '@cf/meta/llama-3.1-8b-instruct': 0.0001,
+  '@cf/meta/llama-2-7b-chat-int8': 0.0001,
+}
+
+// Fallback max tokens for models not in OpenRouter
+const FALLBACK_MAX_TOKENS: Record<string, number> = {
+  'gemini-ultra': 32000,
+  '@cf/meta/llama-3.1-8b-instruct': 8192,
+  '@cf/meta/llama-2-7b-chat-int8': 4096,
+}
+
+/**
+ * Get pricing for a Router model ID from language-models (OpenRouter data)
+ */
+function getPricingFromLanguageModels(routerModelId: string): number {
+  const openRouterId = ROUTER_TO_OPENROUTER_ID[routerModelId]
+  if (openRouterId) {
+    const lmModel = getLanguageModel(openRouterId)
+    if (lmModel?.pricing?.prompt) {
+      return perTokenToPerKTokens(lmModel.pricing.prompt)
+    }
+  }
+  // Fallback for models not in OpenRouter
+  return FALLBACK_PRICING[routerModelId] ?? 0.001
+}
+
+/**
+ * Get max tokens for a Router model ID from language-models (OpenRouter data)
+ */
+function getMaxTokensFromLanguageModels(routerModelId: string): number {
+  const openRouterId = ROUTER_TO_OPENROUTER_ID[routerModelId]
+  if (openRouterId) {
+    const lmModel = getLanguageModel(openRouterId)
+    if (lmModel?.context_length) {
+      return lmModel.context_length
+    }
+  }
+  // Fallback
+  return FALLBACK_MAX_TOKENS[routerModelId] ?? 128000
+}
+
+/**
+ * Build model info from language-models data
+ */
+function buildModelInfo(routerModelId: string, provider: Provider): ModelInfo {
+  return {
+    provider,
+    model: PROVIDER_MODEL_IDS[routerModelId] ?? routerModelId,
+    costPer1kTokens: getPricingFromLanguageModels(routerModelId),
+    maxTokens: getMaxTokensFromLanguageModels(routerModelId),
+    speed: MODEL_SPEEDS[routerModelId] ?? 'fast'
+  }
+}
+
+// Build MODEL_CATALOG dynamically from language-models data
 const MODEL_CATALOG: Record<string, ModelInfo> = {
   // OpenAI models
-  // TODO: Verify OpenAI pricing for gpt-4o and latest models
-  'gpt-4o': {
-    provider: 'openai',
-    model: 'gpt-4o',
-    costPer1kTokens: 0.005, // TODO: Verify pricing
-    maxTokens: 128000,
-    speed: 'fast'
-  },
-  'gpt-4o-mini': {
-    provider: 'openai',
-    model: 'gpt-4o-mini',
-    costPer1kTokens: 0.00015, // TODO: Verify pricing
-    maxTokens: 128000,
-    speed: 'fast'
-  },
-  'gpt-4': {
-    provider: 'openai',
-    model: 'gpt-4',
-    costPer1kTokens: 0.03, // TODO: Verify pricing
-    maxTokens: 8192,
-    speed: 'medium'
-  },
-  'gpt-4-turbo': {
-    provider: 'openai',
-    model: 'gpt-4-turbo',
-    costPer1kTokens: 0.01, // TODO: Verify pricing
-    maxTokens: 128000,
-    speed: 'fast'
-  },
-  'gpt-3.5-turbo': {
-    provider: 'openai',
-    model: 'gpt-3.5-turbo',
-    costPer1kTokens: 0.001, // TODO: Verify pricing
-    maxTokens: 16385,
-    speed: 'fast'
-  },
+  'gpt-4o': buildModelInfo('gpt-4o', 'openai'),
+  'gpt-4o-mini': buildModelInfo('gpt-4o-mini', 'openai'),
+  'gpt-4': buildModelInfo('gpt-4', 'openai'),
+  'gpt-4-turbo': buildModelInfo('gpt-4-turbo', 'openai'),
+  'gpt-3.5-turbo': buildModelInfo('gpt-3.5-turbo', 'openai'),
 
   // Anthropic models
-  // TODO: Verify Anthropic pricing for Claude 3.5 and 4 models
-  'claude-opus-4-5': {
-    provider: 'anthropic',
-    model: 'claude-opus-4-5-20251101',
-    costPer1kTokens: 0.015, // TODO: Verify pricing
-    maxTokens: 200000,
-    speed: 'medium'
-  },
-  'claude-sonnet-4-5': {
-    provider: 'anthropic',
-    model: 'claude-sonnet-4-5-20250929',
-    costPer1kTokens: 0.003, // TODO: Verify pricing
-    maxTokens: 200000,
-    speed: 'fast'
-  },
-  'claude-3.5-sonnet': {
-    provider: 'anthropic',
-    model: 'claude-3-5-sonnet-20241022',
-    costPer1kTokens: 0.003, // TODO: Verify pricing
-    maxTokens: 200000,
-    speed: 'fast'
-  },
-  'claude-3-sonnet': {
-    provider: 'anthropic',
-    model: 'claude-3-sonnet-20240229',
-    costPer1kTokens: 0.003, // TODO: Verify pricing
-    maxTokens: 200000,
-    speed: 'fast'
-  },
-  'claude-3.5-haiku': {
-    provider: 'anthropic',
-    model: 'claude-3-5-haiku-20241022',
-    costPer1kTokens: 0.001, // TODO: Verify pricing
-    maxTokens: 200000,
-    speed: 'fast'
-  },
-  'claude-3-opus': {
-    provider: 'anthropic',
-    model: 'claude-3-opus-20240229',
-    costPer1kTokens: 0.015, // TODO: Verify pricing
-    maxTokens: 200000,
-    speed: 'medium'
-  },
-  'claude-3-haiku': {
-    provider: 'anthropic',
-    model: 'claude-3-haiku-20240307',
-    costPer1kTokens: 0.00025, // TODO: Verify pricing
-    maxTokens: 200000,
-    speed: 'fast'
-  },
+  'claude-opus-4-5': buildModelInfo('claude-opus-4-5', 'anthropic'),
+  'claude-sonnet-4-5': buildModelInfo('claude-sonnet-4-5', 'anthropic'),
+  'claude-3.5-sonnet': buildModelInfo('claude-3.5-sonnet', 'anthropic'),
+  'claude-3-sonnet': buildModelInfo('claude-3-sonnet', 'anthropic'),
+  'claude-3.5-haiku': buildModelInfo('claude-3.5-haiku', 'anthropic'),
+  'claude-3-opus': buildModelInfo('claude-3-opus', 'anthropic'),
+  'claude-3-haiku': buildModelInfo('claude-3-haiku', 'anthropic'),
 
   // Google models
-  // TODO: Verify Google pricing for Gemini 2.0 and latest models
-  'gemini-2.0-flash': {
-    provider: 'google',
-    model: 'gemini-2.0-flash-exp',
-    costPer1kTokens: 0.0001, // TODO: Verify pricing
-    maxTokens: 1000000,
-    speed: 'fast'
-  },
-  'gemini-1.5-pro': {
-    provider: 'google',
-    model: 'gemini-1.5-pro',
-    costPer1kTokens: 0.00125, // TODO: Verify pricing
-    maxTokens: 2000000,
-    speed: 'medium'
-  },
-  'gemini-1.5-flash': {
-    provider: 'google',
-    model: 'gemini-1.5-flash',
-    costPer1kTokens: 0.000075, // TODO: Verify pricing
-    maxTokens: 1000000,
-    speed: 'fast'
-  },
-  'gemini-pro': {
-    provider: 'google',
-    model: 'gemini-pro',
-    costPer1kTokens: 0.00025, // TODO: Verify pricing
-    maxTokens: 32000,
-    speed: 'fast'
-  },
-  'gemini-ultra': {
-    provider: 'google',
-    model: 'gemini-ultra',
-    costPer1kTokens: 0.005, // TODO: Verify pricing
-    maxTokens: 32000,
-    speed: 'medium'
-  },
+  'gemini-2.0-flash': buildModelInfo('gemini-2.0-flash', 'google'),
+  'gemini-1.5-pro': buildModelInfo('gemini-1.5-pro', 'google'),
+  'gemini-1.5-flash': buildModelInfo('gemini-1.5-flash', 'google'),
+  'gemini-pro': buildModelInfo('gemini-pro', 'google'),
+  'gemini-ultra': buildModelInfo('gemini-ultra', 'google'),
 
   // Cloudflare Workers AI
-  // TODO: Verify Cloudflare Workers AI pricing and latest models
-  '@cf/meta/llama-3.1-8b-instruct': {
-    provider: 'cloudflare',
-    model: '@cf/meta/llama-3.1-8b-instruct',
-    costPer1kTokens: 0.0001, // TODO: Verify pricing
-    maxTokens: 8192,
-    speed: 'fast'
-  },
-  '@cf/meta/llama-2-7b-chat-int8': {
-    provider: 'cloudflare',
-    model: '@cf/meta/llama-2-7b-chat-int8',
-    costPer1kTokens: 0.0001, // TODO: Verify pricing
-    maxTokens: 4096,
-    speed: 'fast'
-  }
+  '@cf/meta/llama-3.1-8b-instruct': buildModelInfo('@cf/meta/llama-3.1-8b-instruct', 'cloudflare'),
+  '@cf/meta/llama-2-7b-chat-int8': buildModelInfo('@cf/meta/llama-2-7b-chat-int8', 'cloudflare'),
 }
 
 // Capability-based model selection
@@ -563,7 +582,7 @@ export class Router {
     })
   }
 
-  private _markUnhealthy(provider: Provider): void {
+  _markUnhealthy(provider: Provider): void {
     const current = this.healthStatus.get(provider)
     this.healthStatus.set(provider, {
       healthy: false,
