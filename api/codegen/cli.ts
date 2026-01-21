@@ -47,7 +47,7 @@ export interface CLIOption {
   type: string
   required: boolean
   default?: any
-  choices?: string[] | undefined
+  choices?: string[]
 }
 
 /**

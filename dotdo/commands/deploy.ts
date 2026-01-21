@@ -74,8 +74,8 @@ interface AuthResult {
  * TODO: Replace with actual oauth.do/node when available
  */
 async function ensureLoggedIn(options: {
-  openBrowser?: boolean | undefined
-  print?: ((message: string) => void) | undefined
+  openBrowser?: boolean
+  print?: (message: string) => void
 }): Promise<AuthResult> {
   // For now, return a mock token
   // In production, this would trigger OAuth flow via oauth.do
@@ -94,7 +94,7 @@ async function ensureLoggedIn(options: {
  */
 function parseArgs(args: string[]): {
   isRollback: boolean
-  rollbackVersion?: string | undefined
+  rollbackVersion?: string
   remainingArgs: string[]
 } {
   const rollbackIndex = args.indexOf('--rollback')
@@ -306,19 +306,16 @@ export async function run(args: string[], options: RunOptions = {}): Promise<Run
  */
 function defaultSpawn(command: string[], options?: SpawnOptions): SpawnedProcess {
   // Check if Bun is available
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const globalBun = (globalThis as any).Bun
-  if (typeof globalBun === 'undefined' || !globalBun.spawn) {
+  if (typeof Bun === 'undefined' || !Bun.spawn) {
     throw new Error('Bun runtime required for spawn. Please run with Bun or provide custom spawn function.')
   }
 
   // Use Bun.spawn
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const proc = globalBun.spawn(command, {
+  const proc = Bun.spawn(command, {
     env: options?.env,
     stdio: options?.stdio || ['inherit', 'inherit', 'inherit'],
     cwd: options?.cwd,
-  }) as any
+  })
 
   return {
     pid: proc.pid,

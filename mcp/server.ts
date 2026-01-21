@@ -1,7 +1,7 @@
 // MCP Server - Model Context Protocol implementation
 import { Hono } from 'hono'
 import { ToolRegistry } from './discovery'
-import { getErrorMessage } from '@dotdo/rpc'
+import { getErrorMessage } from '../rpc/errors'
 
 export interface MCPServerOptions {
   name?: string
@@ -17,15 +17,15 @@ export interface MCPTool {
 }
 
 export interface MCPServer {
-  readonly tools: readonly MCPTool[]
-  registry?: ToolRegistry | undefined
+  tools: MCPTool[]
+  registry?: ToolRegistry
   addTool(tool: MCPTool): void
   fetch: (request: Request) => Promise<Response>
 }
 
 export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
   const { name = 'dotdo-mcp', version = '0.0.1', registry } = options
-  const toolsArray: MCPTool[] = []
+  const tools: MCPTool[] = []
   const app = new Hono()
 
   // MCP Protocol endpoints
@@ -47,7 +47,7 @@ export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
   // List tools
   app.get('/mcp/tools', async (c) => {
     return c.json({
-      tools: toolsArray.map(t => ({
+      tools: tools.map(t => ({
         name: t.name,
         description: t.description,
         inputSchema: t.inputSchema
@@ -62,7 +62,7 @@ export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
       arguments?: unknown
     }>()
 
-    const tool = toolsArray.find(t => t.name === toolName)
+    const tool = tools.find(t => t.name === toolName)
     if (!tool) {
       return c.json({
         isError: true,
@@ -72,18 +72,9 @@ export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
 
     try {
       const result = await tool.execute(args)
-      // Preserve type information by using appropriate content type
-      if (typeof result === 'string') {
-        // Strings: return directly without double-stringifying
-        return c.json({
-          content: [{ type: 'text', text: result }]
-        })
-      } else {
-        // Objects, arrays, and primitives: return as structured JSON
-        return c.json({
-          content: [{ type: 'json', data: result }]
-        })
-      }
+      return c.json({
+        content: [{ type: 'text', text: JSON.stringify(result) }]
+      })
     } catch (error) {
       return c.json({
         isError: true,
@@ -93,21 +84,18 @@ export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
   })
 
   // Health check
-  app.get('/', (c) => c.json({ name, version, tools: toolsArray.length }))
+  app.get('/', (c) => c.json({ name, version, tools: tools.length }))
 
   return {
-    get tools(): readonly MCPTool[] {
-      // Return a defensive copy to prevent direct mutations
-      return Object.freeze([...toolsArray])
-    },
+    tools,
     registry,
     addTool(tool: MCPTool) {
-      toolsArray.push(tool)
+      tools.push(tool)
       // Also register in registry if provided
       if (registry) {
         registry.register(tool)
       }
     },
-    fetch: async (request: Request) => app.fetch(request)
+    fetch: app.fetch.bind(app)
   }
 }

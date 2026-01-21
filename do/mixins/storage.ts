@@ -31,26 +31,16 @@ import type {
   AuditContext,
   QueryBuilder,
   StorableData
-} from '@dotdo/db'
+} from '../../db'
 
 // =============================================================================
 // Types
 // =============================================================================
 
 /**
- * Constructor type for mixin pattern.
- *
- * This type uses `any[]` for the constructor rest parameter because TypeScript
- * requires this for mixin patterns (TS2545: "A mixin class must have a constructor
- * with a single rest parameter of type 'any[]'").
- *
- * The default generic constraint `T = object` ensures the constructor returns
- * an object type, providing basic type safety while allowing any class to be used.
- *
- * @template T - The instance type returned by the constructor (constrained to object)
+ * Constructor type for mixin pattern
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type Constructor<T extends object = object> = new (...args: any[]) => T
+export type Constructor<T = object> = new (...args: any[]) => T
 
 /**
  * Interface for classes that have storage capabilities
@@ -131,7 +121,6 @@ export function WithStorage<TBase extends Constructor>(
   return class StorageMixin extends Base implements HasStorage {
     private _entityManager: EntityManager
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
       this._entityManager = new EntityManager(options.entityManagerOptions)
@@ -292,16 +281,9 @@ export function WithStorage<TBase extends Constructor>(
 /**
  * Type helper to extract the instance type of a mixin result
  *
- * This type safely extracts the instance type from any constructor type,
- * whether created by a mixin or not. The constraint ensures T is a valid constructor.
- *
- * @template T - A constructor type (class or mixin result)
- *
  * @example
  * ```typescript
  * type MyDOInstance = MixinInstance<typeof WithStorage<typeof BaseDO>>
  * ```
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type MixinInstance<T extends new (...args: any[]) => any> =
-  T extends new (...args: any[]) => infer R ? R : never
+export type MixinInstance<T> = T extends new (...args: any[]) => infer R ? R : never

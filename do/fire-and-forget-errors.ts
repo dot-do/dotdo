@@ -13,8 +13,8 @@
  * @module do/fire-and-forget-errors
  */
 
-import type { SqlStorage } from '@dotdo/db'
-import { createLogger } from '@dotdo/utils'
+import type { SqlStorage } from '../db/sqlite'
+import { createLogger } from '../utils/logger'
 
 const logger = createLogger('[FireAndForget]')
 
@@ -27,27 +27,27 @@ export interface FireAndForgetError {
   /** Operation type (e.g., 'event.handler', 'workflow.send') */
   operation: string
   /** Event type if applicable (e.g., 'Order.placed') */
-  eventType?: string | undefined
+  eventType?: string
   /** Handler index if multiple handlers for same event */
-  handlerIndex?: number | undefined
+  handlerIndex?: number
   /** Error message */
   message: string
   /** Error stack trace if available */
-  stack?: string | undefined
+  stack?: string
   /** Error name/type (e.g., 'NetworkError', 'ValidationError') */
   errorType: string
   /** Whether the error is retriable */
   retriable: boolean
   /** Additional context data */
-  context?: Record<string, unknown> | undefined
+  context?: Record<string, unknown>
   /** Timestamp when error occurred */
   timestamp: number
   /** Number of attempts made before final failure */
-  attempts?: number | undefined
+  attempts?: number
   /** Whether error was recovered (retried successfully) */
   recovered: boolean
   /** Recovery timestamp if recovered */
-  recoveredAt?: number | undefined
+  recoveredAt?: number
 }
 
 /**
@@ -111,7 +111,7 @@ export interface FireAndForgetErrorStore {
   /**
    * Get a specific error by ID
    */
-  get(id: string): FireAndForgetError | null | Promise<FireAndForgetError | null>
+  get(id: string): FireAndForgetError | null
 
   /**
    * Mark an error as recovered
@@ -151,7 +151,7 @@ function generateErrorId(): string {
  */
 export function extractErrorInfo(error: unknown): {
   message: string
-  stack?: string | undefined
+  stack?: string
   errorType: string
   retriable: boolean
 } {
@@ -161,14 +161,12 @@ export function extractErrorInfo(error: unknown): {
       ? Boolean((error as { retriable?: boolean }).retriable)
       : isRetriableByType(error)
 
-    // Build result, only including stack if defined (exactOptionalPropertyTypes)
-    const result: { message: string; stack?: string | undefined; errorType: string; retriable: boolean } = {
+    return {
       message: error.message,
+      stack: error.stack,
       errorType: error.name || 'Error',
       retriable
     }
-    if (error.stack !== undefined) result.stack = error.stack
-    return result
   }
 
   if (typeof error === 'string') {
@@ -229,30 +227,10 @@ function isRetriableByType(error: Error): boolean {
 }
 
 /**
- * Options for configuring the in-memory error store
- */
-export interface InMemoryErrorStoreOptions {
-  /**
-   * Maximum number of errors to store in memory.
-   * When exceeded, oldest errors are evicted (FIFO).
-   * Default: 1000
-   */
-  maxSize?: number
-}
-
-/**
- * Default maximum size for in-memory error store
- */
-const DEFAULT_MAX_ERROR_STORE_SIZE = 1000
-
-/**
  * Create an in-memory fire-and-forget error store
  * Used when SQLite is not available or for testing
- *
- * @param options Configuration options including maxSize to prevent unbounded memory growth
  */
-export function createInMemoryErrorStore(options: InMemoryErrorStoreOptions = {}): FireAndForgetErrorStore {
-  const { maxSize = DEFAULT_MAX_ERROR_STORE_SIZE } = options
+export function createInMemoryErrorStore(): FireAndForgetErrorStore {
   const errors: FireAndForgetError[] = []
 
   return {
@@ -264,11 +242,6 @@ export function createInMemoryErrorStore(options: InMemoryErrorStoreOptions = {}
         recovered: false
       }
       errors.push(error)
-
-      // Evict oldest errors if we exceed maxSize (FIFO eviction)
-      while (errors.length > maxSize) {
-        errors.shift()
-      }
     },
 
     query(options = {}) {
@@ -448,7 +421,7 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
       query += ' LIMIT ? OFFSET ?'
       params.push(limit, offset)
 
-      const result = sql.prepare(query).bind(...params).all() as { results: Record<string, unknown>[] }
+      const result = sql.prepare(query).bind(...params).all()
 
       return result.results.map(mapRowToError)
     },
@@ -456,7 +429,7 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
     get(id) {
       const row = sql.prepare('SELECT * FROM fire_and_forget_errors WHERE id = ?')
         .bind(id)
-        .first() as Record<string, unknown> | null
+        .first()
 
       return row ? mapRowToError(row) : null
     },
@@ -466,36 +439,36 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
         UPDATE fire_and_forget_errors
         SET recovered = 1, recovered_at = ?
         WHERE id = ? AND recovered = 0
-      `).bind(Date.now(), id).run() as { meta?: { changes?: number } }
+      `).bind(Date.now(), id).run()
 
       return (result.meta?.changes ?? 0) > 0
     },
 
     getStats() {
       // Total count
-      const totalRow = sql.prepare('SELECT COUNT(*) as count FROM fire_and_forget_errors').bind().first() as Record<string, unknown> | null
+      const totalRow = sql.prepare('SELECT COUNT(*) as count FROM fire_and_forget_errors').first()
       const total = (totalRow?.count as number) || 0
 
       // Recovered count
-      const recoveredRow = sql.prepare('SELECT COUNT(*) as count FROM fire_and_forget_errors WHERE recovered = 1').bind().first() as Record<string, unknown> | null
+      const recoveredRow = sql.prepare('SELECT COUNT(*) as count FROM fire_and_forget_errors WHERE recovered = 1').first()
       const recovered = (recoveredRow?.count as number) || 0
 
       // By operation
-      const opResults = sql.prepare('SELECT operation, COUNT(*) as count FROM fire_and_forget_errors GROUP BY operation').bind().all() as { results: Record<string, unknown>[] }
+      const opResults = sql.prepare('SELECT operation, COUNT(*) as count FROM fire_and_forget_errors GROUP BY operation').all()
       const byOperation: Record<string, number> = {}
       for (const row of opResults.results) {
         byOperation[row.operation as string] = row.count as number
       }
 
       // By event type
-      const etResults = sql.prepare('SELECT event_type, COUNT(*) as count FROM fire_and_forget_errors WHERE event_type IS NOT NULL GROUP BY event_type').bind().all() as { results: Record<string, unknown>[] }
+      const etResults = sql.prepare('SELECT event_type, COUNT(*) as count FROM fire_and_forget_errors WHERE event_type IS NOT NULL GROUP BY event_type').all()
       const byEventType: Record<string, number> = {}
       for (const row of etResults.results) {
         byEventType[row.event_type as string] = row.count as number
       }
 
       // By error type
-      const errResults = sql.prepare('SELECT error_type, COUNT(*) as count FROM fire_and_forget_errors GROUP BY error_type').bind().all() as { results: Record<string, unknown>[] }
+      const errResults = sql.prepare('SELECT error_type, COUNT(*) as count FROM fire_and_forget_errors GROUP BY error_type').all()
       const byErrorType: Record<string, number> = {}
       for (const row of errResults.results) {
         byErrorType[row.error_type as string] = row.count as number
@@ -513,7 +486,7 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
     },
 
     clear() {
-      sql.prepare('DELETE FROM fire_and_forget_errors').bind().run()
+      sql.prepare('DELETE FROM fire_and_forget_errors').run()
     },
 
     getRecent(count = 10) {
@@ -557,7 +530,7 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
         params.push(options.until)
       }
 
-      const result = sql.prepare(query).bind(...params).first() as Record<string, unknown> | null
+      const result = sql.prepare(query).bind(...params).first()
       return (result?.count as number) || 0
     }
   }
@@ -651,7 +624,7 @@ export interface RetryQueueItem {
   /** Event payload to pass to handlers */
   payload: unknown
   /** Handler function to retry */
-  handlerFn?: (() => Promise<void>) | undefined
+  handlerFn?: () => Promise<void>
   /** Number of attempts so far */
   attempts: number
   /** Maximum retry attempts allowed */
@@ -665,7 +638,7 @@ export interface RetryQueueItem {
   /** Status of this retry item */
   status: 'pending' | 'processing' | 'succeeded' | 'failed' | 'abandoned'
   /** Last error message if failed */
-  lastError?: string | undefined
+  lastError?: string
 }
 
 /**
@@ -1121,7 +1094,7 @@ export function createSQLiteRetryQueue(
     get(id) {
       const row = sql.prepare('SELECT * FROM retry_queue WHERE id = ?')
         .bind(id)
-        .first() as Record<string, unknown> | null
+        .first()
 
       return row ? mapRowToItem(row) : null
     },
@@ -1153,7 +1126,7 @@ export function createSQLiteRetryQueue(
         params.push(queryOptions.limit)
       }
 
-      const result = sql.prepare(sqlQuery).bind(...params).all() as { results: Record<string, unknown>[] }
+      const result = sql.prepare(sqlQuery).bind(...params).all()
       return result.results.map(mapRowToItem)
     },
 
@@ -1220,7 +1193,7 @@ export function createSQLiteRetryQueue(
       if (!item) return
 
       // Get current attempts from DB (already incremented during processItem)
-      const row = sql.prepare('SELECT attempts FROM retry_queue WHERE id = ?').bind(id).first() as Record<string, unknown> | null
+      const row = sql.prepare('SELECT attempts FROM retry_queue WHERE id = ?').bind(id).first()
       const attempts = (row?.attempts as number) || item.attempts
 
       if (attempts >= item.maxAttempts) {
@@ -1245,7 +1218,7 @@ export function createSQLiteRetryQueue(
     remove(id) {
       const result = sql.prepare('DELETE FROM retry_queue WHERE id = ?')
         .bind(id)
-        .run() as { meta?: { changes?: number } }
+        .run()
 
       handlerFns.delete(id)
       return (result.meta?.changes ?? 0) > 0
@@ -1263,12 +1236,12 @@ export function createSQLiteRetryQueue(
       }
 
       // Count by status
-      const totalRow = sql.prepare('SELECT COUNT(*) as count FROM retry_queue').bind().first() as Record<string, unknown> | null
+      const totalRow = sql.prepare('SELECT COUNT(*) as count FROM retry_queue').first()
       stats.total = (totalRow?.count as number) || 0
 
       const statusCounts = sql.prepare(
         'SELECT status, COUNT(*) as count FROM retry_queue GROUP BY status'
-      ).bind().all() as { results: Record<string, unknown>[] }
+      ).all()
 
       for (const row of statusCounts.results) {
         const status = row.status as string
@@ -1296,7 +1269,7 @@ export function createSQLiteRetryQueue(
       // Count by event type
       const typeCounts = sql.prepare(
         'SELECT event_type, COUNT(*) as count FROM retry_queue GROUP BY event_type'
-      ).bind().all() as { results: Record<string, unknown>[] }
+      ).all()
 
       for (const row of typeCounts.results) {
         stats.byEventType[row.event_type as string] = row.count as number
@@ -1306,7 +1279,7 @@ export function createSQLiteRetryQueue(
     },
 
     clear() {
-      sql.prepare('DELETE FROM retry_queue').bind().run()
+      sql.prepare('DELETE FROM retry_queue').run()
       handlerFns.clear()
     },
 
@@ -1397,14 +1370,12 @@ export function createEnhancedErrorStore(
       // Only add to retry queue if retriable
       let retryId: string | null = null
       if (errorData.retriable && trackedError) {
-        // Build add options, only including defined properties (exactOptionalPropertyTypes)
-        const addOptions: { errorId: string; eventType: string; payload: unknown; handlerFn?: () => Promise<void> } = {
+        retryId = retryQueue.add({
           errorId: trackedError.id,
           eventType: errorData.eventType || 'unknown',
-          payload: errorData.context
-        }
-        if (handlerFn !== undefined) addOptions.handlerFn = handlerFn
-        retryId = retryQueue.add(addOptions)
+          payload: errorData.context,
+          handlerFn
+        })
       }
 
       return {
@@ -1419,9 +1390,10 @@ export function createEnhancedErrorStore(
 
       return errors.map(error => {
         const retryStatus = retryItems.find(item => item.errorId === error.id)
-        const result: { error: FireAndForgetError; retryStatus?: RetryQueueItem } = { error }
-        if (retryStatus) result.retryStatus = retryStatus
-        return result
+        return {
+          error,
+          retryStatus
+        }
       })
     }
   }

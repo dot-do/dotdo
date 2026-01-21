@@ -303,7 +303,7 @@ describe('Cross-DO RPC', () => {
       )
 
       expect(results).toHaveLength(3)
-      expect(results.every((r: { success: boolean }) => r.success)).toBe(true)
+      expect(results.every(r => r.success)).toBe(true)
     })
 
     it('should cache stubs internally', async () => {

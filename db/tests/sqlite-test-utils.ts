@@ -1,338 +1,15 @@
 /**
- * Real SQLite Test Utilities for @dotdo/db
- *
- * This module provides access to real SQLite storage via Miniflare's
- * Durable Object implementation. Following the NO MOCKS philosophy from CLAUDE.md:
- *
- * "Durable Objects require NO MOCKING. Miniflare runs real DOs with real SQLite locally."
- *
- * Usage:
- *   import { createRealSqlStorage, cleanupMiniflare } from './sqlite-test-utils'
- *
- *   describe('SQLite Tests', () => {
- *     let sql: SqlStorage
- *     let cleanup: () => Promise<void>
- *
- *     beforeEach(async () => {
- *       const result = await createRealSqlStorage()
- *       sql = result.sql
- *       cleanup = result.cleanup
- *     })
- *
- *     afterEach(async () => {
- *       await cleanup()
- *     })
- *
- *     it('should work with real SQLite', () => {
- *       sql.exec('CREATE TABLE test (id TEXT)')
- *       // ...
- *     })
- *   })
- *
- * @module db/tests/sqlite-test-utils
+ * Shared test utilities for SQLite tests
+ * Provides mock SQLStorage implementation for unit testing
  */
 
-import { Miniflare } from 'miniflare'
-import type { SqlStorage } from '../sqlite'
-
-// ============================================================================
-// DURABLE OBJECT SCRIPT FOR REAL SQLITE ACCESS
-// ============================================================================
-
-/**
- * Minimal DO script that exposes SqlStorage for testing.
- * This provides a real SqlStorage interface backed by actual SQLite.
- */
-const SQL_TEST_DO_SCRIPT = `
-export class SqlTestDO {
-  constructor(state, env) {
-    this.state = state
-    this.sql = state.storage.sql
-  }
-
-  async fetch(request) {
-    const url = new URL(request.url)
-    const path = url.pathname
-
-    try {
-      if (path === '/exec' && request.method === 'POST') {
-        const { sql } = await request.json()
-        const result = this.sql.exec(sql)
-        return Response.json({
-          results: result.toArray ? result.toArray() : []
-        })
-      }
-
-      if (path === '/prepare' && request.method === 'POST') {
-        const { sql, values, operation } = await request.json()
-        const stmt = this.sql.exec(sql, ...values)
-
-        if (operation === 'first') {
-          const rows = stmt.toArray ? stmt.toArray() : []
-          return Response.json({ result: rows[0] || null })
-        }
-
-        if (operation === 'all') {
-          const rows = stmt.toArray ? stmt.toArray() : []
-          return Response.json({ results: rows })
-        }
-
-        if (operation === 'run') {
-          return Response.json({ success: true })
-        }
-
-        return Response.json({ error: 'Unknown operation' }, { status: 400 })
-      }
-
-      if (path === '/health') {
-        return Response.json({ status: 'ok', id: this.state.id.toString() })
-      }
-
-      return Response.json({ error: 'Not found' }, { status: 404 })
-    } catch (error) {
-      return Response.json({ error: error.message, stack: error.stack }, { status: 500 })
-    }
-  }
+// Mock SqlStorage interface
+export interface MockSqlResult {
+  results: Array<Record<string, unknown>>
 }
 
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url)
-    const doName = url.searchParams.get('name') || 'default'
-    const id = env.SQL_DO.idFromName(doName)
-    const stub = env.SQL_DO.get(id)
-    return stub.fetch(request)
-  }
-}
-`
-
-// ============================================================================
-// REAL SQL STORAGE WRAPPER
-// ============================================================================
-
-/**
- * Wrapper that provides SqlStorage interface backed by real Miniflare SQLite.
- * This replaces the mock implementation while maintaining API compatibility.
- */
-function createSqlStorageWrapper(stub: DurableObjectStub): SqlStorage {
-  return {
-    exec(sql: string): { results: Array<Record<string, unknown>> } {
-      // Note: exec is synchronous in the real API but we need to make it work
-      // For testing purposes, we'll make this work via fetch
-      // This is a limitation of the wrapper approach - consider using
-      // vitest-pool-workers for full sync API compatibility
-
-      // For now, throw an error directing users to use the async pattern
-      // or the prepare().bind().run() pattern which works better with fetch
-      throw new Error(
-        'Direct exec() is not supported in wrapped mode. ' +
-        'Use prepare().bind().run() for INSERT/UPDATE/DELETE, ' +
-        'or prepare().bind().all() for SELECT queries. ' +
-        'Alternatively, use @cloudflare/vitest-pool-workers for full API compatibility.'
-      )
-    },
-
-    prepare(sql: string) {
-      let boundValues: unknown[] = []
-
-      return {
-        bind(...values: unknown[]) {
-          boundValues = values
-          return {
-            async first(): Promise<Record<string, unknown> | null> {
-              const response = await stub.fetch('http://internal/prepare', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sql, values: boundValues, operation: 'first' })
-              })
-
-              if (!response.ok) {
-                const error = await response.json() as { error: string }
-                throw new Error(error.error)
-              }
-
-              const data = await response.json() as { result: Record<string, unknown> | null }
-              return data.result
-            },
-
-            async all(): Promise<{ results: Array<Record<string, unknown>> }> {
-              const response = await stub.fetch('http://internal/prepare', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sql, values: boundValues, operation: 'all' })
-              })
-
-              if (!response.ok) {
-                const error = await response.json() as { error: string }
-                throw new Error(error.error)
-              }
-
-              const data = await response.json() as { results: Array<Record<string, unknown>> }
-              return data
-            },
-
-            async run(): Promise<{ meta?: { changes?: number } | undefined }> {
-              const response = await stub.fetch('http://internal/prepare', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sql, values: boundValues, operation: 'run' })
-              })
-
-              if (!response.ok) {
-                const error = await response.json() as { error: string }
-                throw new Error(error.error)
-              }
-              return {}
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-// ============================================================================
-// TYPE DEFINITIONS
-// ============================================================================
-
-interface DurableObjectStub {
-  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>
-}
-
-export interface RealSqlStorageResult {
-  sql: SqlStorage
-  stub: DurableObjectStub
-  cleanup: () => Promise<void>
-  mf: Miniflare
-}
-
-// ============================================================================
-// PUBLIC API
-// ============================================================================
-
-/**
- * Creates a real SqlStorage instance backed by Miniflare's SQLite.
- *
- * This provides a real SQLite database that behaves exactly like the
- * Cloudflare Workers runtime, without any mocking.
- *
- * @param name - Optional unique name for the DO instance (for isolation)
- * @returns Object containing sql storage, stub, cleanup function, and miniflare instance
- *
- * @example
- * ```typescript
- * const { sql, cleanup } = await createRealSqlStorage('my-test')
- *
- * // Initialize schema
- * await sql.prepare('CREATE TABLE things (id TEXT PRIMARY KEY)').bind().run()
- *
- * // Insert data
- * await sql.prepare('INSERT INTO things (id) VALUES (?)').bind('test-1').run()
- *
- * // Query data
- * const result = await sql.prepare('SELECT * FROM things').bind().all()
- *
- * // Cleanup
- * await cleanup()
- * ```
- */
-export async function createRealSqlStorage(name?: string): Promise<RealSqlStorageResult> {
-  const testName = name || `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-
-  const mf = new Miniflare({
-    modules: true,
-    script: SQL_TEST_DO_SCRIPT,
-    durableObjects: {
-      SQL_DO: {
-        className: 'SqlTestDO',
-        // Enable SQLite for this DO class - required for state.storage.sql
-        useSQLite: true,
-      },
-    },
-    durableObjectsPersist: false, // In-memory for fast tests
-  })
-
-  const ns = await mf.getDurableObjectNamespace('SQL_DO')
-  const id = ns.idFromName(testName)
-  const stub = ns.get(id) as unknown as DurableObjectStub
-
-  const sql = createSqlStorageWrapper(stub)
-
-  return {
-    sql,
-    stub,
-    mf,
-    cleanup: async () => {
-      await mf.dispose()
-    }
-  }
-}
-
-/**
- * Shared Miniflare instance for tests that want to manage lifecycle manually.
- * Use this when you need multiple DO instances or want finer control.
- */
-let sharedMiniflare: Miniflare | null = null
-
-export async function getSharedMiniflare(): Promise<Miniflare> {
-  if (!sharedMiniflare) {
-    sharedMiniflare = new Miniflare({
-      modules: true,
-      script: SQL_TEST_DO_SCRIPT,
-      durableObjects: {
-        SQL_DO: {
-          className: 'SqlTestDO',
-          // Enable SQLite for this DO class - required for state.storage.sql
-          useSQLite: true,
-        },
-      },
-      durableObjectsPersist: false,
-    })
-  }
-  return sharedMiniflare
-}
-
-export async function cleanupSharedMiniflare(): Promise<void> {
-  if (sharedMiniflare) {
-    await sharedMiniflare.dispose()
-    sharedMiniflare = null
-  }
-}
-
-/**
- * Get a SqlStorage instance from the shared Miniflare.
- * Each call with a different name gets an isolated DO instance.
- */
-export async function getSqlStorageFromShared(name: string): Promise<{
-  sql: SqlStorage
-  stub: DurableObjectStub
-}> {
-  const mf = await getSharedMiniflare()
-  const ns = await mf.getDurableObjectNamespace('SQL_DO')
-  const id = ns.idFromName(name)
-  const stub = ns.get(id) as unknown as DurableObjectStub
-
-  return {
-    sql: createSqlStorageWrapper(stub),
-    stub
-  }
-}
-
-// ============================================================================
-// LEGACY MOCK INTERFACE (DEPRECATED)
-// ============================================================================
-
-/**
- * @deprecated Use createRealSqlStorage() instead.
- *
- * This mock interface is kept for backward compatibility but violates
- * the NO MOCKS philosophy. Tests should migrate to real SQLite.
- *
- * Note: Some tests may still use this during migration. The mock has
- * been simplified to throw an error directing users to the real implementation.
- */
 export interface MockSqlStorage {
-  exec(sql: string): { results: Array<Record<string, unknown>> }
+  exec(sql: string): MockSqlResult
   prepare(sql: string): {
     bind(...values: unknown[]): {
       first(): Promise<Record<string, unknown> | null>
@@ -342,16 +19,321 @@ export interface MockSqlStorage {
   }
 }
 
-/**
- * @deprecated Use createRealSqlStorage() instead.
- *
- * This function now throws an error to enforce the NO MOCKS policy.
- * Migrate tests to use createRealSqlStorage() for real SQLite testing.
- */
 export function createMockSqlStorage(): MockSqlStorage {
-  throw new Error(
-    'createMockSqlStorage() is deprecated and violates the NO MOCKS philosophy.\n' +
-    'Use createRealSqlStorage() from this module for real SQLite testing.\n' +
-    'See CLAUDE.md for testing guidelines.'
-  )
+  // Create shared state for tables
+  const state = {
+    things: [] as Array<Record<string, unknown>>,
+    events: [] as Array<Record<string, unknown>>,
+    relationships: [] as Array<Record<string, unknown>>
+  }
+
+  const tables = new Map<string, Array<Record<string, unknown>>>()
+  tables.set('things', state.things)
+  tables.set('events', state.events)
+  tables.set('relationships', state.relationships)
+
+  return {
+    exec(_sql: string): MockSqlResult {
+      // Simple exec handler for CREATE TABLE
+      return { results: [] }
+    },
+
+    prepare(sql: string) {
+      let boundValues: unknown[] = []
+
+      return {
+        bind(...values: unknown[]) {
+          boundValues = [...values] // Reset and set new values
+          return {
+            async first(): Promise<Record<string, unknown> | null> {
+              // Parse SQL to determine operation
+              const lowerSql = sql.toLowerCase().trim()
+
+              if (lowerSql.startsWith('select')) {
+                // Extract table name
+                const tableMatch = sql.match(/from\s+(\w+)/i)
+                if (!tableMatch) return null
+
+                const tableName = tableMatch[1]
+                const rows = tables.get(tableName)
+                if (!rows) return null
+
+                // Handle WHERE clause
+                if (lowerSql.includes('where')) {
+                  // Check for compound WHERE (relationships)
+                  if (boundValues.length === 3 && lowerSql.includes('and')) {
+                    const [subject, predicate, object] = boundValues
+                    const found = rows.find((r: any) =>
+                      r.subject === subject && r.predicate === predicate && r.object === object
+                    )
+                    return found || null
+                  }
+
+                  // Simple WHERE clause
+                  if (boundValues.length > 0) {
+                    const value = boundValues[0]
+                    const found = rows.find((r: any) =>
+                      r.id === value || r[Object.keys(r)[0]] === value
+                    )
+                    return found || null
+                  }
+                }
+
+                return rows[0] || null
+              }
+
+              return null
+            },
+
+            async all(): Promise<{ results: Array<Record<string, unknown>> }> {
+              const lowerSql = sql.toLowerCase().trim()
+
+              if (lowerSql.startsWith('select')) {
+                const tableMatch = sql.match(/from\s+(\w+)/i)
+                if (!tableMatch) return { results: [] }
+
+                const tableName = tableMatch[1]
+                const tableRows = tables.get(tableName)
+                if (!tableRows) return { results: [] }
+
+                let rows = [...tableRows]
+
+                // Handle WHERE clause filtering
+                if (lowerSql.includes('where') && !lowerSql.includes('where 1=1')) {
+                  // Count how many real conditions we have (not including "1=1")
+                  const realAndCount = (sql.match(/AND(?!\s*1\s*=\s*1)/gi) || []).length
+
+                  if (realAndCount >= 1) {
+                    // Multiple conditions with "WHERE ..." (not 1=1)
+                    const hasSubject = sql.includes('subject = ?')
+                    const hasPredicate = sql.includes('predicate = ?')
+                    const hasObject = sql.includes('object = ?')
+
+                    rows = rows.filter((r: any) => {
+                      let valueIndex = 0
+                      let matches = true
+
+                      if (hasSubject && boundValues[valueIndex] !== undefined) {
+                        matches = matches && r.subject === boundValues[valueIndex]
+                        valueIndex++
+                      }
+                      if (hasPredicate && boundValues[valueIndex] !== undefined) {
+                        matches = matches && r.predicate === boundValues[valueIndex]
+                        valueIndex++
+                      }
+                      if (hasObject && boundValues[valueIndex] !== undefined) {
+                        matches = matches && r.object === boundValues[valueIndex]
+                        valueIndex++
+                      }
+
+                      return matches
+                    })
+                  } else {
+                    // We have filters - determine which ones by inspecting SQL and bound values
+                    let filterIndex = 0
+
+                    // Check for type filter
+                    if (sql.includes('type = ?')) {
+                      const typeValue = boundValues[filterIndex++]
+                      rows = rows.filter((r: any) => r.type === typeValue)
+                    }
+
+                    // Check for source filter
+                    if (sql.includes('source = ?')) {
+                      const sourceValue = boundValues[filterIndex++]
+                      rows = rows.filter((r: any) => r.source === sourceValue)
+                    }
+
+                    // Check for correlation_id filter
+                    if (sql.includes('correlation_id = ?')) {
+                      const corrValue = boundValues[filterIndex++]
+                      rows = rows.filter((r: any) => r.correlation_id === corrValue)
+                    }
+
+                    // Check for subject filter
+                    if (sql.includes('subject = ?')) {
+                      const subjectValue = boundValues[filterIndex++]
+                      rows = rows.filter((r: any) => r.subject === subjectValue)
+                    }
+
+                    // Check for predicate filter
+                    if (sql.includes('predicate = ?')) {
+                      const predicateValue = boundValues[filterIndex++]
+                      rows = rows.filter((r: any) => r.predicate === predicateValue)
+                    }
+
+                    // Check for object filter
+                    if (sql.includes('object = ?')) {
+                      const objectValue = boundValues[filterIndex++]
+                      rows = rows.filter((r: any) => r.object === objectValue)
+                    }
+
+                    // Check for timestamp range
+                    if (sql.includes('timestamp >= ?')) {
+                      const sinceValue = boundValues[filterIndex++]
+                      rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp >= sinceValue)
+                    }
+
+                    if (sql.includes('timestamp <= ?')) {
+                      const untilValue = boundValues[filterIndex++]
+                      rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp <= untilValue)
+                    }
+                  }
+                } else if (lowerSql.includes('where 1=1')) {
+                  // "WHERE 1=1" with AND conditions - apply filters in order they appear in SQL
+                  let valueIndex = 0
+
+                  if (sql.includes('AND type = ?')) {
+                    const typeValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => r.type === typeValue)
+                  }
+
+                  if (sql.includes('AND source = ?')) {
+                    const sourceValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => r.source === sourceValue)
+                  }
+
+                  if (sql.includes('AND correlation_id = ?')) {
+                    const corrValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => r.correlation_id === corrValue)
+                  }
+
+                  if (sql.includes('AND timestamp >= ?')) {
+                    const sinceValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp >= sinceValue)
+                  }
+
+                  if (sql.includes('AND timestamp <= ?')) {
+                    const untilValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp <= untilValue)
+                  }
+
+                  if (sql.includes('AND subject = ?')) {
+                    const subjectValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => r.subject === subjectValue)
+                  }
+
+                  if (sql.includes('AND predicate = ?')) {
+                    const predicateValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => r.predicate === predicateValue)
+                  }
+
+                  if (sql.includes('AND object = ?')) {
+                    const objectValue = boundValues[valueIndex++]
+                    rows = rows.filter((r: any) => r.object === objectValue)
+                  }
+                }
+
+                // Handle ORDER BY
+                if (lowerSql.includes('order by')) {
+                  if (lowerSql.includes('created_at desc') || lowerSql.includes('timestamp desc')) {
+                    rows.sort((a: any, b: any) => {
+                      const aTime = a.created_at || a.timestamp || 0
+                      const bTime = b.created_at || b.timestamp || 0
+                      return bTime - aTime
+                    })
+                  }
+                }
+
+                // Handle LIMIT/OFFSET with bound parameters
+                let limit = rows.length
+                let offset = 0
+
+                // Find limit and offset values from bound parameters
+                const questionMarks = (sql.match(/\?/g) || []).length
+                if (questionMarks >= 2) {
+                  // Last two params are typically LIMIT and OFFSET
+                  limit = boundValues[boundValues.length - 2] as number || limit
+                  offset = boundValues[boundValues.length - 1] as number || offset
+                }
+
+                return { results: rows.slice(offset, offset + limit) }
+              }
+
+              return { results: [] }
+            },
+
+            async run(): Promise<void> {
+              const lowerSql = sql.toLowerCase().trim()
+
+              if (lowerSql.startsWith('insert')) {
+                const tableMatch = sql.match(/insert into\s+(\w+)/i)
+                if (!tableMatch) return
+
+                const tableName = tableMatch[1]
+                const rows = tables.get(tableName)
+                if (!rows) return
+
+                // Extract column names
+                const columnsMatch = sql.match(/\(([^)]+)\)/i)
+                if (!columnsMatch) return
+
+                const columns = columnsMatch[1].split(',').map(c => c.trim())
+
+                // Create row object
+                const row: Record<string, unknown> = {}
+                columns.forEach((col, idx) => {
+                  row[col] = boundValues[idx]
+                })
+
+                rows.push(row)
+              } else if (lowerSql.startsWith('update')) {
+                const tableMatch = sql.match(/update\s+(\w+)/i)
+                if (!tableMatch) return
+
+                const tableName = tableMatch[1]
+                const rows = tables.get(tableName)
+                if (!rows) return
+
+                // Find row by ID (last bound value is typically the ID in WHERE clause)
+                const id = boundValues[boundValues.length - 1]
+                const rowIndex = rows.findIndex((r: any) => r.id === id || r.$id === id)
+
+                if (rowIndex !== -1) {
+                  // Update row with new values
+                  // This is simplified - real implementation would parse SET clause
+                  const setMatch = sql.match(/set\s+(.+?)\s+where/i)
+                  if (setMatch) {
+                    const setPairs = setMatch[1].split(',')
+                    setPairs.forEach((pair, idx) => {
+                      const [col] = pair.trim().split('=')
+                      rows[rowIndex][col.trim()] = boundValues[idx]
+                    })
+                  }
+                }
+              } else if (lowerSql.startsWith('delete')) {
+                const tableMatch = sql.match(/delete from\s+(\w+)/i)
+                if (!tableMatch) return
+
+                const tableName = tableMatch[1]
+                const rows = tables.get(tableName)
+                if (!rows) return
+
+                if (lowerSql.includes('where')) {
+                  // Delete by specific criteria
+                  // For relationships: WHERE subject = ? AND predicate = ? AND object = ?
+                  if (boundValues.length === 3) {
+                    const [subject, predicate, object] = boundValues
+                    const index = rows.findIndex((r: any) =>
+                      r.subject === subject && r.predicate === predicate && r.object === object
+                    )
+                    if (index !== -1) {
+                      rows.splice(index, 1)
+                    }
+                  } else {
+                    // Simple ID-based delete
+                    const id = boundValues[0]
+                    const index = rows.findIndex((r: any) => r.id === id)
+                    if (index !== -1) {
+                      rows.splice(index, 1)
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }

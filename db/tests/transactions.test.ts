@@ -25,22 +25,14 @@ import * as os from 'os'
 // TYPE DEFINITIONS
 // ============================================================================
 
-/**
- * Base Thing interface with known system fields.
- * For things with custom properties, use ThingWithData.
- */
 interface Thing {
   $id: string
   $type: string
   $createdAt: number
   $updatedAt: number
   $version?: number
+  [key: string]: unknown
 }
-
-/**
- * Thing with dynamic custom data properties.
- */
-type ThingWithData = Thing & Record<string, unknown>
 
 interface TransactionResult {
   success: boolean
@@ -50,14 +42,6 @@ interface TransactionResult {
 
 interface CounterThing extends Thing {
   value: number
-}
-
-/**
- * Entity thing with status field
- */
-interface EntityThing extends Thing {
-  status?: string
-  data?: string
 }
 
 // ============================================================================
@@ -359,11 +343,7 @@ function getMiniflareConfig() {
     modules: true,
     script: TRANSACTION_DO_SCRIPT,
     durableObjects: {
-      TX_DO: {
-        className: 'TransactionDO',
-        // Enable SQLite for this DO class - required for state.storage.sql
-        useSQLite: true,
-      },
+      TX_DO: 'TransactionDO',
     },
     durableObjectsPersist: false, // In-memory for fast tests
   }
@@ -628,7 +608,7 @@ describe('Transaction Isolation', () => {
 
       // Final status should be one of the values (last write wins)
       const getResponse = await stub.fetch(`http://fake/things/get?id=${entityId}`)
-      const entity = (await getResponse.json()) as EntityThing
+      const entity = (await getResponse.json()) as Thing
 
       expect(statuses).toContain(entity.status)
       // Version should reflect all updates
@@ -696,7 +676,7 @@ describe('Transaction Isolation', () => {
         }),
       })
       expect(update3Response.status).toBe(200)
-      const updated3 = (await update3Response.json()) as EntityThing
+      const updated3 = (await update3Response.json()) as Thing
       expect(updated3.$version).toBe(3)
       expect(updated3.data).toBe('updated-3')
     })

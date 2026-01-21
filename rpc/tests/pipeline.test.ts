@@ -103,7 +103,7 @@ describe('Pipeline/Promise Chaining', () => {
       const pipelinedClient = withPipeline(client)
       const items = await pipelinedClient.getOrder('order-1')
         .get('items')
-        .pipe((items: { name: string; price: number }[]) => items.length)
+        .pipe(items => items.length)
 
       expect(items).toBe(1)
     })
