@@ -1,13 +1,22 @@
 /**
  * Logging Standardization Tests (do-fmux2)
  *
- * TDD tests to ensure all packages use the standardized @dotdo/utils logging pattern.
+ * TDD tests for the @dotdo/utils logging module.
+ * These tests verify the basic logging interface that all packages can use.
+ *
+ * NOTE: For full-featured structured logging with:
+ * - Sensitive data redaction
+ * - Correlation ID support
+ * - Child loggers
+ * - JSON output formatting
+ *
+ * Use @dotdo/observability instead. See observability/tests/logging-standardization.test.ts
+ *
  * These tests verify:
  * 1. Logger interface compatibility
  * 2. LogLevel enum compatibility
  * 3. createLogger function signature
  * 4. createScopedLogger for request isolation
- * 5. No duplicate logger implementations
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'

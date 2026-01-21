@@ -1,5 +1,17 @@
 // @dotdo/db Logger
 // Simple logging utility for standalone npm package
+//
+// NOTE: This is a minimal logger for standalone db package usage.
+// For full-featured structured logging with:
+// - Sensitive data redaction (passwords, API keys, tokens)
+// - Correlation ID support for distributed tracing
+// - Child loggers with inherited context
+// - JSON output formatting
+//
+// Use @dotdo/observability instead:
+//   import { createStructuredLogger, LogLevel } from '@dotdo/observability'
+//
+// See do-fmux2 for the standardization initiative.
 
 /**
  * Log levels in order of severity (lower = more verbose)
