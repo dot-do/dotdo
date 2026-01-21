@@ -26,8 +26,8 @@ import {
   CF_WORKER_HEADER,
   WORKER_NAME_HEADER,
   INTERNAL_TRUST_HEADER,
+  CORRELATION_ID_HEADER,
 } from '../rpc/headers'
-import { CORRELATION_ID_HEADER } from '../rpc/client'
 
 const logger = createLogger('[DOAuth]')
 
