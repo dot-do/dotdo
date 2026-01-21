@@ -54,7 +54,7 @@
  * ```
  */
 
-import type { EventsStore, Event } from '../db'
+import type { EventsStore, Event, EventId, ThingId, CorrelationId } from '@dotdo/db'
 import type { EventHandler } from './on'
 import type { ScheduleRegistration, ScheduleHandler } from './schedule'
 import type { FireAndForgetErrorStore } from './fire-and-forget-errors'
@@ -202,13 +202,15 @@ export type EventPayloadType<
 
 /**
  * Full event object passed to handlers, including metadata.
+ * Uses branded types for type safety - see do-eoxd
  */
 export interface TypedEvent<T = unknown> {
-  $id: string
+  $id: EventId
   $timestamp: number
   type: string
   payload: T
-  source: string
+  source: ThingId | string
+  correlationId?: CorrelationId | string
 }
 
 /**
@@ -243,10 +245,9 @@ export type TypedOnProxy<E extends EventSchemasConstraint> = {
   // Known nouns from event schema get typed noun proxies
   [N in EventNouns<E>]: TypedNounEventProxy<E, N>
 } & {
-  // Wildcard support
+  // Wildcard support - use '*' as a special case that returns the same proxy
+  // Note: Index signature removed to avoid type conflicts with '*' property
   '*': TypedNounEventProxy<E, '*'>
-  // Index signature for unknown nouns (fallback to untyped)
-  [noun: string]: TypedNounEventProxy<E, string>
 }
 
 /**
@@ -368,10 +369,11 @@ export interface TypedEveryProxy extends ScheduleRegisterFn {
 
 /**
  * Legacy untyped EveryProxy (backward compatible).
+ * Uses interface with index signature for recursive Proxy pattern.
+ * This is an intentional use of index signature for runtime Proxy behavior.
  */
-export type EveryProxy = {
+export interface EveryProxy {
   [key: string]: EveryProxy
-} & {
   (handler: () => Promise<void>): void
   (value: number): { [unit: string]: (handler: () => Promise<void>) => void }
 }
@@ -492,20 +494,29 @@ export type DOBindingAccessors<T extends DOBindingsConstraint> = {
 export type TypedWorkflowContext<
   B extends DOBindingsConstraint = EmptyBindings,
   E extends EventSchemasConstraint = EmptyEventSchemas
-> = TypedBaseWorkflowContext<E> & DOBindingAccessors<B> & {
-  // Allow dynamic access for bindings not in B (returns untyped proxy)
-  [key: string]: unknown
-}
+> = TypedBaseWorkflowContext<E> & DOBindingAccessors<B>
+
+/**
+ * TypedWorkflowContext with dynamic property access for unknown bindings.
+ * Use this type when you need to access DO bindings not defined in B.
+ */
+export type TypedWorkflowContextWithDynamic<
+  B extends DOBindingsConstraint = EmptyBindings,
+  E extends EventSchemasConstraint = EmptyEventSchemas
+> = TypedWorkflowContext<B, E> & Record<string, unknown>
 
 /**
  * Legacy WorkflowContext type (untyped, backward compatible).
- * Equivalent to TypedWorkflowContext<EmptyBindings, EmptyEventSchemas> with loose index signature.
+ * Cross-DO RPC is accessed dynamically via $.Customer(id), $.Worker(id), etc.
+ * using JavaScript Proxy. For dynamic access, use WorkflowContextWithDynamic.
  */
-export interface WorkflowContext extends BaseWorkflowContext {
-  // Cross-DO RPC (Proxy-based)
-  // Accessed dynamically via $.Customer(id), $.Worker(id), etc.
-  [doName: string]: DOStubFactory | unknown
-}
+export type WorkflowContext = BaseWorkflowContext
+
+/**
+ * WorkflowContext with dynamic property access for DO RPC proxies.
+ * Use this when accessing DO bindings dynamically.
+ */
+export type WorkflowContextWithDynamic = WorkflowContext & Record<string, DOStubFactory | unknown>
 
 /**
  * Short alias for WorkflowContext (common in codebase).
@@ -654,4 +665,4 @@ export interface CreateTypedContextOptions {
 // Re-export related types that users commonly need
 export type { EventHandler } from './on'
 export type { ScheduleRegistration, ScheduleHandler, ScheduleInterval } from './schedule'
-export type { Event } from '../db'
+export type { Event } from '@dotdo/db'

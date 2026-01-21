@@ -19,6 +19,8 @@ import {
   type ExtractVerb,
   type EventNouns,
   type EventVerbsForNoun,
+  type EventSchemasConstraint,
+  type DOBindingsConstraint,
 } from '../index'
 
 // =============================================================================
@@ -43,8 +45,8 @@ interface ProductDO {
   updateStock(quantity: number): Promise<void>
 }
 
-// Define event schemas for testing
-interface EventSchemas {
+// Define event schemas for testing - extends constraint for index signature compatibility
+interface EventSchemas extends EventSchemasConstraint {
   'Customer.signup': { customerId: string; email: string; plan: string }
   'Customer.updated': { customerId: string; changes: Record<string, unknown> }
   'Order.placed': { orderId: string; items: string[]; total: number }
@@ -52,8 +54,8 @@ interface EventSchemas {
   'Payment.failed': { paymentId: string; reason: string }
 }
 
-// Define DO bindings map
-interface DOBindings {
+// Define DO bindings map - extends constraint for index signature compatibility
+interface DOBindings extends DOBindingsConstraint {
   Customer: CustomerDO
   Order: OrderDO
   Product: ProductDO

@@ -1,5 +1,6 @@
 // Entity Management - Integration of db stores into DO class
 // See do-7rf.6.5 and do-xebw (audit logging)
+// SQLite storage integration added per do-8m4e
 
 import {
   createThingsStore,
@@ -7,6 +8,12 @@ import {
   createRelationshipsStore,
   createQuery,
   createAuditLogStore,
+  // SQLite store creators for persistent storage (do-8m4e)
+  SQLiteAdapter,
+  createSQLiteThingsStore,
+  createSQLiteEventsStore,
+  createSQLiteRelationshipsStore,
+  createSQLiteAuditLogStore,
   type ThingsStore,
   type EventsStore,
   type RelationshipsStore,
@@ -20,9 +27,16 @@ import {
   type RelationshipInput,
   type QueryBuilder,
   type StorableData,
+  type BulkUpdateItem,
+  type SqlStorage,
+  type EventInput,
+  type JsonValue,
   defaultAuditConfig,
   maskSensitiveFields
-} from '../db'
+} from '@dotdo/db'
+import { createLogger } from '@dotdo/utils'
+
+const logger = createLogger('[EntityManager]')
 
 /**
  * Options for EntityManager
@@ -30,11 +44,20 @@ import {
 export interface EntityManagerOptions {
   /** Audit logging configuration */
   auditConfig?: Partial<AuditLogConfig>
+  /**
+   * DurableObjectState for SQLite persistence (do-8m4e)
+   * When provided, stores will use SQLite via state.storage.sql
+   * When omitted, falls back to in-memory stores for backward compatibility
+   */
+  state?: DurableObjectState
 }
 
 /**
  * Entity Manager wraps the base stores and adds event emission on entity changes
  * Also provides audit logging for all CRUD operations (do-xebw)
+ *
+ * When constructed with a DurableObjectState, uses SQLite storage for persistence (do-8m4e).
+ * When constructed without state, uses in-memory stores (backward compatible).
  */
 export class EntityManager {
   private _things: ThingsStore
@@ -43,14 +66,44 @@ export class EntityManager {
   private _auditLogs: AuditLogStore
   private _auditConfig: AuditLogConfig
   private _auditContext: AuditContext
+  private _sqliteAdapter?: SQLiteAdapter
+  private _initialized: boolean = false
+  private _initPromise?: Promise<void>
 
   constructor(options: EntityManagerOptions = {}) {
-    this._things = createThingsStore()
-    this._events = createEventsStore()
-    this._relationships = createRelationshipsStore()
-    this._auditLogs = createAuditLogStore()
+    if (options.state?.storage?.sql) {
+      // Use SQLite stores for persistent storage (do-8m4e)
+      this._sqliteAdapter = new SQLiteAdapter(options.state.storage.sql as unknown as SqlStorage)
+      this._things = createSQLiteThingsStore(this._sqliteAdapter)
+      this._events = createSQLiteEventsStore(this._sqliteAdapter)
+      this._relationships = createSQLiteRelationshipsStore(this._sqliteAdapter)
+      this._auditLogs = createSQLiteAuditLogStore(this._sqliteAdapter)
+
+      // Initialize SQLite adapter asynchronously
+      // The stores will handle initialization lazily if needed
+      this._initPromise = this._sqliteAdapter.initialize().then(() => {
+        this._initialized = true
+      })
+    } else {
+      // Fall back to in-memory stores for backward compatibility
+      this._things = createThingsStore()
+      this._events = createEventsStore()
+      this._relationships = createRelationshipsStore()
+      this._auditLogs = createAuditLogStore()
+      this._initialized = true
+    }
     this._auditConfig = { ...defaultAuditConfig, ...options.auditConfig }
     this._auditContext = { actor: 'system' }
+  }
+
+  /**
+   * Ensure SQLite is initialized before operations
+   * This is called internally to handle the async initialization
+   */
+  private async ensureInitialized(): Promise<void> {
+    if (this._initPromise) {
+      await this._initPromise
+    }
   }
 
   /**
@@ -69,10 +122,38 @@ export class EntityManager {
   }
 
   /**
-   * Direct access to audit logs store
+   * Audit logs store with initialization guarantee
    */
   get auditLogs(): AuditLogStore {
-    return this._auditLogs
+    const baseStore = this._auditLogs
+    const ensureInit = () => this.ensureInitialized()
+
+    return {
+      async log(entry) {
+        await ensureInit()
+        return baseStore.log(entry)
+      },
+      async get(id: string) {
+        await ensureInit()
+        return baseStore.get(id)
+      },
+      async query(options?) {
+        await ensureInit()
+        return baseStore.query(options)
+      },
+      async count(options?) {
+        await ensureInit()
+        return baseStore.count(options)
+      },
+      async deleteOlderThan(timestamp: number) {
+        await ensureInit()
+        return baseStore.deleteOlderThan(timestamp)
+      },
+      async deleteAll() {
+        await ensureInit()
+        return baseStore.deleteAll()
+      }
+    }
   }
 
   /**
@@ -87,9 +168,12 @@ export class EntityManager {
   ): Promise<void> {
     if (!this._auditConfig.enabled) return
 
+    // Ensure initialization before logging
+    await this.ensureInitialized()
+
     // Mask sensitive fields in details
     const maskedDetails = details
-      ? maskSensitiveFields(details, this._auditConfig.maskFields)
+      ? maskSensitiveFields(details as StorableData, this._auditConfig.maskFields)
       : undefined
 
     await this._auditLogs.log({
@@ -104,39 +188,116 @@ export class EntityManager {
   }
 
   /**
+   * Safely emit an event and handle any handler failures.
+   * This method:
+   * 1. Emits the event via the events store
+   * 2. Catches any errors from synchronous or async handlers
+   * 3. Adds failed events to the dead letter queue for observability
+   * 4. Logs errors but does NOT propagate them (entity operations should succeed)
+   *
+   * @param eventInput - The event to emit
+   * @returns The emitted event (or undefined if emission failed entirely)
+   */
+  private async safeEmitEvent(eventInput: EventInput<JsonValue>): Promise<void> {
+    try {
+      const event = await this._events.emit(eventInput)
+
+      // The events store already calls handlers synchronously with try-catch,
+      // but async handlers that return promises might reject later.
+      // We need to wait for all handlers and catch any async rejections.
+      // However, the current EventsStore design doesn't give us access to
+      // the handlers or their results directly. The handlers are called
+      // in emit() synchronously.
+      //
+      // For now, we wrap the emit in try-catch to handle any immediate errors.
+      // The EventsStore itself should be enhanced to track handler failures
+      // in the DLQ (see db/events.ts), but at the EntityManager level we
+      // ensure we don't propagate errors to break entity operations.
+      //
+      // If the emit() itself succeeded but a handler threw, the error was
+      // already logged by EventsStore. We record it in the DLQ here for
+      // programmatic observability.
+
+      // Note: We trust that if emit succeeded, the event was stored.
+      // Handler errors are handled within emit()'s try-catch and logged.
+      return
+    } catch (error) {
+      // If emit() itself threw (not just a handler), we need to record this
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorStack = error instanceof Error ? error.stack : undefined
+
+      logger.error(`Event emission failed for ${eventInput.type}:`, error)
+
+      // Add to dead letter queue for programmatic observability
+      // Note: The emit() function now handles handler failures internally,
+      // so this only catches cases where emit() itself fails (e.g., storage error)
+      // Build event object, only including defined properties (exactOptionalPropertyTypes)
+      const failedEvent: import('@dotdo/db').Event<JsonValue> = {
+        $id: `failed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` as ReturnType<typeof import('@dotdo/db').generateEventId>,
+        $timestamp: Date.now(),
+        type: eventInput.type,
+        payload: eventInput.payload
+      }
+      if (eventInput.source !== undefined) failedEvent.source = eventInput.source
+      if (eventInput.correlationId !== undefined) failedEvent.correlationId = eventInput.correlationId
+
+      this._events.addToDeadLetterQueue({
+        event: failedEvent,
+        lastError: errorMessage + (errorStack ? `\n${errorStack}` : ''),
+        attempts: 1
+      })
+
+      // Do NOT re-throw - entity operations should succeed even if event emission fails
+    }
+  }
+
+  /**
    * Things store with event emission and audit logging
+   * Includes bulk operations with audit logging (do-grp5.8)
    */
   get things(): ThingsStore {
     const baseStore = this._things
-    const eventsStore = this._events
     const logAudit = this.logAudit.bind(this)
+    const ensureInit = () => this.ensureInitialized()
+    const safeEmit = this.safeEmitEvent.bind(this)
 
     return {
-      async create(data: Omit<Thing, '$id' | '$createdAt' | '$updatedAt'>): Promise<Thing> {
+      async create(data) {
+        await ensureInit()
         const thing = await baseStore.create(data)
 
-        // Emit Thing.created event
-        await eventsStore.emit({
+        // Emit Thing.created event (safe - won't break entity operation on handler error)
+        await safeEmit({
           type: 'Thing.created',
           payload: thing,
           source: thing.$id
         })
 
-        // Audit log
-        await logAudit('create', thing.$type, thing.$id, { name: (thing as any).name })
+        // Audit log - safely access name if it exists
+        const auditDetails: StorableData | undefined = 'name' in thing
+          ? { name: String((thing as Record<string, unknown>)['name']) }
+          : undefined
+        await logAudit('create', thing.$type, thing.$id, auditDetails)
 
         return thing
       },
 
       async get(id: string): Promise<Thing | null> {
+        await ensureInit()
         return baseStore.get(id)
       },
 
-      async update(id: string, data: Partial<Omit<Thing, '$id' | '$type'>>): Promise<Thing> {
+      async getMany(ids: string[]): Promise<Map<string, Thing>> {
+        await ensureInit()
+        return baseStore.getMany(ids)
+      },
+
+      async update(id, data) {
+        await ensureInit()
         const thing = await baseStore.update(id, data)
 
-        // Emit Thing.updated event
-        await eventsStore.emit({
+        // Emit Thing.updated event (safe - won't break entity operation on handler error)
+        await safeEmit({
           type: 'Thing.updated',
           payload: thing,
           source: thing.$id
@@ -149,12 +310,13 @@ export class EntityManager {
       },
 
       async delete(id: string): Promise<void> {
+        await ensureInit()
         const thing = await baseStore.get(id)
         await baseStore.delete(id)
 
-        // Emit Thing.deleted event
+        // Emit Thing.deleted event (safe - won't break entity operation on handler error)
         if (thing) {
-          await eventsStore.emit({
+          await safeEmit({
             type: 'Thing.deleted',
             payload: { $id: id, $type: thing.$type },
             source: id
@@ -166,16 +328,160 @@ export class EntityManager {
       },
 
       async list(options?: { type?: string; limit?: number; offset?: number }): Promise<Thing[]> {
+        await ensureInit()
         return baseStore.list(options)
+      },
+
+      async listWithCursor(options) {
+        await ensureInit()
+        return baseStore.listWithCursor(options)
+      },
+
+      async bulkCreate(items) {
+        await ensureInit()
+        const things = await baseStore.bulkCreate(items)
+
+        // Emit Thing.created events for each created thing (safe - won't break entity operation on handler error)
+        for (const thing of things) {
+          await safeEmit({
+            type: 'Thing.created',
+            payload: thing,
+            source: thing.$id
+          })
+        }
+
+        // Audit log for bulk create
+        await logAudit('bulk_create', 'Thing', undefined, {
+          count: things.length,
+          types: [...new Set(things.map(t => t.$type))],
+          ids: things.map(t => t.$id)
+        })
+
+        return things
+      },
+
+      async bulkUpdate(items: BulkUpdateItem[]): Promise<Thing[]> {
+        await ensureInit()
+        const things = await baseStore.bulkUpdate(items)
+
+        // Emit Thing.updated events for each updated thing (safe - won't break entity operation on handler error)
+        for (const thing of things) {
+          await safeEmit({
+            type: 'Thing.updated',
+            payload: thing,
+            source: thing.$id
+          })
+        }
+
+        // Audit log for bulk update
+        await logAudit('bulk_update', 'Thing', undefined, {
+          count: things.length,
+          ids: items.map(i => String(i.id)),
+          fields: [...new Set(items.flatMap(i => Object.keys(i.data)))]
+        })
+
+        return things
+      },
+
+      async bulkDelete(ids: string[]): Promise<void> {
+        await ensureInit()
+        // Get things before deletion for event emission and audit
+        const thingsMap = new Map<string, Thing>()
+        for (const id of ids) {
+          const thing = await baseStore.get(id)
+          if (thing) {
+            thingsMap.set(id, thing)
+          }
+        }
+
+        await baseStore.bulkDelete(ids)
+
+        // Emit Thing.deleted events for each deleted thing (safe - won't break entity operation on handler error)
+        for (const [id, thing] of thingsMap) {
+          await safeEmit({
+            type: 'Thing.deleted',
+            payload: { $id: id, $type: thing.$type },
+            source: id
+          })
+        }
+
+        // Audit log for bulk delete
+        const types = [...new Set([...thingsMap.values()].map(t => t.$type))]
+        await logAudit('bulk_delete', 'Thing', undefined, {
+          count: ids.length,
+          ids,
+          types
+        })
       }
     }
   }
 
   /**
-   * Events store (direct access, no wrapping needed)
+   * Events store with initialization guarantee for async operations
+   * Synchronous methods (subscribe, DLQ, validation tracking) pass through directly
    */
   get events(): EventsStore {
-    return this._events
+    const baseStore = this._events
+    const ensureInit = () => this.ensureInitialized()
+
+    return {
+      // Async methods that need initialization
+      async emit(event) {
+        await ensureInit()
+        return baseStore.emit(event)
+      },
+      async get(id: string) {
+        await ensureInit()
+        return baseStore.get(id)
+      },
+      async query(options?) {
+        await ensureInit()
+        return baseStore.query(options)
+      },
+      async queryWithCursor(options?) {
+        await ensureInit()
+        return baseStore.queryWithCursor(options)
+      },
+      async setRetentionPolicy(policy) {
+        await ensureInit()
+        return baseStore.setRetentionPolicy(policy)
+      },
+      async getRetentionPolicy() {
+        await ensureInit()
+        return baseStore.getRetentionPolicy()
+      },
+      async count(filter?) {
+        await ensureInit()
+        return baseStore.count(filter)
+      },
+      async cleanup(options?) {
+        await ensureInit()
+        return baseStore.cleanup(options)
+      },
+      async getStorageUsage() {
+        await ensureInit()
+        return baseStore.getStorageUsage()
+      },
+      // Synchronous methods pass through directly (in-memory operations)
+      subscribe: (handler) => baseStore.subscribe(handler),
+      addToDeadLetterQueue: (entry) => baseStore.addToDeadLetterQueue(entry),
+      getDeadLetterQueue: () => baseStore.getDeadLetterQueue(),
+      queryDeadLetterQueue: (options?) => baseStore.queryDeadLetterQueue(options),
+      removeFromDeadLetterQueue: (eventId) => baseStore.removeFromDeadLetterQueue(eventId),
+      async replayDeadLetterQueue(options?) {
+        await ensureInit()
+        return baseStore.replayDeadLetterQueue(options)
+      },
+      addValidationFailure: (failure) => baseStore.addValidationFailure(failure),
+      queryValidationFailures: (options?) => baseStore.queryValidationFailures(options),
+      setEventRetryStatus: (eventId, status) => baseStore.setEventRetryStatus(eventId, status),
+      getEventRetryStatus: (eventId) => baseStore.getEventRetryStatus(eventId),
+      recordRetryAttempt: (eventType, succeeded, retryCount) => baseStore.recordRetryAttempt(eventType, succeeded, retryCount),
+      getRetryMetrics: () => baseStore.getRetryMetrics(),
+      setDurabilityConfig: (config) => baseStore.setDurabilityConfig(config),
+      getDurabilityConfig: (eventType) => baseStore.getDurabilityConfig(eventType),
+      getDLQStats: () => baseStore.getDLQStats()
+    }
   }
 
   /**
@@ -183,15 +489,17 @@ export class EntityManager {
    */
   get relationships(): RelationshipsStore {
     const baseStore = this._relationships
-    const eventsStore = this._events
     const logAudit = this.logAudit.bind(this)
+    const ensureInit = () => this.ensureInitialized()
+    const safeEmit = this.safeEmitEvent.bind(this)
 
     return {
       async add(rel: RelationshipInput): Promise<Relationship> {
+        await ensureInit()
         const relationship = await baseStore.add(rel)
 
-        // Emit Relationship.added event
-        await eventsStore.emit({
+        // Emit Relationship.added event (safe - won't break entity operation on handler error)
+        await safeEmit({
           type: 'Relationship.added',
           payload: relationship,
           source: relationship.subject
@@ -208,10 +516,11 @@ export class EntityManager {
       },
 
       async remove(rel: Pick<BaseRelationship, 'subject' | 'predicate' | 'object'>): Promise<void> {
+        await ensureInit()
         await baseStore.remove(rel)
 
-        // Emit Relationship.removed event
-        await eventsStore.emit({
+        // Emit Relationship.removed event (safe - won't break entity operation on handler error)
+        await safeEmit({
           type: 'Relationship.removed',
           payload: rel,
           source: rel.subject
@@ -226,14 +535,22 @@ export class EntityManager {
       },
 
       async find(query: RelationshipQuery): Promise<Relationship[]> {
+        await ensureInit()
         return baseStore.find(query)
       },
 
+      async findWithCursor(options) {
+        await ensureInit()
+        return baseStore.findWithCursor(options)
+      },
+
       async getRelated(subjectId: string, predicate: string): Promise<string[]> {
+        await ensureInit()
         return baseStore.getRelated(subjectId, predicate)
       },
 
       async getRelatedTo(objectId: string, predicate: string): Promise<string[]> {
+        await ensureInit()
         return baseStore.getRelatedTo(objectId, predicate)
       }
     }
@@ -248,12 +565,25 @@ export class EntityManager {
 }
 
 /**
+ * Constructor type for entity mixin pattern.
+ *
+ * TypeScript mixins require `any[]` for the constructor rest parameter (TS2545).
+ * The return type is constrained to `object` to ensure basic type safety while
+ * allowing any class to be used as a base for the mixin.
+ *
+ * @internal Used only by the withEntities mixin function
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type EntityMixinConstructor = new (...args: any[]) => object
+
+/**
  * Mixin to add entity management to DO classes
  */
-export function withEntities<T extends new (...args: any[]) => any>(Base: T) {
+export function withEntities<T extends EntityMixinConstructor>(Base: T) {
   return class extends Base {
     private entityManager: EntityManager
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
       this.entityManager = new EntityManager()

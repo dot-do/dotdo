@@ -16,11 +16,22 @@ import {
   buildUser,
   buildSession,
   buildEvent,
+  DbFactory,
+  Fixtures,
+  buildDbThing,
+  buildDbRelationship,
+  buildDbEvent,
+  buildApiKey,
   type GraphThing,
   type GraphRelationship,
   type User,
   type Session,
   type Event,
+  type DbThing,
+  type DbRelationship,
+  type DbEvent,
+  type ApiKey,
+  type TokenPayload,
 } from './factory'
 
 // ============================================================================
@@ -769,5 +780,414 @@ describe('Type safety', () => {
     expect(event.$id).toBeDefined()
     expect(event.type).toBeDefined()
     expect(event.$timestamp).toBeDefined()
+  })
+})
+
+// ============================================================================
+// DB FACTORY TESTS - DbThing
+// ============================================================================
+
+describe('DbFactory.thing', () => {
+  beforeEach(() => {
+    DbFactory.reset()
+  })
+
+  it('should create a DbThing with $-prefixed system fields', () => {
+    const thing = DbFactory.thing({ $type: 'Customer' })
+
+    expect(thing.$id).toBeDefined()
+    expect(thing.$type).toBe('Customer')
+    expect(thing.$createdAt).toBeGreaterThan(0)
+    expect(thing.$updatedAt).toBeGreaterThan(0)
+  })
+
+  it('should accept custom properties', () => {
+    const thing = DbFactory.thing({
+      $type: 'Customer',
+      name: 'Alice',
+      email: 'alice@test.com',
+    })
+
+    expect(thing.$type).toBe('Customer')
+    expect(thing.name).toBe('Alice')
+    expect(thing.email).toBe('alice@test.com')
+  })
+
+  it('should create multiple DbThings', () => {
+    const things = DbFactory.things(3, { $type: 'Product' })
+
+    expect(things).toHaveLength(3)
+    things.forEach((thing) => {
+      expect(thing.$id).toBeDefined()
+      expect(thing.$type).toBe('Product')
+    })
+  })
+
+  it('should create thingInput without system fields', () => {
+    const input = DbFactory.thingInput({ $type: 'Customer', name: 'Bob' })
+
+    expect(input.$type).toBe('Customer')
+    expect(input.name).toBe('Bob')
+    expect((input as any).$id).toBeUndefined()
+    expect((input as any).$createdAt).toBeUndefined()
+  })
+})
+
+// ============================================================================
+// DB FACTORY TESTS - DbRelationship
+// ============================================================================
+
+describe('DbFactory.relationship', () => {
+  beforeEach(() => {
+    DbFactory.reset()
+  })
+
+  it('should create a DbRelationship with required fields', () => {
+    const rel = DbFactory.relationship({
+      subject: 'user-1',
+      predicate: 'owns',
+      object: 'order-1',
+    })
+
+    expect(rel.subject).toBe('user-1')
+    expect(rel.predicate).toBe('owns')
+    expect(rel.object).toBe('order-1')
+    expect(rel.$createdAt).toBeGreaterThan(0)
+  })
+
+  it('should generate random subject/predicate/object when not provided', () => {
+    const rel = DbFactory.relationship()
+
+    expect(rel.subject).toBeDefined()
+    expect(rel.predicate).toBeDefined()
+    expect(rel.object).toBeDefined()
+  })
+
+  it('should create multiple DbRelationships', () => {
+    const rels = DbFactory.relationships(3, { predicate: 'follows' })
+
+    expect(rels).toHaveLength(3)
+    rels.forEach((rel) => {
+      expect(rel.predicate).toBe('follows')
+    })
+  })
+
+  it('should create relationshipInput without $createdAt', () => {
+    const input = DbFactory.relationshipInput({
+      subject: 'user-1',
+      predicate: 'owns',
+      object: 'order-1',
+    })
+
+    expect(input.subject).toBe('user-1')
+    expect(input.predicate).toBe('owns')
+    expect(input.object).toBe('order-1')
+    expect((input as any).$createdAt).toBeUndefined()
+  })
+})
+
+// ============================================================================
+// DB FACTORY TESTS - DbEvent
+// ============================================================================
+
+describe('DbFactory.event', () => {
+  beforeEach(() => {
+    DbFactory.reset()
+  })
+
+  it('should create a DbEvent with $-prefixed system fields', () => {
+    const event = DbFactory.event({ type: 'user.created', payload: { id: '123' } })
+
+    expect(event.$id).toMatch(/^evt-/)
+    expect(event.type).toBe('user.created')
+    expect(event.payload).toEqual({ id: '123' })
+    expect(event.$timestamp).toBeGreaterThan(0)
+  })
+
+  it('should include optional source and correlationId', () => {
+    const event = DbFactory.event({
+      type: 'order.placed',
+      payload: {},
+      source: 'api-server',
+      correlationId: 'req-456',
+    })
+
+    expect(event.source).toBe('api-server')
+    expect(event.correlationId).toBe('req-456')
+  })
+
+  it('should create multiple DbEvents', () => {
+    const events = DbFactory.events(3, { type: 'test.event', payload: {} })
+
+    expect(events).toHaveLength(3)
+    events.forEach((event) => {
+      expect(event.type).toBe('test.event')
+    })
+  })
+
+  it('should create eventInput without system fields', () => {
+    const input = DbFactory.eventInput({
+      type: 'user.signup',
+      payload: { email: 'test@test.com' },
+      source: 'web',
+    })
+
+    expect(input.type).toBe('user.signup')
+    expect(input.payload).toEqual({ email: 'test@test.com' })
+    expect(input.source).toBe('web')
+    expect((input as any).$id).toBeUndefined()
+    expect((input as any).$timestamp).toBeUndefined()
+  })
+})
+
+// ============================================================================
+// DB FACTORY TESTS - ApiKey
+// ============================================================================
+
+describe('DbFactory.apiKey', () => {
+  beforeEach(() => {
+    DbFactory.reset()
+  })
+
+  it('should create an API key with default values', () => {
+    const key = DbFactory.apiKey()
+
+    expect(key.id).toMatch(/^key-/)
+    expect(key.name).toBeTruthy()
+    expect(key.hashedKey).toBeDefined()
+    expect(key.prefix).toMatch(/^dotdo_/)
+    expect(key.scopes).toEqual(['*'])
+    expect(key.active).toBe(true)
+    expect(key.createdAt).toBeInstanceOf(Date)
+  })
+
+  it('should accept custom values', () => {
+    const key = DbFactory.apiKey({
+      name: 'Production Key',
+      scopes: ['users:read', 'posts:write'],
+      active: false,
+    })
+
+    expect(key.name).toBe('Production Key')
+    expect(key.scopes).toEqual(['users:read', 'posts:write'])
+    expect(key.active).toBe(false)
+  })
+
+  it('should include optional fields when provided', () => {
+    const expiresAt = new Date(Date.now() + 86400000)
+    const key = DbFactory.apiKey({
+      expiresAt,
+      rateLimit: { maxRequests: 1000, windowMs: 60000 },
+      metadata: { userId: '123' },
+    })
+
+    expect(key.expiresAt).toEqual(expiresAt)
+    expect(key.rateLimit).toEqual({ maxRequests: 1000, windowMs: 60000 })
+    expect(key.metadata).toEqual({ userId: '123' })
+  })
+
+  it('should create multiple API keys', () => {
+    const keys = DbFactory.apiKeys(3)
+
+    expect(keys).toHaveLength(3)
+    keys.forEach((key) => {
+      expect(key.id).toBeDefined()
+      expect(key.active).toBe(true)
+    })
+  })
+})
+
+// ============================================================================
+// DB FACTORY TESTS - TokenPayload
+// ============================================================================
+
+describe('DbFactory.tokenPayload', () => {
+  beforeEach(() => {
+    DbFactory.reset()
+  })
+
+  it('should create a token payload with default values', () => {
+    const payload = DbFactory.tokenPayload()
+
+    expect(payload.sub).toMatch(/^user-/)
+    expect(payload.iss).toBe('id.org.ai')
+    expect(payload.aud).toBe('dotdo.api')
+    expect(payload.iat).toBeGreaterThan(0)
+    expect(payload.exp).toBeGreaterThan(payload.iat!)
+    expect(payload.roles).toEqual(['user'])
+  })
+
+  it('should accept custom values', () => {
+    const payload = DbFactory.tokenPayload({
+      sub: 'admin-123',
+      email: 'admin@test.com',
+      roles: ['admin', 'user'],
+      scopes: ['*'],
+    })
+
+    expect(payload.sub).toBe('admin-123')
+    expect(payload.email).toBe('admin@test.com')
+    expect(payload.roles).toEqual(['admin', 'user'])
+    expect(payload.scopes).toEqual(['*'])
+  })
+})
+
+// ============================================================================
+// FIXTURES TESTS
+// ============================================================================
+
+describe('Fixtures', () => {
+  beforeEach(() => {
+    Factory.reset()
+    DbFactory.reset()
+  })
+
+  describe('entity fixtures', () => {
+    it('should create a customer fixture', () => {
+      const customer = Fixtures.customer({ name: 'Alice' })
+
+      expect(customer.$type).toBe('Customer')
+      expect(customer.name).toBe('Alice')
+      expect(customer.email).toBeDefined()
+      expect(customer.status).toBe('active')
+    })
+
+    it('should create an order fixture', () => {
+      const order = Fixtures.order({ total: 99.99 })
+
+      expect(order.$type).toBe('Order')
+      expect(order.total).toBe(99.99)
+      expect(order.status).toBe('pending')
+    })
+
+    it('should create a product fixture', () => {
+      const product = Fixtures.product({ name: 'Widget' })
+
+      expect(product.$type).toBe('Product')
+      expect(product.name).toBe('Widget')
+      expect(product.price).toBeDefined()
+      expect(product.sku).toBeDefined()
+    })
+  })
+
+  describe('event fixtures', () => {
+    it('should create a user signup event fixture', () => {
+      const event = Fixtures.userSignupEvent()
+
+      expect(event.type).toBe('user.signup')
+      expect((event.payload as any).email).toBeDefined()
+      expect((event.payload as any).name).toBeDefined()
+    })
+
+    it('should create an order placed event fixture', () => {
+      const event = Fixtures.orderPlacedEvent()
+
+      expect(event.type).toBe('order.placed')
+      expect((event.payload as any).orderId).toBeDefined()
+      expect((event.payload as any).total).toBeDefined()
+    })
+  })
+
+  describe('relationship fixtures', () => {
+    it('should create an ownership relationship', () => {
+      const rel = Fixtures.ownershipRelationship('user-1', 'order-1')
+
+      expect(rel.subject).toBe('user-1')
+      expect(rel.predicate).toBe('owns')
+      expect(rel.object).toBe('order-1')
+    })
+  })
+
+  describe('auth fixtures', () => {
+    it('should create an admin user', () => {
+      const user = Fixtures.adminUser()
+
+      expect(user.status).toBe('active')
+      expect(user.emailVerified).toBe(true)
+      expect(user.metadata?.role).toBe('admin')
+    })
+
+    it('should create an admin API key', () => {
+      const key = Fixtures.adminApiKey()
+
+      expect(key.name).toBe('Admin API Key')
+      expect(key.scopes).toEqual(['*'])
+      expect(key.active).toBe(true)
+    })
+
+    it('should create a readonly API key', () => {
+      const key = Fixtures.readonlyApiKey()
+
+      expect(key.name).toBe('Readonly API Key')
+      expect(key.scopes).toEqual(['read:*'])
+    })
+
+    it('should create an expired API key', () => {
+      const key = Fixtures.expiredApiKey()
+
+      expect(key.name).toBe('Expired API Key')
+      expect(key.expiresAt).toBeDefined()
+      expect(key.expiresAt!.getTime()).toBeLessThan(Date.now())
+    })
+
+    it('should create a revoked API key', () => {
+      const key = Fixtures.revokedApiKey()
+
+      expect(key.name).toBe('Revoked API Key')
+      expect(key.active).toBe(false)
+      expect(key.revokedAt).toBeDefined()
+    })
+  })
+})
+
+// ============================================================================
+// DB FACTORY BUILDER TESTS
+// ============================================================================
+
+describe('DB Factory Builders', () => {
+  beforeEach(() => {
+    DbFactory.reset()
+  })
+
+  it('should build DbThing with fluent interface', () => {
+    const thing = buildDbThing()
+      .with('$type', 'Document')
+      .with('name', 'Test Doc')
+      .build()
+
+    expect(thing.$type).toBe('Document')
+    expect(thing.name).toBe('Test Doc')
+  })
+
+  it('should build DbRelationship with fluent interface', () => {
+    const rel = buildDbRelationship()
+      .with('subject', 'user-1')
+      .with('predicate', 'owns')
+      .with('object', 'doc-1')
+      .build()
+
+    expect(rel.subject).toBe('user-1')
+    expect(rel.predicate).toBe('owns')
+    expect(rel.object).toBe('doc-1')
+  })
+
+  it('should build DbEvent with fluent interface', () => {
+    const event = buildDbEvent()
+      .with('type', 'document.created')
+      .with('payload', { docId: '123' })
+      .build()
+
+    expect(event.type).toBe('document.created')
+    expect(event.payload).toEqual({ docId: '123' })
+  })
+
+  it('should build ApiKey with fluent interface', () => {
+    const key = buildApiKey()
+      .with('name', 'Test Key')
+      .with('scopes', ['read:*'])
+      .build()
+
+    expect(key.name).toBe('Test Key')
+    expect(key.scopes).toEqual(['read:*'])
   })
 })

@@ -10,8 +10,17 @@
  *
  * Converts fluent DSL to CRON expressions internally
  *
+ * SECURITY NOTE (do-stfi): All user input is validated through cron-validation.ts
+ * to prevent CRON injection attacks.
+ *
  * @module do/workflow/schedule
  */
+
+import {
+  validateTimeString,
+  validateCronExpression,
+  CronValidationError,
+} from './cron-validation'
 
 export type ScheduleHandler = () => Promise<void>
 
@@ -22,6 +31,32 @@ export interface ScheduleInterval {
   natural?: string
 }
 
+/**
+ * ScheduleRegistration - Handler registration for recurring schedules
+ *
+ * IMPORTANT: The 'handler' field is NOT serialized to storage
+ *
+ * ScheduleRegistration is stored in WorkflowContext._schedules, which is an in-memory Map.
+ * This is intentional because:
+ *
+ * 1. Handler functions cannot be reliably serialized to JSON
+ * 2. Recurring schedules are re-registered on every DO instantiation
+ *   - The schedule DSL ($.every.Monday.at9am()) is called in DO constructor/initialization
+ *   - This re-populates _schedules with fresh handler references
+ * 3. Only the alarm timing metadata (AlarmMetadata) is persisted to storage
+ *
+ * When a DO restarts:
+ * 1. The DO initialization code re-runs (fixtures, initSchedules(), etc.)
+ * 2. $.every.Monday.at9am(handler) is called again
+ * 3. This re-registers the handler in _schedules
+ * 4. When the alarm fires, executeSchedules() finds the handler and executes it
+ * 5. Alarm metadata is updated and persisted
+ *
+ * This design ensures that recurring schedules "just work" across restarts without
+ * needing to serialize functions or rebuild complex handler references.
+ *
+ * See do/workflow/alarm.ts for serialization details and limitations.
+ */
 export interface ScheduleRegistration {
   interval: ScheduleInterval
   handler: ScheduleHandler
@@ -96,52 +131,55 @@ const TIME_PATTERNS: Record<string, { hour: number; minute: number }> = {
 
 /**
  * Parse time string like "6pm", "9am", "3:45pm" to hour and minute
+ *
+ * SECURITY (do-stfi): Input is validated through validateTimeString to prevent
+ * injection attacks. This function rejects:
+ * - Shell metacharacters (;, &, |, `, $, etc.)
+ * - Control characters and null bytes
+ * - Unicode direction override characters
+ * - Excessively long strings
+ *
+ * @param timeStr - Time string to parse (e.g., "9am", "3:45pm", "15:30")
+ * @returns Object with hour (0-23) and minute (0-59)
+ * @throws CronValidationError if the time string is invalid or contains dangerous characters
  */
 function parseTimeString(timeStr: string): { hour: number; minute: number } {
   const clean = timeStr.toLowerCase().trim()
 
-  // Check for named patterns first
+  // Check for named patterns first (these are safe, pre-defined values)
   const named = TIME_PATTERNS[`at${clean.replace(/[:\s]/g, '')}`]
   if (named) return named
 
-  // Parse formats: "6pm", "9am", "3:45pm", "15:30"
-  const match = clean.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i)
-  if (!match) {
-    throw new Error(`Invalid time format: ${timeStr}. Use formats like "9am", "3:45pm", or "15:30"`)
-  }
-
-  const hourStr = match[1]
-  if (!hourStr) {
-    throw new Error(`Invalid time format: ${timeStr}. Use formats like "9am", "3:45pm", or "15:30"`)
-  }
-  let hour = parseInt(hourStr, 10)
-  const minute = match[2] ? parseInt(match[2], 10) : 0
-  const meridiem = match[3]?.toLowerCase()
-
-  if (meridiem === 'pm' && hour < 12) {
-    hour += 12
-  } else if (meridiem === 'am' && hour === 12) {
-    hour = 0
-  }
-
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-    throw new Error(`Invalid time: ${timeStr}`)
-  }
-
-  return { hour, minute }
+  // Validate and parse using secure validation (do-stfi)
+  // This will throw CronValidationError for dangerous input
+  return validateTimeString(timeStr)
 }
 
 /**
  * Combine a cron pattern with a specific time
+ *
+ * SECURITY (do-stfi): The resulting CRON expression is validated
+ * to ensure no injection has occurred.
+ *
+ * @param baseCron - Base CRON pattern (e.g., "0 0 * * 1")
+ * @param time - Time object with hour (0-23) and minute (0-59)
+ * @returns Complete CRON expression
+ * @throws CronValidationError if the resulting expression is invalid
  */
 function combineWithTime(baseCron: string, time: { hour: number; minute: number }): string {
   const parts = baseCron.split(' ')
   // Cron format: minute hour day month weekday (5 parts)
   // We modify parts[0] and parts[1] - they must exist for a valid cron
   if (parts.length < 2) {
-    throw new Error(`Invalid cron pattern: ${baseCron}`)
+    throw new CronValidationError(`Invalid cron pattern: ${baseCron}`)
   }
-  return [String(time.minute), String(time.hour), ...parts.slice(2)].join(' ')
+
+  const result = [String(time.minute), String(time.hour), ...parts.slice(2)].join(' ')
+
+  // Validate the resulting CRON expression (do-stfi)
+  validateCronExpression(result)
+
+  return result
 }
 
 /**
@@ -175,9 +213,28 @@ function combineWithTime(baseCron: string, time: { hour: number; minute: number 
  * })
  * ```
  */
+/**
+ * Interval builder type for $.every(5).minutes patterns
+ */
+export interface IntervalBuilder {
+  seconds: (handler: ScheduleHandler) => void
+  minutes: (handler: ScheduleHandler) => void
+  hours: (handler: ScheduleHandler) => void
+  days: (handler: ScheduleHandler) => void
+  weeks: (handler: ScheduleHandler) => void
+}
+
+/**
+ * Schedule builder type returned by createEveryProxy.
+ * Uses Proxy for fluent DSL so returns a callable object with dynamic properties.
+ * The actual implementation uses Proxy to enable dynamic property access.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type ScheduleBuilder = ((arg?: number | string | ScheduleHandler) => any) & Record<string, any>
+
 export function createEveryProxy(
   schedules: Map<string, ScheduleRegistration>
-): any {
+): ScheduleBuilder {
   /**
    * Builder state for chaining
    */
@@ -188,10 +245,11 @@ export function createEveryProxy(
   }
 
   /**
-   * Create a chainable proxy builder
+   * Create a chainable proxy builder.
+   * Returns ScheduleBuilder which is a complex callable+indexable object via Proxy.
    */
-  function createBuilder(state: BuilderState): any {
-    const builder = function(arg?: any) {
+  function createBuilder(state: BuilderState): ScheduleBuilder {
+    const builder = function(arg?: number | string | ScheduleHandler) {
       // If called with a number: $.every(5).minutes(handler)
       if (typeof arg === 'number') {
         return createIntervalProxy(arg, state)
@@ -284,10 +342,11 @@ export function createEveryProxy(
         }
 
         // Handle known patterns
-        if (KNOWN_PATTERNS[prop]) {
+        const knownPatternKey = prop as keyof typeof KNOWN_PATTERNS
+        if (knownPatternKey in KNOWN_PATTERNS) {
           return createBuilder({
             path: [...state.path, prop],
-            baseCron: KNOWN_PATTERNS[prop],
+            baseCron: KNOWN_PATTERNS[knownPatternKey],
           })
         }
 
@@ -303,8 +362,8 @@ export function createEveryProxy(
   /**
    * Create a proxy for interval patterns: $.every(5).minutes(handler)
    */
-  function createIntervalProxy(value: number, _state: BuilderState): any {
-    return new Proxy({}, {
+  function createIntervalProxy(value: number, _state: BuilderState): IntervalBuilder {
+    return new Proxy({} as IntervalBuilder, {
       get(_target, prop: string) {
         // Map plural forms to interval types
         const intervalMap: Record<string, ScheduleInterval['type']> = {

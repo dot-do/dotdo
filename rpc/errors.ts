@@ -676,6 +676,8 @@ export interface RetryOptions {
 
 /**
  * Retry a function with exponential backoff
+ *
+ * @throws {ValidationError} If maxRetries is negative
  */
 export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
   const {
@@ -685,6 +687,15 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
     maxDelay = 30000,
     jitter = false,
   } = options
+
+  // Validate maxRetries to prevent infinite loop or unexpected behavior
+  if (maxRetries < 0) {
+    throw new ValidationError('maxRetries must be >= 0', {
+      field: 'maxRetries',
+      value: maxRetries,
+      constraint: 'non-negative integer',
+    })
+  }
 
   let lastError: unknown
   let attempt = 0
@@ -720,6 +731,7 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
 
 /**
  * Circuit breaker states
+ * @coverage tested in rpc/tests/errors.test.ts - CircuitBreaker suite
  */
 export enum CircuitState {
   CLOSED = 'CLOSED',
@@ -754,6 +766,7 @@ export interface CircuitMetrics {
 /**
  * Circuit Breaker pattern implementation
  * Prevents cascading failures by stopping requests when a threshold is reached
+ * @coverage tested in rpc/tests/errors.test.ts - CircuitBreaker suite (all state transitions, metrics, reset)
  */
 export class CircuitBreaker {
   private state: CircuitState = CircuitState.CLOSED
@@ -900,6 +913,188 @@ export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Pr
 }
 
 // ============================================================================
+// Client-Side Error Handling Helpers
+// ============================================================================
+
+/**
+ * Options for handling HTTP error responses
+ */
+export interface HandleHTTPErrorOptions {
+  /** Status code from HTTP response */
+  status: number
+  /** Correlation ID for tracing */
+  correlationId?: string
+  /** Custom fallback error message */
+  fallbackMessage?: string
+}
+
+/**
+ * Handle HTTP error responses by attempting to deserialize structured error format.
+ *
+ * This consolidates the pattern used across RPC clients for error handling:
+ * 1. Try to parse the response as JSON
+ * 2. Check if it's a valid SerializedError with code and message
+ * 3. Deserialize to throw the proper RPCError type
+ * 4. If already an RPCError, re-throw it
+ * 5. Fall back to generic error with status code
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   const response = await fetch(url)
+ *   if (!response.ok) {
+ *     await handleHTTPError(response.json(), {
+ *       status: response.status,
+ *       correlationId,
+ *       fallbackMessage: `RPC error: ${response.status}`
+ *     })
+ *   }
+ * } catch (error) {
+ *   // Handle error appropriately
+ * }
+ * ```
+ */
+export async function handleHTTPError(
+  jsonPromise: Promise<unknown>,
+  options: HandleHTTPErrorOptions
+): Promise<never> {
+  const { status, correlationId, fallbackMessage = `HTTP error: ${status}` } = options
+
+  try {
+    const errorBody = await jsonPromise as SerializedError & { correlationId?: string }
+    // Check if it's a structured error (has both code and message)
+    if (errorBody && typeof errorBody === 'object' && 'code' in errorBody && 'message' in errorBody) {
+      throw deserializeError(errorBody)
+    }
+  } catch (e) {
+    // If it's already an RPCError from deserialization, re-throw it
+    if (isRPCError(e)) {
+      throw e
+    }
+    // If JSON parsing failed or structure doesn't match, continue to fallback
+  }
+
+  // Fallback to generic error with status code and correlation ID
+  const message = correlationId ? `${fallbackMessage} [${correlationId}]` : fallbackMessage
+  throw new Error(message)
+}
+
+/**
+ * Internal helper to handle HTTP error responses in a Response object context.
+ * This version works directly with Response objects instead of promises.
+ *
+ * @internal
+ */
+export async function handleResponseError(
+  response: Response,
+  options: HandleHTTPErrorOptions
+): Promise<never> {
+  const { status, correlationId, fallbackMessage = `HTTP error: ${status}` } = options
+
+  try {
+    const errorBody = await response.json() as SerializedError & { correlationId?: string }
+    // Check if it's a structured error (has both code and message)
+    if (errorBody && typeof errorBody === 'object' && 'code' in errorBody && 'message' in errorBody) {
+      throw deserializeError(errorBody)
+    }
+  } catch (e) {
+    // If it's already an RPCError from deserialization, re-throw it
+    if (isRPCError(e)) {
+      throw e
+    }
+    // If JSON parsing failed or structure doesn't match, continue to fallback
+  }
+
+  // Fallback to generic error with status code and correlation ID
+  const message = correlationId ? `${fallbackMessage} [${correlationId}]` : fallbackMessage
+  throw new Error(message)
+}
+
+// ============================================================================
+// Server-Side Error Handling Helpers
+// ============================================================================
+
+/**
+ * Options for serializing and sending error responses
+ */
+export interface ErrorResponseOptions {
+  /** Whether to include stack trace (default: false for production) */
+  includeStack?: boolean
+  /** Correlation ID to include in response */
+  correlationId?: string
+}
+
+/**
+ * Serialize an error for sending as an HTTP response.
+ *
+ * This consolidates the pattern used across RPC servers for error responses:
+ * 1. Check if it's an RPCError and serialize with proper status
+ * 2. Otherwise wrap unknown errors in InternalError and serialize
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   // do something
+ * } catch (error) {
+ *   const { serialized, statusCode } = serializeErrorResponse(error, {
+ *     includeStack: false,
+ *     correlationId
+ *   })
+ *   return c.json(serialized, statusCode)
+ * }
+ * ```
+ */
+export function serializeErrorResponse(
+  error: unknown,
+  options: ErrorResponseOptions = {}
+): { serialized: SerializedError & { correlationId?: string }; statusCode: number } {
+  const { includeStack = false, correlationId } = options
+
+  let rpcError: RPCError
+  if (isRPCError(error)) {
+    rpcError = error
+  } else {
+    rpcError = InternalError.wrap(error)
+  }
+
+  const serialized = {
+    ...serializeError(rpcError, { includeStack }),
+    ...(correlationId && { correlationId }),
+  }
+
+  return {
+    serialized,
+    statusCode: rpcError.httpStatus,
+  }
+}
+
+/**
+ * Create a serialized error response object for inline error responses.
+ *
+ * This is a convenience function for creating error responses with correlation ID
+ * in a single step, useful for returning error responses in RPC endpoints.
+ *
+ * @example
+ * ```typescript
+ * const error = new ValidationError('Invalid input')
+ * return c.json(
+ *   createErrorResponse(error, correlationId),
+ *   error.httpStatus
+ * )
+ * ```
+ */
+export function createErrorResponse(
+  error: RPCError,
+  correlationId?: string,
+  includeStack = false
+): SerializedError & { correlationId?: string } {
+  return {
+    ...serializeError(error, { includeStack }),
+    ...(correlationId && { correlationId }),
+  }
+}
+
+// ============================================================================
 // Retry with Circuit Breaker
 // ============================================================================
 
@@ -912,7 +1107,7 @@ export interface RetryWithCircuitBreakerOptions {
   /** Circuit breaker options */
   circuitBreaker?: CircuitBreakerOptions
   /** Optional callback for observing state transitions */
-  onStateChange?: (newState: CircuitState, metrics: CircuitMetrics) => void
+  onStateChange?: ((newState: CircuitState, metrics: CircuitMetrics) => void) | undefined
 }
 
 /**
@@ -938,6 +1133,8 @@ export interface RetryCircuitBreakerMetrics extends CircuitMetrics {
  * 1. If circuit is OPEN, requests fail immediately with CircuitOpenError
  * 2. If circuit is CLOSED or HALF_OPEN, retries are attempted
  * 3. After all retries fail, failure is recorded and circuit may open
+ *
+ * @coverage tested in rpc/tests/errors.test.ts - RetryWithCircuitBreaker suite (all state transitions, metrics, onStateChange callbacks)
  *
  * @example
  * ```typescript
@@ -965,15 +1162,26 @@ export interface RetryCircuitBreakerMetrics extends CircuitMetrics {
 export class RetryWithCircuitBreaker {
   private readonly circuitBreaker: CircuitBreaker
   private readonly retryOptions: Required<RetryOptions>
-  private readonly onStateChange?: (newState: CircuitState, metrics: CircuitMetrics) => void
+  private readonly onStateChange?: ((newState: CircuitState, metrics: CircuitMetrics) => void) | undefined
   private lastState: CircuitState = CircuitState.CLOSED
   private totalRetryAttempts = 0
   private lastRetryDelayMs: number | null = null
 
   constructor(options: RetryWithCircuitBreakerOptions = {}) {
+    const maxRetries = options.retry?.maxRetries ?? 3
+
+    // Validate maxRetries to prevent infinite loop or unexpected behavior
+    if (maxRetries < 0) {
+      throw new ValidationError('maxRetries must be >= 0', {
+        field: 'maxRetries',
+        value: maxRetries,
+        constraint: 'non-negative integer',
+      })
+    }
+
     this.circuitBreaker = new CircuitBreaker(options.circuitBreaker)
     this.retryOptions = {
-      maxRetries: options.retry?.maxRetries ?? 3,
+      maxRetries,
       initialDelay: options.retry?.initialDelay ?? 1000,
       backoffFactor: options.retry?.backoffFactor ?? 2,
       maxDelay: options.retry?.maxDelay ?? 30000,
