@@ -494,11 +494,51 @@ function extractIdFromUri(uri: string, expectedType: string): string | null {
 }
 
 /**
+ * Raw user response shape from org.ai API
+ * Covers various API response formats
+ * @internal
+ */
+interface RawUserResponse {
+  $id?: string
+  id?: string
+  email?: string
+  primaryEmail?: string
+  emails?: Array<{ value?: string }>
+  name?: string
+  displayName?: string
+  fullName?: string
+  firstName?: string
+  lastName?: string
+  profile?: Record<string, unknown>
+  metadata?: Record<string, unknown>
+  createdAt?: string
+  created?: string
+  updatedAt?: string
+  updated?: string
+}
+
+/**
+ * Type guard to check if data has properties that look like a user response
+ * @internal
+ */
+function isRawUserResponse(data: unknown): data is RawUserResponse {
+  return data !== null && typeof data === 'object'
+}
+
+/**
+ * Type guard to check if value is a valid profile object
+ * @internal
+ */
+function isProfileObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
  * Normalize user response from org.ai API to standard User type
  * @internal
  */
 function normalizeUserResponse(data: unknown, originalId: string): User | null {
-  if (!data || typeof data !== 'object') return null
+  if (!isRawUserResponse(data)) return null
 
   // Try to extract required fields from various API response formats
   const email = data.email || data.primaryEmail || data.emails?.[0]?.value
@@ -507,15 +547,25 @@ function normalizeUserResponse(data: unknown, originalId: string): User | null {
 
   if (!email || !name) return null
 
-  return {
+  // Extract profile, ensuring it's a valid Record<string, unknown>
+  const rawProfile = data.profile || data.metadata
+  const profile = isProfileObject(rawProfile) ? rawProfile : undefined
+
+  const user: User = {
     $id: data.$id || data.id || originalId,
     $type: 'https://schema.org.ai/User',
     email,
     name,
-    profile: data.profile || data.metadata,
     createdAt: data.createdAt || data.created || new Date().toISOString(),
     updatedAt: data.updatedAt || data.updated || new Date().toISOString(),
   }
+
+  // Only add profile if it exists (exactOptionalPropertyTypes compatibility)
+  if (profile !== undefined) {
+    user.profile = profile
+  }
+
+  return user
 }
 
 // === Organization Membership ===
@@ -642,11 +692,70 @@ export async function checkOrganizationMembership(
 }
 
 /**
+ * Raw organization data shape from org.ai API
+ * @internal
+ */
+interface RawOrganizationData {
+  $id?: string
+  id?: string
+  name?: string
+  displayName?: string
+}
+
+/**
+ * Raw membership response shape from org.ai API
+ * Covers various API response formats
+ * @internal
+ */
+interface RawMembershipResponse {
+  isMember?: boolean
+  member?: boolean
+  active?: boolean
+  role?: string
+  memberRole?: string
+  permission?: string
+  joinedAt?: string
+  createdAt?: string
+  memberSince?: string
+  organization?: RawOrganizationData
+  organizationName?: string
+  orgName?: string
+}
+
+/**
+ * Type guard to check if data has properties that look like a membership response
+ * @internal
+ */
+function isRawMembershipResponse(data: unknown): data is RawMembershipResponse {
+  return data !== null && typeof data === 'object'
+}
+
+/**
+ * Build an OrgAiOrganization object, only including optional properties when defined
+ * @internal
+ */
+function buildOrgAiOrganization(
+  $id: string,
+  role: string,
+  name?: string,
+  joinedAt?: string
+): OrgAiOrganization {
+  const org: OrgAiOrganization = { $id, role }
+  if (name !== undefined) {
+    org.name = name
+  }
+  if (joinedAt !== undefined) {
+    org.joinedAt = joinedAt
+  }
+  return org
+}
+
+/**
  * Normalize membership response from org.ai API to standard OrganizationMembership type
  * @internal
  */
 function normalizeMembershipResponse(data: unknown, orgId: string): OrganizationMembership {
-  if (!data || typeof data !== 'object') {
+  if (!isRawMembershipResponse(data)) {
     return { isMember: false }
   }
 
@@ -655,22 +764,31 @@ function normalizeMembershipResponse(data: unknown, orgId: string): Organization
   const role = data.role || data.memberRole || data.permission || 'member'
   const joinedAt = data.joinedAt || data.createdAt || data.memberSince
 
-  return {
-    isMember,
-    role,
-    joinedAt,
-    organization: data.organization ? {
-      $id: data.organization.$id || data.organization.id || orgId,
-      name: data.organization.name || data.organization.displayName,
-      role,
-      joinedAt,
-    } : {
-      $id: orgId,
-      name: data.organizationName || data.orgName,
-      role,
-      joinedAt,
-    },
+  const result: OrganizationMembership = { isMember }
+
+  // Only add optional properties if they have values
+  if (role !== undefined) {
+    result.role = role
   }
+  if (joinedAt !== undefined) {
+    result.joinedAt = joinedAt
+  }
+
+  // Build organization object
+  if (data.organization) {
+    const orgName = data.organization.name || data.organization.displayName
+    result.organization = buildOrgAiOrganization(
+      data.organization.$id || data.organization.id || orgId,
+      role,
+      orgName,
+      joinedAt
+    )
+  } else {
+    const orgName = data.organizationName || data.orgName
+    result.organization = buildOrgAiOrganization(orgId, role, orgName, joinedAt)
+  }
+
+  return result
 }
 
 // === Permission Mapping ===
@@ -828,20 +946,40 @@ function isSessionExpired(session: Session): boolean {
 }
 
 /**
+ * Raw organization entry shape from session metadata
+ * @internal
+ */
+interface RawSessionOrganization {
+  $id?: string
+  id?: string
+  name?: string
+  role?: string
+  joinedAt?: string
+}
+
+/**
+ * Type guard to check if value is an array of organization-like objects
+ * @internal
+ */
+function isRawSessionOrganizationArray(value: unknown): value is RawSessionOrganization[] {
+  return Array.isArray(value) && value.every(item => item !== null && typeof item === 'object')
+}
+
+/**
  * Extract organizations from session metadata
  */
 function extractOrganizations(session: Session): OrgAiOrganization[] {
-  if (!session.metadata?.['organizations']) {
+  const orgsValue = session.metadata?.['organizations']
+  if (!orgsValue || !isRawSessionOrganizationArray(orgsValue)) {
     return []
   }
 
-  const orgs = session.metadata['organizations'] as any[]
-  return orgs.map(org => ({
-    $id: org.$id || org.id,
-    name: org.name,
-    role: org.role || 'member',
-    joinedAt: org.joinedAt
-  }))
+  return orgsValue.map(org => buildOrgAiOrganization(
+    org.$id || org.id || '',
+    org.role || 'member',
+    org.name,
+    org.joinedAt
+  ))
 }
 
 /**

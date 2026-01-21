@@ -31,6 +31,9 @@ import { RPCHandler } from './handlers/rpc'
 import { WebSocketHandler } from './handlers/websocket'
 import { DOHandlerRegistry } from './handlers/registry'
 
+// Import type generation
+import { generateTypes, type TypeGenOptions, type TypeGenResult } from './types-gen'
+
 const logger = createLogger('[DO]')
 
 export interface DOEnv {
@@ -194,6 +197,19 @@ export class DO implements DurableObject {
   // Alarm handler (for scheduling)
   async alarm(): Promise<void> {
     // Override in subclass or use $ scheduling
+  }
+
+  /**
+   * RPC handler for type generation
+   *
+   * Returns TypeScript .d.ts definitions for the DO's interface.
+   * Used by SDK/CLI auto-generation tools.
+   *
+   * @param options - Optional generation options
+   * @returns TypeGenResult with types, version, and timestamp
+   */
+  _types(options?: TypeGenOptions): TypeGenResult {
+    return generateTypes(options)
   }
 
   // WebSocket handlers - delegate to WebSocketHandler

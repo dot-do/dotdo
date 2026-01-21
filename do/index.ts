@@ -3,6 +3,16 @@
 
 export { DO, type DOEnv, type DOOptions } from './DO'
 
+// TypeScript type generation (do-iidr.4)
+export {
+  generateTypes,
+  clearTypeCache,
+  type TypeGenOptions,
+  type TypeGenResult,
+  type CustomTypeDefinition,
+  type FieldDefinition,
+} from './types-gen'
+
 // Composable mixins for building DOs (do-6epx)
 export {
   // Storage mixin
