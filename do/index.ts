@@ -42,6 +42,52 @@
 export { DO, type DOEnv, type DOOptions, type DOMetricsConfig } from './DO'
 
 /**
+ * BusinessDO - Durable Object for Business-as-Code
+ *
+ * Extends DO with analytics, finance, experiments, OKRs, and typed
+ * collections for Products and Services.
+ *
+ * @example
+ * ```typescript
+ * import { BusinessDO } from '@dotdo/do'
+ *
+ * class MyBusinessDO extends BusinessDO {
+ *   constructor(state: DurableObjectState, env: Env) {
+ *     super(state, env, {
+ *       analytics: { enabled: true },
+ *       finance: { stripeApiKey: env.STRIPE_SECRET_KEY }
+ *     })
+ *   }
+ * }
+ *
+ * // Usage
+ * const mrr = await business.getMRR()
+ * const health = await business.okrs.health()
+ * ```
+ *
+ * @stable
+ * @since 1.1.0
+ */
+export {
+  BusinessDO,
+  type BusinessDOConfig,
+  type BusinessAnalyticsConfig,
+  type BusinessFinanceConfig,
+  type OKRConfig,
+  type Product,
+  type ProductPrice,
+  type Service,
+  type OKR,
+  type KeyResult,
+  type ProductAnalyticsResult,
+  type ServiceAnalyticsResult,
+  type OKRHealth,
+  type ProductsCollection,
+  type ServicesCollection,
+  type OKRsCollection,
+} from './BusinessDO'
+
+/**
  * TypeScript type generation utilities.
  *
  * Generates TypeScript .d.ts definitions for DO interfaces dynamically.
