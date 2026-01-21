@@ -43,7 +43,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "test": "vitest",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
