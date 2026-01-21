@@ -10,12 +10,16 @@
  * - Proactively refreshes tokens that are about to expire
  * - Retries requests on 401 responses with fresh tokens
  *
- * @example
+ * @example Decorator pattern (recommended)
  * ```typescript
- * import { createClient, AuthTransport, TokenStore, createRefreshFn } from 'rpc.do'
+ * import { createClient, AuthTransport, FetchTransport, TokenStore, createRefreshFn } from 'rpc.do'
  *
+ * // Create base transport
+ * const baseTransport = new FetchTransport({ url: 'https://api.example.com' })
+ *
+ * // Wrap with auth
  * const transport = new AuthTransport({
- *   url: 'https://api.example.com',
+ *   transport: baseTransport,  // Wrap existing transport
  *   tokenStore: new TokenStore(),
  *   onRefreshToken: createRefreshFn({
  *     clientId: 'my-app',
@@ -26,12 +30,21 @@
  * const client = createClient<MyAPI>('https://api.example.com', { transport })
  * // Requests are automatically authenticated!
  * ```
+ *
+ * @example Legacy URL-based API (deprecated)
+ * ```typescript
+ * // Still works for backward compatibility
+ * const transport = new AuthTransport({
+ *   url: 'https://api.example.com',  // Creates FetchTransport internally
+ *   tokenStore: new TokenStore(),
+ * })
+ * ```
  */
 
 import type { RPCMessage, RPCResponse } from '../types'
 import type { Transport, TransportState } from '../transport/types'
-import { generateCorrelationId, CORRELATION_ID_HEADER } from '../transport/fetch'
-import type { ITokenStore, StoredTokens } from './token-store'
+import { FetchTransport, generateCorrelationId, CORRELATION_ID_HEADER } from '../transport/fetch'
+import type { ITokenStore } from './token-store'
 
 /**
  * Token refresh function signature
@@ -43,35 +56,65 @@ export type RefreshTokenFn = (refreshToken: string) => Promise<{
 }>
 
 /**
+ * Extended RPC message with optional headers
+ */
+export interface RPCMessageWithHeaders extends RPCMessage {
+  /** Optional headers to include in the request */
+  headers?: Record<string, string>
+}
+
+/**
  * Options for AuthTransport
  */
 export interface AuthTransportOptions {
-  /** Base URL of the RPC endpoint */
-  url: string
+  /**
+   * Wrapped transport (preferred - decorator pattern)
+   *
+   * When provided, AuthTransport wraps this transport and adds auth headers
+   * to all messages before delegating.
+   *
+   * @example
+   * ```typescript
+   * const baseTransport = new FetchTransport({ url: 'https://api.example.com' })
+   * const authTransport = new AuthTransport({
+   *   transport: baseTransport,
+   *   tokenStore: new TokenStore(),
+   * })
+   * ```
+   */
+  transport?: Transport
+  /**
+   * Base URL of the RPC endpoint
+   * @deprecated Use `transport` option instead for better composition.
+   * This option creates a FetchTransport internally.
+   */
+  url?: string
   /** Token store for reading/writing tokens */
   tokenStore: ITokenStore
   /** Function to refresh expired tokens */
   onRefreshToken?: RefreshTokenFn
-  /** Request timeout in milliseconds (default: 30000) */
+  /** Request timeout in milliseconds (default: 30000) - only used when url is provided */
   timeout?: number
   /** Optional correlation ID to use for all requests */
   correlationId?: string
-  /** Custom fetch implementation (for testing) */
+  /** Custom fetch implementation (for testing) - only used when url is provided */
   fetch?: typeof globalThis.fetch
 }
 
 /**
- * Auth Transport - adds OAuth authentication to RPC requests
+ * Auth Transport - adds OAuth authentication to RPC requests (Decorator pattern)
  *
  * This transport wrapper:
- * 1. Attaches Authorization header when a valid token is available
- * 2. Proactively refreshes tokens that are about to expire
- * 3. Automatically retries requests on 401 with fresh tokens
+ * 1. Wraps an existing transport (decorator pattern)
+ * 2. Attaches Authorization header when a valid token is available
+ * 3. Proactively refreshes tokens that are about to expire
+ * 4. Automatically retries requests on 401 with fresh tokens
  *
- * @example
+ * @example Decorator pattern (recommended)
  * ```typescript
+ * const baseTransport = new FetchTransport({ url: 'https://api.example.com' })
  * const transport = new AuthTransport({
- *   url: 'https://api.example.com',
+ *   transport: baseTransport,
  *   tokenStore: new TokenStore(),
  *   onRefreshToken: async (refreshToken) => {
  *     return refreshToken({ refreshToken, clientId: 'my-app', oauthBaseUrl: 'https://oauth.do' })
@@ -82,29 +125,44 @@ export interface AuthTransportOptions {
  * ```
  */
 export class AuthTransport implements Transport {
-  private readonly url: string
+  private readonly innerTransport: Transport
   private readonly tokenStore: ITokenStore
   private readonly onRefreshToken?: RefreshTokenFn
-  private readonly timeout: number
   private readonly baseCorrelationId?: string
-  private readonly fetchImpl: typeof globalThis.fetch
   private isRefreshing: boolean = false
 
   constructor(options: AuthTransportOptions) {
-    this.url = options.url
+    // Decorator pattern: prefer wrapped transport over URL
+    if (options.transport) {
+      this.innerTransport = options.transport
+    } else if (options.url) {
+      // Backward compatibility: create FetchTransport internally
+      // Build options conditionally to satisfy exactOptionalPropertyTypes
+      this.innerTransport = new FetchTransport(
+        Object.assign(
+          { url: options.url },
+          options.timeout !== undefined && { timeout: options.timeout },
+          options.correlationId !== undefined && { correlationId: options.correlationId },
+          options.fetch !== undefined && { fetch: options.fetch }
+        )
+      )
+    } else {
+      throw new Error('AuthTransport requires either transport or url option')
+    }
+
     this.tokenStore = options.tokenStore
     if (options.onRefreshToken !== undefined) {
       this.onRefreshToken = options.onRefreshToken
     }
-    this.timeout = options.timeout ?? 30000
     if (options.correlationId !== undefined) {
       this.baseCorrelationId = options.correlationId
     }
-    this.fetchImpl = options.fetch ?? globalThis.fetch
   }
 
   /**
    * Send an RPC message with authentication
+   *
+   * Augments the message with auth headers and delegates to the wrapped transport.
    */
   async send<T = unknown>(message: RPCMessage): Promise<RPCResponse<T>> {
     const correlationId = message.correlationId ?? this.baseCorrelationId ?? generateCorrelationId()
@@ -115,84 +173,44 @@ export class AuthTransport implements Transport {
     // Get current token
     const tokens = await this.tokenStore.getTokens()
 
-    // Build headers
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      [CORRELATION_ID_HEADER]: correlationId,
-    }
+    // Augment message with auth header
+    const authMessage = this.augmentMessageWithAuth(message, tokens?.access_token, correlationId)
 
-    if (tokens?.access_token) {
-      headers['Authorization'] = `Bearer ${tokens.access_token}`
-    }
-
-    // Make the request
-    let response: Response
-    try {
-      response = await this.fetchImpl(`${this.url}/rpc`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          method: message.method,
-          args: message.args,
-        }),
-        signal: AbortSignal.timeout(this.timeout),
-      })
-    } catch (error) {
-      return {
-        error: {
-          type: 'TransportError',
-          code: 'TRANSPORT_FAILED',
-          message: error instanceof Error ? error.message : String(error),
-        },
-        correlationId,
-      }
-    }
+    // Delegate to inner transport
+    const response = await this.innerTransport.send<T>(authMessage)
 
     // Handle 401 - try to refresh and retry
-    if (response.status === 401 && tokens?.refresh_token && this.onRefreshToken) {
+    if (response.error?.httpStatus === 401 && tokens?.refresh_token && this.onRefreshToken) {
       const refreshed = await this.tryRefreshToken(tokens.refresh_token)
       if (refreshed) {
         // Retry with new token
-        return this.retryWithFreshToken(message, correlationId)
+        return this.retryWithFreshToken<T>(message, correlationId)
       }
     }
 
-    const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) ?? correlationId
+    return response
+  }
 
-    if (!response.ok) {
-      try {
-        const errorBody = await response.json() as { type?: string; code?: string; message?: string }
-        if (errorBody.code && errorBody.message) {
-          return {
-            error: {
-              type: errorBody.type ?? 'RPCError',
-              code: errorBody.code,
-              message: errorBody.message,
-              httpStatus: response.status,
-            },
-            correlationId: responseCorrelationId,
-          }
-        }
-      } catch {
-        // Failed to parse as JSON
-      }
+  /**
+   * Augment an RPC message with authentication headers
+   */
+  private augmentMessageWithAuth(
+    message: RPCMessage,
+    accessToken: string | undefined,
+    correlationId: string
+  ): RPCMessageWithHeaders {
+    const existingHeaders = (message as RPCMessageWithHeaders).headers ?? {}
 
-      return {
-        error: {
-          type: 'RPCError',
-          code: 'INTERNAL_ERROR',
-          message: `RPC error: ${response.status}`,
-          httpStatus: response.status,
-        },
-        correlationId: responseCorrelationId,
-      }
+    const authMessage: RPCMessageWithHeaders = {
+      ...message,
+      correlationId,
+      headers: {
+        ...existingHeaders,
+        ...(accessToken && { Authorization: `Bearer ${accessToken}` }),
+      },
     }
 
-    const result = await response.json() as T
-    return {
-      result,
-      correlationId: responseCorrelationId,
-    }
+    return authMessage
   }
 
   /**
@@ -249,69 +267,34 @@ export class AuthTransport implements Transport {
   ): Promise<RPCResponse<T>> {
     const tokens = await this.tokenStore.getTokens()
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      [CORRELATION_ID_HEADER]: correlationId,
-    }
+    // Augment message with new token
+    const authMessage = this.augmentMessageWithAuth(message, tokens?.access_token, correlationId)
 
-    if (tokens?.access_token) {
-      headers['Authorization'] = `Bearer ${tokens.access_token}`
-    }
-
-    let response: Response
-    try {
-      response = await this.fetchImpl(`${this.url}/rpc`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          method: message.method,
-          args: message.args,
-        }),
-        signal: AbortSignal.timeout(this.timeout),
-      })
-    } catch (error) {
-      return {
-        error: {
-          type: 'TransportError',
-          code: 'TRANSPORT_FAILED',
-          message: error instanceof Error ? error.message : String(error),
-        },
-        correlationId,
-      }
-    }
-
-    const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) ?? correlationId
-
-    if (!response.ok) {
-      return {
-        error: {
-          type: 'RPCError',
-          code: 'INTERNAL_ERROR',
-          message: `RPC error: ${response.status}`,
-          httpStatus: response.status,
-        },
-        correlationId: responseCorrelationId,
-      }
-    }
-
-    const result = await response.json() as T
-    return {
-      result,
-      correlationId: responseCorrelationId,
-    }
+    // Delegate to inner transport
+    return this.innerTransport.send<T>(authMessage)
   }
 
   /**
-   * Auth transport is stateless - no close needed
+   * Close the transport
+   *
+   * Delegates to the wrapped transport if it supports close.
    */
   async close(): Promise<void> {
-    // No-op
+    if (this.innerTransport.close) {
+      await this.innerTransport.close()
+    }
   }
 
   /**
-   * Auth transport is always "connected"
+   * Get the transport state
+   *
+   * Delegates to the wrapped transport if it supports getState,
+   * otherwise returns CONNECTED.
    */
   getState(): TransportState {
+    if (this.innerTransport.getState) {
+      return this.innerTransport.getState()
+    }
     return 'CONNECTED' as TransportState
   }
 }
@@ -325,12 +308,13 @@ export class AuthTransport implements Transport {
  * @param options - Configuration options for the transport
  * @returns A new AuthTransport instance
  *
- * @example
+ * @example Decorator pattern (recommended)
  * ```typescript
- * import { createAuthTransport, createClient, TokenStore, createRefreshFn } from 'rpc.do'
+ * import { createAuthTransport, createFetchTransport, createClient, TokenStore, createRefreshFn } from 'rpc.do'
  *
+ * const baseTransport = createFetchTransport({ url: 'https://api.example.com' })
  * const transport = createAuthTransport({
- *   url: 'https://api.example.com',
+ *   transport: baseTransport,
  *   tokenStore: new TokenStore(),
  *   onRefreshToken: createRefreshFn({
  *     clientId: 'my-app',

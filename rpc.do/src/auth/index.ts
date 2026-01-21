@@ -31,12 +31,16 @@
  * })
  * ```
  *
- * @example Authenticated RPC client
+ * @example Authenticated RPC client (decorator pattern - recommended)
  * ```typescript
- * import { createClient, AuthTransport, TokenStore, createRefreshFn } from 'rpc.do'
+ * import { createClient, AuthTransport, FetchTransport, TokenStore, createRefreshFn } from 'rpc.do'
  *
+ * // Create base transport
+ * const baseTransport = new FetchTransport({ url: 'https://api.example.com' })
+ *
+ * // Wrap with auth (decorator pattern)
  * const transport = new AuthTransport({
- *   url: 'https://api.example.com',
+ *   transport: baseTransport,
  *   tokenStore: new TokenStore(),
  *   onRefreshToken: createRefreshFn({
  *     clientId: 'my-app',

@@ -137,9 +137,15 @@ export class FetchTransport implements Transport {
 
   /**
    * Send an RPC message via HTTP POST
+   *
+   * @param message - The RPC message to send. May include optional `headers` property
+   *                  for per-request headers (used by AuthTransport decorator).
    */
   async send<T = unknown>(message: RPCMessage): Promise<RPCResponse<T>> {
     const correlationId = message.correlationId ?? this.baseCorrelationId ?? generateCorrelationId()
+
+    // Support per-message headers (for decorator pattern composition)
+    const messageHeaders = (message as RPCMessage & { headers?: Record<string, string> }).headers ?? {}
 
     let response: Response
     try {
@@ -149,6 +155,7 @@ export class FetchTransport implements Transport {
           'Content-Type': 'application/json',
           [CORRELATION_ID_HEADER]: correlationId,
           ...this.headers,
+          ...messageHeaders,
         },
         body: JSON.stringify({
           method: message.method,
