@@ -409,9 +409,17 @@ export class AIError extends Error {
  */
 export class AIModelResolutionError extends AIError {
   constructor(modelId: string, cause?: Error) {
+    // Build options with only defined values to satisfy exactOptionalPropertyTypes
+    const opts: { operation: string; model: string; cause?: Error } = {
+      operation: 'resolveModel',
+      model: modelId,
+    }
+    if (cause !== undefined) {
+      opts.cause = cause
+    }
     super(
       `Failed to resolve model "${modelId}"${cause ? `: ${cause.message}` : ''}`,
-      { operation: 'resolveModel', model: modelId, cause }
+      opts
     )
     this.name = 'AIModelResolutionError'
   }
@@ -559,17 +567,58 @@ export class AIStreamError extends AIProviderError {
 
 /**
  * Extract error details from a provider error.
+ * Returns an object that can be safely used with exactOptionalPropertyTypes.
  */
 function extractErrorDetails(error: unknown): { status?: number; code?: string; message: string } {
   if (error instanceof Error) {
     const err = error as Error & { status?: number; code?: string; statusCode?: number }
-    return {
-      status: err.status ?? err.statusCode,
-      code: err.code,
+    const result: { status?: number; code?: string; message: string } = {
       message: err.message,
     }
+    const status = err.status ?? err.statusCode
+    if (status !== undefined) {
+      result.status = status
+    }
+    if (err.code !== undefined) {
+      result.code = err.code
+    }
+    return result
   }
   return { message: String(error) }
+}
+
+/**
+ * Build error options from extracted details for use with exactOptionalPropertyTypes.
+ */
+function buildErrorOptions(
+  modelName: string,
+  cause: Error,
+  details: { status?: number; code?: string; message: string }
+): {
+  model: string
+  cause: Error
+  status?: number
+  code?: string
+  retryable: boolean
+} {
+  const opts: {
+    model: string
+    cause: Error
+    status?: number
+    code?: string
+    retryable: boolean
+  } = {
+    model: modelName,
+    cause,
+    retryable: AIProviderError.isRetryable(cause as Error & { status?: number; code?: string }),
+  }
+  if (details.status !== undefined) {
+    opts.status = details.status
+  }
+  if (details.code !== undefined) {
+    opts.code = details.code
+  }
+  return opts
 }
 
 /**
@@ -754,13 +803,7 @@ export async function generateText(
     const cause = e instanceof Error ? e : new Error(String(e))
     throw new AIGenerationError(
       `Text generation failed for model "${modelName}": ${details.message}`,
-      {
-        model: modelName,
-        cause,
-        status: details.status,
-        code: details.code,
-        retryable: AIProviderError.isRetryable(cause as Error & { status?: number; code?: string }),
-      }
+      buildErrorOptions(modelName, cause, details)
     )
   }
 }
@@ -866,13 +909,7 @@ export async function generateObject<T>(
     const cause = e instanceof Error ? e : new Error(String(e))
     throw new AIObjectGenerationError(
       `Object generation failed for model "${modelName}": ${details.message}`,
-      {
-        model: modelName,
-        cause,
-        status: details.status,
-        code: details.code,
-        retryable: AIProviderError.isRetryable(cause as Error & { status?: number; code?: string }),
-      }
+      buildErrorOptions(modelName, cause, details)
     )
   }
 }
@@ -951,13 +988,7 @@ export async function streamText(
     const cause = e instanceof Error ? e : new Error(String(e))
     throw new AIStreamError(
       `Streaming failed for model "${modelName}": ${details.message}`,
-      {
-        model: modelName,
-        cause,
-        status: details.status,
-        code: details.code,
-        retryable: AIProviderError.isRetryable(cause as Error & { status?: number; code?: string }),
-      }
+      buildErrorOptions(modelName, cause, details)
     )
   }
 }
@@ -1076,13 +1107,7 @@ export async function embedText(
     const cause = e instanceof Error ? e : new Error(String(e))
     throw new AIEmbeddingError(
       `Embedding generation failed for model "${modelName}": ${details.message}`,
-      {
-        model: modelName,
-        cause,
-        status: details.status,
-        code: details.code,
-        retryable: AIProviderError.isRetryable(cause as Error & { status?: number; code?: string }),
-      }
+      buildErrorOptions(modelName, cause, details)
     )
   }
 }

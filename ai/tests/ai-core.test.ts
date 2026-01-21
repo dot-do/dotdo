@@ -14,6 +14,13 @@ import {
   getMockConfig,
   resetMockConfig,
   MockModelNotAllowedError,
+  AIError,
+  AIModelResolutionError,
+  AIProviderError,
+  AIGenerationError,
+  AIObjectGenerationError,
+  AIEmbeddingError,
+  AIStreamError,
 } from '../ai-core'
 
 describe('ai-core integration', () => {
@@ -556,6 +563,220 @@ describe('ai-core integration', () => {
     it('should export MockModelNotAllowedError for type checking', () => {
       expect(MockModelNotAllowedError).toBeDefined()
       expect(typeof MockModelNotAllowedError).toBe('function')
+    })
+  })
+
+  /**
+   * Tests for error types and error handling (do-im9w)
+   *
+   * Ensures that:
+   * - Error types are properly exported and can be used for type checking
+   * - Errors contain meaningful information (model, operation, cause, status, code)
+   * - AIProviderError.isRetryable correctly identifies retryable errors
+   * - Errors maintain proper inheritance chain
+   */
+  describe('error types (do-im9w)', () => {
+    describe('AIError base class', () => {
+      it('should have proper structure', () => {
+        const error = new AIError('Test error', { operation: 'test' })
+
+        expect(error).toBeInstanceOf(Error)
+        expect(error).toBeInstanceOf(AIError)
+        expect(error.name).toBe('AIError')
+        expect(error.message).toBe('Test error')
+        expect(error.operation).toBe('test')
+      })
+
+      it('should include model when provided', () => {
+        const error = new AIError('Test error', { operation: 'test', model: 'gpt-4' })
+
+        expect(error.model).toBe('gpt-4')
+      })
+
+      it('should include cause when provided', () => {
+        const cause = new Error('Original error')
+        const error = new AIError('Test error', { operation: 'test', cause })
+
+        expect(error.cause).toBe(cause)
+      })
+    })
+
+    describe('AIModelResolutionError', () => {
+      it('should have proper structure', () => {
+        const error = new AIModelResolutionError('gpt-4')
+
+        expect(error).toBeInstanceOf(Error)
+        expect(error).toBeInstanceOf(AIError)
+        expect(error).toBeInstanceOf(AIModelResolutionError)
+        expect(error.name).toBe('AIModelResolutionError')
+        expect(error.message).toContain('gpt-4')
+        expect(error.operation).toBe('resolveModel')
+        expect(error.model).toBe('gpt-4')
+      })
+
+      it('should include cause in message', () => {
+        const cause = new Error('Invalid API key')
+        const error = new AIModelResolutionError('gpt-4', cause)
+
+        expect(error.message).toContain('Invalid API key')
+        expect(error.cause).toBe(cause)
+      })
+    })
+
+    describe('AIProviderError', () => {
+      it('should have proper structure', () => {
+        const error = new AIProviderError('Provider error', {
+          operation: 'generateText',
+          model: 'gpt-4',
+          status: 429,
+          code: 'rate_limit_exceeded',
+          retryable: true,
+        })
+
+        expect(error).toBeInstanceOf(Error)
+        expect(error).toBeInstanceOf(AIError)
+        expect(error).toBeInstanceOf(AIProviderError)
+        expect(error.name).toBe('AIProviderError')
+        expect(error.status).toBe(429)
+        expect(error.code).toBe('rate_limit_exceeded')
+        expect(error.retryable).toBe(true)
+      })
+
+      it('should default retryable to false', () => {
+        const error = new AIProviderError('Provider error', { operation: 'test' })
+
+        expect(error.retryable).toBe(false)
+      })
+
+      describe('isRetryable', () => {
+        it('should identify rate limit errors (status 429)', () => {
+          const error = new Error('Rate limited') as Error & { status: number }
+          error.status = 429
+
+          expect(AIProviderError.isRetryable(error)).toBe(true)
+        })
+
+        it('should identify server errors (5xx)', () => {
+          const error500 = new Error('Internal error') as Error & { status: number }
+          error500.status = 500
+          expect(AIProviderError.isRetryable(error500)).toBe(true)
+
+          const error503 = new Error('Service unavailable') as Error & { status: number }
+          error503.status = 503
+          expect(AIProviderError.isRetryable(error503)).toBe(true)
+        })
+
+        it('should identify retryable error codes', () => {
+          const rateLimitError = new Error('Error') as Error & { code: string }
+          rateLimitError.code = 'rate_limit_exceeded'
+          expect(AIProviderError.isRetryable(rateLimitError)).toBe(true)
+
+          const overloadedError = new Error('Error') as Error & { code: string }
+          overloadedError.code = 'overloaded'
+          expect(AIProviderError.isRetryable(overloadedError)).toBe(true)
+
+          const serverError = new Error('Error') as Error & { code: string }
+          serverError.code = 'server_error'
+          expect(AIProviderError.isRetryable(serverError)).toBe(true)
+        })
+
+        it('should identify retryable error messages', () => {
+          expect(AIProviderError.isRetryable(new Error('Rate limit exceeded'))).toBe(true)
+          expect(AIProviderError.isRetryable(new Error('Too many requests'))).toBe(true)
+          expect(AIProviderError.isRetryable(new Error('Server is overloaded'))).toBe(true)
+          expect(AIProviderError.isRetryable(new Error('Request timeout'))).toBe(true)
+          expect(AIProviderError.isRetryable(new Error('ECONNRESET'))).toBe(true)
+          expect(AIProviderError.isRetryable(new Error('Socket hang up'))).toBe(true)
+          expect(AIProviderError.isRetryable(new Error('Network error'))).toBe(true)
+        })
+
+        it('should not identify non-retryable errors', () => {
+          expect(AIProviderError.isRetryable(new Error('Invalid API key'))).toBe(false)
+          expect(AIProviderError.isRetryable(new Error('Model not found'))).toBe(false)
+          expect(AIProviderError.isRetryable(new Error('Invalid request'))).toBe(false)
+
+          const error400 = new Error('Bad request') as Error & { status: number }
+          error400.status = 400
+          expect(AIProviderError.isRetryable(error400)).toBe(false)
+
+          const error401 = new Error('Unauthorized') as Error & { status: number }
+          error401.status = 401
+          expect(AIProviderError.isRetryable(error401)).toBe(false)
+        })
+      })
+    })
+
+    describe('AIGenerationError', () => {
+      it('should have proper structure', () => {
+        const error = new AIGenerationError('Generation failed', {
+          model: 'sonnet',
+          status: 500,
+        })
+
+        expect(error).toBeInstanceOf(AIProviderError)
+        expect(error.name).toBe('AIGenerationError')
+        expect(error.operation).toBe('generateText')
+        expect(error.model).toBe('sonnet')
+      })
+    })
+
+    describe('AIObjectGenerationError', () => {
+      it('should have proper structure', () => {
+        const error = new AIObjectGenerationError('Object generation failed', {
+          model: 'sonnet',
+        })
+
+        expect(error).toBeInstanceOf(AIProviderError)
+        expect(error.name).toBe('AIObjectGenerationError')
+        expect(error.operation).toBe('generateObject')
+      })
+    })
+
+    describe('AIEmbeddingError', () => {
+      it('should have proper structure', () => {
+        const error = new AIEmbeddingError('Embedding failed', {
+          model: 'text-embedding-3-small',
+        })
+
+        expect(error).toBeInstanceOf(AIProviderError)
+        expect(error.name).toBe('AIEmbeddingError')
+        expect(error.operation).toBe('embedText')
+      })
+    })
+
+    describe('AIStreamError', () => {
+      it('should have proper structure', () => {
+        const error = new AIStreamError('Streaming failed', {
+          model: 'sonnet',
+        })
+
+        expect(error).toBeInstanceOf(AIProviderError)
+        expect(error.name).toBe('AIStreamError')
+        expect(error.operation).toBe('streamText')
+      })
+    })
+
+    describe('error exports', () => {
+      it('should export all error types', () => {
+        expect(AIError).toBeDefined()
+        expect(AIModelResolutionError).toBeDefined()
+        expect(AIProviderError).toBeDefined()
+        expect(AIGenerationError).toBeDefined()
+        expect(AIObjectGenerationError).toBeDefined()
+        expect(AIEmbeddingError).toBeDefined()
+        expect(AIStreamError).toBeDefined()
+      })
+
+      it('should allow instanceof checks for error handling', () => {
+        const error = new AIGenerationError('Test', { model: 'test' })
+
+        // All parent classes should match
+        expect(error instanceof AIStreamError).toBe(false)
+        expect(error instanceof AIGenerationError).toBe(true)
+        expect(error instanceof AIProviderError).toBe(true)
+        expect(error instanceof AIError).toBe(true)
+        expect(error instanceof Error).toBe(true)
+      })
     })
   })
 })
