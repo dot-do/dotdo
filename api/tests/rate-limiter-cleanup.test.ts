@@ -99,11 +99,14 @@ describe('Rate Limiter Memory Cleanup - Sliding Window', () => {
     await vi.advanceTimersByTimeAsync(61000)
 
     // Trigger cleanup
-    await rateLimiter.cleanup()
+    const entriesRemoved = await rateLimiter.cleanup()
 
     // All entries should be removed since they expired
     const metricsAfterCleanup = await rateLimiter.getMetrics()
     expect(metricsAfterCleanup.slidingWindowCount).toBe(0)
+
+    // cleanup() should return number of entries removed
+    expect(entriesRemoved).toBe(3)
   })
 
   it('should retain active sliding window entries during cleanup', async () => {
@@ -198,11 +201,14 @@ describe('Rate Limiter Memory Cleanup - Fixed Window', () => {
     await vi.advanceTimersByTimeAsync(61000)
 
     // Trigger cleanup
-    await rateLimiter.cleanup()
+    const entriesRemoved = await rateLimiter.cleanup()
 
     // All entries should be removed since they expired
     const metricsAfterCleanup = await rateLimiter.getMetrics()
     expect(metricsAfterCleanup.fixedWindowCount).toBe(0)
+
+    // cleanup() should return number of entries removed
+    expect(entriesRemoved).toBe(3)
   })
 
   it('should retain active fixed window entries during cleanup', async () => {
@@ -384,6 +390,7 @@ describe('Rate Limiter Metrics', () => {
       fixedWindowCount: 0,
       totalEntries: 0,
       lastCleanup: null,
+      entriesRemoved: 0,
     })
 
     // Add some entries
@@ -409,6 +416,41 @@ describe('Rate Limiter Metrics', () => {
 
     metrics = await rateLimiter.getMetrics()
     expect(metrics.lastCleanup).toBe(Date.now())
+  })
+
+  it('should track entriesRemoved in metrics', async () => {
+    rateLimiter = new RateLimiter({
+      keyStrategy: 'tenant',
+      tiers: {
+        test: { name: 'test', requestsPerWindow: 100, windowMs: 60000 },
+      },
+      defaultTier: 'test',
+      windowStrategy: 'sliding',
+    })
+
+    // Add entries and let them expire
+    await rateLimiter.check(createMockRequest({ tenantId: 'tenant-a' }))
+    await rateLimiter.check(createMockRequest({ tenantId: 'tenant-b' }))
+
+    // Advance time past expiration
+    await vi.advanceTimersByTimeAsync(61000)
+
+    // Trigger cleanup
+    await rateLimiter.cleanup()
+
+    // Metrics should reflect entries removed
+    const metrics = await rateLimiter.getMetrics()
+    expect(metrics.entriesRemoved).toBe(2)
+  })
+
+  it('cleanup() should return 0 when no entries to clean', async () => {
+    rateLimiter = new RateLimiter({
+      keyStrategy: 'tenant',
+      defaultTier: 'free',
+    })
+
+    const entriesRemoved = await rateLimiter.cleanup()
+    expect(entriesRemoved).toBe(0)
   })
 
   it('should include both sliding and fixed window counts', async () => {

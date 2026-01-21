@@ -99,6 +99,8 @@ export interface RateLimiterMetrics {
   totalEntries: number
   /** Timestamp of last cleanup (null if never cleaned) */
   lastCleanup: number | null
+  /** Number of entries removed in last cleanup (0 if never cleaned) */
+  entriesRemoved: number
 }
 
 /**
@@ -178,6 +180,7 @@ export class RateLimiter {
   private readonly lruOrder: string[] = []
   private simulateStorageFailure = false
   private lastCleanup: number | null = null
+  private lastEntriesRemoved: number = 0
   private cleanupIntervalId: ReturnType<typeof setInterval> | null = null
 
   constructor(config: RateLimitConfig) {
@@ -591,11 +594,14 @@ export class RateLimiter {
   /**
    * Clean up expired entries from both window maps
    * Removes entries where all requests have expired beyond the window duration
+   *
+   * @returns Number of entries removed during cleanup
    */
-  async cleanup(): Promise<void> {
+  async cleanup(): Promise<number> {
     const now = Date.now()
     const defaultTier = this.config.tiers[this.config.defaultTier] ?? DEFAULT_TIERS['free']!
     const windowMs = defaultTier.windowMs
+    let entriesRemoved = 0
 
     // Clean sliding windows - remove entries with all requests expired
     for (const [key, state] of this.slidingWindows) {
@@ -607,6 +613,7 @@ export class RateLimiter {
       if (state.requests.length === 0) {
         this.slidingWindows.delete(key)
         this.removeLRU(key)
+        entriesRemoved++
       }
     }
 
@@ -615,10 +622,13 @@ export class RateLimiter {
       if (now >= state.windowStart + windowMs) {
         this.fixedWindows.delete(key)
         this.removeLRU(key)
+        entriesRemoved++
       }
     }
 
     this.lastCleanup = now
+    this.lastEntriesRemoved = entriesRemoved
+    return entriesRemoved
   }
 
   /**
@@ -640,6 +650,7 @@ export class RateLimiter {
       fixedWindowCount: this.fixedWindows.size,
       totalEntries: this.slidingWindows.size + this.fixedWindows.size,
       lastCleanup: this.lastCleanup,
+      entriesRemoved: this.lastEntriesRemoved,
     }
   }
 
