@@ -22,6 +22,8 @@ import {
   generateCollectionLinks,
   withLinks,
   withCollectionLinks,
+  generateErrorLinks,
+  createErrorResponse,
   type Link,
 } from '../hateoas'
 
@@ -178,7 +180,13 @@ function createTestAPI() {
     const user = users.find((u) => u.id === id)
 
     if (!user) {
-      return c.json({ error: 'User not found', status: 404 }, 404)
+      return c.json(
+        createErrorResponse('User not found', 404, baseUrl, {
+          docsPath: '/docs',
+          healthPath: '/health',
+        }),
+        404
+      )
     }
 
     const links = generateLinks('users', id, baseUrl, userConfig)
@@ -206,7 +214,13 @@ function createTestAPI() {
     const userIndex = users.findIndex((u) => u.id === id)
 
     if (userIndex === -1) {
-      return c.json({ error: 'User not found', status: 404 }, 404)
+      return c.json(
+        createErrorResponse('User not found', 404, baseUrl, {
+          docsPath: '/docs',
+          healthPath: '/health',
+        }),
+        404
+      )
     }
 
     const body = await c.req.json<Partial<TestUser>>()
@@ -218,11 +232,18 @@ function createTestAPI() {
 
   // Delete user
   app.delete('/users/:id', (c) => {
+    const baseUrl = getBaseUrl(c.req.url)
     const id = c.req.param('id')
     const userIndex = users.findIndex((u) => u.id === id)
 
     if (userIndex === -1) {
-      return c.json({ error: 'User not found', status: 404 }, 404)
+      return c.json(
+        createErrorResponse('User not found', 404, baseUrl, {
+          docsPath: '/docs',
+          healthPath: '/health',
+        }),
+        404
+      )
     }
 
     users.splice(userIndex, 1)
@@ -236,7 +257,13 @@ function createTestAPI() {
     const user = users.find((u) => u.id === id)
 
     if (!user) {
-      return c.json({ error: 'User not found', status: 404 }, 404)
+      return c.json(
+        createErrorResponse('User not found', 404, baseUrl, {
+          docsPath: '/docs',
+          healthPath: '/health',
+        }),
+        404
+      )
     }
 
     const links = generateLinks('users', id, baseUrl, userConfig)
@@ -251,7 +278,13 @@ function createTestAPI() {
     const user = users.find((u) => u.id === id)
 
     if (!user) {
-      return c.json({ error: 'User not found', status: 404 }, 404)
+      return c.json(
+        createErrorResponse('User not found', 404, baseUrl, {
+          docsPath: '/docs',
+          healthPath: '/health',
+        }),
+        404
+      )
     }
 
     const links = generateLinks('users', id, baseUrl, userConfig)
@@ -295,7 +328,13 @@ function createTestAPI() {
     const order = orders.find((o) => o.id === id)
 
     if (!order) {
-      return c.json({ error: 'Order not found', status: 404 }, 404)
+      return c.json(
+        createErrorResponse('Order not found', 404, baseUrl, {
+          docsPath: '/docs',
+          healthPath: '/health',
+        }),
+        404
+      )
     }
 
     const orderConfig = {
@@ -316,6 +355,63 @@ function createTestAPI() {
     }
 
     return c.json(withLinks(order, links))
+  })
+
+  // Validation error endpoint for testing 400 errors
+  app.post('/users/:id/validate', async (c) => {
+    const baseUrl = getBaseUrl(c.req.url)
+    const body = await c.req.json<{ email?: string }>()
+
+    // Simulate validation error for invalid email
+    if (!body.email || !body.email.includes('@')) {
+      return c.json(
+        createErrorResponse('Validation failed', 400, baseUrl, {
+          docsPath: '/docs',
+          healthPath: '/health',
+          details: { email: 'Invalid email format' },
+        }),
+        400
+      )
+    }
+
+    return c.json({ valid: true })
+  })
+
+  // Server error endpoint for testing 500 errors
+  app.get('/error', (c) => {
+    const baseUrl = getBaseUrl(c.req.url)
+    return c.json(
+      createErrorResponse('Internal server error', 500, baseUrl, {
+        docsPath: '/docs',
+        healthPath: '/health',
+        requestId: 'test-request-123',
+      }),
+      500
+    )
+  })
+
+  // Forbidden endpoint for testing 403 errors
+  app.get('/admin', (c) => {
+    const baseUrl = getBaseUrl(c.req.url)
+    return c.json(
+      createErrorResponse('Forbidden', 403, baseUrl, {
+        docsPath: '/docs',
+        healthPath: '/health',
+      }),
+      403
+    )
+  })
+
+  // Unauthorized endpoint for testing 401 errors
+  app.get('/protected', (c) => {
+    const baseUrl = getBaseUrl(c.req.url)
+    return c.json(
+      createErrorResponse('Unauthorized', 401, baseUrl, {
+        docsPath: '/docs',
+        healthPath: '/health',
+      }),
+      401
+    )
   })
 
   return app
@@ -932,5 +1028,408 @@ describe('HATEOAS E2E: Content Type and Headers', () => {
     // Note: X-Request-ID is added by createAPI middleware, not raw Hono
     // This test verifies basic Hono headers work
     expect(res.headers.get('content-type')).toBeDefined()
+  })
+})
+
+// ============================================================================
+// E2E Tests: Error Responses with HATEOAS Links
+// ============================================================================
+
+describe('HATEOAS E2E: Error Responses with Links', () => {
+  let app: ReturnType<typeof createTestAPI>
+
+  beforeEach(() => {
+    app = createTestAPI()
+  })
+
+  describe('404 Not Found Errors', () => {
+    it('should include _links in 404 responses for resources', async () => {
+      const res = await app.request('http://localhost/users/999')
+
+      expect(res.status).toBe(404)
+      const body = await res.json()
+
+      expect(body.error).toBe('User not found')
+      expect(body.status).toBe(404)
+      expect(body._links).toBeDefined()
+    })
+
+    it('should include root link in 404 error response', async () => {
+      const res = await app.request('http://localhost/users/999')
+      const body = await res.json()
+
+      expect(body._links.root).toBeDefined()
+      expect(body._links.root.href).toBe('http://localhost/')
+      expect(body._links.root.rel).toBe('up')
+      expect(body._links.root.method).toBe('GET')
+    })
+
+    it('should include help/docs link in 404 error response', async () => {
+      const res = await app.request('http://localhost/users/999')
+      const body = await res.json()
+
+      expect(body._links.help).toBeDefined()
+      expect(body._links.help.href).toBe('http://localhost/docs')
+      expect(body._links.help.rel).toBe('help')
+      expect(body._links.help.method).toBe('GET')
+    })
+
+    it('should include health check link in 404 error response', async () => {
+      const res = await app.request('http://localhost/users/999')
+      const body = await res.json()
+
+      expect(body._links.health).toBeDefined()
+      expect(body._links.health.href).toBe('http://localhost/health')
+      expect(body._links.health.rel).toBe('related')
+      expect(body._links.health.method).toBe('GET')
+    })
+
+    it('should allow navigation from 404 error to API root', async () => {
+      // Get 404 error
+      const errorRes = await app.request('http://localhost/orders/999')
+      expect(errorRes.status).toBe(404)
+      const errorBody = await errorRes.json()
+
+      // Follow root link to recover
+      const rootUrl = errorBody._links.root.href
+      const rootRes = await app.request(rootUrl)
+
+      expect(rootRes.status).toBe(200)
+      const rootBody = await rootRes.json()
+      expect(rootBody.name).toBe('HATEOAS Test API')
+    })
+
+    it('should allow navigation from 404 error to health endpoint', async () => {
+      const errorRes = await app.request('http://localhost/users/999')
+      const errorBody = await errorRes.json()
+
+      const healthUrl = errorBody._links.health.href
+      const healthRes = await app.request(healthUrl)
+
+      expect(healthRes.status).toBe(200)
+      const healthBody = await healthRes.json()
+      expect(healthBody.status).toBe('ok')
+    })
+  })
+
+  describe('400 Bad Request Errors', () => {
+    it('should include _links in validation error responses', async () => {
+      const res = await app.request('http://localhost/users/1/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'invalid-email' }),
+      })
+
+      expect(res.status).toBe(400)
+      const body = await res.json()
+
+      expect(body.error).toBe('Validation failed')
+      expect(body.status).toBe(400)
+      expect(body._links).toBeDefined()
+      expect(body._links.root).toBeDefined()
+      expect(body._links.help).toBeDefined()
+    })
+
+    it('should include validation details in 400 error response', async () => {
+      const res = await app.request('http://localhost/users/1/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'not-an-email' }),
+      })
+
+      const body = await res.json()
+      expect(body.details).toBeDefined()
+      expect(body.details.email).toBe('Invalid email format')
+    })
+  })
+
+  describe('401 Unauthorized Errors', () => {
+    it('should include _links in unauthorized error responses', async () => {
+      const res = await app.request('http://localhost/protected')
+
+      expect(res.status).toBe(401)
+      const body = await res.json()
+
+      expect(body.error).toBe('Unauthorized')
+      expect(body.status).toBe(401)
+      expect(body._links).toBeDefined()
+    })
+
+    it('should provide navigation links for recovery from 401', async () => {
+      const res = await app.request('http://localhost/protected')
+      const body = await res.json()
+
+      // Should have root link to discover authentication methods
+      expect(body._links.root.href).toBe('http://localhost/')
+
+      // Should have help/docs link for auth documentation
+      expect(body._links.help.href).toBe('http://localhost/docs')
+    })
+  })
+
+  describe('403 Forbidden Errors', () => {
+    it('should include _links in forbidden error responses', async () => {
+      const res = await app.request('http://localhost/admin')
+
+      expect(res.status).toBe(403)
+      const body = await res.json()
+
+      expect(body.error).toBe('Forbidden')
+      expect(body.status).toBe(403)
+      expect(body._links).toBeDefined()
+    })
+
+    it('should provide helpful links in 403 response', async () => {
+      const res = await app.request('http://localhost/admin')
+      const body = await res.json()
+
+      // Verify all standard error links are present
+      expect(body._links.root).toBeDefined()
+      expect(body._links.help).toBeDefined()
+      expect(body._links.health).toBeDefined()
+    })
+  })
+
+  describe('500 Server Errors', () => {
+    it('should include _links in server error responses', async () => {
+      const res = await app.request('http://localhost/error')
+
+      expect(res.status).toBe(500)
+      const body = await res.json()
+
+      expect(body.error).toBe('Internal server error')
+      expect(body.status).toBe(500)
+      expect(body._links).toBeDefined()
+    })
+
+    it('should include requestId in 500 error response', async () => {
+      const res = await app.request('http://localhost/error')
+      const body = await res.json()
+
+      expect(body.requestId).toBe('test-request-123')
+    })
+
+    it('should provide recovery links even for 500 errors', async () => {
+      const res = await app.request('http://localhost/error')
+      const body = await res.json()
+
+      // Even on server error, client should be able to navigate back
+      expect(body._links.root).toBeDefined()
+      expect(body._links.health).toBeDefined()
+
+      // Verify health endpoint is reachable from error
+      const healthRes = await app.request(body._links.health.href)
+      expect(healthRes.status).toBe(200)
+    })
+  })
+
+  describe('Error Response Link Structure', () => {
+    it('should have valid link structure in all error responses', async () => {
+      const errorEndpoints = [
+        'http://localhost/users/999',
+        'http://localhost/orders/999',
+        'http://localhost/admin',
+        'http://localhost/protected',
+        'http://localhost/error',
+      ]
+
+      for (const endpoint of errorEndpoints) {
+        const res = await app.request(endpoint)
+        const body = await res.json()
+
+        expect(body._links).toBeDefined()
+
+        // Validate each link structure
+        for (const [, link] of Object.entries(body._links)) {
+          expectValidLink(link)
+        }
+      }
+    })
+
+    it('should have consistent link properties across error types', async () => {
+      // Get different error types
+      const notFoundRes = await app.request('http://localhost/users/999')
+      const forbiddenRes = await app.request('http://localhost/admin')
+      const serverErrorRes = await app.request('http://localhost/error')
+
+      const notFoundBody = await notFoundRes.json()
+      const forbiddenBody = await forbiddenRes.json()
+      const serverErrorBody = await serverErrorRes.json()
+
+      // All should have the same structure for _links
+      const linkKeys = ['root', 'help', 'health']
+
+      for (const key of linkKeys) {
+        expect(notFoundBody._links[key]).toBeDefined()
+        expect(forbiddenBody._links[key]).toBeDefined()
+        expect(serverErrorBody._links[key]).toBeDefined()
+      }
+    })
+
+    it('should return JSON content type for error responses', async () => {
+      const errorEndpoints = [
+        'http://localhost/users/999',
+        'http://localhost/admin',
+        'http://localhost/error',
+      ]
+
+      for (const endpoint of errorEndpoints) {
+        const res = await app.request(endpoint)
+        expect(res.headers.get('content-type')).toContain('application/json')
+      }
+    })
+  })
+
+  describe('Error Recovery Navigation', () => {
+    it('should enable full recovery flow: error -> root -> resources', async () => {
+      // Step 1: Hit a 404 error
+      const errorRes = await app.request('http://localhost/users/nonexistent')
+      expect(errorRes.status).toBe(404)
+      const errorBody = await errorRes.json()
+
+      // Step 2: Navigate to root from error
+      const rootUrl = errorBody._links.root.href
+      const rootRes = await app.request(rootUrl)
+      expect(rootRes.status).toBe(200)
+      const rootBody = await rootRes.json()
+
+      // Step 3: Navigate to users collection from root
+      const usersUrl = rootBody._links.users.href
+      const usersRes = await app.request(usersUrl)
+      expect(usersRes.status).toBe(200)
+      const usersBody = await usersRes.json()
+
+      // Step 4: Navigate to a valid user
+      const validUser = usersBody.data[0]
+      const userUrl = validUser._links.self.href
+      const userRes = await app.request(userUrl)
+      expect(userRes.status).toBe(200)
+    })
+
+    it('should enable error -> health check -> verify service status', async () => {
+      // Get 500 error
+      const errorRes = await app.request('http://localhost/error')
+      expect(errorRes.status).toBe(500)
+      const errorBody = await errorRes.json()
+
+      // Client can check if service is healthy using error response links
+      const healthUrl = errorBody._links.health.href
+      const healthRes = await app.request(healthUrl)
+      const healthBody = await healthRes.json()
+
+      // If health check passes, the error was likely transient
+      expect(healthRes.status).toBe(200)
+      expect(healthBody.status).toBe('ok')
+    })
+  })
+})
+
+// ============================================================================
+// E2E Tests: Error Link Generation Functions
+// ============================================================================
+
+describe('HATEOAS E2E: Error Link Generation', () => {
+  describe('generateErrorLinks', () => {
+    it('should generate root link with up relation', () => {
+      const links = generateErrorLinks('http://localhost')
+
+      expect(links.root).toBeDefined()
+      expect(links.root.href).toBe('http://localhost/')
+      expect(links.root.rel).toBe('up')
+      expect(links.root.method).toBe('GET')
+    })
+
+    it('should include help link when docsPath is provided', () => {
+      const links = generateErrorLinks('http://localhost', {
+        docsPath: '/documentation',
+      })
+
+      expect(links.help).toBeDefined()
+      expect(links.help.href).toBe('http://localhost/documentation')
+      expect(links.help.rel).toBe('help')
+    })
+
+    it('should include health link when healthPath is provided', () => {
+      const links = generateErrorLinks('http://localhost', {
+        healthPath: '/health-check',
+      })
+
+      expect(links.health).toBeDefined()
+      expect(links.health.href).toBe('http://localhost/health-check')
+      expect(links.health.rel).toBe('related')
+    })
+
+    it('should handle missing optional paths', () => {
+      const links = generateErrorLinks('http://localhost')
+
+      expect(links.root).toBeDefined()
+      expect(links.help).toBeUndefined()
+      expect(links.health).toBeUndefined()
+    })
+  })
+
+  describe('createErrorResponse', () => {
+    it('should create complete error response structure', () => {
+      const response = createErrorResponse(
+        'Resource not found',
+        404,
+        'http://localhost',
+        {
+          docsPath: '/docs',
+          healthPath: '/health',
+        }
+      )
+
+      expect(response.error).toBe('Resource not found')
+      expect(response.status).toBe(404)
+      expect(response._links).toBeDefined()
+      expect(response._links?.root).toBeDefined()
+    })
+
+    it('should include requestId when provided', () => {
+      const response = createErrorResponse(
+        'Server error',
+        500,
+        'http://localhost',
+        {
+          requestId: 'req-12345',
+        }
+      )
+
+      expect(response.requestId).toBe('req-12345')
+    })
+
+    it('should include details when provided', () => {
+      const response = createErrorResponse(
+        'Validation error',
+        400,
+        'http://localhost',
+        {
+          details: {
+            field1: 'Error in field1',
+            field2: 'Error in field2',
+          },
+        }
+      )
+
+      expect(response.details).toEqual({
+        field1: 'Error in field1',
+        field2: 'Error in field2',
+      })
+    })
+
+    it('should create minimal error response without options', () => {
+      const response = createErrorResponse(
+        'Bad Request',
+        400,
+        'http://localhost'
+      )
+
+      expect(response.error).toBe('Bad Request')
+      expect(response.status).toBe(400)
+      expect(response._links?.root).toBeDefined()
+      expect(response.requestId).toBeUndefined()
+      expect(response.details).toBeUndefined()
+    })
   })
 })
