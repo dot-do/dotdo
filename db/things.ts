@@ -294,12 +294,86 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
  * In-memory implementation of ThingsStore.
  * Uses internal Map for storage.
  *
- * @deprecated Use createThingsStoreWithAdapter() with SQLiteAdapter instead.
+ * @deprecated Use createThingsStoreWithAdapter() with a storage adapter instead.
  *             This in-memory implementation will be removed in v4.0.0.
  * @since 1.0.0
  * @see {@link createThingsStoreWithAdapter} for the recommended alternative
+ *
+ * ## Migration Guide
+ *
+ * ### For Testing (In-Memory Storage)
+ *
+ * If you were using `createThingsStore()` for testing with in-memory storage,
+ * migrate to `createThingsStoreWithAdapter()` with `MemoryStorageAdapter`:
+ *
+ * ```typescript
+ * // Before (deprecated)
+ * import { createThingsStore } from '@dotdo/db'
+ * const store = createThingsStore()
+ *
+ * // After (recommended)
+ * import { createThingsStoreWithAdapter, MemoryStorageAdapter } from '@dotdo/db'
+ * const adapter = new MemoryStorageAdapter()
+ * const store = createThingsStoreWithAdapter(adapter)
+ * ```
+ *
+ * ### For Production (SQLite Storage)
+ *
+ * For production use with Durable Objects, use SQLite storage:
+ *
+ * ```typescript
+ * // In a Durable Object class
+ * import { createThingsStoreWithAdapter, createSQLiteStorageAdapter } from '@dotdo/db'
+ *
+ * class MyDO {
+ *   private things: ThingsStore
+ *
+ *   constructor(state: DurableObjectState) {
+ *     const adapter = createSQLiteStorageAdapter(state.storage.sql)
+ *     this.things = createThingsStoreWithAdapter(adapter)
+ *   }
+ * }
+ * ```
+ *
+ * ### Shared Storage for Multiple Stores
+ *
+ * When using multiple stores (Things, Events, Relationships), share the adapter:
+ *
+ * ```typescript
+ * import {
+ *   createThingsStoreWithAdapter,
+ *   createEventsStoreWithAdapter,
+ *   createRelationshipsStoreWithAdapter,
+ *   MemoryStorageAdapter
+ * } from '@dotdo/db'
+ *
+ * // Create one adapter, share across stores
+ * const adapter = new MemoryStorageAdapter()
+ * const things = createThingsStoreWithAdapter(adapter)
+ * const events = createEventsStoreWithAdapter(adapter)
+ * const relationships = createRelationshipsStoreWithAdapter(adapter)
+ * ```
+ *
+ * ### Benefits of Migration
+ *
+ * - **Pluggable Storage**: Swap storage backends without changing business logic
+ * - **SQLite Support**: Full SQLite support for Durable Objects
+ * - **Transaction Support**: Atomic operations via `adapter.transaction()`
+ * - **Shared Adapters**: Multiple stores can share one adapter for consistency
+ * - **Namespacing**: Isolate data with adapter namespaces
+ *
+ * @removal v4.0.0
  */
 export function createThingsStore(): ThingsStore {
+  // Runtime deprecation warning
+  if (typeof console !== 'undefined' && console.warn) {
+    console.warn(
+      '[DEPRECATION] createThingsStore() is deprecated and will be removed in v4.0.0. ' +
+      'Use createThingsStoreWithAdapter() with MemoryStorageAdapter instead. ' +
+      'See https://dotdo.dev/docs/migration for details.'
+    )
+  }
+
   const things = new Map<ThingId, Thing>()
 
   return {

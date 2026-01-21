@@ -13,9 +13,11 @@ Abstract storage layer for dotdo Digital Objects.
 ## Quick Start
 
 ```typescript
-import { createThingsStore } from '@dotdo/db'
+import { createThingsStoreWithAdapter, MemoryStorageAdapter } from '@dotdo/db'
 
-const store = createThingsStore()
+// Create a store with in-memory adapter (for testing)
+const adapter = new MemoryStorageAdapter()
+const store = createThingsStoreWithAdapter(adapter)
 
 // Create a thing
 const customer = await store.create({
@@ -30,6 +32,68 @@ const results = await store.list({
   limit: 10
 })
 ```
+
+## Storage Adapters
+
+### In-Memory (Testing/Development)
+
+```typescript
+import { createThingsStoreWithAdapter, MemoryStorageAdapter } from '@dotdo/db'
+
+const adapter = new MemoryStorageAdapter()
+const store = createThingsStoreWithAdapter(adapter)
+```
+
+### SQLite (Production with Durable Objects)
+
+```typescript
+import { createThingsStoreWithAdapter, createSQLiteStorageAdapter } from '@dotdo/db'
+
+// Inside a Durable Object constructor
+const adapter = createSQLiteStorageAdapter(state.storage.sql)
+const store = createThingsStoreWithAdapter(adapter)
+```
+
+### Shared Storage
+
+When using multiple stores, share the adapter for consistency:
+
+```typescript
+import {
+  createThingsStoreWithAdapter,
+  createEventsStoreWithAdapter,
+  createRelationshipsStoreWithAdapter,
+  MemoryStorageAdapter
+} from '@dotdo/db'
+
+const adapter = new MemoryStorageAdapter()
+const things = createThingsStoreWithAdapter(adapter)
+const events = createEventsStoreWithAdapter(adapter)
+const relationships = createRelationshipsStoreWithAdapter(adapter)
+```
+
+## Migration from createThingsStore()
+
+The `createThingsStore()` function is **deprecated** and will be removed in v4.0.0.
+See the [Migration Guide](#migration-guide) below.
+
+### Migration Guide
+
+**Before (deprecated):**
+```typescript
+import { createThingsStore } from '@dotdo/db'
+const store = createThingsStore()
+```
+
+**After (recommended):**
+```typescript
+import { createThingsStoreWithAdapter, MemoryStorageAdapter } from '@dotdo/db'
+const adapter = new MemoryStorageAdapter()
+const store = createThingsStoreWithAdapter(adapter)
+```
+
+The API is identical - only the initialization changes. All `store.create()`, `store.get()`,
+`store.update()`, `store.delete()`, and `store.list()` calls work the same way.
 
 ## Digital Objects Integration
 
