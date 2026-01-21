@@ -74,7 +74,7 @@
 // Core
 // =============================================================================
 
-export { Business, GoalsAPI, AggregateBuilder, type MetricRef } from './business'
+export { Business, GoalsAPI, AggregateBuilder, parseWhereClause, type MetricRef } from './business'
 
 // =============================================================================
 // Types

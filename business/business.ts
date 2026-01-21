@@ -655,49 +655,183 @@ export function parseWhereClause(clause: string): Record<string, unknown> {
 class ProductsAPI {
   constructor(private business: Business) {}
 
+  /**
+   * Create a new product
+   */
   async create(data: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>): Promise<Product> {
-    throw new Error('Not implemented')
+    const now = new Date()
+    const thing = await this.business.things.create({
+      $type: 'Product',
+      ...data,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    })
+
+    return this.thingToProduct(thing)
   }
 
+  /**
+   * Get a product by ID
+   */
   async get(id: string): Promise<Product | null> {
-    throw new Error('Not implemented')
+    const thing = await this.business.things.get(id)
+    if (!thing || thing.$type !== 'Product') {
+      return null
+    }
+    return this.thingToProduct(thing)
   }
 
+  /**
+   * List all products
+   */
   async list(): Promise<Product[]> {
-    throw new Error('Not implemented')
+    const things = await this.business.things.list({ $type: 'Product' })
+    return things.map(t => this.thingToProduct(t))
   }
 
+  /**
+   * Update a product
+   */
   async update(id: string, data: Partial<Product>): Promise<Product> {
-    throw new Error('Not implemented')
+    const existing = await this.business.things.get(id)
+    if (!existing || existing.$type !== 'Product') {
+      throw new Error(`Product not found: ${id}`)
+    }
+
+    const now = new Date()
+    const updated = await this.business.things.update(id, {
+      ...data,
+      updatedAt: now.toISOString(),
+    })
+
+    return this.thingToProduct(updated)
   }
 
+  /**
+   * Delete a product
+   */
   async delete(id: string): Promise<boolean> {
-    throw new Error('Not implemented')
+    const existing = await this.business.things.get(id)
+    if (!existing || existing.$type !== 'Product') {
+      return false
+    }
+
+    await this.business.things.delete(id)
+    return true
   }
 
+  /**
+   * Get analytics for a product
+   */
   async analytics(id: string, period: DateRange): Promise<{
     views: number
     purchases: number
     revenue: number
     conversionRate: number
   }> {
-    throw new Error('Not implemented')
+    throw new Error('Not implemented - requires @dotdo/clickhouse integration')
+  }
+
+  /**
+   * Convert a Thing to a Product
+   */
+  private thingToProduct(thing: Record<string, unknown>): Product {
+    return {
+      id: thing.$id as string,
+      name: thing['name'] as string,
+      description: thing['description'] as string | undefined,
+      price: thing['price'] as number | undefined,
+      currency: thing['currency'] as string | undefined,
+      active: thing['active'] as boolean,
+      metadata: thing['metadata'] as Record<string, unknown> | undefined,
+      createdAt: new Date(thing['createdAt'] as string),
+      updatedAt: new Date(thing['updatedAt'] as string),
+    }
   }
 }
 
 class ServicesAPI {
   constructor(private business: Business) {}
 
+  /**
+   * Create a new service
+   */
   async create(data: Omit<Service, 'id' | 'createdAt' | 'updatedAt'>): Promise<Service> {
-    throw new Error('Not implemented')
+    const now = new Date()
+    const thing = await this.business.things.create({
+      $type: 'Service',
+      ...data,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    })
+
+    return this.thingToService(thing)
   }
 
+  /**
+   * Get a service by ID
+   */
   async get(id: string): Promise<Service | null> {
-    throw new Error('Not implemented')
+    const thing = await this.business.things.get(id)
+    if (!thing || thing.$type !== 'Service') {
+      return null
+    }
+    return this.thingToService(thing)
   }
 
+  /**
+   * List all services
+   */
   async list(): Promise<Service[]> {
-    throw new Error('Not implemented')
+    const things = await this.business.things.list({ $type: 'Service' })
+    return things.map(t => this.thingToService(t))
+  }
+
+  /**
+   * Update a service
+   */
+  async update(id: string, data: Partial<Service>): Promise<Service> {
+    const existing = await this.business.things.get(id)
+    if (!existing || existing.$type !== 'Service') {
+      throw new Error(`Service not found: ${id}`)
+    }
+
+    const now = new Date()
+    const updated = await this.business.things.update(id, {
+      ...data,
+      updatedAt: now.toISOString(),
+    })
+
+    return this.thingToService(updated)
+  }
+
+  /**
+   * Delete a service
+   */
+  async delete(id: string): Promise<boolean> {
+    const existing = await this.business.things.get(id)
+    if (!existing || existing.$type !== 'Service') {
+      return false
+    }
+
+    await this.business.things.delete(id)
+    return true
+  }
+
+  /**
+   * Convert a Thing to a Service
+   */
+  private thingToService(thing: Record<string, unknown>): Service {
+    return {
+      id: thing.$id as string,
+      name: thing['name'] as string,
+      description: thing['description'] as string | undefined,
+      pricing: thing['pricing'] as ServicePricing | undefined,
+      active: thing['active'] as boolean,
+      metadata: thing['metadata'] as Record<string, unknown> | undefined,
+      createdAt: new Date(thing['createdAt'] as string),
+      updatedAt: new Date(thing['updatedAt'] as string),
+    }
   }
 }
 

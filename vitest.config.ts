@@ -66,6 +66,7 @@ export default defineConfig({
       'rpc.do/tests/**/*.test.ts',
       'dotdo/tests/**/*.test.ts',
       'dotdo/sdk/tests/**/*.test.ts',
+      'business/tests/**/*.test.ts',
       'app/tests/**/*.test.ts',
       'e2e/tests/**/*.test.ts',
       'apps/**/tests/**/*.test.ts',
