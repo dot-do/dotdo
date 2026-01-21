@@ -24,41 +24,15 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createSandbox, type SandboxResult } from '../sandbox'
-import { createContext, type WorkflowContext } from '../../do/context'
-
-/**
- * Create a Map-backed DurableObjectState for testing.
- */
-function createMapBackedState(): DurableObjectState {
-  const storage = new Map<string, unknown>()
-
-  return {
-    id: { toString: () => 'sandbox-regex-bypass-test-id' } as DurableObjectId,
-    storage: {
-      get: async (key: string) => storage.get(key),
-      put: async (key: string, value: unknown) => {
-        storage.set(key, value)
-      },
-      delete: async (key: string) => {
-        storage.delete(key)
-        return true
-      },
-      list: async () => storage,
-      deleteAll: async () => {
-        storage.clear()
-      },
-    },
-    blockConcurrencyWhile: async <T>(fn: () => Promise<T>) => fn(),
-    waitUntil: () => {},
-  } as unknown as DurableObjectState
-}
+import type { WorkflowContext } from '../../do/context'
+import { createTestContext } from './test-helpers'
 
 describe('Sandbox Regex Bypass Vulnerabilities (do-94il)', () => {
   let context: WorkflowContext
   const SHORT_TIMEOUT = 200 // Short timeout to detect if loops are being stopped
 
   beforeEach(() => {
-    context = createContext(createMapBackedState(), {})
+    context = createTestContext('sandbox-regex-bypass-test')
   })
 
   /**

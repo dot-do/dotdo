@@ -13,8 +13,10 @@
  * Missing limits:
  * - CPU time limit (no enforcement mechanism)
  * - Network access (fetch: null doesn't work in Miniflare fallback)
+ *
+ * IMPORTANT: This test follows the NO MOCKS philosophy from CLAUDE.md.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   createSandbox,
   DEFAULT_RESOURCE_LIMITS,
@@ -25,33 +27,14 @@ import {
   SandboxResourceEnforcer
 } from '../sandbox'
 import type { WorkflowContext } from '../../do/context'
+import { createTestContext } from './test-helpers'
 
 describe('MCP Sandbox Resource Limits - RED Tests', () => {
-  let mockContext: WorkflowContext
+  let context: WorkflowContext
 
   beforeEach(() => {
-    mockContext = {
-      send: vi.fn(),
-      try: vi.fn(async (action) => action()),
-      do: vi.fn(async (action) => action()),
-      on: new Proxy({} as any, {
-        get(_, noun) {
-          return new Proxy({}, {
-            get(_, verb) {
-              return vi.fn()
-            }
-          })
-        }
-      }),
-      every: new Proxy({} as any, {
-        get() {
-          return vi.fn()
-        }
-      }),
-      _events: {} as any,
-      _handlers: new Map(),
-      _schedules: new Map()
-    }
+    // Create a real WorkflowContext using the test helper (NO MOCKS philosophy)
+    context = createTestContext('sandbox-limits-test')
   })
 
   describe('CPU Time Limit Enforcement', () => {
@@ -59,7 +42,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
       // The sandbox enforces CPU time limits via injected checkpoints
       // Fast loops may hit the outer timeout before the checkpoint fires
       const sandbox = createSandbox({
-        context: mockContext,
+        context: context,
         resourceLimits: {
           timeout: 100 // 100ms timeout
         }
@@ -90,7 +73,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
 
     it('should enforce CPU time separately from wall-clock timeout', async () => {
       const sandbox = createSandbox({
-        context: mockContext,
+        context: context,
         resourceLimits: {
           timeout: 100 // Short timeout to ensure CPU limit is hit first
         }
@@ -117,7 +100,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
     it('should enforce memory limit for large allocations', async () => {
       // memoryLimitMB is defined but explicitly marked as "informational"
       const sandbox = createSandbox({
-        context: mockContext,
+        context: context,
         resourceLimits: {
           memoryLimitMB: 10 // 10MB limit
         }
@@ -139,7 +122,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
 
     it('should prevent memory exhaustion via string concatenation', async () => {
       const sandbox = createSandbox({
-        context: mockContext,
+        context: context,
         resourceLimits: {
           memoryLimitMB: 5
         }
@@ -162,7 +145,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
 
     it('should track and report memory usage', async () => {
       const sandbox = createSandbox({
-        context: mockContext,
+        context: context,
         resourceLimits: {
           memoryLimitMB: 50
         }
@@ -184,7 +167,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
   describe('Execution Timeout Enforcement', () => {
     it('should enforce timeout for async operations', async () => {
       const sandbox = createSandbox({
-        context: mockContext,
+        context: context,
         resourceLimits: {
           timeout: 100
         }
@@ -204,7 +187,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
 
     it('should provide granular timeout error messages', async () => {
       const sandbox = createSandbox({
-        context: mockContext,
+        context: context,
         resourceLimits: {
           timeout: 100
         }
@@ -226,7 +209,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
   describe('Network Access Prevention', () => {
     it('should prevent network access by default', async () => {
       const sandbox = createSandbox({
-        context: mockContext
+        context: context
         // Default: fetch should be blocked
       })
 
@@ -247,7 +230,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
 
     it('should block WebSocket connections', async () => {
       const sandbox = createSandbox({
-        context: mockContext
+        context: context
       })
 
       const result = await sandbox.execute(`
@@ -268,7 +251,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
     it('should optionally allow network access when permitted', async () => {
       // Note: There's no allowNetwork option in the current interface
       const sandbox = createSandbox({
-        context: mockContext,
+        context: context,
         // @ts-expect-error - allowNetwork doesn't exist in the interface yet
         allowNetwork: true
       })
@@ -288,7 +271,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
   describe('Combined Resource Limits', () => {
     it('should enforce multiple limits simultaneously', async () => {
       const sandbox = createSandbox({
-        context: mockContext,
+        context: context,
         resourceLimits: {
           timeout: 1000,
           maxCodeSize: 1024,
@@ -311,7 +294,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
 
     it('should report which limit was violated', async () => {
       const sandbox = createSandbox({
-        context: mockContext,
+        context: context,
         resourceLimits: {
           timeout: 50,
           memoryLimitMB: 5
@@ -336,7 +319,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
 
   describe('Resource Usage Reporting', () => {
     it('should report accurate execution time', async () => {
-      const sandbox = createSandbox({ context: mockContext })
+      const sandbox = createSandbox({ context: context })
 
       const result = await sandbox.execute(`
         await new Promise(r => setTimeout(r, 50))
@@ -349,7 +332,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
     })
 
     it('should report memory high water mark', async () => {
-      const sandbox = createSandbox({ context: mockContext })
+      const sandbox = createSandbox({ context: context })
 
       const result = await sandbox.execute(`
         const arr = new Array(100000).fill('x')
@@ -363,7 +346,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
     })
 
     it('should report CPU time consumed', async () => {
-      const sandbox = createSandbox({ context: mockContext })
+      const sandbox = createSandbox({ context: context })
 
       const result = await sandbox.execute(`
         let sum = 0
@@ -390,7 +373,7 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
     })
 
     it('should enforce default memory limit of 128MB', async () => {
-      const sandbox = createSandbox({ context: mockContext })
+      const sandbox = createSandbox({ context: context })
       // Uses default memoryLimitMB: 128
 
       // Try to allocate 200MB
