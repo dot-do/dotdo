@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/testing",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Test utilities and custom assertion helpers for dotdo entities",
   "type": "module",
   "main": "./dist/index.js",

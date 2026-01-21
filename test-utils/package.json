@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/test-utils",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Shared test utilities for @dotdo packages - DO stub helpers, factories, assertions",
   "type": "module",
   "main": "./dist/index.js",
@@ -73,7 +73,7 @@
     }
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
+    "typescript": "^5.7.3",
     "vitest": "^3.0.0",
     "miniflare": "^3.0.0"
   }

@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/core",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Core types and DBClient interface for dotdo database abstraction",
   "type": "module",
   "main": "./dist/index.js",

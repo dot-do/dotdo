@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/observability",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Observability tools for dotdo - logging, tracing, and metrics",
   "type": "module",
   "main": "./dist/index.js",
@@ -71,7 +71,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "hono": "^4.7.0"
+    "hono": "^4.11.4"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
