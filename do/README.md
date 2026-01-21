@@ -479,6 +479,464 @@ export function createEvoDBClient(storage: DurableObjectStorage): DBClient {
 - No JOINs - columnar reconstruction
 - Best for: Analytics on JSON, column-oriented queries
 
+## Type Hierarchies (Polymorphic Collections)
+
+Collections can have sub-types that share a common base. Query the collection to get all, or query a specific sub-type.
+
+### Example: Functions Collection
+
+```typescript
+// Base type shared by all function sub-types
+interface FunctionBase {
+  id: string
+  name: string
+  description?: string
+  input: JSONSchema        // Input schema
+  output: JSONSchema       // Output schema
+  config?: Record<string, unknown>
+}
+
+// Sub-types extend the base
+interface CodeFunction extends FunctionBase {
+  $type: 'CodeFunction'
+  runtime: 'js' | 'ts' | 'python' | 'wasm'
+  code: string
+  dependencies?: string[]
+}
+
+interface GenerativeFunction extends FunctionBase {
+  $type: 'GenerativeFunction'
+  model: string            // e.g., 'claude-3-opus', 'gpt-4'
+  prompt: string           // System prompt template
+  temperature?: number
+  maxTokens?: number
+}
+
+interface AgenticFunction extends FunctionBase {
+  $type: 'AgenticFunction'
+  agent: string            // Agent ID or URL
+  tools: string[]          // Available tools
+  maxSteps?: number
+}
+
+interface HumanFunction extends FunctionBase {
+  $type: 'HumanFunction'
+  assignee?: string        // User/role to assign
+  form?: FormSchema        // UI form definition
+  timeout?: number         // Human task timeout
+}
+
+// Union type for the collection
+type Function = CodeFunction | GenerativeFunction | AgenticFunction | HumanFunction
+```
+
+### Schema Definition
+
+```typescript
+// Using icetype with $extends for inheritance
+const FunctionBase = parseSchema({
+  $type: 'Function',
+  $abstract: true,          // Can't instantiate directly
+
+  id: 'uuid!',
+  name: 'string!',
+  description: 'string?',
+  input: 'json!',
+  output: 'json!',
+  config: 'json?',
+})
+
+const CodeFunction = parseSchema({
+  $type: 'CodeFunction',
+  $extends: 'Function',     // Inherits base fields
+
+  runtime: 'string!',
+  code: 'text!',
+  dependencies: 'string[]?',
+})
+
+const GenerativeFunction = parseSchema({
+  $type: 'GenerativeFunction',
+  $extends: 'Function',
+
+  model: 'string!',
+  prompt: 'text!',
+  temperature: 'float?',
+  maxTokens: 'int?',
+})
+
+// ... AgenticFunction, HumanFunction similarly
+```
+
+### Querying Polymorphic Collections
+
+```typescript
+// Get all functions (any sub-type)
+const allFunctions = await db.find({ type: 'Function' })
+
+// Get only code functions
+const codeFunctions = await db.find({ type: 'CodeFunction' })
+
+// Get functions by base field (works across sub-types)
+const namedFunctions = await db.find({
+  type: 'Function',
+  where: { name: { $contains: 'process' } }
+})
+
+// Type-safe access with discriminated unions
+for (const fn of allFunctions) {
+  switch (fn.data.$type) {
+    case 'CodeFunction':
+      console.log(`Code: ${fn.data.runtime}`)
+      break
+    case 'GenerativeFunction':
+      console.log(`AI: ${fn.data.model}`)
+      break
+    case 'AgenticFunction':
+      console.log(`Agent: ${fn.data.agent}`)
+      break
+    case 'HumanFunction':
+      console.log(`Human: ${fn.data.assignee}`)
+      break
+  }
+}
+```
+
+### SQL Implementation (postgres/sqlite)
+
+```sql
+-- Single table with discriminator column
+CREATE TABLE functions (
+  id UUID PRIMARY KEY,
+  type TEXT NOT NULL,        -- Discriminator: 'CodeFunction', 'GenerativeFunction', etc.
+  name TEXT NOT NULL,
+  description TEXT,
+  input JSONB NOT NULL,
+  output JSONB NOT NULL,
+  config JSONB,
+
+  -- Sub-type specific fields (nullable, only used by relevant type)
+  runtime TEXT,              -- CodeFunction
+  code TEXT,                 -- CodeFunction
+  dependencies JSONB,        -- CodeFunction
+
+  model TEXT,                -- GenerativeFunction
+  prompt TEXT,               -- GenerativeFunction
+  temperature REAL,          -- GenerativeFunction
+  max_tokens INTEGER,        -- GenerativeFunction
+
+  agent TEXT,                -- AgenticFunction
+  tools JSONB,               -- AgenticFunction
+  max_steps INTEGER,         -- AgenticFunction
+
+  assignee TEXT,             -- HumanFunction
+  form JSONB,                -- HumanFunction
+  timeout INTEGER,           -- HumanFunction
+
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index on discriminator for fast sub-type queries
+CREATE INDEX idx_functions_type ON functions(type);
+```
+
+### Document Implementation (db4/evodb)
+
+```typescript
+// Document store: $type field is the discriminator
+// All sub-types stored in same collection, filtered by $type
+
+await db.create({
+  ns: 'app',
+  type: 'Function',  // Collection name
+  data: {
+    $type: 'CodeFunction',  // Discriminator in data
+    name: 'processOrder',
+    runtime: 'ts',
+    code: 'export default async (order) => { ... }',
+    input: { type: 'object', properties: { orderId: { type: 'string' } } },
+    output: { type: 'object', properties: { success: { type: 'boolean' } } },
+  }
+})
+```
+
+---
+
+## Actions & Events Model
+
+A shared pattern for durable execution (Actions) and immutable history (Events).
+
+### Actions (Durable Execution)
+
+Actions represent work being done - they have state that changes over time.
+
+```typescript
+interface Action<TInput = unknown, TOutput = unknown, TConfig = unknown> {
+  // Identity
+  id: string
+  type: string                 // e.g., 'Function.invoke', 'Order.process'
+
+  // What triggered this
+  trigger: {
+    type: 'manual' | 'scheduled' | 'event' | 'webhook' | 'rpc'
+    source: string             // User ID, cron expression, event ID, etc.
+  }
+
+  // The work
+  target: string               // Thing URL being acted upon
+  input: TInput
+  config?: TConfig
+
+  // Execution state
+  status: ActionStatus
+  output?: TOutput
+  error?: {
+    code: string
+    message: string
+    stack?: string
+  }
+
+  // Timing
+  createdAt: Date
+  startedAt?: Date
+  completedAt?: Date
+
+  // Retries
+  attempts: number
+  maxAttempts: number
+  nextRetryAt?: Date
+
+  // Correlation
+  correlationId?: string       // Group related actions
+  causationId?: string         // Action that caused this one
+  parentId?: string            // Parent action (for sub-tasks)
+}
+
+type ActionStatus =
+  | 'pending'      // Queued, not started
+  | 'running'      // Currently executing
+  | 'completed'    // Finished successfully
+  | 'failed'       // Finished with error
+  | 'cancelled'    // Manually cancelled
+  | 'timeout'      // Exceeded time limit
+  | 'retrying'     // Failed, will retry
+```
+
+### Events (Immutable Log)
+
+Events are facts that happened - they never change.
+
+```typescript
+interface Event<TData = unknown> {
+  // Identity
+  id: string
+  type: string                 // e.g., 'Function.invoked', 'Order.created'
+
+  // What happened
+  subject: string              // Thing URL this event is about
+  data: TData                  // Event-specific payload
+
+  // Context
+  actor: string                // Who/what caused this (user, system, action)
+  source: string               // Where it came from (service, DO, etc.)
+
+  // Timing
+  timestamp: Date              // When it happened (immutable)
+
+  // Correlation
+  correlationId?: string       // Group related events
+  causationId?: string         // Event/Action that caused this
+  actionId?: string            // Action this event is part of
+}
+```
+
+### Relationship: Actions → Events
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Action Lifecycle                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Action.created ──→ Action.started ──→ Action.completed         │
+│       │                   │                   │                  │
+│       ▼                   ▼                   ▼                  │
+│   ┌───────┐          ┌───────┐          ┌───────┐               │
+│   │ Event │          │ Event │          │ Event │               │
+│   │.queued│          │.running│         │.success│              │
+│   └───────┘          └───────┘          └───────┘               │
+│                                                                  │
+│  On failure:                                                     │
+│                                                                  │
+│  Action.failed ──→ Action.retrying ──→ Action.started           │
+│       │                   │                                      │
+│       ▼                   ▼                                      │
+│   ┌───────┐          ┌───────┐                                  │
+│   │ Event │          │ Event │                                  │
+│   │.error │          │.retry │                                  │
+│   └───────┘          └───────┘                                  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### DBClient Extensions for Actions & Events
+
+```typescript
+interface DBClientWithActions extends DBClient {
+  // === Actions ===
+
+  /** Create a new action (queued for execution) */
+  createAction<TInput, TConfig>(options: {
+    type: string
+    target: string
+    input: TInput
+    config?: TConfig
+    trigger?: Action['trigger']
+    correlationId?: string
+    parentId?: string
+  }): Promise<Action<TInput>>
+
+  /** Get action by ID */
+  getAction(id: string): Promise<Action | null>
+
+  /** Update action status */
+  updateAction(id: string, update: {
+    status?: ActionStatus
+    output?: unknown
+    error?: Action['error']
+    startedAt?: Date
+    completedAt?: Date
+  }): Promise<Action>
+
+  /** Find actions */
+  findActions(options: {
+    type?: string
+    target?: string
+    status?: ActionStatus | ActionStatus[]
+    correlationId?: string
+    after?: Date
+    before?: Date
+    limit?: number
+  }): Promise<Action[]>
+
+  /** Get pending actions (for workers) */
+  claimActions(options: {
+    type?: string
+    limit?: number
+    lockDuration?: number  // ms
+  }): Promise<Action[]>
+
+  // === Events ===
+
+  /** Emit an event (append-only) */
+  emit<TData>(options: {
+    type: string
+    subject: string
+    data: TData
+    actor?: string
+    correlationId?: string
+    causationId?: string
+    actionId?: string
+  }): Promise<Event<TData>>
+
+  /** Get event by ID */
+  getEvent(id: string): Promise<Event | null>
+
+  /** Query events */
+  queryEvents(options: {
+    type?: string
+    subject?: string
+    actor?: string
+    correlationId?: string
+    after?: Date
+    before?: Date
+    limit?: number
+    order?: 'asc' | 'desc'  // Default: desc (newest first)
+  }): Promise<Event[]>
+
+  /** Stream events (for real-time) */
+  subscribeEvents(options: {
+    type?: string
+    subject?: string
+  }): AsyncIterable<Event>
+}
+```
+
+### Example: Function Invocation
+
+```typescript
+// 1. Create action to invoke a function
+const action = await db.createAction({
+  type: 'Function.invoke',
+  target: 'https://app.do/Function/processOrder',
+  input: { orderId: 'order-123' },
+  config: { timeout: 30000 },
+  trigger: { type: 'rpc', source: 'user-456' },
+})
+
+// 2. Event emitted automatically
+// { type: 'Function.invoke.queued', subject: 'Function/processOrder', actionId: action.id }
+
+// 3. Worker claims and executes
+const [claimed] = await db.claimActions({ type: 'Function.invoke', limit: 1 })
+
+await db.updateAction(claimed.id, { status: 'running', startedAt: new Date() })
+// Event: { type: 'Function.invoke.started', ... }
+
+try {
+  const fn = await db.get(claimed.target)
+  const result = await executeFunction(fn, claimed.input)
+
+  await db.updateAction(claimed.id, {
+    status: 'completed',
+    output: result,
+    completedAt: new Date(),
+  })
+  // Event: { type: 'Function.invoke.completed', data: { output: result } }
+
+} catch (error) {
+  await db.updateAction(claimed.id, {
+    status: 'failed',
+    error: { code: 'EXECUTION_ERROR', message: error.message },
+    completedAt: new Date(),
+  })
+  // Event: { type: 'Function.invoke.failed', data: { error: ... } }
+}
+```
+
+### Event Sourcing Pattern
+
+Events can reconstruct state:
+
+```typescript
+// Get all events for an order
+const events = await db.queryEvents({
+  subject: 'https://app.do/Order/order-123',
+  order: 'asc',  // Oldest first for replay
+})
+
+// Replay to get current state
+let orderState = {}
+for (const event of events) {
+  switch (event.type) {
+    case 'Order.created':
+      orderState = { ...event.data, status: 'pending' }
+      break
+    case 'Order.paid':
+      orderState = { ...orderState, status: 'paid', paidAt: event.timestamp }
+      break
+    case 'Order.shipped':
+      orderState = { ...orderState, status: 'shipped', trackingNumber: event.data.trackingNumber }
+      break
+    case 'Order.delivered':
+      orderState = { ...orderState, status: 'delivered', deliveredAt: event.timestamp }
+      break
+  }
+}
+```
+
+---
+
 ## Schema Integration (icetype)
 
 Use icetype for schema definition, generate DDL per backend:
