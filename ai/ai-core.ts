@@ -18,10 +18,90 @@
 
 import type { ZodTypeAny } from 'zod'
 
+// ============================================================================
+// Internal Type Definitions for AI SDK Compatibility
+// ============================================================================
+
+/**
+ * Type for global environment variables in different runtimes.
+ * Cloudflare Workers use globalThis.ENVIRONMENT, Node.js uses process.env.
+ */
+interface GlobalWithEnv {
+  ENVIRONMENT?: string
+  __vitest_worker__?: unknown
+  jest?: unknown
+}
+
+/**
+ * Minimal interface for mock model generate options.
+ * The actual AI SDK uses complex types, but our mock only needs basic compatibility.
+ */
+interface MockGenerateOptions {
+  prompt?: string
+  messages?: Array<{ role: string; content: string }>
+  maxTokens?: number
+  temperature?: number
+}
+
+/**
+ * Minimal interface for mock model generate result.
+ */
+interface MockGenerateResult {
+  text: string
+  finishReason: 'stop' | 'length' | 'error'
+  usage: { promptTokens: number; completionTokens: number }
+}
+
+/**
+ * Minimal interface for mock model stream result.
+ */
+interface MockStreamResult {
+  stream: AsyncGenerator<
+    | { type: 'text-delta'; textDelta: string }
+    | { type: 'finish'; finishReason: 'stop' | 'length' | 'error'; usage: { promptTokens: number; completionTokens: number } }
+  >
+}
+
+/**
+ * Internal mock model interface for testing.
+ * This is separate from the external LanguageModel type to avoid coupling.
+ */
+interface MockLanguageModel {
+  provider: 'mock'
+  modelId: string
+  specificationVersion: string
+  doGenerate(options: MockGenerateOptions): Promise<MockGenerateResult>
+  doStream(options: MockGenerateOptions): Promise<MockStreamResult>
+}
+
+/**
+ * Type guard to check if a model is our internal mock model.
+ */
+function isMockModel(model: unknown): model is MockLanguageModel {
+  return (
+    typeof model === 'object' &&
+    model !== null &&
+    'provider' in model &&
+    (model as { provider: unknown }).provider === 'mock'
+  )
+}
+
+/**
+ * Minimal interface for AI SDK stream chunk types.
+ * The actual AI SDK has many chunk types; we only define what we need.
+ */
+type StreamChunk =
+  | { type: 'text-delta'; textDelta: string }
+  | { type: 'tool-call'; toolCallId: string; toolName: string; args: unknown }
+  | { type: 'tool-result'; toolCallId: string; result: unknown }
+  | { type: 'error'; error: Error }
+  | { type: 'finish'; finishReason: string; usage?: { promptTokens?: number; completionTokens?: number } }
+  | { type: string; [key: string]: unknown }
+
 // Type aliases for AI SDK models.
 // The 'ai' package's type exports don't resolve correctly under moduleResolution: "bundler"
-// due to the complex GlobalProviderModelId type. Using `any` avoids import errors while
-// maintaining runtime compatibility with the AI SDK functions.
+// due to the complex GlobalProviderModelId type. We use 'unknown' for our internal type
+// but cast through 'unknown' when passing to the AI SDK functions which expect their own types.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LanguageModel = any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -188,7 +268,7 @@ function isProduction(): boolean {
     }
   }
   // Check Cloudflare Workers environment
-  if (typeof globalThis !== 'undefined' && (globalThis as any).ENVIRONMENT === 'production') {
+  if (typeof globalThis !== 'undefined' && (globalThis as GlobalWithEnv).ENVIRONMENT === 'production') {
     return true
   }
   return false
@@ -211,8 +291,8 @@ function isTestEnvironment(): boolean {
   }
   // Check if vitest/jest globals are present
   if (typeof globalThis !== 'undefined') {
-    if ((globalThis as any).__vitest_worker__) return true
-    if ((globalThis as any).jest) return true
+    if ((globalThis as GlobalWithEnv).__vitest_worker__) return true
+    if ((globalThis as GlobalWithEnv).jest) return true
   }
   return false
 }
@@ -639,18 +719,18 @@ function createMockModel(modelId: string): LanguageModel {
   // Warn about mock usage
   warnMockUsage(modelId, 'resolve')
 
-  return {
+  const mockModel: MockLanguageModel = {
     provider: 'mock',
     modelId,
     specificationVersion: 'v1',
-    async doGenerate(options: any) {
+    async doGenerate(_options: MockGenerateOptions): Promise<MockGenerateResult> {
       return {
         text: `Mock response for model: ${modelId}`,
         finishReason: 'stop' as const,
         usage: { promptTokens: 10, completionTokens: 20 },
       }
     },
-    async doStream(options: any) {
+    async doStream(_options: MockGenerateOptions): Promise<MockStreamResult> {
       return {
         stream: (async function* () {
           yield { type: 'text-delta' as const, textDelta: 'Mock response' }
@@ -658,7 +738,8 @@ function createMockModel(modelId: string): LanguageModel {
         })(),
       }
     },
-  } as unknown as LanguageModel
+  }
+  return mockModel as unknown as LanguageModel
 }
 
 /**
@@ -760,9 +841,9 @@ export async function generateText(
   const model = await resolveModel(options.model)
 
   // Check if we're using the mock (ai-providers not available)
-  if ((model as any).provider === 'mock') {
+  if (isMockModel(model)) {
     // Use mock response directly
-    const mockResult = await (model as any).doGenerate({})
+    const mockResult = await model.doGenerate({})
     return {
       text: mockResult.text,
       usage: {
@@ -866,7 +947,7 @@ export async function generateObject<T>(
   const model = await resolveModel(options.model)
 
   // Check if we're using the mock (ai-providers not available)
-  if ((model as any).provider === 'mock') {
+  if (isMockModel(model)) {
     // Return mock object response
     return {
       object: {} as T,
@@ -883,11 +964,14 @@ export async function generateObject<T>(
   try {
     const { generateObject: aiGenerateObject } = await import('ai')
 
+    // The AI SDK's generateObject has complex type constraints that don't align well
+    // with our abstraction layer. We cast through unknown since we handle the result
+    // transformation ourselves.
     const result = await aiGenerateObject({
       ...options,
       model,
       output: 'object',
-    } as any)
+    } as unknown as Parameters<typeof aiGenerateObject>[0])
 
     return {
       object: result.object as T,
@@ -923,7 +1007,7 @@ export interface StreamTextOptions extends GenerateTextOptions {
 
 export interface StreamTextResult {
   textStream: AsyncIterable<string>
-  fullStream: AsyncIterable<any>
+  fullStream: AsyncIterable<StreamChunk>
   usage: Promise<{
     promptTokens: number
     completionTokens: number
@@ -955,9 +1039,15 @@ export async function streamText(
   const modelName = typeof options.model === 'string' ? options.model : 'unknown'
 
   try {
-    // Dynamic import of 'ai' package; using `any` because its type exports don't resolve properly
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const aiModule = await import('ai') as any
+    // Dynamic import of 'ai' package with typed interface for the parts we use
+    interface AIStreamResult {
+      textStream: AsyncIterable<string>
+      fullStream: AsyncIterable<StreamChunk>
+      usage: Promise<{ promptTokens?: number; completionTokens?: number; totalTokens?: number }>
+    }
+    const aiModule = await import('ai') as unknown as {
+      streamText: (options: Record<string, unknown>) => AIStreamResult
+    }
 
     // Resolve model - may throw AIModelResolutionError
     const model = await resolveModel(options.model)
@@ -971,7 +1061,7 @@ export async function streamText(
     return {
       textStream: result.textStream,
       fullStream: result.fullStream,
-      usage: result.usage.then((u: { promptTokens?: number; completionTokens?: number; totalTokens?: number }) => ({
+      usage: result.usage.then((u) => ({
         promptTokens: u?.promptTokens || 0,
         completionTokens: u?.completionTokens || 0,
         totalTokens: u?.totalTokens || 0,
@@ -1074,10 +1164,11 @@ export async function embedText(
 
   // Use real AI SDK with the model
   try {
-    // Dynamic import of 'ai' package; using `any` because its type exports don't resolve properly
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const aiModule = await import('ai') as any
-    const embed = aiModule.embed as (options: { model: unknown; value: string }) => Promise<{ embedding: number[] }>
+    // Dynamic import of 'ai' package with typed interface for the parts we use
+    const aiModule = await import('ai') as unknown as {
+      embed: (options: { model: unknown; value: string }) => Promise<{ embedding: number[] }>
+    }
+    const embed = aiModule.embed
 
     if (typeof text === 'string') {
       const result = await embed({
@@ -1095,7 +1186,7 @@ export async function embedText(
       }))
     )
 
-    return results.map((r: { embedding: number[] }) => r.embedding)
+    return results.map((r) => r.embedding)
   } catch (e) {
     // Don't wrap our own errors
     if (e instanceof AIError) {
