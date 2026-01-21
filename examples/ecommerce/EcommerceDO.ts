@@ -20,7 +20,7 @@ import type {
 const TAX_RATE = 0.08 // 8% tax
 
 export class EcommerceDO extends DO {
-  private $: WorkflowContext
+  protected declare override $: WorkflowContext
 
   constructor(state: DurableObjectState, env: DOEnv) {
     super(state, env)
@@ -34,7 +34,7 @@ export class EcommerceDO extends DO {
     // ========================================================================
 
     // Handle order creation - send confirmation email
-    this.$.on.Order.created(async (event) => {
+    this.$.on.Order.created(async (event: { type: string; payload: unknown }) => {
       const { orderId, customerId, total } = event.payload as {
         orderId: string
         customerId: string
@@ -45,7 +45,7 @@ export class EcommerceDO extends DO {
     })
 
     // Handle payment completion - update inventory and notify
-    this.$.on.Payment.completed(async (event) => {
+    this.$.on.Payment.completed(async (event: { type: string; payload: unknown }) => {
       const { orderId, paymentId } = event.payload as {
         orderId: string
         paymentId: string
@@ -55,7 +55,7 @@ export class EcommerceDO extends DO {
     })
 
     // Handle payment failure - notify customer
-    this.$.on.Payment.failed(async (event) => {
+    this.$.on.Payment.failed(async (event: { type: string; payload: unknown }) => {
       const { orderId, reason } = event.payload as {
         orderId: string
         paymentId: string
@@ -66,7 +66,7 @@ export class EcommerceDO extends DO {
     })
 
     // Handle cart item added - track analytics
-    this.$.on.Cart.itemAdded(async (event) => {
+    this.$.on.Cart.itemAdded(async (event: { type: string; payload: unknown }) => {
       const { cartId, productId, quantity } = event.payload as {
         cartId: string
         productId: string
@@ -76,7 +76,7 @@ export class EcommerceDO extends DO {
     })
 
     // Wildcard handler - log all events for debugging
-    this.$.on['*']['*'](async (event) => {
+    this.$.on['*']['*'](async (event: { type: string; payload: unknown }) => {
       console.log(`[Audit] Event: ${event.type}`, event.payload)
     })
 

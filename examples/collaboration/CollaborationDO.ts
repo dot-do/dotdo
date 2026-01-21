@@ -29,7 +29,7 @@ function getRandomColor(): string {
 }
 
 export class CollaborationDO extends DO {
-  private $: WorkflowContext
+  protected declare override $: WorkflowContext
 
   // In-memory state for active session
   private cursors: Map<string, CursorPosition> = new Map()
@@ -46,7 +46,7 @@ export class CollaborationDO extends DO {
     // ========================================================================
 
     // Track document edits for analytics
-    this.$.on.Document.edited(async (event) => {
+    this.$.on.Document.edited(async (event: { type: string; payload: unknown }) => {
       const { documentId, userId, version, operationCount } = event.payload as {
         documentId: string
         userId: string
@@ -57,7 +57,7 @@ export class CollaborationDO extends DO {
     })
 
     // Track collaborator join/leave
-    this.$.on.Collaborator.joined(async (event) => {
+    this.$.on.Collaborator.joined(async (event: { type: string; payload: unknown }) => {
       const { documentId, userId, userName } = event.payload as {
         documentId: string
         userId: string
@@ -66,7 +66,7 @@ export class CollaborationDO extends DO {
       console.log(`[Event] ${userName} (${userId}) joined document ${documentId}`)
     })
 
-    this.$.on.Collaborator.left(async (event) => {
+    this.$.on.Collaborator.left(async (event: { type: string; payload: unknown }) => {
       const { documentId, userId } = event.payload as {
         documentId: string
         userId: string
@@ -75,7 +75,7 @@ export class CollaborationDO extends DO {
     })
 
     // Track comments
-    this.$.on.Comment.added(async (event) => {
+    this.$.on.Comment.added(async (event: { type: string; payload: unknown }) => {
       const { documentId, commentId, userId } = event.payload as {
         documentId: string
         commentId: string
@@ -85,7 +85,7 @@ export class CollaborationDO extends DO {
     })
 
     // Audit log all document events
-    this.$.on.Document['*'](async (event) => {
+    this.$.on.Document['*'](async (event: { type: string; payload: unknown }) => {
       console.log(`[Audit] Document event: ${event.type}`, event.payload)
     })
 

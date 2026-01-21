@@ -121,7 +121,7 @@ export class TestDO implements DurableObject {
     if (!response.ok) {
       const errorBody = await response.json() as { code?: string; message?: string; details?: Record<string, unknown> }
       throw new RPCError(
-        (errorBody.code as RPCErrorCode) || RPCErrorCode.INTERNAL_ERROR,
+        (errorBody.code as typeof RPCErrorCode[keyof typeof RPCErrorCode]) || RPCErrorCode.INTERNAL_ERROR,
         errorBody.message || 'Cross-DO call failed',
         errorBody.details
       )

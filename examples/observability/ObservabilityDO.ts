@@ -45,7 +45,7 @@ import type {
 } from './types'
 
 export class ObservabilityDO extends DO {
-  private $: WorkflowContext
+  protected declare override $: WorkflowContext
 
   // ========================================================================
   // Observability Components
@@ -179,7 +179,7 @@ export class ObservabilityDO extends DO {
     // Event Handlers with Logging
     // ========================================================================
 
-    this.$.on.Product.created(async (event) => {
+    this.$.on.Product.created(async (event: { type: string; payload: unknown }) => {
       const { productId, name, price } = event.payload as {
         productId: string
         name: string
@@ -188,7 +188,7 @@ export class ObservabilityDO extends DO {
       this.logger.info('Product created event', { productId, name, price })
     })
 
-    this.$.on.Order.created(async (event) => {
+    this.$.on.Order.created(async (event: { type: string; payload: unknown }) => {
       const { orderId, customerId, total } = event.payload as {
         orderId: string
         customerId: string
@@ -197,12 +197,12 @@ export class ObservabilityDO extends DO {
       this.logger.info('Order created event', { orderId, customerId, total })
     })
 
-    this.$.on.Order.processed(async (event) => {
+    this.$.on.Order.processed(async (event: { type: string; payload: unknown }) => {
       const { orderId, duration } = event.payload as { orderId: string; duration: number }
       this.logger.info('Order processed event', { orderId, durationMs: duration })
     })
 
-    this.$.on.Order.failed(async (event) => {
+    this.$.on.Order.failed(async (event: { type: string; payload: unknown }) => {
       const { orderId, reason } = event.payload as { orderId: string; reason: string }
       this.logger.error('Order failed event', { orderId, reason })
     })

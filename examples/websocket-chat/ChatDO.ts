@@ -22,7 +22,7 @@ const MAX_RECENT_MESSAGES = 50
 const TYPING_TIMEOUT_MS = 5000
 
 export class ChatDO extends DO {
-  private $: WorkflowContext
+  protected declare override $: WorkflowContext
 
   // In-memory state for active session
   private userConnections: Map<string, WebSocket> = new Map()

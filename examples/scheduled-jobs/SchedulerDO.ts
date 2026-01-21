@@ -27,7 +27,7 @@ const DEFAULT_RETRY_POLICY = {
 }
 
 export class SchedulerDO extends DO {
-  private $: WorkflowContext
+  protected declare override $: WorkflowContext
 
   // Track pending retries
   private pendingRetries: Map<string, NodeJS.Timeout> = new Map()
@@ -41,7 +41,7 @@ export class SchedulerDO extends DO {
     // Event Handlers for Job Lifecycle
     // ========================================================================
 
-    this.$.on.Job.started(async (event) => {
+    this.$.on.Job.started(async (event: { type: string; payload: unknown }) => {
       const { jobId, runId, jobName } = event.payload as {
         jobId: string
         runId: string
@@ -53,7 +53,7 @@ export class SchedulerDO extends DO {
       await this.notifyWebhooks('job.started', { jobId, runId, jobName })
     })
 
-    this.$.on.Job.completed(async (event) => {
+    this.$.on.Job.completed(async (event: { type: string; payload: unknown }) => {
       const { jobId, runId, jobName, duration } = event.payload as {
         jobId: string
         runId: string
@@ -66,7 +66,7 @@ export class SchedulerDO extends DO {
       await this.updateMetrics(jobId, 'success', duration)
     })
 
-    this.$.on.Job.failed(async (event) => {
+    this.$.on.Job.failed(async (event: { type: string; payload: unknown }) => {
       const { jobId, runId, jobName, error, attempt, willRetry } = event.payload as {
         jobId: string
         runId: string
@@ -81,7 +81,7 @@ export class SchedulerDO extends DO {
       await this.updateMetrics(jobId, 'failure', 0)
     })
 
-    this.$.on.Job.timeout(async (event) => {
+    this.$.on.Job.timeout(async (event: { type: string; payload: unknown }) => {
       const { jobId, runId, jobName, timeout } = event.payload as {
         jobId: string
         runId: string

@@ -15,7 +15,7 @@ import { createEveryProxy } from './schedule'
 import { createOnProxy, matchHandlers, invokeHandlers, type RetryOptions } from './events'
 import { createDORPCProxy } from './rpc'
 import { type EntitySchema as LegacyEntitySchema } from './entity'
-import { parseSchema, generateSchemaDDL, generateMigrationDDL, type EntitySchema, type RawDatabaseSchema, type DDLOptions } from '../schema'
+import { parseSchema, generateSchemaDDL, generateMigrationDDL, type EntitySchema, type RawDatabaseSchema, type DDLOptions } from '../schema/index'
 import { RPCError, TimeoutError, InternalError, ValidationError } from '@dotdo/rpc'
 import {
   createInMemoryErrorStore,

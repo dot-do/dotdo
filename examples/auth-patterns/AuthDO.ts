@@ -128,7 +128,7 @@ interface AuthEnv extends DOEnv {
 }
 
 export class AuthDO extends DO {
-  private $: WorkflowContext
+  protected declare override $: WorkflowContext
   private jwtSecret: string
 
   // In-memory rate limiting
@@ -144,22 +144,22 @@ export class AuthDO extends DO {
     // Event Handlers
     // ========================================================================
 
-    this.$.on.User.registered(async (event) => {
+    this.$.on.User.registered(async (event: { type: string; payload: unknown }) => {
       const { userId, email } = event.payload as { userId: string; email: string }
       console.log(`[Event] User registered: ${email} (${userId})`)
     })
 
-    this.$.on.User.loggedIn(async (event) => {
+    this.$.on.User.loggedIn(async (event: { type: string; payload: unknown }) => {
       const { userId, email } = event.payload as { userId: string; email: string }
       console.log(`[Event] User logged in: ${email} (${userId})`)
     })
 
-    this.$.on.User.loggedOut(async (event) => {
+    this.$.on.User.loggedOut(async (event: { type: string; payload: unknown }) => {
       const { userId } = event.payload as { userId: string }
       console.log(`[Event] User logged out: ${userId}`)
     })
 
-    this.$.on.Security.alert(async (event) => {
+    this.$.on.Security.alert(async (event: { type: string; payload: unknown }) => {
       const { type, details } = event.payload as { type: string; details: unknown }
       console.log(`[Security Alert] ${type}:`, details)
     })

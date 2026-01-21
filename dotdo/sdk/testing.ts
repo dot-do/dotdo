@@ -25,7 +25,8 @@
  * ```
  */
 
-import type { Thing, Event, Relationship, JsonValue } from '@dotdo/db'
+import type { Thing, Event, Relationship, JsonValue, ThingId, EventId } from '@dotdo/db'
+import { toThingId, toEventId } from '@dotdo/db'
 import type {
   DotdoClientOptions,
   ThingsResource,
@@ -135,17 +136,19 @@ export class MockDotdoClient {
     // Populate initial data
     if (options.initialData?.things) {
       for (const thing of options.initialData.things) {
-        this.store.things.set(thing.$id, thing)
+        this.store.things.set(thing.$id as string, thing)
       }
     }
     if (options.initialData?.events) {
       for (const event of options.initialData.events) {
-        this.store.events.set(event['$id'], event)
+        this.store.events.set(event.$id as string, event)
       }
     }
     if (options.initialData?.relationships) {
       for (const rel of options.initialData.relationships) {
-        this.store.relationships.set(rel['$id'], rel)
+        // Use subject:predicate:object as key for relationships
+        const key = `${rel.subject}:${rel.predicate}:${rel.object}`
+        this.store.relationships.set(key, rel)
       }
     }
   }
@@ -210,15 +213,15 @@ export class MockDotdoClient {
       await this.simulateLatency()
       this.simulateError()
 
-      const now = new Date().toISOString()
+      const now = Date.now()
       const thing: Thing = {
         ...data,
-        $id: this.options.idGenerator(),
+        $id: toThingId(this.options.idGenerator()),
         $createdAt: now,
         $updatedAt: now,
       } as Thing
 
-      this.store.things.set(thing.$id, thing)
+      this.store.things.set(thing.$id as string, thing)
       return { ...thing }
     },
 
@@ -234,8 +237,8 @@ export class MockDotdoClient {
       const updated: Thing = {
         ...existing,
         ...data,
-        $id: id,
-        $updatedAt: new Date().toISOString(),
+        $id: toThingId(id),
+        $updatedAt: Date.now(),
       }
 
       this.store.things.set(id, updated)
@@ -257,17 +260,17 @@ export class MockDotdoClient {
       this.simulateError()
 
       const results: Thing[] = []
-      const now = new Date().toISOString()
+      const now = Date.now()
 
       for (const data of items) {
         const thing: Thing = {
           ...data,
-          $id: this.options.idGenerator(),
+          $id: toThingId(this.options.idGenerator()),
           $createdAt: now,
           $updatedAt: now,
         } as Thing
 
-        this.store.things.set(thing.$id, thing)
+        this.store.things.set(thing.$id as string, thing)
         results.push({ ...thing })
       }
 
@@ -279,7 +282,7 @@ export class MockDotdoClient {
       this.simulateError()
 
       const results: Thing[] = []
-      const now = new Date().toISOString()
+      const now = Date.now()
 
       for (const { id, data } of updates) {
         const existing = this.store.things.get(id)
@@ -290,7 +293,7 @@ export class MockDotdoClient {
         const updated: Thing = {
           ...existing,
           ...data,
-          $id: id,
+          $id: toThingId(id),
           $updatedAt: now,
         }
 
@@ -354,15 +357,15 @@ export class MockDotdoClient {
       this.simulateError()
 
       const event: Event = {
-        $id: this.options.idGenerator(),
+        $id: toEventId(this.options.idGenerator()),
         type: data.type,
-        payload: data.payload,
+        payload: data.payload as JsonValue,
         source: data.source,
         correlationId: data.correlationId,
-        $timestamp: new Date().toISOString(),
+        $timestamp: Date.now(),
       } as Event
 
-      this.store.events.set(event['$id'], event)
+      this.store.events.set(event.$id as string, event)
       return { ...event }
     },
   }
@@ -411,15 +414,15 @@ export class MockDotdoClient {
       this.simulateError()
 
       const relationship: Relationship = {
-        $id: this.options.idGenerator(),
         subject: data.subject,
         predicate: data.predicate,
         object: data.object,
-        metadata: data.metadata,
-        $createdAt: new Date().toISOString(),
+        ...(data.metadata !== undefined ? { metadata: data.metadata as JsonValue } : {}),
+        $createdAt: Date.now(),
       } as Relationship
 
-      this.store.relationships.set(relationship['$id'], relationship)
+      const key = `${data.subject}:${data.predicate}:${data.object}`
+      this.store.relationships.set(key, relationship)
       return { ...relationship }
     },
 
@@ -427,16 +430,8 @@ export class MockDotdoClient {
       await this.simulateLatency()
       this.simulateError()
 
-      for (const [id, rel] of this.store.relationships) {
-        if (
-          rel.subject === query.subject &&
-          rel.predicate === query.predicate &&
-          rel.object === query.object
-        ) {
-          this.store.relationships.delete(id)
-          return
-        }
-      }
+      const key = `${query.subject}:${query.predicate}:${query.object}`
+      this.store.relationships.delete(key)
     },
   }
 
@@ -522,17 +517,18 @@ export class MockDotdoClient {
   }): void {
     if (data.things) {
       for (const thing of data.things) {
-        this.store.things.set(thing.$id, thing)
+        this.store.things.set(thing.$id as string, thing)
       }
     }
     if (data.events) {
       for (const event of data.events) {
-        this.store.events.set(event['$id'], event)
+        this.store.events.set(event.$id as string, event)
       }
     }
     if (data.relationships) {
       for (const rel of data.relationships) {
-        this.store.relationships.set(rel['$id'], rel)
+        const key = `${rel.subject}:${rel.predicate}:${rel.object}`
+        this.store.relationships.set(key, rel)
       }
     }
   }
@@ -595,95 +591,99 @@ export interface TestFixture {
  * ```
  */
 export function createTestFixture(): TestFixture {
+  // Use epoch timestamps (milliseconds since 1970-01-01)
+  const timestamp2024_01_01 = new Date('2024-01-01T00:00:00Z').getTime()
+  const timestamp2024_01_02 = new Date('2024-01-02T00:00:00Z').getTime()
+  const timestamp2024_01_10 = new Date('2024-01-10T00:00:00Z').getTime()
+  const timestamp2024_01_15 = new Date('2024-01-15T00:00:00Z').getTime()
+  const timestamp2024_01_20 = new Date('2024-01-20T00:00:00Z').getTime()
+
   const customers: Thing[] = [
     {
-      $id: 'cust_alice',
+      $id: toThingId('cust-alice'),
       $type: 'Customer',
       name: 'Alice',
       email: 'alice@example.com',
       plan: 'pro',
-      $createdAt: '2024-01-01T00:00:00Z',
-      $updatedAt: '2024-01-01T00:00:00Z',
+      $createdAt: timestamp2024_01_01,
+      $updatedAt: timestamp2024_01_01,
     } as Thing,
     {
-      $id: 'cust_bob',
+      $id: toThingId('cust-bob'),
       $type: 'Customer',
       name: 'Bob',
       email: 'bob@example.com',
       plan: 'free',
-      $createdAt: '2024-01-02T00:00:00Z',
-      $updatedAt: '2024-01-02T00:00:00Z',
+      $createdAt: timestamp2024_01_02,
+      $updatedAt: timestamp2024_01_02,
     } as Thing,
   ]
 
   const orders: Thing[] = [
     {
-      $id: 'order_1',
+      $id: toThingId('order-1'),
       $type: 'Order',
-      customerId: 'cust_alice',
+      customerId: 'cust-alice',
       total: 99.99,
       status: 'completed',
-      $createdAt: '2024-01-10T00:00:00Z',
-      $updatedAt: '2024-01-10T00:00:00Z',
+      $createdAt: timestamp2024_01_10,
+      $updatedAt: timestamp2024_01_10,
     } as Thing,
     {
-      $id: 'order_2',
+      $id: toThingId('order-2'),
       $type: 'Order',
-      customerId: 'cust_alice',
+      customerId: 'cust-alice',
       total: 149.99,
       status: 'pending',
-      $createdAt: '2024-01-15T00:00:00Z',
-      $updatedAt: '2024-01-15T00:00:00Z',
+      $createdAt: timestamp2024_01_15,
+      $updatedAt: timestamp2024_01_15,
     } as Thing,
     {
-      $id: 'order_3',
+      $id: toThingId('order-3'),
       $type: 'Order',
-      customerId: 'cust_bob',
+      customerId: 'cust-bob',
       total: 29.99,
       status: 'completed',
-      $createdAt: '2024-01-20T00:00:00Z',
-      $updatedAt: '2024-01-20T00:00:00Z',
+      $createdAt: timestamp2024_01_20,
+      $updatedAt: timestamp2024_01_20,
     } as Thing,
   ]
 
   const events: Event[] = [
     {
-      $id: 'evt_1',
+      $id: toEventId('evt-1'),
       type: 'Customer.signup',
-      payload: { customerId: 'cust_alice' },
+      payload: { customerId: 'cust-alice' },
       source: 'web',
-      $timestamp: '2024-01-01T00:00:00Z',
+      $timestamp: timestamp2024_01_01,
     } as Event,
     {
-      $id: 'evt_2',
+      $id: toEventId('evt-2'),
       type: 'Order.placed',
-      payload: { orderId: 'order_1', customerId: 'cust_alice' },
+      payload: { orderId: 'order-1', customerId: 'cust-alice' },
       source: 'api',
-      $timestamp: '2024-01-10T00:00:00Z',
+      $timestamp: timestamp2024_01_10,
     } as Event,
   ]
 
   const relationships: Relationship[] = [
     {
-      $id: 'rel_1',
-      subject: 'cust_alice',
+      subject: 'cust-alice',
       predicate: 'hasOrder',
-      object: 'order_1',
-      $createdAt: '2024-01-10T00:00:00Z',
+      object: 'order-1',
+      $createdAt: timestamp2024_01_10,
     } as Relationship,
     {
-      $id: 'rel_2',
-      subject: 'cust_alice',
+      subject: 'cust-alice',
       predicate: 'hasOrder',
-      object: 'order_2',
-      $createdAt: '2024-01-15T00:00:00Z',
+      object: 'order-2',
+      $createdAt: timestamp2024_01_15,
     } as Relationship,
     {
-      $id: 'rel_3',
-      subject: 'cust_bob',
+      subject: 'cust-bob',
       predicate: 'hasOrder',
-      object: 'order_3',
-      $createdAt: '2024-01-20T00:00:00Z',
+      object: 'order-3',
+      $createdAt: timestamp2024_01_20,
     } as Relationship,
   ]
 
@@ -736,10 +736,11 @@ export function assertEvent(
   event: Event,
   expected: Partial<Event>
 ): void {
+  const eventRecord = event as unknown as Record<string, unknown>
   for (const [key, value] of Object.entries(expected)) {
-    if ((event as Record<string, unknown>)[key] !== value) {
+    if (eventRecord[key] !== value) {
       throw new Error(
-        `Expected event.${key} to be ${JSON.stringify(value)}, got ${JSON.stringify((event as Record<string, unknown>)[key])}`
+        `Expected event.${key} to be ${JSON.stringify(value)}, got ${JSON.stringify(eventRecord[key])}`
       )
     }
   }

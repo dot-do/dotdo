@@ -21,7 +21,7 @@ const DEFAULT_LIMIT = 20
 const MAX_LIMIT = 100
 
 export class TasksDO extends DO {
-  private $: WorkflowContext
+  protected declare override $: WorkflowContext
 
   constructor(state: DurableObjectState, env: DOEnv) {
     super(state, env)
@@ -33,22 +33,22 @@ export class TasksDO extends DO {
     // Event Handlers - Track entity lifecycle
     // ========================================================================
 
-    this.$.on.Task.created(async (event) => {
+    this.$.on.Task.created(async (event: { type: string; payload: unknown }) => {
       const { taskId, title } = event.payload as { taskId: string; title: string }
       console.log(`[Event] Task created: ${title} (${taskId})`)
     })
 
-    this.$.on.Task.updated(async (event) => {
+    this.$.on.Task.updated(async (event: { type: string; payload: unknown }) => {
       const { taskId, changes } = event.payload as { taskId: string; changes: string[] }
       console.log(`[Event] Task updated: ${taskId}, fields: ${changes.join(', ')}`)
     })
 
-    this.$.on.Task.deleted(async (event) => {
+    this.$.on.Task.deleted(async (event: { type: string; payload: unknown }) => {
       const { taskId } = event.payload as { taskId: string }
       console.log(`[Event] Task deleted: ${taskId}`)
     })
 
-    this.$.on.Task.completed(async (event) => {
+    this.$.on.Task.completed(async (event: { type: string; payload: unknown }) => {
       const { taskId, title } = event.payload as { taskId: string; title: string }
       console.log(`[Event] Task completed: ${title} (${taskId})`)
     })

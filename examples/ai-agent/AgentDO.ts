@@ -97,7 +97,7 @@ interface AgentEnv extends DOEnv {
 }
 
 export class AgentDO extends DO {
-  private $: WorkflowContext
+  protected declare override $: WorkflowContext
   private agentEnv: AgentEnv
 
   constructor(state: DurableObjectState, env: AgentEnv) {
@@ -112,7 +112,7 @@ export class AgentDO extends DO {
     // ========================================================================
 
     // Track messages for analytics
-    this.$.on.Message.sent(async (event) => {
+    this.$.on.Message.sent(async (event: { type: string; payload: unknown }) => {
       const { conversationId, messageId, role } = event.payload as {
         conversationId: string
         messageId: string
@@ -121,7 +121,7 @@ export class AgentDO extends DO {
       console.log(`[Event] Message sent in ${conversationId}: ${role} (${messageId})`)
     })
 
-    this.$.on.Message.received(async (event) => {
+    this.$.on.Message.received(async (event: { type: string; payload: unknown }) => {
       const { conversationId, messageId, role } = event.payload as {
         conversationId: string
         messageId: string
@@ -131,7 +131,7 @@ export class AgentDO extends DO {
     })
 
     // Track tool executions
-    this.$.on['Tool']['executed'](async (event) => {
+    this.$.on['Tool']['executed'](async (event: { type: string; payload: unknown }) => {
       const { toolName, args, success } = event.payload as {
         toolName: string
         args: Record<string, unknown>
@@ -140,7 +140,7 @@ export class AgentDO extends DO {
       console.log(`[Event] Tool ${toolName} executed (success: ${success})`, args)
     })
 
-    this.$.on['Tool'].failed(async (event) => {
+    this.$.on['Tool'].failed(async (event: { type: string; payload: unknown }) => {
       const { toolName, error } = event.payload as {
         toolName: string
         args: Record<string, unknown>
@@ -150,17 +150,17 @@ export class AgentDO extends DO {
     })
 
     // Track task lifecycle
-    this.$.on.Task['started'](async (event) => {
+    this.$.on.Task['started'](async (event: { type: string; payload: unknown }) => {
       const { taskId, name } = event.payload as { taskId: string; name: string }
       console.log(`[Event] Task started: ${name} (${taskId})`)
     })
 
-    this.$.on.Task.completed(async (event) => {
+    this.$.on.Task.completed(async (event: { type: string; payload: unknown }) => {
       const { taskId, name } = event.payload as { taskId: string; name: string }
       console.log(`[Event] Task completed: ${name} (${taskId})`)
     })
 
-    this.$.on.Task.failed(async (event) => {
+    this.$.on.Task.failed(async (event: { type: string; payload: unknown }) => {
       const { taskId, name, error } = event.payload as {
         taskId: string
         name: string
@@ -170,7 +170,7 @@ export class AgentDO extends DO {
     })
 
     // Audit log - catch all agent events
-    this.$.on['*']['*'](async (event) => {
+    this.$.on['*']['*'](async (event: { type: string; payload: unknown }) => {
       console.log(`[Audit] ${event.type}`, event.payload)
     })
 

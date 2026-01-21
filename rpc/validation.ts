@@ -559,3 +559,86 @@ export const ArgSchemas = {
     }
   }
 }
+
+// ============================================================================
+// Zod Schema Support (for typed validation with zod)
+// ============================================================================
+
+/**
+ * Marker interface for Zod-based method schemas
+ * Used to distinguish Zod schemas from regular MethodSchema
+ */
+export interface ZodMethodSchema {
+  /** Marker to identify Zod schemas */
+  __zodSchema: true
+  /** Array of Zod schemas for each argument position */
+  args: unknown[]
+}
+
+/**
+ * Registry of Zod-based method schemas
+ */
+export type ZodMethodSchemaRegistry = Record<string, ZodMethodSchema>
+
+/**
+ * Check if a schema is a Zod method schema
+ */
+export function isZodMethodSchema(schema: unknown): schema is ZodMethodSchema {
+  return (
+    typeof schema === 'object' &&
+    schema !== null &&
+    '__zodSchema' in schema &&
+    (schema as ZodMethodSchema).__zodSchema === true
+  )
+}
+
+/**
+ * Get a Zod method schema from a registry
+ */
+export function getZodMethodSchema(
+  registry: ZodMethodSchemaRegistry,
+  methodPath: string
+): ZodMethodSchema | undefined {
+  return registry[methodPath]
+}
+
+/**
+ * Validate arguments against a Zod method schema
+ * Requires zod to be installed and schemas to be actual Zod schemas
+ */
+export function validateZodArgs(args: unknown[], schema: ZodMethodSchema): void {
+  if (!schema.args || !Array.isArray(schema.args)) {
+    throw new ValidationError('Invalid Zod schema: missing args array')
+  }
+
+  for (let i = 0; i < schema.args.length; i++) {
+    const argSchema = schema.args[i]
+    const argValue = args[i]
+
+    // If the schema has a parse method, it's a Zod schema
+    if (argSchema && typeof argSchema === 'object' && 'parse' in argSchema) {
+      try {
+        (argSchema as { parse: (v: unknown) => unknown }).parse(argValue)
+      } catch (error: unknown) {
+        const zodError = error as { errors?: Array<{ path: (string | number)[]; message: string }> }
+        if (zodError && typeof zodError === 'object' && 'errors' in zodError) {
+          const messages = (zodError.errors || [])
+            .map((e) => `arg[${i}]${e.path.length ? '.' + e.path.join('.') : ''}: ${e.message}`)
+            .join(', ')
+          throw new ValidationError(`Validation failed: ${messages}`)
+        }
+        throw new ValidationError(`Validation failed for argument ${i}`)
+      }
+    }
+  }
+}
+
+/**
+ * Define a Zod method schema from an array of Zod schemas
+ */
+export function defineZodMethodSchema(args: unknown[]): ZodMethodSchema {
+  return {
+    __zodSchema: true,
+    args,
+  }
+}

@@ -141,8 +141,8 @@ function createNestedProxyForFetch<T = unknown>(
 ): T {
   // Use a typed proxy target that can be both accessed as an object and called as a function
   const proxyTarget: ProxyableFunction = Object.assign(
-    () => {},
-    {}
+    (() => undefined) as (...args: unknown[]) => unknown,
+    {} as Record<string, unknown>
   )
 
   return new Proxy(proxyTarget, {

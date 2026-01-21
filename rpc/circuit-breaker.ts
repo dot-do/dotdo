@@ -131,7 +131,7 @@ export function createDOStubWithCircuitBreaker<T extends object>(
   binding: DurableObjectNamespace,
   id: string | DurableObjectId,
   options?: DOStubWithCircuitBreakerOptions
-): T {
+): ReturnType<typeof createDOStub<T>> {
   const cbConfig = options?.circuitBreaker
   const enabled = cbConfig?.enabled !== false // Default to enabled
 
@@ -151,7 +151,8 @@ export function createDOStubWithCircuitBreaker<T extends object>(
   const stub = createDOStub<T>(binding, id, options)
 
   // Wrap with circuit breaker proxy
-  return new Proxy({} as T, {
+  // Cast needed because TypeScript can't infer that the proxy preserves the stub's type
+  return new Proxy(stub, {
     get(_, prop: string | symbol) {
       if (typeof prop === 'symbol') {
         return undefined
@@ -176,7 +177,7 @@ export function createDOStubWithCircuitBreaker<T extends object>(
       return async (...args: unknown[]) => {
         const result = await circuit.execute(
           async () => {
-            const method = stub[prop as keyof T]
+            const method = (stub as Record<string, unknown>)[prop]
             if (typeof method !== 'function') {
               throw new Error(`Method ${prop} is not a function`)
             }
