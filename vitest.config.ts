@@ -80,6 +80,7 @@ export default defineConfig({
       'tests/benchmarks/**/*.test.ts',
       'testing/**/*.test.ts',
       'integrations/tests/**/*.test.ts',
+      'utils/tests/**/*.test.ts',
     ],
 
     exclude: defaultExcludes,
