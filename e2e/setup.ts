@@ -23,7 +23,7 @@ export interface E2EConfig {
  * Get E2E configuration from environment variables
  */
 export function getE2EConfig(): E2EConfig {
-  const workerUrl = process.env['WORKER_URL'] || process.env['E2E_WORKER_URL']
+  const workerUrl = process.env.WORKER_URL || process.env.E2E_WORKER_URL
 
   if (!workerUrl) {
     throw new Error(
@@ -37,9 +37,9 @@ export function getE2EConfig(): E2EConfig {
 
   return {
     workerUrl,
-    apiKey: process.env['API_KEY'] || process.env['E2E_API_KEY'],
-    tenant: process.env['TENANT'] || process.env['E2E_TENANT'] || 'e2e-test',
-    skipDeploymentCheck: process.env['SKIP_DEPLOYMENT_CHECK'] === 'true'
+    apiKey: process.env.API_KEY || process.env.E2E_API_KEY,
+    tenant: process.env.TENANT || process.env.E2E_TENANT || 'e2e-test',
+    skipDeploymentCheck: process.env.SKIP_DEPLOYMENT_CHECK === 'true'
   }
 }
 
@@ -132,7 +132,7 @@ afterAll(async () => {
  * Helper to skip tests when WORKER_URL is not set
  */
 export function skipIfNoWorker(): boolean {
-  const workerUrl = process.env['WORKER_URL'] || process.env['E2E_WORKER_URL']
+  const workerUrl = process.env.WORKER_URL || process.env.E2E_WORKER_URL
   return !workerUrl
 }
 
