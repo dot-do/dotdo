@@ -1,14 +1,72 @@
 {
   "name": "@dotdo/api",
   "version": "0.0.1",
+  "description": "Self-describing Hono API with HATEOAS for dotdo - auto-generates SDK, CLI, and MCP",
   "type": "module",
-  "main": "index.ts",
-  "types": "index.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./app": {
+      "types": "./dist/app.d.ts",
+      "import": "./dist/app.js"
+    },
+    "./hateoas": {
+      "types": "./dist/hateoas.d.ts",
+      "import": "./dist/hateoas.js"
+    },
+    "./openapi": {
+      "types": "./dist/openapi.d.ts",
+      "import": "./dist/openapi.js"
+    },
+    "./resource": {
+      "types": "./dist/resource.d.ts",
+      "import": "./dist/resource.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "dotdo",
+    "api",
+    "hono",
+    "hateoas",
+    "openapi",
+    "cloudflare",
+    "workers"
+  ],
+  "author": "dot-do",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/dotdo",
+    "directory": "api"
+  },
+  "homepage": "https://dotdo.dev",
+  "bugs": {
+    "url": "https://github.com/dot-do/dotdo/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "clean": "rm -rf dist"
   },
   "dependencies": {
     "@dotdo/auth": "workspace:*",

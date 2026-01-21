@@ -3,42 +3,76 @@
   "version": "0.0.1",
   "description": "OAuth 2.1 + PKCE core for dotdo",
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./src/index.ts",
-      "types": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
     "./pkce": {
-      "import": "./src/core/pkce.ts",
-      "types": "./src/core/pkce.ts"
+      "types": "./dist/core/pkce.d.ts",
+      "import": "./dist/core/pkce.js"
     },
     "./state": {
-      "import": "./src/core/state.ts",
-      "types": "./src/core/state.ts"
+      "types": "./dist/core/state.d.ts",
+      "import": "./dist/core/state.js"
     },
     "./storage": {
-      "import": "./src/storage/index.ts",
-      "types": "./src/storage/index.ts"
+      "types": "./dist/storage/index.d.ts",
+      "import": "./dist/storage/index.js"
     },
     "./providers": {
-      "import": "./src/providers/index.ts",
-      "types": "./src/providers/index.ts"
+      "types": "./dist/providers/index.d.ts",
+      "import": "./dist/providers/index.js"
     },
     "./middleware": {
-      "import": "./src/middleware/index.ts",
-      "types": "./src/middleware/index.ts"
+      "types": "./dist/middleware/index.d.ts",
+      "import": "./dist/middleware/index.js"
     },
     "./mcp": {
-      "import": "./src/mcp/index.ts",
-      "types": "./src/mcp/index.ts"
+      "types": "./dist/mcp/index.d.ts",
+      "import": "./dist/mcp/index.js"
     }
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "dotdo",
+    "oauth",
+    "pkce",
+    "authentication",
+    "cloudflare",
+    "workers"
+  ],
+  "author": "dot-do",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/dotdo",
+    "directory": "oauth"
+  },
+  "homepage": "https://dotdo.dev",
+  "bugs": {
+    "url": "https://github.com/dot-do/dotdo/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "test": "vitest",
     "test:run": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "clean": "rm -rf dist"
   },
   "dependencies": {
     "hono": "^4.7.0"
