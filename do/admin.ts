@@ -152,10 +152,16 @@ export class AdminDO {
     const { type, limit = 100, offset = 0 } = options
 
     // Get entities from store
-    const entities = await this.stores.things.list({ type, limit, offset })
+    const entities = await this.stores.things.list({
+      ...(type !== undefined && { type }),
+      limit,
+      offset,
+    })
 
     // Calculate total (get all and count)
-    const all = await this.stores.things.list({ type })
+    const all = await this.stores.things.list({
+      ...(type !== undefined && { type }),
+    })
     const total = all.length
 
     // Build type metadata
@@ -182,12 +188,12 @@ export class AdminDO {
 
     // Build query options
     const queryOptions: EventQueryOptions = {
-      type,
-      source,
-      since,
-      until,
+      ...(type !== undefined && { type }),
+      ...(source !== undefined && { source }),
+      ...(since !== undefined && { since }),
+      ...(until !== undefined && { until }),
       limit,
-      offset
+      offset,
     }
 
     // Get events from store
@@ -195,10 +201,10 @@ export class AdminDO {
 
     // Calculate total (get all with filters but no pagination)
     const allEvents = await this.stores.events.query({
-      type,
-      source,
-      since,
-      until
+      ...(type !== undefined && { type }),
+      ...(source !== undefined && { source }),
+      ...(since !== undefined && { since }),
+      ...(until !== undefined && { until }),
     })
     const total = allEvents.length
 
@@ -215,9 +221,9 @@ export class AdminDO {
     const { subject, predicate, object } = options
 
     const relationships = await this.stores.relationships.find({
-      subject,
-      predicate,
-      object
+      ...(subject !== undefined && { subject }),
+      ...(predicate !== undefined && { predicate }),
+      ...(object !== undefined && { object }),
     })
 
     return {

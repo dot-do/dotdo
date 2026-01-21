@@ -386,7 +386,7 @@ describe('Relationship Benchmarks', () => {
     const metrics = await runBenchmark(
       'relationship-query-by-subject',
       async () => {
-        await relationships.find({ subject: users[i++ % 20] })
+        await relationships.find({ subject: users[i++ % 20]! })
       },
       { iterations: 100, warmupIterations: 10 }
     )
@@ -421,7 +421,7 @@ describe('Relationship Benchmarks', () => {
     const metrics = await runBenchmark(
       'relationship-query-by-predicate',
       async () => {
-        await relationships.find({ predicate: predicates[i++ % predicates.length] })
+        await relationships.find({ predicate: predicates[i++ % predicates.length]! })
       },
       { iterations: 100, warmupIterations: 10 }
     )
@@ -459,7 +459,7 @@ describe('Relationship Benchmarks', () => {
     const metrics = await runBenchmark(
       'relationship-query-by-object',
       async () => {
-        await relationships.find({ object: influencers[i++ % 10] })
+        await relationships.find({ object: influencers[i++ % 10]! })
       },
       { iterations: 100, warmupIterations: 10 }
     )
@@ -624,7 +624,7 @@ describe('Relationship Benchmarks', () => {
       async () => {
         // Query with both subject and predicate
         await relationships.find({
-          subject: users[i++ % 30],
+          subject: users[i++ % 30]!,
           predicate: 'owns',
         })
       },

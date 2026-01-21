@@ -592,14 +592,14 @@ export function trackFireAndForget(
 
     store.track({
       operation,
-      eventType: options.eventType,
-      handlerIndex: options.handlerIndex,
+      ...(options.eventType !== undefined && { eventType: options.eventType }),
+      ...(options.handlerIndex !== undefined && { handlerIndex: options.handlerIndex }),
       message: errorInfo.message,
-      stack: errorInfo.stack,
+      ...(errorInfo.stack !== undefined && { stack: errorInfo.stack }),
       errorType: errorInfo.errorType,
       retriable: errorInfo.retriable,
-      context: options.context,
-      attempts: options.attempts
+      ...(options.context !== undefined && { context: options.context }),
+      ...(options.attempts !== undefined && { attempts: options.attempts }),
     })
 
     // Still log for visibility
@@ -1373,8 +1373,8 @@ export function createEnhancedErrorStore(
         retryId = retryQueue.add({
           errorId: trackedError.id,
           eventType: errorData.eventType || 'unknown',
-          payload: errorData.context,
-          handlerFn
+          payload: errorData.context ?? {},
+          ...(handlerFn !== undefined && { handlerFn }),
         })
       }
 

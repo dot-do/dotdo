@@ -132,7 +132,7 @@ async function checkRegressions(strict: boolean): Promise<RegressionCheckResult>
       threshold,
       status,
       critical: isCritical,
-      description: benchConfig?.description,
+      ...(benchConfig?.description !== undefined && { description: benchConfig.description }),
     })
   }
 

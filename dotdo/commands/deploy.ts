@@ -227,7 +227,7 @@ export async function run(args: string[], options: RunOptions = {}): Promise<Run
     try {
       const result = await ensureLoggedIn({
         openBrowser: true,
-        print: verbose ? console.log : undefined,
+        ...(verbose && { print: console.log }),
       })
       token = result.token
 

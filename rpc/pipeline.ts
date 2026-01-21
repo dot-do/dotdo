@@ -214,7 +214,10 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
       this.transport || this.baseUrl!,
       this.initialMethod,
       this.initialArgs,
-      { correlationId: this.correlationId, timeout: this.timeout }
+      {
+        ...(this.correlationId !== undefined && { correlationId: this.correlationId }),
+        timeout: this.timeout,
+      }
     )
     clone.steps = [...this.steps]
     return clone
@@ -404,7 +407,10 @@ export function createPipelineClient<T extends object>(options: PipelineClientOp
             transport || url!,
             String(method),
             args,
-            { correlationId, timeout }
+            {
+              ...(correlationId !== undefined && { correlationId }),
+              timeout,
+            }
           )
         }
       }
@@ -416,7 +422,10 @@ export function createPipelineClient<T extends object>(options: PipelineClientOp
             transport || url!,
             methodPath,
             args,
-            { correlationId, timeout }
+            {
+              ...(correlationId !== undefined && { correlationId }),
+              timeout,
+            }
           )
         }
       }
@@ -427,7 +436,10 @@ export function createPipelineClient<T extends object>(options: PipelineClientOp
           transport || url!,
           String(prop),
           args,
-          { correlationId, timeout }
+          {
+            ...(correlationId !== undefined && { correlationId }),
+            timeout,
+          }
         )
       }
     }

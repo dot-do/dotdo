@@ -538,9 +538,11 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
       try {
         // Try JWKS validation first if client is available
         if (jwksClient) {
+          const issuerArray = issuer ? (Array.isArray(issuer) ? issuer : [issuer]) : undefined
+          const audienceArray = audience ? (Array.isArray(audience) ? audience : [audience]) : undefined
           const payload = await verifyTokenWithJwks(token, jwksClient, {
-            issuer: issuer ? (Array.isArray(issuer) ? issuer : [issuer]) : undefined,
-            audience: audience ? (Array.isArray(audience) ? audience : [audience]) : undefined,
+            ...(issuerArray !== undefined && { issuer: issuerArray }),
+            ...(audienceArray !== undefined && { audience: audienceArray }),
           })
           return payload as AuthPayload
         }

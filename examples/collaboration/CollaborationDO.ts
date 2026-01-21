@@ -206,11 +206,12 @@ export class CollaborationDO extends DO {
       for (const collab of allCollaborators) {
         const c = collab as unknown as Collaborator
         if (this.userConnections.has(c.userId)) {
+          const cursor = this.cursors.get(c.userId)
           collaborators.push({
             userId: c.userId,
             name: c.name,
             color: c.color,
-            cursor: this.cursors.get(c.userId),
+            ...(cursor !== undefined && { cursor }),
           })
         }
       }
@@ -461,7 +462,7 @@ export class CollaborationDO extends DO {
     this.cursors.set(userId, {
       userId,
       position,
-      selection,
+      ...(selection !== undefined && { selection }),
       updatedAt: new Date().toISOString(),
     })
 
@@ -514,11 +515,12 @@ export class CollaborationDO extends DO {
     for (const collab of allCollaborators) {
       const c = collab as unknown as Collaborator
       if (this.userConnections.has(c.userId)) {
+        const cursor = this.cursors.get(c.userId)
         collaborators.push({
           userId: c.userId,
           name: c.name,
           color: c.color,
-          cursor: this.cursors.get(c.userId),
+          ...(cursor !== undefined && { cursor }),
         })
       }
     }

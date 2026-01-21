@@ -310,12 +310,12 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
       options.joins.push({
         predicate,
         targetType,
-        conditions,
-        fromJoin,
-        alias,
-        options: joinOptions,
+        ...(conditions !== undefined && { conditions }),
+        ...(fromJoin !== undefined && { fromJoin }),
+        ...(alias !== undefined && { alias }),
+        ...(joinOptions !== undefined && { options: joinOptions }),
         joinType,
-        direction
+        direction,
       })
     }
   }
@@ -582,8 +582,8 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
           DEFAULT_QUERY_LIMITS.FALLBACK_QUERY_LIMIT
         )
         results = await store.list({
-          type: options.type,
-          limit: fallbackLimit
+          ...(options.type !== undefined && { type: options.type }),
+          limit: fallbackLimit,
         })
 
         // Apply whereConditions

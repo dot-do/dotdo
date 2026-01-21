@@ -96,10 +96,10 @@ export class EntityManager {
       actor: this._auditContext.actor,
       action,
       resource,
-      resourceId,
+      ...(resourceId !== undefined && { resourceId }),
       level,
-      details: maskedDetails,
-      correlationId: this._auditContext.correlationId
+      ...(maskedDetails !== undefined && { details: maskedDetails }),
+      ...(this._auditContext.correlationId !== undefined && { correlationId: this._auditContext.correlationId }),
     })
   }
 

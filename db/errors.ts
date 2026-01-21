@@ -361,7 +361,10 @@ export class TransactionError extends DotdoError {
     cause?: Error,
     details?: Record<string, unknown>
   ) {
-    super(ErrorCode.TRANSACTION_ERROR, message, { cause, details })
+    super(ErrorCode.TRANSACTION_ERROR, message, {
+      ...(cause !== undefined && { cause }),
+      ...(details !== undefined && { details }),
+    })
     this.name = 'TransactionError'
   }
 
@@ -502,7 +505,9 @@ export function deserializeDotdoError(serialized: SerializedDotdoError): DotdoEr
   const ErrorClass = ERROR_REGISTRY[errorType]
 
   if (ErrorClass && errorType !== 'DotdoError') {
-    const error = new ErrorClass(serialized.message, { details: serialized.details })
+    const error = new ErrorClass(serialized.message, {
+      ...(serialized.details !== undefined && { details: serialized.details }),
+    })
     if (serialized.stack) {
       error.stack = serialized.stack
     }
@@ -513,7 +518,9 @@ export function deserializeDotdoError(serialized: SerializedDotdoError): DotdoEr
   const error = new DotdoError(
     serialized.code ?? ErrorCode.INTERNAL_ERROR,
     serialized.message,
-    { details: serialized.details }
+    {
+      ...(serialized.details !== undefined && { details: serialized.details }),
+    }
   )
 
   if (serialized.stack) {

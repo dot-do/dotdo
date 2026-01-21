@@ -199,18 +199,19 @@ export function createContext(
       const errorInfo = extractErrorInfo(failure.error)
 
       // Track in fire-and-forget error store
+      const errorContext = typeof payload === 'object' && payload !== null
+        ? payload as Record<string, unknown>
+        : undefined
       fireAndForgetErrors.track({
         operation: 'event.handler',
         eventType: eventType,
         handlerIndex: i,
         message: errorInfo.message,
-        stack: errorInfo.stack,
+        ...(errorInfo.stack !== undefined && { stack: errorInfo.stack }),
         errorType: errorInfo.errorType,
         retriable: errorInfo.retriable,
-        context: typeof payload === 'object' && payload !== null
-          ? payload as Record<string, unknown>
-          : undefined,
-        attempts: failure.attempts
+        ...(errorContext !== undefined && { context: errorContext }),
+        attempts: failure.attempts,
       })
 
       if (failure.error instanceof ValidationError) {
