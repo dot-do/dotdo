@@ -31,8 +31,8 @@ export interface UsageReport {
   requestCount: number
   byProvider: Record<Provider, UsageStats>
   byModel: Record<string, UsageStats>
-  startTime?: number
-  endTime?: number
+  startTime?: number | undefined
+  endTime?: number | undefined
 }
 
 export interface ReportFilter {
@@ -275,17 +275,19 @@ export class UsageTracker {
       if (!byProvider[record.provider]) {
         byProvider[record.provider] = { cost: 0, tokens: 0, requests: 0 }
       }
-      byProvider[record.provider].cost += record.cost
-      byProvider[record.provider].tokens += record.tokens.input + record.tokens.output
-      byProvider[record.provider].requests++
+      const providerStats = byProvider[record.provider]!
+      providerStats.cost += record.cost
+      providerStats.tokens += record.tokens.input + record.tokens.output
+      providerStats.requests++
 
       // By model
       if (!byModel[record.model]) {
         byModel[record.model] = { cost: 0, tokens: 0, requests: 0 }
       }
-      byModel[record.model].cost += record.cost
-      byModel[record.model].tokens += record.tokens.input + record.tokens.output
-      byModel[record.model].requests++
+      const modelStats = byModel[record.model]!
+      modelStats.cost += record.cost
+      modelStats.tokens += record.tokens.input + record.tokens.output
+      modelStats.requests++
     }
 
     return {

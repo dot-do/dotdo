@@ -594,7 +594,7 @@ async function executeSteps(
 
   // Execute pipeline steps
   for (let i = 0; i < steps.length; i++) {
-    const step = steps[i]
+    const step = steps[i]!
 
     try {
       switch (step.type) {

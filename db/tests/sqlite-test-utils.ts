@@ -268,7 +268,7 @@ export function createMockSqlStorage(): MockSqlStorage {
                 const columnsMatch = sql.match(/\(([^)]+)\)/i)
                 if (!columnsMatch) return
 
-                const columns = columnsMatch[1].split(',').map(c => c.trim())
+                const columns = columnsMatch[1]!.split(',').map(c => c.trim())
 
                 // Create row object
                 const row: Record<string, unknown> = {}
@@ -294,10 +294,10 @@ export function createMockSqlStorage(): MockSqlStorage {
                   // This is simplified - real implementation would parse SET clause
                   const setMatch = sql.match(/set\s+(.+?)\s+where/i)
                   if (setMatch) {
-                    const setPairs = setMatch[1].split(',')
+                    const setPairs = setMatch[1]!.split(',')
                     setPairs.forEach((pair, idx) => {
                       const [col] = pair.trim().split('=')
-                      rows[rowIndex][col.trim()] = boundValues[idx]
+                      if (col) rows[rowIndex]![col.trim()] = boundValues[idx]
                     })
                   }
                 }
