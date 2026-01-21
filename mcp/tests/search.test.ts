@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createThingsStore, type ThingsStore } from '../../db/things'
-import { createSearchTool } from '../search'
+import { createSearchTool, searchTool as searchToolPlaceholder } from '../search'
 import type { MCPTool } from '../server'
 
 interface SearchResult {
@@ -318,5 +318,101 @@ describe('Search Tool', () => {
         searchTool.execute({ $type: 'User', orderBy: 'age', order: 'invalid' as any })
       ).rejects.toThrow()
     })
+
+    it('should handle limit at max boundary (100)', async () => {
+      // Create enough items
+      for (let i = 0; i < 110; i++) {
+        await store.create({ $type: 'BoundaryTest', index: i })
+      }
+
+      const result = (await searchTool.execute({ $type: 'BoundaryTest', limit: 100 })) as SearchResult
+      expect(result.results).toHaveLength(100)
+      expect(result.total).toBe(110)
+      expect(result.hasMore).toBe(true)
+    })
+
+    it('should handle limit exceeding max (101)', async () => {
+      await expect(
+        searchTool.execute({ $type: 'User', limit: 101 })
+      ).rejects.toThrow('limit must be between 1 and 100')
+    })
+
+    it('should handle limit of exactly 1', async () => {
+      const result = (await searchTool.execute({ $type: 'User', limit: 1 })) as SearchResult
+      expect(result.results).toHaveLength(1)
+      expect(result.limit).toBe(1)
+    })
+  })
+
+  describe('edge cases', () => {
+    it('should handle null params', async () => {
+      const result = (await searchTool.execute(null)) as SearchResult
+      expect(result.results.length).toBeGreaterThan(0)
+    })
+
+    it('should handle undefined params', async () => {
+      const result = (await searchTool.execute(undefined)) as SearchResult
+      expect(result.results.length).toBeGreaterThan(0)
+    })
+
+    it('should handle empty where object', async () => {
+      const result = (await searchTool.execute({
+        $type: 'User',
+        where: {}
+      })) as SearchResult
+
+      expect(result.results).toHaveLength(3)
+    })
+
+    it('should handle empty select array', async () => {
+      const result = (await searchTool.execute({
+        $type: 'User',
+        select: []
+      })) as SearchResult
+
+      // With empty select, should return all fields
+      expect(result.results[0]).toHaveProperty('$id')
+      expect(result.results[0]).toHaveProperty('$type')
+      expect(result.results[0]).toHaveProperty('name')
+    })
+
+    it('should handle query matching no string fields', async () => {
+      // Search in Orders which have numeric total and string status
+      const result = (await searchTool.execute({
+        $type: 'Order',
+        query: 'nonexistent'
+      })) as SearchResult
+
+      expect(result.results).toHaveLength(0)
+    })
+
+    it('should return correct limit and offset in response', async () => {
+      const result = (await searchTool.execute({
+        $type: 'User',
+        limit: 5,
+        offset: 1
+      })) as SearchResult
+
+      expect(result.limit).toBe(5)
+      expect(result.offset).toBe(1)
+    })
+  })
+})
+
+describe('searchTool placeholder', () => {
+  it('should have correct name', () => {
+    expect(searchToolPlaceholder.name).toBe('search')
+  })
+
+  it('should have description', () => {
+    expect(searchToolPlaceholder.description).toBeTruthy()
+  })
+
+  it('should have input schema', () => {
+    expect(searchToolPlaceholder.inputSchema).toHaveProperty('type', 'object')
+  })
+
+  it('should throw error when executed directly', async () => {
+    await expect(searchToolPlaceholder.execute({})).rejects.toThrow('searchTool must be created with createSearchTool(store)')
   })
 })

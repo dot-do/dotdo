@@ -126,6 +126,26 @@ export interface DLQQueryOptions {
 }
 
 /**
+ * Dead Letter Queue statistics for monitoring
+ */
+export interface DLQStats {
+  /** Total number of entries in the DLQ */
+  total: number
+  /** Entries grouped by event type */
+  byEventType: Record<string, number>
+  /** Entries grouped by error category */
+  byErrorType: Record<string, number>
+  /** Oldest entry timestamp (or undefined if DLQ is empty) */
+  oldestEntry?: number
+  /** Newest entry timestamp (or undefined if DLQ is empty) */
+  newestEntry?: number
+  /** Average number of attempts before DLQ */
+  averageAttempts: number
+  /** Total unique events that failed */
+  uniqueEvents: number
+}
+
+/**
  * Durability configuration per event type
  */
 export interface DurabilityConfig {
@@ -204,10 +224,10 @@ export interface EventsStore<P extends JsonValue = JsonValue> {
 
   /**
    * Get an event by ID.
-   * @param id - The event ID
+   * @param id - The event ID (accepts EventId or string for backward compatibility)
    * @returns The event or null if not found
    */
-  get(id: string): Promise<Event<P> | null>
+  get(id: EventId | string): Promise<Event<P> | null>
 
   /**
    * Query events with filtering and pagination.
@@ -264,9 +284,11 @@ export interface EventsStore<P extends JsonValue = JsonValue> {
   /** Query the dead letter queue with filtering. */
   queryDeadLetterQueue(options?: DLQQueryOptions): DLQEntry<P>[] | Promise<DLQEntry<P>[]>
   /** Remove an event from the dead letter queue. */
-  removeFromDeadLetterQueue(eventId: string): boolean | Promise<boolean>
+  removeFromDeadLetterQueue(eventId: EventId | string): boolean | Promise<boolean>
   /** Replay events from the dead letter queue. */
   replayDeadLetterQueue(options?: DLQQueryOptions): Promise<Event<P>[]>
+  /** Get DLQ statistics for monitoring. */
+  getDLQStats(): DLQStats | Promise<DLQStats>
 
   // Validation failure tracking
   /** Record a validation failure for diagnostics. */
@@ -276,9 +298,9 @@ export interface EventsStore<P extends JsonValue = JsonValue> {
 
   // Retry status tracking
   /** Set the retry status for an event. */
-  setEventRetryStatus(eventId: string, status: EventRetryStatus): void | Promise<void>
+  setEventRetryStatus(eventId: EventId | string, status: EventRetryStatus): void | Promise<void>
   /** Get the retry status for an event. */
-  getEventRetryStatus(eventId: string): EventRetryStatus | undefined | Promise<EventRetryStatus | undefined>
+  getEventRetryStatus(eventId: EventId | string): EventRetryStatus | undefined | Promise<EventRetryStatus | undefined>
 
   // Retry metrics
   /** Record a retry attempt for metrics. */

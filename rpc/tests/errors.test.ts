@@ -14,6 +14,7 @@ import {
   CircuitOpenError,
   isCircuitOpenError,
   RetryWithCircuitBreaker,
+  ValidationError,
 } from '../errors'
 import { expectRPCError, expectRPCErrorType } from '../../test-utils'
 
@@ -244,6 +245,68 @@ describe('retryWithBackoff', () => {
 
     const result = await promise
     expect(result).toBe('success')
+  })
+
+  it('should throw ValidationError for negative maxRetries', async () => {
+    const fn = vi.fn().mockResolvedValue('success')
+
+    await expect(
+      retryWithBackoff(fn, { maxRetries: -1 })
+    ).rejects.toThrow('maxRetries must be >= 0')
+
+    await expect(
+      retryWithBackoff(fn, { maxRetries: -1 })
+    ).rejects.toBeInstanceOf(ValidationError)
+
+    expect(fn).not.toHaveBeenCalled()
+  })
+
+  it('should throw ValidationError for very negative maxRetries', async () => {
+    const fn = vi.fn().mockResolvedValue('success')
+
+    await expect(
+      retryWithBackoff(fn, { maxRetries: -100 })
+    ).rejects.toThrow('maxRetries must be >= 0')
+
+    expect(fn).not.toHaveBeenCalled()
+  })
+
+  it('should include error details for negative maxRetries', async () => {
+    const fn = vi.fn().mockResolvedValue('success')
+
+    try {
+      await retryWithBackoff(fn, { maxRetries: -5 })
+      expect.fail('Should have thrown')
+    } catch (error) {
+      expect(error).toBeInstanceOf(ValidationError)
+      if (error instanceof ValidationError) {
+        expect(error.details).toEqual({
+          field: 'maxRetries',
+          value: -5,
+          constraint: 'non-negative integer',
+        })
+      }
+    }
+  })
+
+  it('should work with maxRetries = 0 (no retries)', async () => {
+    const error = new RPCError(RPCErrorCode.NETWORK_ERROR, 'Network failed')
+    const fn = vi.fn().mockRejectedValue(error)
+
+    await expect(
+      retryWithBackoff(fn, { maxRetries: 0, initialDelay: 100 })
+    ).rejects.toThrow('Network failed')
+
+    expect(fn).toHaveBeenCalledTimes(1) // Called once, no retries
+  })
+
+  it('should succeed on first try with maxRetries = 0', async () => {
+    const fn = vi.fn().mockResolvedValue('success')
+
+    const result = await retryWithBackoff(fn, { maxRetries: 0 })
+
+    expect(result).toBe('success')
+    expect(fn).toHaveBeenCalledTimes(1)
   })
 })
 

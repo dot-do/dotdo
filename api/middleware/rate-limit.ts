@@ -242,8 +242,17 @@ export class RateLimiter {
       `)
 
       this.initialized = true
-    } catch (_err) {
-      // Schema might already exist, ignore
+    } catch (err) {
+      // Only ignore "table already exists" errors (SQLite error for CREATE TABLE IF NOT EXISTS should not throw,
+      // but some implementations may still error). Log other errors for debugging.
+      const errMsg = err instanceof Error ? err.message : String(err)
+      const isAlreadyExists = errMsg.toLowerCase().includes('already exists')
+
+      if (!isAlreadyExists) {
+        // Log the error for debugging but don't crash - rate limiting can fall back to in-memory
+        console.error('[RateLimiter] SQLite schema initialization failed:', errMsg)
+      }
+
       this.initialized = true
     }
   }
@@ -810,9 +819,10 @@ export class RateLimiter {
         key
       ).toArray()
 
-      if (slidingResult.length > 0 && slidingResult[0]!.count > 0) {
+      const slidingEntry = slidingResult[0]
+      if (slidingResult.length > 0 && slidingEntry && slidingEntry.count > 0) {
         return {
-          requests: slidingResult[0]!.count,
+          requests: slidingEntry.count,
           windowMs: tierConfig.windowMs,
           limit: tierConfig.requestsPerWindow,
         }
@@ -824,9 +834,10 @@ export class RateLimiter {
         key
       ).toArray()
 
-      if (fixedResult.length > 0) {
+      const fixedEntry = fixedResult[0]
+      if (fixedResult.length > 0 && fixedEntry) {
         return {
-          requests: fixedResult[0]!.count,
+          requests: fixedEntry.count,
           windowMs: tierConfig.windowMs,
           limit: tierConfig.requestsPerWindow,
         }

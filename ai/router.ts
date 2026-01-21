@@ -7,10 +7,28 @@
  * @module @dotdo/ai/router
  */
 
-import type { Provider, Capability, LoadBalancingStrategy } from './types'
+import type {
+  Provider,
+  Capability,
+  LoadBalancingStrategy,
+  BackoffConfig,
+  CircuitBreakerConfig,
+  FallbackEntry,
+  FallbackChainConfig,
+  FallbackConfig
+} from './types'
 
 // Re-export core types for backward compatibility
-export type { Provider, Capability, LoadBalancingStrategy } from './types'
+export type {
+  Provider,
+  Capability,
+  LoadBalancingStrategy,
+  BackoffConfig,
+  CircuitBreakerConfig,
+  FallbackEntry,
+  FallbackChainConfig,
+  FallbackConfig
+} from './types'
 
 export interface ProviderConfig {
   provider: Provider
@@ -32,7 +50,14 @@ export interface ModelInfo {
 
 export interface RouterConfig {
   providers?: ProviderConfig[]
+  /** Simple fallback chain (backward compatible) */
   fallback?: Provider[]
+  /** Advanced fallback configuration with capability-based chains */
+  fallbackConfig?: FallbackConfig
+  /** Circuit breaker configuration for health management */
+  circuitBreaker?: CircuitBreakerConfig
+  /** Default backoff configuration for retries */
+  backoff?: BackoffConfig
   maxCostPerRequest?: number
   maxRetries?: number
   loadBalancing?: LoadBalancingStrategy
@@ -41,6 +66,8 @@ export interface RouterConfig {
 export interface ExecuteOptions {
   model?: string
   provider?: Provider
+  /** Capability hint for fallback chain selection */
+  capability?: Capability
   temperature?: number
   maxTokens?: number
 }
@@ -56,6 +83,12 @@ interface ProviderHealth {
   healthy: boolean
   lastCheck: number
   consecutiveFailures: number
+  /** Number of consecutive successes during recovery (for circuit breaker) */
+  consecutiveSuccesses: number
+  /** Circuit breaker state: closed (healthy), open (unhealthy), half-open (testing) */
+  circuitState: 'closed' | 'open' | 'half-open'
+  /** Timestamp when circuit breaker transitioned to open state */
+  openedAt?: number
 }
 
 interface ProviderLoadInfo {
@@ -392,6 +425,21 @@ export class Router {
     this.config = {
       maxRetries: 3,
       loadBalancing: 'round-robin',
+      // Default circuit breaker config
+      circuitBreaker: {
+        failureThreshold: 3,
+        recoveryTimeout: 60000,
+        successThreshold: 1,
+        ...config.circuitBreaker
+      },
+      // Default backoff config
+      backoff: {
+        initialDelay: 1000,
+        multiplier: 2,
+        maxDelay: 30000,
+        jitter: true,
+        ...config.backoff
+      },
       ...config
     }
 
@@ -403,24 +451,29 @@ export class Router {
     if (config.providers) {
       config.providers.forEach(pc => {
         this.providerConfigs.set(pc.provider, pc)
-        this.healthStatus.set(pc.provider, {
-          healthy: true,
-          lastCheck: Date.now(),
-          consecutiveFailures: 0
-        })
+        this._initProviderHealth(pc.provider)
         this.loadInfo.set(pc.provider, { inFlight: 0 })
       })
     } else {
       // Initialize default providers
       Object.values(providers).forEach(provider => {
-        this.healthStatus.set(provider, {
-          healthy: true,
-          lastCheck: Date.now(),
-          consecutiveFailures: 0
-        })
+        this._initProviderHealth(provider)
         this.loadInfo.set(provider, { inFlight: 0 })
       })
     }
+  }
+
+  /**
+   * Initialize provider health state with circuit breaker fields
+   */
+  private _initProviderHealth(provider: Provider): void {
+    this.healthStatus.set(provider, {
+      healthy: true,
+      lastCheck: Date.now(),
+      consecutiveFailures: 0,
+      consecutiveSuccesses: 0,
+      circuitState: 'closed'
+    })
   }
 
   /**
@@ -515,7 +568,8 @@ export class Router {
                 throw new Error('Max retries exceeded')
               }
 
-              const delay = Math.pow(2, attempt) * 1000
+              // Use configurable exponential backoff
+              const delay = this._calculateBackoffDelay(attempt)
               if (this.delayCallback) {
                 this.delayCallback(delay)
               }
@@ -532,30 +586,40 @@ export class Router {
       }
     }
 
-    // Fallback chain mode
-    const fallbackChain = this.config.fallback || ['anthropic', 'openai', 'google']
+    // Fallback chain mode with capability-based selection
+    const fallbackChain = this._getFallbackChain(options)
     const maxRetries = this.config.maxRetries || 3
 
     let lastError: Error | null = null
     let totalRetries = 0
+    let providersAttempted: Provider[] = []
 
-    // Try each provider in fallback chain
-    for (const provider of fallbackChain) {
-      // Skip unhealthy providers
-      const health = this.healthStatus.get(provider)
-      if (health && !health.healthy) {
+    // Try each provider in fallback chain (sorted by weight if applicable)
+    const sortedChain = [...fallbackChain].sort((a, b) => (b.weight ?? 1) - (a.weight ?? 1))
+
+    for (const entry of sortedChain) {
+      const provider = entry.provider
+
+      // Skip unavailable providers (using circuit breaker logic)
+      if (!this._isProviderAvailable(provider)) {
         continue
       }
+
+      providersAttempted.push(provider)
+
+      // Determine model to use (fallback entry may override)
+      const modelOverride = entry.model ?? options.model
 
       // Try with retries for rate limits
       for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
           const result = await this._executeWithProvider(prompt, {
             ...options,
+            model: modelOverride,
             provider
           })
 
-          // Mark provider as healthy
+          // Mark provider as healthy (updates circuit breaker state)
           this._markHealthy(provider)
 
           const executeResult: ExecuteResult = {
@@ -577,8 +641,8 @@ export class Router {
               throw new Error('Max retries exceeded')
             }
 
-            // Exponential backoff
-            const delay = Math.pow(2, attempt) * 1000
+            // Use configurable exponential backoff
+            const delay = this._calculateBackoffDelay(attempt)
             if (this.delayCallback) {
               this.delayCallback(delay)
             }
@@ -586,14 +650,18 @@ export class Router {
             continue
           }
 
-          // Other errors, try next provider
+          // Other errors, mark unhealthy and try next provider
           this._markUnhealthy(provider)
           break
         }
       }
     }
 
-    throw new Error(`All providers failed: ${lastError?.message}`)
+    // Include attempted providers in error message for debugging
+    const attemptedStr = providersAttempted.length > 0
+      ? ` (tried: ${providersAttempted.join(', ')})`
+      : ''
+    throw new Error(`All providers failed${attemptedStr}: ${lastError?.message}`)
   }
 
   /**
@@ -637,8 +705,7 @@ export class Router {
 
   private _selectProviderForLoadBalancing(): Provider {
     const healthyProviders = Array.from(this.providerConfigs.keys()).filter(provider => {
-      const health = this.healthStatus.get(provider)
-      return !health || health.healthy
+      return this._isProviderAvailable(provider)
     })
 
     if (healthyProviders.length === 0) {
@@ -676,25 +743,252 @@ export class Router {
     return selectedProvider
   }
 
+  /**
+   * Detect rate limit errors from various providers.
+   *
+   * This method uses multiple detection strategies to robustly identify rate limit errors:
+   * 1. HTTP status code 429 (standard rate limit response)
+   * 2. Error name patterns (e.g., RateLimitError, TooManyRequestsError)
+   * 3. Error code patterns from provider SDKs
+   * 4. Message content matching for various provider-specific formats
+   *
+   * @param error - The error to check
+   * @returns true if this appears to be a rate limit error
+   */
   private _isRateLimitError(error: Error): boolean {
-    return error.message.includes('Rate limit') || error.message.includes('rate limit')
+    // Check HTTP status code (429 = Too Many Requests)
+    // Many API errors include status on the error object
+    const errorWithStatus = error as Error & { status?: number; statusCode?: number; code?: string | number }
+    if (errorWithStatus.status === 429 || errorWithStatus.statusCode === 429) {
+      return true
+    }
+
+    // Check error code (some SDKs use string codes)
+    const code = errorWithStatus.code
+    if (typeof code === 'string') {
+      const codeLower = code.toLowerCase()
+      if (
+        codeLower === 'rate_limit_exceeded' ||
+        codeLower === 'rate_limit_error' ||
+        codeLower === 'too_many_requests' ||
+        codeLower === 'quota_exceeded' ||
+        codeLower === 'resource_exhausted'
+      ) {
+        return true
+      }
+    }
+    if (code === 429) {
+      return true
+    }
+
+    // Check error name/type
+    const errorName = error.name?.toLowerCase() || ''
+    if (
+      errorName.includes('ratelimit') ||
+      errorName.includes('rate_limit') ||
+      errorName.includes('toomanyrequests') ||
+      errorName.includes('too_many_requests') ||
+      errorName.includes('quotaexceeded') ||
+      errorName.includes('resourceexhausted')
+    ) {
+      return true
+    }
+
+    // Check error message for various rate limit patterns
+    // This is the fallback when structured error info isn't available
+    const message = error.message?.toLowerCase() || ''
+    const rateLimitPatterns = [
+      'rate limit',
+      'rate_limit',
+      'ratelimit',
+      'too many requests',
+      'too_many_requests',
+      'toomanyrequests',
+      'quota exceeded',
+      'quota_exceeded',
+      'quotaexceeded',
+      'resource exhausted',
+      'resource_exhausted',
+      'resourceexhausted',
+      'throttle',
+      'throttled',
+      'request limit',
+      'requests per minute',
+      'requests per second',
+      'rpm limit',
+      'tpm limit',
+      'tokens per minute',
+      'capacity exceeded',
+      'overloaded',
+      'try again later',
+      'retry after',
+      'retry-after',
+      '429'
+    ]
+
+    for (const pattern of rateLimitPatterns) {
+      if (message.includes(pattern)) {
+        return true
+      }
+    }
+
+    return false
   }
 
+  /**
+   * Record a successful request for circuit breaker state management.
+   * Transitions from half-open to closed when success threshold is met.
+   */
   private _markHealthy(provider: Provider): void {
-    this.healthStatus.set(provider, {
-      healthy: true,
-      lastCheck: Date.now(),
-      consecutiveFailures: 0
-    })
+    const current = this.healthStatus.get(provider)
+    const cbConfig = this.config.circuitBreaker!
+    const consecutiveSuccesses = (current?.consecutiveSuccesses ?? 0) + 1
+
+    // If in half-open state and success threshold met, close the circuit
+    if (current?.circuitState === 'half-open' && consecutiveSuccesses >= (cbConfig.successThreshold ?? 1)) {
+      this.healthStatus.set(provider, {
+        healthy: true,
+        lastCheck: Date.now(),
+        consecutiveFailures: 0,
+        consecutiveSuccesses: 0,
+        circuitState: 'closed'
+      })
+    } else if (current?.circuitState === 'half-open') {
+      // Still in half-open, increment successes
+      this.healthStatus.set(provider, {
+        ...current,
+        lastCheck: Date.now(),
+        consecutiveSuccesses
+      })
+    } else {
+      // Normal healthy state
+      this.healthStatus.set(provider, {
+        healthy: true,
+        lastCheck: Date.now(),
+        consecutiveFailures: 0,
+        consecutiveSuccesses: 0,
+        circuitState: 'closed'
+      })
+    }
   }
 
+  /**
+   * Record a failed request for circuit breaker state management.
+   * Opens circuit when failure threshold is met.
+   */
   _markUnhealthy(provider: Provider): void {
     const current = this.healthStatus.get(provider)
+    const cbConfig = this.config.circuitBreaker!
+    const consecutiveFailures = (current?.consecutiveFailures ?? 0) + 1
+
+    // Check if failure threshold met (open the circuit)
+    const shouldOpen = consecutiveFailures >= (cbConfig.failureThreshold ?? 3)
+
     this.healthStatus.set(provider, {
-      healthy: false,
+      healthy: !shouldOpen,
       lastCheck: Date.now(),
-      consecutiveFailures: (current?.consecutiveFailures || 0) + 1
+      consecutiveFailures,
+      consecutiveSuccesses: 0,
+      circuitState: shouldOpen ? 'open' : (current?.circuitState ?? 'closed'),
+      openedAt: shouldOpen ? Date.now() : current?.openedAt
     })
+  }
+
+  /**
+   * Check if a provider should be considered available for requests.
+   * Handles circuit breaker state transitions (open -> half-open after recovery timeout).
+   */
+  _isProviderAvailable(provider: Provider): boolean {
+    const health = this.healthStatus.get(provider)
+    if (!health) return true
+
+    // If circuit is closed, provider is available
+    if (health.circuitState === 'closed') return true
+
+    // If circuit is half-open, allow one request through to test
+    if (health.circuitState === 'half-open') return true
+
+    // Circuit is open - check if recovery timeout has elapsed
+    const cbConfig = this.config.circuitBreaker!
+    const recoveryTimeout = cbConfig.recoveryTimeout ?? 60000
+    const timeSinceOpen = Date.now() - (health.openedAt ?? 0)
+
+    if (timeSinceOpen >= recoveryTimeout) {
+      // Transition to half-open state - allow testing
+      this.healthStatus.set(provider, {
+        ...health,
+        circuitState: 'half-open',
+        consecutiveSuccesses: 0
+      })
+      return true
+    }
+
+    // Circuit still open, provider unavailable
+    return false
+  }
+
+  /**
+   * Calculate delay for retry with configurable exponential backoff.
+   */
+  _calculateBackoffDelay(attempt: number, backoffConfig?: BackoffConfig): number {
+    const config = backoffConfig ?? this.config.backoff!
+    const initialDelay = config.initialDelay ?? 1000
+    const multiplier = config.multiplier ?? 2
+    const maxDelay = config.maxDelay ?? 30000
+    const jitter = config.jitter ?? true
+
+    let delay = initialDelay * Math.pow(multiplier, attempt)
+    delay = Math.min(delay, maxDelay)
+
+    if (jitter) {
+      // Add random jitter: +/- 10%
+      const jitterAmount = delay * 0.1
+      delay = delay + (Math.random() * jitterAmount * 2 - jitterAmount)
+    }
+
+    return Math.round(delay)
+  }
+
+  /**
+   * Get the fallback chain for the given options.
+   * Supports capability-based and model-based chain selection.
+   */
+  _getFallbackChain(options: ExecuteOptions = {}): FallbackEntry[] {
+    const fallbackConfig = this.config.fallbackConfig
+
+    // If advanced fallback config is provided, use it
+    if (fallbackConfig) {
+      // Check for model-specific chain first
+      if (options.model && fallbackConfig.byModel?.[options.model]) {
+        return this._normalizeFallbackChain(fallbackConfig.byModel[options.model])
+      }
+
+      // Check for capability-specific chain
+      if (options.capability && fallbackConfig.byCapability?.[options.capability]) {
+        return this._normalizeFallbackChain(fallbackConfig.byCapability[options.capability])
+      }
+
+      // Use default chain from advanced config
+      if (fallbackConfig.default) {
+        return this._normalizeFallbackChain(fallbackConfig.default)
+      }
+    }
+
+    // Fall back to simple fallback array
+    const simpleFallback = this.config.fallback ?? ['anthropic', 'openai', 'google']
+    return simpleFallback.map(provider => ({ provider, weight: 1 }))
+  }
+
+  /**
+   * Normalize a fallback chain config to FallbackEntry array.
+   */
+  private _normalizeFallbackChain(chain: FallbackChainConfig | Provider[]): FallbackEntry[] {
+    if (Array.isArray(chain)) {
+      // Simple provider array
+      return chain.map(provider => ({ provider, weight: 1 }))
+    }
+    // Advanced chain config
+    return chain.chain
   }
 
   private async _sleep(ms: number): Promise<void> {

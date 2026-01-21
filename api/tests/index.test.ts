@@ -195,7 +195,8 @@ describe('Hono App Setup', () => {
       const app = createAPI({
         auth: {
           enabled: true,
-          skipPaths: ['/public']
+          skipPaths: ['/public'],
+          secret: 'test-secret-for-auth-middleware-testing-12345'
         }
       })
 

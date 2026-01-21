@@ -676,6 +676,8 @@ export interface RetryOptions {
 
 /**
  * Retry a function with exponential backoff
+ *
+ * @throws {ValidationError} If maxRetries is negative
  */
 export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
   const {
@@ -685,6 +687,15 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
     maxDelay = 30000,
     jitter = false,
   } = options
+
+  // Validate maxRetries to prevent infinite loop or unexpected behavior
+  if (maxRetries < 0) {
+    throw new ValidationError('maxRetries must be >= 0', {
+      field: 'maxRetries',
+      value: maxRetries,
+      constraint: 'non-negative integer',
+    })
+  }
 
   let lastError: unknown
   let attempt = 0

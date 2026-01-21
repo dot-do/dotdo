@@ -26,6 +26,7 @@ import {
   buildOrderByClause,
   buildPaginationClause
 } from './query'
+import { applyCursorPagination } from './pagination'
 import { MigrationRunner, coreMigrations, type Migration } from './migrations'
 import { generateId, generateEventId } from './id'
 
@@ -409,10 +410,12 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
       const slicedItems = items.slice(startIndex, startIndex + limit)
       const hasMore = items.length > startIndex + limit
 
+      const lastItem = slicedItems[slicedItems.length - 1]
+      const firstItem = slicedItems[0]
       return {
         items: slicedItems,
-        nextCursor: hasMore && slicedItems.length > 0 ? slicedItems[slicedItems.length - 1]!.$id : undefined,
-        prevCursor: startIndex > 0 && slicedItems.length > 0 ? slicedItems[0]!.$id : undefined,
+        nextCursor: hasMore && slicedItems.length > 0 && lastItem ? lastItem.$id : undefined,
+        prevCursor: startIndex > 0 && slicedItems.length > 0 && firstItem ? firstItem.$id : undefined,
         hasMore
       }
     },
@@ -743,10 +746,12 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
       const slicedEvents = events.slice(startIndex, startIndex + limit)
       const hasMore = events.length > startIndex + limit
 
+      const lastEvent = slicedEvents[slicedEvents.length - 1]
+      const firstEvent = slicedEvents[0]
       return {
         items: slicedEvents,
-        nextCursor: hasMore && slicedEvents.length > 0 ? slicedEvents[slicedEvents.length - 1]!.$id : undefined,
-        prevCursor: startIndex > 0 && slicedEvents.length > 0 ? slicedEvents[0]!.$id : undefined,
+        nextCursor: hasMore && slicedEvents.length > 0 && lastEvent ? lastEvent.$id : undefined,
+        prevCursor: startIndex > 0 && slicedEvents.length > 0 && firstEvent ? firstEvent.$id : undefined,
         hasMore
       }
     },
@@ -1229,40 +1234,30 @@ export function createSQLiteRelationshipsStore(
     },
 
     // findWithCursor implementation for SQLite (do-8m4e)
+    // Fixed: Uses opaque cursor tokens via applyCursorPagination (do-kdw9)
     async findWithCursor(options: any = {}) {
       const { subject, predicate, object, cursor, limit = 100, direction = 'forward' } = options
 
       // Fetch relationships using find method
       const rels = await this.find({ subject, predicate, object })
 
-      // Sort by createdAt descending
-      rels.sort((a: Relationship, b: Relationship) => b.$createdAt - a.$createdAt)
-
-      // Handle cursor-based pagination logic
-      let startIndex = 0
-      if (cursor) {
-        const cursorIndex = rels.findIndex((r: Relationship) =>
-          `${r.subject}:${r.predicate}:${r.object}` === cursor
-        )
-        if (cursorIndex !== -1) {
-          startIndex = direction === 'forward' ? cursorIndex + 1 : Math.max(0, cursorIndex - limit)
-        }
-      }
-
-      const slicedRels = rels.slice(startIndex, startIndex + limit)
-      const hasMore = rels.length > startIndex + limit
-
+      // Sort by createdAt descending, then by composite ID for stable ordering
       const getRelId = (rel: Relationship) => `${rel.subject}:${rel.predicate}:${rel.object}`
+      rels.sort((a: Relationship, b: Relationship) => {
+        const timeDiff = b.$createdAt - a.$createdAt
+        if (timeDiff !== 0) return timeDiff
+        return getRelId(b).localeCompare(getRelId(a))
+      })
 
-      const lastRel = slicedRels[slicedRels.length - 1]
-      const firstRel = slicedRels[0]
-
-      return {
-        items: slicedRels,
-        nextCursor: hasMore && lastRel !== undefined ? getRelId(lastRel) : undefined,
-        prevCursor: startIndex > 0 && firstRel !== undefined ? getRelId(firstRel) : undefined,
-        hasMore
-      }
+      // Use applyCursorPagination for proper opaque cursor tokens
+      return applyCursorPagination(
+        rels,
+        { cursor, limit, direction },
+        '$createdAt',
+        'desc',
+        getRelId,
+        (rel: Relationship) => rel.$createdAt
+      )
     },
 
     async getRelated(subjectId: string, predicate: string) {

@@ -47,3 +47,70 @@ export type Capability = 'fast' | 'smart' | 'cheap'
  * Load balancing strategies for multi-provider routing.
  */
 export type LoadBalancingStrategy = 'round-robin' | 'random' | 'least-loaded'
+
+// ============================================================================
+// Fallback Chain Types
+// ============================================================================
+
+/**
+ * Configuration for exponential backoff retry behavior.
+ */
+export interface BackoffConfig {
+  /** Initial delay in milliseconds (default: 1000) */
+  initialDelay?: number
+  /** Multiplier for each retry (default: 2) */
+  multiplier?: number
+  /** Maximum delay in milliseconds (default: 30000) */
+  maxDelay?: number
+  /** Add random jitter to prevent thundering herd (default: true) */
+  jitter?: boolean
+}
+
+/**
+ * Circuit breaker configuration for automatic health recovery.
+ */
+export interface CircuitBreakerConfig {
+  /** Number of failures before marking provider unhealthy (default: 3) */
+  failureThreshold?: number
+  /** Time in milliseconds before retrying unhealthy provider (default: 60000) */
+  recoveryTimeout?: number
+  /** Number of successful requests to mark provider healthy again (default: 1) */
+  successThreshold?: number
+}
+
+/**
+ * Single entry in a fallback chain with optional model mapping.
+ */
+export interface FallbackEntry {
+  /** The provider to use */
+  provider: Provider
+  /** Model to use for this provider (fallback model if primary unavailable) */
+  model?: string
+  /** Priority weight (higher = preferred, default: 1) */
+  weight?: number
+}
+
+/**
+ * Fallback chain configuration for a specific capability or model.
+ * Defines an ordered list of providers to try with optional model mappings.
+ */
+export interface FallbackChainConfig {
+  /** Ordered list of providers to try */
+  chain: FallbackEntry[]
+  /** Maximum retries per provider (default: from RouterConfig) */
+  maxRetriesPerProvider?: number
+  /** Backoff configuration for this chain */
+  backoff?: BackoffConfig
+}
+
+/**
+ * Complete fallback configuration supporting both simple and capability-based chains.
+ */
+export interface FallbackConfig {
+  /** Default fallback chain for any request */
+  default?: FallbackChainConfig | Provider[]
+  /** Capability-specific fallback chains */
+  byCapability?: Partial<Record<Capability, FallbackChainConfig | Provider[]>>
+  /** Model-specific fallback chains (when specific model is requested but unavailable) */
+  byModel?: Record<string, FallbackChainConfig | Provider[]>
+}

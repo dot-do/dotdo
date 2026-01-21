@@ -5,6 +5,9 @@ import { HTTPException } from 'hono/http-exception'
 import type { MiddlewareHandler } from 'hono'
 import { authMiddleware } from '@dotdo/auth'
 import { getErrorMessage } from '@dotdo/rpc'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('[API]')
 
 export interface CORSOptions {
   /**
@@ -66,17 +69,15 @@ function loggingMiddleware(): MiddlewareHandler {
     const status = c.res.status
     const requestId = c.get('requestId')
 
-    // Simple console logging (would be replaced with structured logging in production)
-    console.log(
-      JSON.stringify({
-        requestId,
-        method,
-        url,
-        status,
-        duration: `${duration}ms`,
-        timestamp: new Date().toISOString()
-      })
-    )
+    // Structured request logging
+    logger.info(`${method} ${url} ${status} ${duration}ms`, {
+      requestId,
+      method,
+      url,
+      status,
+      duration,
+      timestamp: new Date().toISOString()
+    })
   }
 }
 
@@ -129,7 +130,7 @@ export function createAPI(options?: APIOptions) {
     }
 
     // Handle all other errors as 500
-    console.error('Unhandled error:', error)
+    logger.error('Unhandled error:', error)
     return c.json(
       {
         error: getErrorMessage(error),
@@ -159,7 +160,7 @@ export function createAPI(options?: APIOptions) {
 
   // Auth middleware (optional)
   if (auth?.enabled) {
-    const defaultSkipPaths = ['/health', '/']
+    const defaultSkipPaths = ['/health', '/ready', '/']
     const skipPaths = [...defaultSkipPaths, ...(auth.skipPaths || [])]
 
     baseApp.use(
@@ -177,13 +178,43 @@ export function createAPI(options?: APIOptions) {
   // Create a route app (either with basePath or without)
   const routeApp = new Hono()
 
-  // Health check endpoint
+  // Health check endpoint (liveness probe)
+  // Used by load balancers/orchestrators to check if the process is alive
+  // Returns 200 if the process is running, regardless of downstream dependencies
   routeApp.get('/health', (c) => {
     return c.json({
       status: 'ok',
       service: 'dotdo-api',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      uptime: typeof process !== 'undefined' && process.uptime ? process.uptime() : undefined
     })
+  })
+
+  // Readiness check endpoint (readiness probe)
+  // Used by load balancers to determine if the service can accept traffic
+  // Returns 200 when ready, 503 when not ready
+  routeApp.get('/ready', (c) => {
+    // In a worker/DO environment, if we can respond, we're ready
+    // This endpoint can be extended to check downstream dependencies
+    const checks: Record<string, boolean> = {
+      api: true
+      // Add more checks here as needed:
+      // database: await checkDatabase(),
+      // cache: await checkCache(),
+    }
+
+    const allReady = Object.values(checks).every(Boolean)
+    const status = allReady ? 'ready' : 'not_ready'
+
+    return c.json(
+      {
+        status,
+        service: 'dotdo-api',
+        timestamp: new Date().toISOString(),
+        checks
+      },
+      allReady ? 200 : 503
+    )
   })
 
   // Root endpoint with API discovery (HATEOAS)
@@ -204,7 +235,13 @@ export function createAPI(options?: APIOptions) {
           href: `${baseUrl}/health`,
           rel: 'health',
           method: 'GET',
-          title: 'Health check endpoint'
+          title: 'Liveness check endpoint'
+        },
+        ready: {
+          href: `${baseUrl}/ready`,
+          rel: 'ready',
+          method: 'GET',
+          title: 'Readiness check endpoint'
         }
       }
     })

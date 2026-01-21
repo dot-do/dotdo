@@ -1,6 +1,8 @@
 // RPC Input Validation - validates method arguments against schemas
 // Provides type-safe validation for RPC method parameters
+// Supports both custom ArgSchema validation and Zod schema validation
 
+import { z, ZodType, ZodError, ZodIssue } from 'zod'
 import { ValidationError } from './errors'
 
 // ============================================================================

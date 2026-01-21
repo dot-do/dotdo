@@ -72,9 +72,18 @@ export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
 
     try {
       const result = await tool.execute(args)
-      return c.json({
-        content: [{ type: 'text', text: JSON.stringify(result) }]
-      })
+      // Preserve type information by using appropriate content type
+      if (typeof result === 'string') {
+        // Strings: return directly without double-stringifying
+        return c.json({
+          content: [{ type: 'text', text: result }]
+        })
+      } else {
+        // Objects, arrays, and primitives: return as structured JSON
+        return c.json({
+          content: [{ type: 'json', data: result }]
+        })
+      }
     } catch (error) {
       return c.json({
         isError: true,

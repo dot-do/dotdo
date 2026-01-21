@@ -136,8 +136,11 @@ export function createSearchTool(store: ThingsStore): MCPTool {
         q = q.select(...select)
       }
 
-      // Execute query to get all matching results (for total count)
-      const allResults = await q.execute()
+      // Execute query with a reasonable limit for counting
+      // We use a large limit (10000) to get accurate counts while respecting query limits
+      // For full-text search, we need all results to filter in-memory
+      const MAX_INTERNAL_LIMIT = 10000
+      const allResults = await q.limit(MAX_INTERNAL_LIMIT).execute()
 
       // Apply full-text search filter if query provided
       let filteredResults = allResults

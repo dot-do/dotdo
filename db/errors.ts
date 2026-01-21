@@ -75,3 +75,52 @@ export class DbNotFoundError extends DatabaseError {
     )
   }
 }
+
+/**
+ * Transaction-related errors for the database layer
+ */
+export class TransactionError extends DatabaseError {
+  constructor(
+    message: string,
+    public readonly cause?: Error,
+    details?: Record<string, unknown>
+  ) {
+    super(message, details)
+    this.name = 'TransactionError'
+  }
+
+  /**
+   * Create a TransactionError for rollback failure
+   */
+  static rollbackFailed(originalError: Error, rollbackError: Error): TransactionError {
+    return new TransactionError(
+      `Transaction rollback failed: ${rollbackError.message}`,
+      rollbackError,
+      {
+        originalError: originalError.message,
+        rollbackError: rollbackError.message
+      }
+    )
+  }
+
+  /**
+   * Create a TransactionError for nested transaction failure
+   */
+  static nestedFailed(savepointName: string, error: Error): TransactionError {
+    return new TransactionError(
+      `Nested transaction '${savepointName}' failed: ${error.message}`,
+      error,
+      { savepointName }
+    )
+  }
+}
+
+/**
+ * Error thrown when attempting nested transactions without support
+ */
+export class NestedTransactionError extends TransactionError {
+  constructor(message = 'Nested transactions are not supported by this adapter') {
+    super(message)
+    this.name = 'NestedTransactionError'
+  }
+}

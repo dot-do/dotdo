@@ -450,7 +450,9 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
     if (fromJoin !== undefined) joinSpec.fromJoin = fromJoin
     if (alias !== undefined) joinSpec.alias = alias
     if (joinOptions !== undefined) joinSpec.options = joinOptions
-    options.joins!.push(joinSpec)
+    if (options.joins) {
+      options.joins.push(joinSpec)
+    }
   }
 
   /**

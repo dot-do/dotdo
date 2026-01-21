@@ -24,11 +24,6 @@ export {
   createScopedResourceEnforcer
 } from './sandbox'
 
-/**
- * @deprecated Use `createScopedResourceEnforcer()` instead. Global state leaks between requests.
- * @see createScopedResourceEnforcer
- */
-export { getGlobalResourceEnforcer, setGlobalResourceEnforcer } from './sandbox'
 export type {
   Sandbox,
   SandboxOptions,
@@ -42,7 +37,7 @@ export type {
 } from './sandbox'
 
 // Discovery exports
-export { ToolRegistry, ToolCategory, createDefaultRegistry } from './discovery'
+export { ToolRegistry, ToolCategory } from './discovery'
 export type { ToolMetadata } from './discovery'
 
 // Type exports (local definitions to avoid @dotdo/do dependency)

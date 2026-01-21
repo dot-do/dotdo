@@ -1,5 +1,6 @@
 // AWS S3 Integration
 // Object storage capabilities for the dotdo integration registry (do-h3in)
+// Hooks pattern standardized in do-07dn
 
 import type {
   Integration,
@@ -7,6 +8,10 @@ import type {
   IntegrationStatus,
   IntegrationMetadata,
   IntegrationResult,
+  IntegrationWebhookHandler,
+  IntegrationEvent,
+  IntegrationHooks,
+  MethodCallContext,
 } from '../types'
 import { successResult, errorResult } from '../registry'
 
@@ -178,6 +183,12 @@ export interface S3Methods extends Record<string, (...args: any[]) => Promise<In
 /**
  * AWS S3 Integration
  * Provides object storage capabilities
+ *
+ * ## Hooks Pattern (do-07dn)
+ * S3 doesn't have traditional webhooks, but supports:
+ * - Event notifications via SNS/SQS (external webhook endpoint)
+ * - onEvent() for internal event emission (e.g., upload completed)
+ * - setHooks() for method call observability
  */
 export class S3Integration implements Integration<S3Config, S3Methods> {
   readonly name = 'aws-s3'
@@ -194,6 +205,8 @@ export class S3Integration implements Integration<S3Config, S3Methods> {
 
   private _status: IntegrationStatus = 'uninitialized'
   private config: S3Config | null = null
+  private eventHandlers: IntegrationWebhookHandler[] = []
+  private hooks: IntegrationHooks = {}
 
   get status(): IntegrationStatus {
     return this._status
@@ -230,6 +243,8 @@ export class S3Integration implements Integration<S3Config, S3Methods> {
 
   async shutdown(): Promise<void> {
     this.config = null
+    this.eventHandlers = []
+    this.hooks = {}
     this._status = 'uninitialized'
   }
 
@@ -404,6 +419,166 @@ export class S3Integration implements Integration<S3Config, S3Methods> {
 
       return successResult(buckets, `req_${generateId()}`)
     },
+  }
+
+  // ============================================================================
+  // EVENT HOOKS (do-07dn)
+  // S3 event notifications are typically delivered via SNS/SQS.
+  // This handleWebhook processes SNS-wrapped S3 events.
+  // ============================================================================
+
+  /**
+   * Handle incoming S3 event notifications via SNS webhook.
+   * AWS S3 sends events to SNS, which can be configured to POST to this endpoint.
+   */
+  async handleWebhook(request: Request): Promise<Response> {
+    if (this._status !== 'ready' || !this.config) {
+      return new Response('Integration not initialized', { status: 503 })
+    }
+
+    try {
+      const body = await request.text()
+      const snsMessage = JSON.parse(body) as {
+        Type: string
+        Message: string
+        MessageId: string
+        TopicArn?: string
+        SubscribeURL?: string
+      }
+
+      // Handle SNS subscription confirmation
+      if (snsMessage.Type === 'SubscriptionConfirmation' && snsMessage.SubscribeURL) {
+        // In production, you would fetch the SubscribeURL to confirm
+        return new Response(JSON.stringify({ status: 'subscription_pending' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      // Handle S3 event notification
+      if (snsMessage.Type === 'Notification') {
+        const s3Event = JSON.parse(snsMessage.Message) as {
+          Records?: Array<{
+            eventName: string
+            s3: {
+              bucket: { name: string }
+              object: { key: string; size?: number }
+            }
+          }>
+        }
+
+        if (s3Event.Records) {
+          for (const record of s3Event.Records) {
+            const integrationEvent: IntegrationEvent = {
+              integration: this.name,
+              type: record.eventName, // e.g., 's3:ObjectCreated:Put'
+              payload: record,
+              timestamp: new Date(),
+              webhookId: snsMessage.MessageId,
+            }
+
+            // Call all registered handlers
+            for (const handler of this.eventHandlers) {
+              await handler(integrationEvent)
+            }
+          }
+        }
+      }
+
+      return new Response(JSON.stringify({ received: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    } catch (error) {
+      console.error('S3 webhook error:', error)
+      return new Response('Webhook error', { status: 400 })
+    }
+  }
+
+  /**
+   * Register a handler for S3 events.
+   * Events include object created, deleted, etc.
+   */
+  onEvent(handler: IntegrationWebhookHandler): void {
+    this.eventHandlers.push(handler)
+  }
+
+  /**
+   * Emit an internal event (e.g., after an upload completes).
+   * This allows method implementations to notify listeners.
+   */
+  private async emitEvent(type: string, payload: unknown): Promise<void> {
+    const event: IntegrationEvent = {
+      integration: this.name,
+      type,
+      payload,
+      timestamp: new Date(),
+    }
+
+    for (const handler of this.eventHandlers) {
+      try {
+        await handler(event)
+      } catch (error) {
+        // Call error hook if configured
+        if (this.hooks.onError) {
+          await this.hooks.onError(
+            { code: 'EVENT_HANDLER_ERROR', message: String(error), originalError: error },
+            { integration: this.name, method: 'emitEvent' }
+          )
+        }
+      }
+    }
+  }
+
+  // ============================================================================
+  // OBSERVABILITY HOOKS (do-07dn)
+  // ============================================================================
+
+  /**
+   * Configure observability hooks for method calls and errors.
+   */
+  setHooks(hooks: IntegrationHooks): void {
+    this.hooks = hooks
+  }
+
+  /**
+   * Helper to wrap method calls with hooks.
+   * Call this at the start and end of method implementations for full observability.
+   */
+  private async invokeWithHooks<T>(
+    method: string,
+    args: unknown[],
+    fn: () => Promise<IntegrationResult<T>>
+  ): Promise<IntegrationResult<T>> {
+    const context: MethodCallContext = {
+      method,
+      args,
+      timestamp: new Date(),
+    }
+
+    // Call before hook
+    if (this.hooks.onMethodCall?.before) {
+      await this.hooks.onMethodCall.before(context)
+    }
+
+    let result: IntegrationResult<T>
+    try {
+      result = await fn()
+    } catch (error) {
+      result = errorResult('UNEXPECTED_ERROR', String(error), error)
+    }
+
+    // Call after hook
+    if (this.hooks.onMethodCall?.after) {
+      await this.hooks.onMethodCall.after(context, result as IntegrationResult)
+    }
+
+    // Call error hook on failure
+    if (!result.success && this.hooks.onError) {
+      await this.hooks.onError(result.error!, { integration: this.name, method, args })
+    }
+
+    return result
   }
 }
 

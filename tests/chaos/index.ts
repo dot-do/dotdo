@@ -21,12 +21,38 @@
  */
 
 export {
+  // Core chaos utilities
   ChaosProxy,
   createChaoticMockState,
   runRequestStorm,
   RetryTester,
   createTimeoutOperation,
   CorruptionInjector,
+
+  // Network partition simulation
+  NetworkPartitionSimulator,
+  type PartitionType,
+  type NetworkPartitionConfig,
+  type NetworkResult,
+  type NetworkPartitionStats,
+
+  // Advanced latency injection
+  LatencyProfile,
+  type LatencyProfileType,
+  type LatencyProfileConfig,
+  type LatencyProfileStats,
+
+  // Partial failure simulation
+  PartialFailureSimulator,
+  type PartialFailureConfig,
+  type PartialFailureResult,
+  type PartialFailureStats,
+
+  // Split-brain simulation
+  SplitBrainSimulator,
+  type SplitBrainConfig,
+
+  // Original types
   type LatencyConfig,
   type FailureConfig,
   type StorageChaosConfig,

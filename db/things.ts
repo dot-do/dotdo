@@ -10,7 +10,7 @@
 import type { StorableData, JsonValue } from './types'
 import type { StorageAdapter } from './storage'
 import type { ThingId } from './branded-types'
-import { toThingId } from './branded-types'
+import { toThingId, isThingId } from './branded-types'
 import { generateId } from './id'
 import type { CursorPaginationOptions, CursorPaginatedResult } from './pagination'
 import { applyCursorPagination } from './pagination'
@@ -118,33 +118,33 @@ export interface ThingsStore<T extends StorableData = StorableData> {
 
   /**
    * Get an entity by ID.
-   * @param id - The entity ID
+   * @param id - The entity ID (accepts ThingId or string for backward compatibility)
    * @returns The entity or null if not found
    */
-  get(id: string): Promise<Thing<T> | null>
+  get(id: ThingId | string): Promise<Thing<T> | null>
 
   /**
    * Get multiple entities by their IDs in a single operation.
-   * @param ids - Array of entity IDs
+   * @param ids - Array of entity IDs (accepts ThingId or string for backward compatibility)
    * @returns Map of ID to entity (missing IDs are not included)
    */
-  getMany(ids: string[]): Promise<Map<string, Thing<T>>>
+  getMany(ids: (ThingId | string)[]): Promise<Map<string, Thing<T>>>
 
   /**
    * Update an existing entity.
-   * @param id - The entity ID
+   * @param id - The entity ID (accepts ThingId or string for backward compatibility)
    * @param data - Fields to update (cannot change $id or $type)
    * @returns The updated entity
    * @throws NotFoundError if entity does not exist
    */
-  update<U extends ThingUpdate<T>>(id: string, data: U): Promise<Thing<T>>
+  update<U extends ThingUpdate<T>>(id: ThingId | string, data: U): Promise<Thing<T>>
 
   /**
    * Delete an entity by ID.
-   * @param id - The entity ID
+   * @param id - The entity ID (accepts ThingId or string for backward compatibility)
    * @throws NotFoundError if entity does not exist
    */
-  delete(id: string): Promise<void>
+  delete(id: ThingId | string): Promise<void>
 
   /**
    * List entities with optional filtering and offset pagination.
@@ -178,10 +178,10 @@ export interface ThingsStore<T extends StorableData = StorableData> {
 
   /**
    * Delete multiple entities in a single atomic operation.
-   * @param ids - Array of entity IDs to delete
+   * @param ids - Array of entity IDs to delete (accepts ThingId or string for backward compatibility)
    * @throws NotFoundError if any entity does not exist
    */
-  bulkDelete(ids: string[]): Promise<void>
+  bulkDelete(ids: (ThingId | string)[]): Promise<void>
 }
 
 // ID generation moved to ./id.ts (do-y5ko)

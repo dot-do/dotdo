@@ -163,10 +163,8 @@ export async function verifyTokenSignature(
 
     return payload as TokenPayload
   } catch (error) {
-    // Re-throw with more specific error message
-    if (error instanceof Error) {
-      throw new Error(error.message)
-    }
+    // Re-throw the original error to preserve error type, stack trace, and additional properties
+    // jose provides specific error types (JWTExpired, JWTClaimValidationFailed, etc.) that callers may need
     throw error
   }
 }

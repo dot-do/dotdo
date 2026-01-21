@@ -1,5 +1,6 @@
 // Redis Integration
 // Key-value database capabilities for the dotdo integration registry (do-h3in)
+// Hooks pattern standardized in do-07dn
 
 import type {
   Integration,
@@ -7,6 +8,10 @@ import type {
   IntegrationStatus,
   IntegrationMetadata,
   IntegrationResult,
+  IntegrationWebhookHandler,
+  IntegrationEvent,
+  IntegrationHooks,
+  MethodCallContext,
 } from '../types'
 import { successResult, errorResult } from '../registry'
 
@@ -134,6 +139,12 @@ export interface RedisMethods extends Record<string, (...args: any[]) => Promise
 /**
  * Redis Integration
  * Provides key-value database capabilities
+ *
+ * ## Hooks Pattern (do-07dn)
+ * Redis supports Pub/Sub for real-time events:
+ * - onEvent() for subscription message handling
+ * - setHooks() for method call observability
+ * - No traditional webhooks (uses Pub/Sub instead)
  */
 export class RedisIntegration implements Integration<RedisConfig, RedisMethods> {
   readonly name = 'redis'
@@ -150,6 +161,8 @@ export class RedisIntegration implements Integration<RedisConfig, RedisMethods> 
 
   private _status: IntegrationStatus = 'uninitialized'
   private config: RedisConfig | null = null
+  private eventHandlers: IntegrationWebhookHandler[] = []
+  private hooks: IntegrationHooks = {}
 
   get status(): IntegrationStatus {
     return this._status
@@ -181,6 +194,8 @@ export class RedisIntegration implements Integration<RedisConfig, RedisMethods> 
   async shutdown(): Promise<void> {
     // In a real implementation, you would close the connection
     this.config = null
+    this.eventHandlers = []
+    this.hooks = {}
     this._status = 'uninitialized'
   }
 

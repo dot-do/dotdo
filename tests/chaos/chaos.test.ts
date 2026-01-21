@@ -23,6 +23,10 @@ import {
   RetryTester,
   createTimeoutOperation,
   CorruptionInjector,
+  NetworkPartitionSimulator,
+  LatencyProfile,
+  PartialFailureSimulator,
+  SplitBrainSimulator,
 } from './ChaosProxy'
 
 // ============================================================================
@@ -875,5 +879,1053 @@ describe('Chaos: Combined Scenarios', () => {
     const minRate = Math.min(...successRates)
     const maxRate = Math.max(...successRates)
     expect(maxRate - minRate).toBeLessThan(0.3) // Within 30% variance
+  })
+})
+
+// ============================================================================
+// Test Suite: Network Partition Simulation
+// ============================================================================
+
+describe('Chaos: Network Partition Simulation', () => {
+  let partition: NetworkPartitionSimulator
+
+  beforeEach(() => {
+    partition = new NetworkPartitionSimulator()
+  })
+
+  afterEach(() => {
+    partition.reset()
+  })
+
+  describe('Full Partition', () => {
+    it('should block all cross-partition communication', async () => {
+      partition.createPartition({
+        type: 'full',
+        partitionA: ['api-1', 'api-2'],
+        partitionB: ['db-1', 'db-2'],
+      })
+
+      // Within partition A - should work
+      expect(partition.canCommunicate('api-1', 'api-2')).toBe(true)
+
+      // Within partition B - should work
+      expect(partition.canCommunicate('db-1', 'db-2')).toBe(true)
+
+      // Cross-partition - should be blocked
+      expect(partition.canCommunicate('api-1', 'db-1')).toBe(false)
+      expect(partition.canCommunicate('db-1', 'api-1')).toBe(false)
+    })
+
+    it('should simulate requests with correct results', async () => {
+      const stub = getDOStub()
+
+      partition.createPartition({
+        type: 'full',
+        partitionA: ['client'],
+        partitionB: ['server'],
+      })
+
+      // Request across partition should be dropped
+      const result = await partition.simulateRequest('client', 'server')
+      expect(result.status).toBe('dropped')
+      if (result.status === 'dropped') {
+        expect(result.reason).toBe('partition')
+      }
+
+      // Stats should reflect the dropped request
+      const stats = partition.getStats()
+      expect(stats.droppedRequests).toBe(1)
+    })
+
+    it('should heal partition and allow communication', async () => {
+      partition.createPartition({
+        type: 'full',
+        partitionA: ['client'],
+        partitionB: ['server'],
+      })
+
+      expect(partition.canCommunicate('client', 'server')).toBe(false)
+
+      partition.heal()
+
+      expect(partition.isPartitioned()).toBe(false)
+      expect(partition.canCommunicate('client', 'server')).toBe(true)
+    })
+
+    it('should auto-heal after duration', async () => {
+      partition.createPartition({
+        type: 'full',
+        partitionA: ['client'],
+        partitionB: ['server'],
+        durationMs: 50,
+      })
+
+      expect(partition.isPartitioned()).toBe(true)
+
+      // Wait for auto-heal
+      await delay(100)
+
+      expect(partition.isPartitioned()).toBe(false)
+    })
+  })
+
+  describe('Asymmetric Partition', () => {
+    it('should allow one-way communication', async () => {
+      partition.createPartition({
+        type: 'asymmetric',
+        partitionA: ['client'],
+        partitionB: ['server'],
+        aToBAllowed: true,
+        bToAAllowed: false,
+      })
+
+      // Client -> Server should work
+      expect(partition.canCommunicate('client', 'server')).toBe(true)
+
+      // Server -> Client should be blocked
+      expect(partition.canCommunicate('server', 'client')).toBe(false)
+    })
+
+    it('should track asymmetric failures correctly', async () => {
+      partition.createPartition({
+        type: 'asymmetric',
+        partitionA: ['producer'],
+        partitionB: ['consumer'],
+        aToBAllowed: true,
+        bToAAllowed: false,
+      })
+
+      // Producer can send to consumer
+      const result1 = await partition.simulateRequest('producer', 'consumer')
+      expect(result1.status).toBe('success')
+
+      // Consumer cannot send to producer
+      const result2 = await partition.simulateRequest('consumer', 'producer')
+      expect(result2.status).toBe('dropped')
+      if (result2.status === 'dropped') {
+        expect(result2.reason).toBe('asymmetric')
+      }
+
+      const stats = partition.getStats()
+      expect(stats.successfulRequests).toBe(1)
+      expect(stats.droppedRequests).toBe(1)
+    })
+
+    it('should handle reverse asymmetric partition', async () => {
+      partition.createPartition({
+        type: 'asymmetric',
+        partitionA: ['client'],
+        partitionB: ['server'],
+        aToBAllowed: false,
+        bToAAllowed: true,
+      })
+
+      // Client -> Server should be blocked
+      expect(partition.canCommunicate('client', 'server')).toBe(false)
+
+      // Server -> Client should work
+      expect(partition.canCommunicate('server', 'client')).toBe(true)
+    })
+  })
+
+  describe('Intermittent Partition', () => {
+    it('should allow communication probabilistically', async () => {
+      partition.createPartition({
+        type: 'intermittent',
+        partitionA: ['client'],
+        partitionB: ['server'],
+        connectivityProbability: 0.5,
+      })
+
+      let successful = 0
+      let dropped = 0
+
+      // Run many requests
+      for (let i = 0; i < 100; i++) {
+        const result = await partition.simulateRequest('client', 'server')
+        if (result.status === 'success') successful++
+        if (result.status === 'dropped') dropped++
+      }
+
+      // With 50% probability, expect roughly half to succeed
+      expect(successful).toBeGreaterThan(30)
+      expect(successful).toBeLessThan(70)
+      expect(dropped).toBeGreaterThan(30)
+      expect(dropped).toBeLessThan(70)
+    })
+
+    it('should respect 0% connectivity (same as full partition)', async () => {
+      partition.createPartition({
+        type: 'intermittent',
+        partitionA: ['client'],
+        partitionB: ['server'],
+        connectivityProbability: 0,
+      })
+
+      // All requests should be dropped
+      for (let i = 0; i < 10; i++) {
+        const result = await partition.simulateRequest('client', 'server')
+        expect(result.status).toBe('dropped')
+      }
+    })
+
+    it('should respect 100% connectivity (no effective partition)', async () => {
+      partition.createPartition({
+        type: 'intermittent',
+        partitionA: ['client'],
+        partitionB: ['server'],
+        connectivityProbability: 1,
+      })
+
+      // All requests should succeed
+      for (let i = 0; i < 10; i++) {
+        const result = await partition.simulateRequest('client', 'server')
+        expect(result.status).toBe('success')
+      }
+    })
+  })
+
+  describe('Degraded Latency During Partition', () => {
+    it('should add latency when crossing partitions', async () => {
+      partition.createPartition({
+        type: 'intermittent',
+        partitionA: ['client'],
+        partitionB: ['server'],
+        connectivityProbability: 1, // Always connected but degraded
+        degradedLatencyMs: 100,
+      })
+
+      const startTime = Date.now()
+      const result = await partition.simulateRequest('client', 'server')
+      const duration = Date.now() - startTime
+
+      expect(result.status).toBe('success')
+      expect(duration).toBeGreaterThanOrEqual(100)
+      if (result.status === 'success') {
+        expect(result.latencyMs).toBeGreaterThanOrEqual(100)
+      }
+    })
+
+    it('should not add latency within same partition', async () => {
+      partition.createPartition({
+        type: 'full',
+        partitionA: ['client-1', 'client-2'],
+        partitionB: ['server-1', 'server-2'],
+        degradedLatencyMs: 500,
+      })
+
+      const startTime = Date.now()
+      const result = await partition.simulateRequest('client-1', 'client-2')
+      const duration = Date.now() - startTime
+
+      expect(result.status).toBe('success')
+      expect(duration).toBeLessThan(100) // Should be fast
+    })
+  })
+
+  describe('Partition with Real DO Operations', () => {
+    it('should simulate partition affecting DO communication', async () => {
+      const stub = getDOStub()
+
+      partition.createPartition({
+        type: 'full',
+        partitionA: ['api-worker'],
+        partitionB: ['durable-object'],
+      })
+
+      // Simulate API worker trying to reach DO
+      const result = await partition.simulateRequest(
+        'api-worker',
+        'durable-object',
+        async () => {
+          return stub.fetch('https://do/')
+        }
+      )
+
+      expect(result.status).toBe('dropped')
+
+      // Heal partition and retry
+      partition.heal()
+
+      const result2 = await partition.simulateRequest(
+        'api-worker',
+        'durable-object',
+        async () => {
+          return stub.fetch('https://do/')
+        }
+      )
+
+      expect(result2.status).toBe('success')
+    })
+  })
+})
+
+// ============================================================================
+// Test Suite: Advanced Latency Injection
+// ============================================================================
+
+describe('Chaos: Advanced Latency Injection', () => {
+  describe('Constant Latency Profile', () => {
+    it('should inject consistent latency', async () => {
+      const latency = new LatencyProfile({
+        type: 'constant',
+        baseLatencyMs: 50,
+      })
+
+      const latencies: number[] = []
+      for (let i = 0; i < 10; i++) {
+        const startTime = Date.now()
+        await latency.apply()
+        latencies.push(Date.now() - startTime)
+      }
+
+      // All latencies should be around 50ms
+      latencies.forEach((l) => {
+        expect(l).toBeGreaterThanOrEqual(45)
+        expect(l).toBeLessThan(100)
+      })
+
+      const stats = latency.getStats()
+      expect(stats.totalCalls).toBe(10)
+    })
+  })
+
+  describe('Uniform Latency Profile', () => {
+    it('should inject random latency between min and max', async () => {
+      const latency = new LatencyProfile({
+        type: 'uniform',
+        minLatencyMs: 10,
+        maxLatencyMs: 50,
+      })
+
+      for (let i = 0; i < 20; i++) {
+        await latency.apply()
+      }
+
+      const stats = latency.getStats()
+      expect(stats.totalCalls).toBe(20)
+      expect(stats.minLatencyMs).toBeGreaterThanOrEqual(10)
+      expect(stats.maxLatencyMs).toBeLessThanOrEqual(60) // Some overhead
+    })
+  })
+
+  describe('Normal Distribution Latency Profile', () => {
+    it('should inject latency following normal distribution', async () => {
+      const latency = new LatencyProfile({
+        type: 'normal',
+        meanMs: 50,
+        stdDevMs: 10,
+      })
+
+      for (let i = 0; i < 100; i++) {
+        await latency.apply()
+      }
+
+      const stats = latency.getStats()
+      expect(stats.totalCalls).toBe(100)
+
+      // Average should be close to mean
+      expect(stats.avgLatencyMs).toBeGreaterThan(30)
+      expect(stats.avgLatencyMs).toBeLessThan(70)
+
+      // P50 should be close to mean
+      expect(stats.p50LatencyMs).toBeGreaterThan(30)
+      expect(stats.p50LatencyMs).toBeLessThan(70)
+    })
+  })
+
+  describe('Spike Latency Profile', () => {
+    it('should inject occasional high-latency spikes', async () => {
+      const latency = new LatencyProfile({
+        type: 'spike',
+        meanMs: 20,
+        stdDevMs: 5,
+        spikeProbability: 0.2, // 20% spike rate
+        spikeMultiplier: 10, // Spikes are 10x normal
+      })
+
+      for (let i = 0; i < 100; i++) {
+        await latency.apply()
+      }
+
+      const stats = latency.getStats()
+
+      // Should have some spikes detected
+      expect(stats.spikeCount).toBeGreaterThan(0)
+
+      // P99 should be significantly higher than P50 due to spikes
+      expect(stats.p99LatencyMs).toBeGreaterThan(stats.p50LatencyMs * 2)
+    })
+  })
+
+  describe('Degrading Latency Profile', () => {
+    it('should gradually increase latency over time', async () => {
+      const latency = new LatencyProfile({
+        type: 'degrading',
+        baseLatencyMs: 10,
+        degradationRateMs: 5,
+        maxDegradationMs: 100,
+      })
+
+      const latencies: number[] = []
+      for (let i = 0; i < 20; i++) {
+        const ms = await latency.apply()
+        latencies.push(ms)
+      }
+
+      // Latency should increase over calls
+      expect(latencies[19]).toBeGreaterThan(latencies[0])
+
+      // First call should be base latency
+      expect(latencies[0]).toBeGreaterThanOrEqual(10)
+
+      // Later calls should be higher
+      expect(latencies[10]).toBeGreaterThan(latencies[5])
+    })
+
+    it('should cap degradation at maximum', async () => {
+      const latency = new LatencyProfile({
+        type: 'degrading',
+        baseLatencyMs: 10,
+        degradationRateMs: 100,
+        maxDegradationMs: 50,
+      })
+
+      for (let i = 0; i < 10; i++) {
+        await latency.apply()
+      }
+
+      const stats = latency.getStats()
+      // Max should be capped at base + maxDegradation = 60ms (plus some overhead)
+      expect(stats.maxLatencyMs).toBeLessThan(100)
+    })
+  })
+
+  describe('Jitter Latency Profile', () => {
+    it('should add random jitter around base latency', async () => {
+      const latency = new LatencyProfile({
+        type: 'jitter',
+        baseLatencyMs: 50,
+        jitterRangeMs: 20,
+      })
+
+      for (let i = 0; i < 50; i++) {
+        await latency.apply()
+      }
+
+      const stats = latency.getStats()
+
+      // All latencies should be within jitter range of base
+      expect(stats.minLatencyMs).toBeGreaterThanOrEqual(25) // 50 - 20 - overhead
+      expect(stats.maxLatencyMs).toBeLessThan(100) // 50 + 20 + overhead
+
+      // Average should be close to base
+      expect(stats.avgLatencyMs).toBeGreaterThan(35)
+      expect(stats.avgLatencyMs).toBeLessThan(65)
+    })
+  })
+
+  describe('Latency Profile with Real Operations', () => {
+    it('should wrap operations with latency', async () => {
+      const stub = getDOStub()
+      const latency = new LatencyProfile({
+        type: 'constant',
+        baseLatencyMs: 30,
+      })
+
+      const { result, latencyMs } = await latency.wrap(async () => {
+        const response = await stub.fetch('https://do/')
+        return response.json()
+      })
+
+      expect(latencyMs).toBeGreaterThanOrEqual(30)
+      expect(result).toBeDefined()
+    })
+
+    it('should disable latency injection', async () => {
+      const latency = new LatencyProfile({
+        type: 'constant',
+        baseLatencyMs: 100,
+      })
+
+      latency.disable()
+
+      const startTime = Date.now()
+      const ms = await latency.apply()
+      const duration = Date.now() - startTime
+
+      expect(ms).toBe(0)
+      expect(duration).toBeLessThan(50)
+    })
+  })
+})
+
+// ============================================================================
+// Test Suite: Partial Failure Scenarios
+// ============================================================================
+
+describe('Chaos: Partial Failure Scenarios', () => {
+  let partialFailure: PartialFailureSimulator
+
+  beforeEach(() => {
+    partialFailure = new PartialFailureSimulator()
+  })
+
+  afterEach(() => {
+    partialFailure.reset()
+  })
+
+  describe('Read vs Write Failures', () => {
+    it('should fail writes more often than reads', async () => {
+      partialFailure.configureNode({
+        nodeId: 'db-replica',
+        readFailureProbability: 0.1,
+        writeFailureProbability: 0.9,
+      })
+
+      let readFailures = 0
+      let writeFailures = 0
+
+      for (let i = 0; i < 100; i++) {
+        const readResult = await partialFailure.checkRead('db-replica')
+        if (!readResult.allowed) readFailures++
+
+        const writeResult = await partialFailure.checkWrite('db-replica')
+        if (!writeResult.allowed) writeFailures++
+      }
+
+      // Writes should fail much more often
+      expect(writeFailures).toBeGreaterThan(readFailures * 2)
+      expect(writeFailures).toBeGreaterThan(70) // ~90%
+      expect(readFailures).toBeLessThan(30) // ~10%
+    })
+
+    it('should track failure statistics correctly', async () => {
+      partialFailure.configureNode({
+        nodeId: 'node-1',
+        readFailureProbability: 1.0, // Always fail reads
+        writeFailureProbability: 0.0, // Never fail writes
+      })
+
+      for (let i = 0; i < 10; i++) {
+        await partialFailure.checkRead('node-1')
+        await partialFailure.checkWrite('node-1')
+      }
+
+      const stats = partialFailure.getStats()
+      expect(stats.readFailures).toBe(10)
+      expect(stats.writeFailures).toBe(0)
+    })
+  })
+
+  describe('Operation-Specific Failures', () => {
+    it('should fail specific operations', async () => {
+      partialFailure.configureNode({
+        nodeId: 'api-node',
+        operationFailureProbabilities: {
+          'create': 0.0, // Never fail creates
+          'update': 0.5, // 50% fail updates
+          'delete': 1.0, // Always fail deletes
+        },
+      })
+
+      // Create should always succeed
+      for (let i = 0; i < 10; i++) {
+        const result = await partialFailure.checkOperation('api-node', 'create')
+        expect(result.allowed).toBe(true)
+      }
+
+      // Delete should always fail
+      for (let i = 0; i < 10; i++) {
+        const result = await partialFailure.checkOperation('api-node', 'delete')
+        expect(result.allowed).toBe(false)
+        expect(result.reason).toBe('operation_failure')
+      }
+
+      // Update should partially fail
+      let updateFailures = 0
+      for (let i = 0; i < 100; i++) {
+        const result = await partialFailure.checkOperation('api-node', 'update')
+        if (!result.allowed) updateFailures++
+      }
+      expect(updateFailures).toBeGreaterThan(30)
+      expect(updateFailures).toBeLessThan(70)
+    })
+  })
+
+  describe('Degraded Mode', () => {
+    it('should reduce capacity in degraded mode', async () => {
+      partialFailure.configureNode({
+        nodeId: 'degraded-node',
+        degraded: true,
+        degradedCapacity: 0.3, // Only 30% capacity
+      })
+
+      let allowed = 0
+      let rejected = 0
+
+      for (let i = 0; i < 100; i++) {
+        const result = await partialFailure.checkOperation('degraded-node', 'read')
+        if (result.allowed) allowed++
+        else rejected++
+      }
+
+      // Roughly 30% should be allowed
+      expect(allowed).toBeGreaterThan(15)
+      expect(allowed).toBeLessThan(50)
+      expect(rejected).toBeGreaterThan(50)
+
+      const stats = partialFailure.getStats()
+      expect(stats.capacityExceeded).toBeGreaterThan(50)
+      expect(stats.degradedOperations).toBe(100)
+    })
+
+    it('should dynamically set degraded mode', async () => {
+      partialFailure.configureNode({
+        nodeId: 'dynamic-node',
+        degraded: false,
+      })
+
+      // Initially not degraded - should work
+      const result1 = await partialFailure.checkOperation('dynamic-node', 'read')
+      expect(result1.allowed).toBe(true)
+
+      // Set to degraded with 0% capacity
+      partialFailure.setDegraded('dynamic-node', true, 0)
+
+      // Now should fail due to capacity
+      const result2 = await partialFailure.checkOperation('dynamic-node', 'read')
+      expect(result2.allowed).toBe(false)
+    })
+  })
+
+  describe('Per-Node Latency', () => {
+    it('should apply different latency to different nodes', async () => {
+      partialFailure.configureNode({
+        nodeId: 'fast-node',
+        latencyProfile: {
+          type: 'constant',
+          baseLatencyMs: 10,
+        },
+      })
+
+      partialFailure.configureNode({
+        nodeId: 'slow-node',
+        latencyProfile: {
+          type: 'constant',
+          baseLatencyMs: 100,
+        },
+      })
+
+      const fastStart = Date.now()
+      await partialFailure.checkOperation('fast-node', 'read')
+      const fastDuration = Date.now() - fastStart
+
+      const slowStart = Date.now()
+      await partialFailure.checkOperation('slow-node', 'read')
+      const slowDuration = Date.now() - slowStart
+
+      expect(slowDuration).toBeGreaterThan(fastDuration)
+    })
+  })
+
+  describe('Multi-Node Scenarios', () => {
+    it('should handle multiple nodes with different configurations', async () => {
+      // Healthy primary
+      partialFailure.configureNode({
+        nodeId: 'primary',
+        readFailureProbability: 0,
+        writeFailureProbability: 0,
+      })
+
+      // Degraded replica
+      partialFailure.configureNode({
+        nodeId: 'replica-1',
+        readFailureProbability: 0.1,
+        writeFailureProbability: 1.0, // Replicas can't write
+      })
+
+      // Failing replica
+      partialFailure.configureNode({
+        nodeId: 'replica-2',
+        readFailureProbability: 0.9,
+        writeFailureProbability: 1.0,
+      })
+
+      // Primary should always work
+      const primaryResult = await partialFailure.checkWrite('primary')
+      expect(primaryResult.allowed).toBe(true)
+
+      // Replicas should fail writes
+      const replica1Result = await partialFailure.checkWrite('replica-1')
+      expect(replica1Result.allowed).toBe(false)
+
+      // List nodes
+      const nodes = partialFailure.listNodes()
+      expect(nodes).toContain('primary')
+      expect(nodes).toContain('replica-1')
+      expect(nodes).toContain('replica-2')
+    })
+
+    it('should wrap operations with failure checking', async () => {
+      const stub = getDOStub()
+
+      partialFailure.configureNode({
+        nodeId: 'db',
+        writeFailureProbability: 1.0, // Always fail writes
+      })
+
+      // Should throw on write
+      await expect(
+        partialFailure.wrapOperation('db', 'write', async () => {
+          return stub.fetch('https://do/')
+        })
+      ).rejects.toThrow('Partial failure: write_failure')
+
+      // Read should work (no read failure configured)
+      const response = await partialFailure.wrapOperation('db', 'read', async () => {
+        return stub.fetch('https://do/')
+      })
+      expect(response.status).toBe(200)
+    })
+  })
+})
+
+// ============================================================================
+// Test Suite: Split-Brain Scenarios
+// ============================================================================
+
+describe('Chaos: Split-Brain Scenarios', () => {
+  let splitBrain: SplitBrainSimulator
+
+  beforeEach(() => {
+    splitBrain = new SplitBrainSimulator()
+  })
+
+  afterEach(() => {
+    splitBrain.reset()
+  })
+
+  describe('Multiple Leaders Detection', () => {
+    it('should detect split-brain condition', () => {
+      splitBrain.configure({
+        leaders: ['node-1', 'node-3'],
+        partitions: [
+          ['node-1', 'node-2'],
+          ['node-3', 'node-4', 'node-5'],
+        ],
+      })
+
+      expect(splitBrain.hasSplitBrain()).toBe(true)
+      expect(splitBrain.isLeader('node-1')).toBe(true)
+      expect(splitBrain.isLeader('node-3')).toBe(true)
+      expect(splitBrain.isLeader('node-2')).toBe(false)
+    })
+
+    it('should not detect split-brain with single leader', () => {
+      splitBrain.configure({
+        leaders: ['node-1'],
+        partitions: [['node-1', 'node-2', 'node-3']],
+      })
+
+      expect(splitBrain.hasSplitBrain()).toBe(false)
+    })
+  })
+
+  describe('Quorum-Based Decisions', () => {
+    it('should identify partition with quorum', () => {
+      splitBrain.configure({
+        leaders: ['node-1', 'node-3'],
+        partitions: [
+          ['node-1', 'node-2'], // 2 nodes - minority
+          ['node-3', 'node-4', 'node-5'], // 3 nodes - majority
+        ],
+      })
+
+      // Minority partition
+      expect(splitBrain.hasQuorum('node-1')).toBe(false)
+      expect(splitBrain.hasQuorum('node-2')).toBe(false)
+
+      // Majority partition
+      expect(splitBrain.hasQuorum('node-3')).toBe(true)
+      expect(splitBrain.hasQuorum('node-4')).toBe(true)
+    })
+
+    it('should prevent writes from minority partition', () => {
+      splitBrain.configure({
+        leaders: ['node-1', 'node-3'],
+        partitions: [
+          ['node-1', 'node-2'], // Minority
+          ['node-3', 'node-4', 'node-5'], // Majority
+        ],
+        allowMinorityWrites: false,
+      })
+
+      // Minority leader cannot write
+      expect(splitBrain.canWrite('node-1')).toBe(false)
+
+      // Majority leader can write
+      expect(splitBrain.canWrite('node-3')).toBe(true)
+
+      // Non-leaders cannot write
+      expect(splitBrain.canWrite('node-2')).toBe(false)
+      expect(splitBrain.canWrite('node-4')).toBe(false)
+    })
+
+    it('should allow minority writes when configured', () => {
+      splitBrain.configure({
+        leaders: ['node-1', 'node-3'],
+        partitions: [
+          ['node-1', 'node-2'],
+          ['node-3', 'node-4', 'node-5'],
+        ],
+        allowMinorityWrites: true,
+      })
+
+      // Both leaders can write
+      expect(splitBrain.canWrite('node-1')).toBe(true)
+      expect(splitBrain.canWrite('node-3')).toBe(true)
+    })
+  })
+
+  describe('Conflict Detection', () => {
+    it('should detect conflicting writes from different partitions', () => {
+      splitBrain.configure({
+        leaders: ['node-1', 'node-3'],
+        partitions: [
+          ['node-1', 'node-2'],
+          ['node-3', 'node-4'],
+        ],
+        detectConflicts: true,
+      })
+
+      // Write from partition A
+      splitBrain.recordWrite('node-1', 'key-1', { value: 'a' })
+
+      // No conflict yet
+      expect(splitBrain.detectConflicts('key-1')).toBe(false)
+
+      // Write same key from partition B
+      splitBrain.recordWrite('node-3', 'key-1', { value: 'b' })
+
+      // Now we have a conflict
+      expect(splitBrain.detectConflicts('key-1')).toBe(true)
+
+      // Get conflicting writes
+      const conflicts = splitBrain.getConflictingWrites('key-1')
+      expect(conflicts).toHaveLength(2)
+      expect(conflicts.map((c) => c.nodeId)).toContain('node-1')
+      expect(conflicts.map((c) => c.nodeId)).toContain('node-3')
+    })
+
+    it('should not detect conflicts within same partition', () => {
+      splitBrain.configure({
+        leaders: ['node-1'],
+        partitions: [['node-1', 'node-2', 'node-3']],
+        detectConflicts: true,
+      })
+
+      splitBrain.recordWrite('node-1', 'key-1', { value: 'a' })
+      splitBrain.recordWrite('node-2', 'key-1', { value: 'b' })
+
+      // No conflict - same partition
+      expect(splitBrain.detectConflicts('key-1')).toBe(false)
+    })
+  })
+
+  describe('Partition Membership', () => {
+    it('should correctly identify partition membership', () => {
+      splitBrain.configure({
+        leaders: ['node-1'],
+        partitions: [
+          ['node-1', 'node-2'],
+          ['node-3', 'node-4'],
+        ],
+      })
+
+      expect(splitBrain.getPartition('node-1')).toEqual(['node-1', 'node-2'])
+      expect(splitBrain.getPartition('node-3')).toEqual(['node-3', 'node-4'])
+      expect(splitBrain.getPartition('unknown')).toBeUndefined()
+    })
+  })
+})
+
+// ============================================================================
+// Test Suite: Combined Chaos Scenarios
+// ============================================================================
+
+describe('Chaos: Combined Network and Failure Scenarios', () => {
+  it('should simulate cascading failures across partitioned network', async () => {
+    const stub = getDOStub()
+    const partition = new NetworkPartitionSimulator()
+    const partialFailure = new PartialFailureSimulator()
+    const chaos = new ChaosProxy()
+
+    // Create network partition
+    partition.createPartition({
+      type: 'asymmetric',
+      partitionA: ['api'],
+      partitionB: ['db'],
+      aToBAllowed: true,
+      bToAAllowed: false,
+    })
+
+    // Configure partial failures
+    partialFailure.configureNode({
+      nodeId: 'api',
+      readFailureProbability: 0.1,
+    })
+
+    // Configure general chaos
+    chaos.injectLatency(5, 20)
+
+    // Simulate cascading requests
+    let successful = 0
+    let networkDropped = 0
+    let partialFailed = 0
+
+    for (let i = 0; i < 50; i++) {
+      try {
+        // Check partial failure first
+        const partialResult = await partialFailure.checkRead('api')
+        if (!partialResult.allowed) {
+          partialFailed++
+          continue
+        }
+
+        // Then check network
+        const networkResult = await partition.simulateRequest('api', 'db')
+        if (networkResult.status === 'dropped') {
+          networkDropped++
+          continue
+        }
+
+        // Finally execute with latency
+        await chaos.wrap(async () => {
+          return stub.fetch('https://do/')
+        })
+        successful++
+      } catch {
+        // Latency-related errors
+      }
+    }
+
+    // We should see a mix of results
+    expect(successful + networkDropped + partialFailed).toBe(50)
+
+    // Network shouldn't drop (A->B is allowed)
+    expect(networkDropped).toBe(0)
+
+    // Some partial failures
+    expect(partialFailed).toBeGreaterThan(0)
+
+    // Most should succeed
+    expect(successful).toBeGreaterThan(30)
+
+    // Cleanup
+    partition.reset()
+    partialFailure.reset()
+    chaos.reset()
+  })
+
+  it('should handle split-brain with degraded nodes', async () => {
+    const splitBrain = new SplitBrainSimulator()
+    const partialFailure = new PartialFailureSimulator()
+
+    // Configure split-brain
+    splitBrain.configure({
+      leaders: ['primary-1', 'primary-2'],
+      partitions: [
+        ['primary-1', 'replica-1'],
+        ['primary-2', 'replica-2', 'replica-3'],
+      ],
+      allowMinorityWrites: false,
+      detectConflicts: true,
+    })
+
+    // Configure degraded nodes
+    partialFailure.configureNode({
+      nodeId: 'primary-1',
+      degraded: true,
+      degradedCapacity: 0.5,
+    })
+
+    partialFailure.configureNode({
+      nodeId: 'primary-2',
+      degraded: false,
+    })
+
+    // Minority partition leader is also degraded
+    expect(splitBrain.canWrite('primary-1')).toBe(false) // No quorum
+
+    // Majority partition leader can write
+    expect(splitBrain.canWrite('primary-2')).toBe(true)
+
+    // Even if primary-1 could write, it's degraded
+    let degradedRejections = 0
+    for (let i = 0; i < 20; i++) {
+      const result = await partialFailure.checkOperation('primary-1', 'write')
+      if (!result.allowed) degradedRejections++
+    }
+
+    // Should see roughly 50% rejection due to capacity
+    expect(degradedRejections).toBeGreaterThan(5)
+
+    // Cleanup
+    splitBrain.reset()
+    partialFailure.reset()
+  })
+
+  it('should simulate gradual network degradation', async () => {
+    const stub = getDOStub()
+    const latency = new LatencyProfile({
+      type: 'degrading',
+      baseLatencyMs: 10,
+      degradationRateMs: 5,
+      maxDegradationMs: 200,
+    })
+
+    const partition = new NetworkPartitionSimulator()
+
+    // Phase 1: Healthy network
+    let phase1Latencies: number[] = []
+    for (let i = 0; i < 10; i++) {
+      const startTime = Date.now()
+      await latency.apply()
+      phase1Latencies.push(Date.now() - startTime)
+    }
+
+    // Phase 2: Network becomes intermittent
+    partition.createPartition({
+      type: 'intermittent',
+      partitionA: ['client'],
+      partitionB: ['server'],
+      connectivityProbability: 0.7,
+      degradedLatencyMs: 50,
+    })
+
+    let phase2Successes = 0
+    let phase2Latencies: number[] = []
+    for (let i = 0; i < 20; i++) {
+      const result = await partition.simulateRequest('client', 'server')
+      if (result.status === 'success') {
+        phase2Successes++
+        await latency.apply()
+        const ms = Date.now()
+        phase2Latencies.push(ms)
+      }
+    }
+
+    // Phase 2 should have some failures
+    expect(phase2Successes).toBeLessThan(20)
+    expect(phase2Successes).toBeGreaterThan(5)
+
+    // Latencies should have increased over time
+    const latencyStats = latency.getStats()
+    expect(latencyStats.maxLatencyMs).toBeGreaterThan(latencyStats.minLatencyMs)
+
+    // Cleanup
+    partition.reset()
+    latency.reset()
   })
 })

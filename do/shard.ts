@@ -520,7 +520,10 @@ export class LoadMetricsStore {
     if (!this.metrics.has(doName)) {
       this.metrics.set(doName, new Map())
     }
-    this.metrics.get(doName)!.set(metricType, value)
+    const shardMetrics = this.metrics.get(doName)
+    if (shardMetrics) {
+      shardMetrics.set(metricType, value)
+    }
   }
 
   getMetric(doName: string, metricType: string): number {

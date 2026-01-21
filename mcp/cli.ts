@@ -173,8 +173,17 @@ async function handleMessage(
           }
         }
         const toolResult = await tool.execute(args)
-        result = {
-          content: [{ type: 'text', text: JSON.stringify(toolResult) }],
+        // Preserve type information by using appropriate content type
+        if (typeof toolResult === 'string') {
+          // Strings: return directly without double-stringifying
+          result = {
+            content: [{ type: 'text', text: toolResult }],
+          }
+        } else {
+          // Objects, arrays, and primitives: return as structured JSON
+          result = {
+            content: [{ type: 'json', data: toolResult }],
+          }
         }
         break
       }

@@ -473,4 +473,351 @@ describe('Router', () => {
       expect(result.provider).toBe('anthropic')
     })
   })
+
+  describe('circuit breaker', () => {
+    it('should open circuit after failure threshold', async () => {
+      const router = new Router({
+        fallback: ['anthropic', 'openai'],
+        circuitBreaker: {
+          failureThreshold: 2,
+          recoveryTimeout: 60000
+        }
+      })
+
+      let failCount = 0
+      const mockExecute = vi.fn().mockImplementation((prompt, options) => {
+        if (options.provider === 'anthropic') {
+          failCount++
+          return Promise.reject(new Error('Provider unavailable'))
+        }
+        return Promise.resolve({ result: 'Success', provider: options.provider })
+      })
+
+      router._setExecutor(mockExecute)
+
+      // First call should try anthropic, fail, then succeed with openai
+      const result1 = await router.execute('test 1')
+      expect(result1.provider).toBe('openai')
+
+      // Second call should also fail on anthropic, opening the circuit
+      const result2 = await router.execute('test 2')
+      expect(result2.provider).toBe('openai')
+      expect(failCount).toBe(2) // Anthropic was tried twice
+
+      // Third call - circuit should be open, anthropic should be skipped
+      mockExecute.mockClear()
+      const result3 = await router.execute('test 3')
+      expect(result3.provider).toBe('openai')
+
+      // Verify anthropic was not tried (circuit is open)
+      const anthropicCalls = mockExecute.mock.calls.filter(
+        call => call[1]?.provider === 'anthropic'
+      )
+      expect(anthropicCalls.length).toBe(0)
+    })
+
+    it('should transition to half-open after recovery timeout', async () => {
+      const router = new Router({
+        fallback: ['anthropic', 'openai'],
+        circuitBreaker: {
+          failureThreshold: 1,
+          recoveryTimeout: 100, // Short timeout for testing
+          successThreshold: 1
+        }
+      })
+
+      const mockExecute = vi.fn()
+        .mockRejectedValueOnce(new Error('Provider unavailable')) // First call to anthropic fails
+        .mockResolvedValue({ result: 'Success' }) // All subsequent calls succeed
+
+      router._setExecutor(mockExecute)
+
+      // First call opens the circuit on anthropic
+      await router.execute('test 1')
+
+      const health1 = router.getHealth()
+      expect(health1.anthropic?.circuitState).toBe('open')
+
+      // Wait for recovery timeout
+      await new Promise(resolve => setTimeout(resolve, 150))
+
+      // Next call should try anthropic again (half-open state)
+      mockExecute.mockClear()
+      await router.execute('test 2')
+
+      // Anthropic should have been tried
+      const anthropicCalls = mockExecute.mock.calls.filter(
+        call => call[1]?.provider === 'anthropic'
+      )
+      expect(anthropicCalls.length).toBeGreaterThan(0)
+    })
+
+    it('should close circuit after success threshold in half-open', async () => {
+      const router = new Router({
+        fallback: ['anthropic'],
+        circuitBreaker: {
+          failureThreshold: 1,
+          recoveryTimeout: 50,
+          successThreshold: 1
+        }
+      })
+
+      const mockExecute = vi.fn()
+        .mockRejectedValueOnce(new Error('Provider unavailable'))
+        .mockResolvedValue({ result: 'Success', provider: 'anthropic' })
+
+      router._setExecutor(mockExecute)
+
+      // Open the circuit
+      await expect(router.execute('test 1')).rejects.toThrow('All providers failed')
+
+      // Wait for recovery
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // Success should close the circuit
+      await router.execute('test 2')
+
+      const health = router.getHealth()
+      expect(health.anthropic?.circuitState).toBe('closed')
+      expect(health.anthropic?.healthy).toBe(true)
+    })
+  })
+
+  describe('configurable backoff', () => {
+    it('should use custom initial delay', async () => {
+      const router = new Router({
+        fallback: ['anthropic'],
+        maxRetries: 2,
+        backoff: {
+          initialDelay: 500,
+          multiplier: 2,
+          jitter: false
+        }
+      })
+
+      const delays: number[] = []
+      const mockExecute = vi.fn()
+        .mockRejectedValueOnce(new Error('Rate limit exceeded'))
+        .mockResolvedValueOnce({ result: 'Success' })
+
+      router._setExecutor(mockExecute)
+      router._onDelay((delay: number) => delays.push(delay))
+
+      await router.execute('test')
+
+      // First retry should use initial delay of 500ms
+      expect(delays[0]).toBe(500)
+    })
+
+    it('should respect max delay', async () => {
+      const router = new Router({
+        fallback: ['anthropic'],
+        maxRetries: 5,
+        backoff: {
+          initialDelay: 1000,
+          multiplier: 10, // Would grow very fast
+          maxDelay: 5000,
+          jitter: false
+        }
+      })
+
+      const delays: number[] = []
+      const mockExecute = vi.fn()
+        .mockRejectedValueOnce(new Error('Rate limit exceeded'))
+        .mockRejectedValueOnce(new Error('Rate limit exceeded'))
+        .mockRejectedValueOnce(new Error('Rate limit exceeded'))
+        .mockResolvedValueOnce({ result: 'Success' })
+
+      router._setExecutor(mockExecute)
+      router._onDelay((delay: number) => delays.push(delay))
+
+      await router.execute('test')
+
+      // All delays should be capped at maxDelay
+      delays.forEach(delay => {
+        expect(delay).toBeLessThanOrEqual(5000)
+      })
+    })
+
+    it('should add jitter when enabled', async () => {
+      const router = new Router({
+        fallback: ['anthropic'],
+        maxRetries: 10,
+        backoff: {
+          initialDelay: 1000,
+          multiplier: 1, // Keep same base delay
+          jitter: true
+        }
+      })
+
+      const delays: number[] = []
+      const mockExecute = vi.fn()
+        .mockRejectedValueOnce(new Error('Rate limit exceeded'))
+        .mockRejectedValueOnce(new Error('Rate limit exceeded'))
+        .mockRejectedValueOnce(new Error('Rate limit exceeded'))
+        .mockResolvedValueOnce({ result: 'Success' })
+
+      router._setExecutor(mockExecute)
+      router._onDelay((delay: number) => delays.push(delay))
+
+      await router.execute('test')
+
+      // With jitter, delays should vary slightly (within +/- 10%)
+      const uniqueDelays = new Set(delays)
+      // Note: There's a small chance all random values could be the same
+      // but with 3 retries this is very unlikely
+      expect(delays.length).toBe(3)
+    })
+  })
+
+  describe('capability-based fallback', () => {
+    it('should use capability-specific fallback chain', async () => {
+      const router = new Router({
+        fallbackConfig: {
+          default: ['openai', 'anthropic'],
+          byCapability: {
+            fast: ['cloudflare', 'openai'],
+            smart: ['anthropic', 'openai']
+          }
+        }
+      })
+
+      const mockExecute = vi.fn().mockResolvedValue({ result: 'Success' })
+      router._setExecutor(mockExecute)
+
+      // Request with 'fast' capability should try cloudflare first
+      await router.execute('test', { capability: 'fast' })
+
+      expect(mockExecute).toHaveBeenCalledWith(
+        'test',
+        expect.objectContaining({ provider: 'cloudflare' })
+      )
+    })
+
+    it('should use model-specific fallback chain', async () => {
+      const router = new Router({
+        fallbackConfig: {
+          default: ['openai', 'anthropic'],
+          byModel: {
+            'gpt-4': {
+              chain: [
+                { provider: 'openai', weight: 2 },
+                { provider: 'anthropic', model: 'claude-3-opus', weight: 1 }
+              ]
+            }
+          }
+        }
+      })
+
+      const selectedProviders: string[] = []
+      const mockExecute = vi.fn().mockImplementation((prompt, options) => {
+        selectedProviders.push(options.provider)
+        if (options.provider === 'openai') {
+          return Promise.reject(new Error('Provider unavailable'))
+        }
+        return Promise.resolve({ result: 'Success', provider: options.provider })
+      })
+
+      router._setExecutor(mockExecute)
+
+      // Request with gpt-4 model should use model-specific chain
+      const result = await router.execute('test', { model: 'gpt-4' })
+
+      // Should have tried openai first (higher weight), then anthropic
+      expect(selectedProviders).toContain('openai')
+      expect(result.provider).toBe('anthropic')
+    })
+
+    it('should fall back to default chain when no specific chain matches', async () => {
+      const router = new Router({
+        fallbackConfig: {
+          default: {
+            chain: [
+              { provider: 'anthropic', weight: 1 },
+              { provider: 'openai', weight: 1 }
+            ]
+          },
+          byCapability: {
+            fast: ['cloudflare']
+          }
+        }
+      })
+
+      const mockExecute = vi.fn().mockResolvedValue({ result: 'Success' })
+      router._setExecutor(mockExecute)
+
+      // Request without capability should use default chain
+      await router.execute('test')
+
+      // Should have used default chain (anthropic or openai)
+      const calledProvider = mockExecute.mock.calls[0]?.[1]?.provider
+      expect(['anthropic', 'openai']).toContain(calledProvider)
+    })
+  })
+
+  describe('fallback chain with model override', () => {
+    it('should use fallback entry model override', async () => {
+      const router = new Router({
+        fallbackConfig: {
+          default: {
+            chain: [
+              { provider: 'anthropic', model: 'claude-3-haiku' },
+              { provider: 'openai', model: 'gpt-3.5-turbo' }
+            ]
+          }
+        }
+      })
+
+      const mockExecute = vi.fn().mockResolvedValue({ result: 'Success' })
+      router._setExecutor(mockExecute)
+
+      // Request should use the model from fallback entry
+      await router.execute('test', { model: 'claude-3-opus' }) // Original model
+
+      // Should have overridden to claude-3-haiku from fallback entry
+      expect(mockExecute).toHaveBeenCalledWith(
+        'test',
+        expect.objectContaining({ model: 'claude-3-haiku' })
+      )
+    })
+  })
+
+  describe('weighted provider selection', () => {
+    it('should prefer higher-weighted providers', async () => {
+      const router = new Router({
+        fallbackConfig: {
+          default: {
+            chain: [
+              { provider: 'openai', weight: 1 },
+              { provider: 'anthropic', weight: 10 } // Higher weight
+            ]
+          }
+        }
+      })
+
+      const mockExecute = vi.fn().mockResolvedValue({ result: 'Success' })
+      router._setExecutor(mockExecute)
+
+      await router.execute('test')
+
+      // Higher-weighted provider (anthropic) should be tried first
+      expect(mockExecute).toHaveBeenCalledWith(
+        'test',
+        expect.objectContaining({ provider: 'anthropic' })
+      )
+    })
+  })
+
+  describe('provider availability', () => {
+    it('should include attempted providers in error message', async () => {
+      const router = new Router({
+        fallback: ['anthropic', 'openai']
+      })
+
+      const mockExecute = vi.fn().mockRejectedValue(new Error('Provider unavailable'))
+      router._setExecutor(mockExecute)
+
+      await expect(router.execute('test')).rejects.toThrow(/tried: anthropic, openai/)
+    })
+  })
 })

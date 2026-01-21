@@ -377,10 +377,11 @@ export class RateLimiterDO implements DurableObject {
       key
     ).toArray() as Array<{ count: number }>
 
-    if (slidingResult.length > 0 && slidingResult[0]!.count > 0) {
+    const slidingEntry = slidingResult[0]
+    if (slidingResult.length > 0 && slidingEntry && slidingEntry.count > 0) {
       return {
         found: true,
-        requests: slidingResult[0]!.count,
+        requests: slidingEntry.count,
       }
     }
 
@@ -390,10 +391,11 @@ export class RateLimiterDO implements DurableObject {
       key
     ).toArray() as Array<{ count: number }>
 
-    if (fixedResult.length > 0) {
+    const fixedEntry = fixedResult[0]
+    if (fixedResult.length > 0 && fixedEntry) {
       return {
         found: true,
-        requests: fixedResult[0]!.count,
+        requests: fixedEntry.count,
       }
     }
 

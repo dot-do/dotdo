@@ -1,25 +1,18 @@
-// TDD test for do-1oer: Fix global mutable state in resource registry
-// RED: Tests demonstrating state leakage between requests in Workers environment
-//
-// Problem: Global mutable state (globalEnforcer) in sandbox.ts causes issues
-// where multiple requests share module scope in Workers runtime.
-//
-// Solution: Use createScopedResourceEnforcer() to create isolated enforcers
-// per DO instance or request context.
+// Test for do-1oer: Resource enforcer isolation
+// Demonstrates that createScopedResourceEnforcer creates isolated enforcers
+// that prevent state leakage between requests in Workers environment.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import {
   RateLimiter,
   ConcurrencyLimiter,
   SandboxResourceEnforcer,
-  getGlobalResourceEnforcer,
-  setGlobalResourceEnforcer,
   createScopedResourceEnforcer
 } from '../sandbox'
 
-describe('Global State Leakage (do-1oer)', () => {
-  describe('RED: RateLimiter state leakage between requests', () => {
-    it('should NOT share rate limit state between independent requests', () => {
+describe('Resource Enforcer Isolation (do-1oer)', () => {
+  describe('RateLimiter per-client isolation', () => {
+    it('should NOT share rate limit state between different clients', () => {
       // Scenario: Two different tenant requests hit the same Worker
       // They should NOT share rate limiting state
 
@@ -33,36 +26,10 @@ describe('Global State Leakage (do-1oer)', () => {
 
       // Tenant B should have their own independent limit
       const checkB = limiter.check('tenant-b')
-      expect(checkB.allowed).toBe(true) // This passes - separate by clientId
-
-      // But if we share the same limiter instance globally...
-      // The state persists between request lifecycles
+      expect(checkB.allowed).toBe(true) // Separate by clientId
     })
 
-    it('should demonstrate global enforcer persistence across simulated requests', () => {
-      // This test simulates the problem: global state persists
-
-      // Request 1: Get global enforcer and use it
-      const enforcer1 = getGlobalResourceEnforcer()
-      const rateLimiter = enforcer1.getRateLimiter()
-
-      // Exhaust rate limit for client-x
-      for (let i = 0; i < 100; i++) {
-        rateLimiter.record('client-x')
-      }
-
-      // Request 2: A "new" request gets the SAME global enforcer
-      const enforcer2 = getGlobalResourceEnforcer()
-
-      // BUG: enforcer1 === enforcer2 (same instance!)
-      // The rate limit state from request 1 leaked into request 2
-      expect(enforcer1).toBe(enforcer2) // This proves they're the same instance
-
-      const check = enforcer2.getRateLimiter().check('client-x')
-      expect(check.allowed).toBe(false) // Rate limit from "previous request" leaked!
-    })
-
-    it('should isolate state when using request-scoped enforcers', () => {
+    it('should isolate state when using scoped enforcers', () => {
       // SOLUTION: Create a new enforcer per request/DO instance
 
       // Simulated Request 1
@@ -83,66 +50,7 @@ describe('Global State Leakage (do-1oer)', () => {
     })
   })
 
-  describe('RED: ConcurrencyLimiter state leakage', () => {
-    it('should demonstrate concurrency state leakage via global enforcer', () => {
-      // Request 1: Acquire all concurrency slots
-      const enforcer1 = getGlobalResourceEnforcer()
-      const concurrencyLimiter = enforcer1.getConcurrencyLimiter()
-
-      // Take all 5 slots for client-y
-      for (let i = 0; i < 5; i++) {
-        concurrencyLimiter.tryAcquire('client-y')
-      }
-
-      // Request 2: Same global enforcer
-      const enforcer2 = getGlobalResourceEnforcer()
-
-      // BUG: Can't acquire slot because state leaked from request 1
-      const acquired = enforcer2.getConcurrencyLimiter().tryAcquire('client-y')
-      expect(acquired).toBe(false) // Leaked state blocks new request!
-    })
-  })
-
-  describe('RED: Global enforcer singleton behavior', () => {
-    let originalEnforcer: SandboxResourceEnforcer | null
-
-    beforeEach(() => {
-      // Save original state
-      originalEnforcer = getGlobalResourceEnforcer()
-    })
-
-    afterEach(() => {
-      // Restore/cleanup
-      setGlobalResourceEnforcer(null)
-    })
-
-    it('should return the same instance on multiple calls', () => {
-      setGlobalResourceEnforcer(null) // Reset
-
-      const first = getGlobalResourceEnforcer()
-      const second = getGlobalResourceEnforcer()
-
-      // This is the PROBLEM - it's a singleton
-      expect(first).toBe(second)
-    })
-
-    it('should allow manual cleanup via setGlobalResourceEnforcer(null)', () => {
-      const before = getGlobalResourceEnforcer()
-      before.getRateLimiter().record('test-client')
-
-      // Manual cleanup
-      setGlobalResourceEnforcer(null)
-
-      const after = getGlobalResourceEnforcer()
-      expect(after).not.toBe(before)
-
-      // State was cleaned up
-      const check = after.getRateLimiter().check('test-client')
-      expect(check.allowed).toBe(true)
-    })
-  })
-
-  describe('GREEN: Request-scoped enforcer pattern', () => {
+  describe('Request-scoped enforcer pattern', () => {
     it('should create isolated enforcers per request context', () => {
       // This is the CORRECT pattern: create enforcer per request/DO
 
@@ -192,7 +100,7 @@ describe('Global State Leakage (do-1oer)', () => {
     })
   })
 
-  describe('GREEN: DO-scoped enforcer integration', () => {
+  describe('DO-scoped enforcer integration', () => {
     it('should support dependency injection of enforcer', () => {
       // The createSandboxTool should accept an optional enforcer
       // Instead of using global state
@@ -218,27 +126,7 @@ describe('Global State Leakage (do-1oer)', () => {
   })
 })
 
-describe('Cleanup between requests', () => {
-  afterEach(() => {
-    // Always clean up global state after tests
-    setGlobalResourceEnforcer(null)
-  })
-
-  it('should support explicit cleanup for testing', () => {
-    const enforcer = getGlobalResourceEnforcer()
-    enforcer.getRateLimiter().record('test')
-
-    // Clean up
-    setGlobalResourceEnforcer(null)
-
-    // Fresh state
-    const fresh = getGlobalResourceEnforcer()
-    const check = fresh.getRateLimiter().check('test')
-    expect(check.allowed).toBe(true)
-  })
-})
-
-describe('GREEN: createScopedResourceEnforcer (preferred pattern)', () => {
+describe('createScopedResourceEnforcer (preferred pattern)', () => {
   it('should create isolated enforcer instances', () => {
     const enforcer1 = createScopedResourceEnforcer()
     const enforcer2 = createScopedResourceEnforcer()
@@ -324,26 +212,22 @@ describe('GREEN: createScopedResourceEnforcer (preferred pattern)', () => {
   })
 })
 
-describe('REFACTOR: Documentation of deprecated vs preferred patterns', () => {
-  afterEach(() => {
-    setGlobalResourceEnforcer(null)
-  })
-
-  it('deprecated: getGlobalResourceEnforcer shares state (DON\'T USE)', () => {
-    // This test documents the problematic behavior
-    const e1 = getGlobalResourceEnforcer()
-    const e2 = getGlobalResourceEnforcer()
-
-    // Same instance = shared state = BUG
-    expect(e1).toBe(e2)
-  })
-
-  it('preferred: createScopedResourceEnforcer isolates state (USE THIS)', () => {
+describe('Instance-based pattern documentation', () => {
+  it('createScopedResourceEnforcer isolates state correctly', () => {
     // This test documents the correct pattern
     const e1 = createScopedResourceEnforcer()
     const e2 = createScopedResourceEnforcer()
 
     // Different instances = isolated state = CORRECT
     expect(e1).not.toBe(e2)
+
+    // Exhaust rate limit in e1
+    for (let i = 0; i < 100; i++) {
+      e1.getRateLimiter().record('user')
+    }
+    expect(e1.getRateLimiter().check('user').allowed).toBe(false)
+
+    // e2 is unaffected
+    expect(e2.getRateLimiter().check('user').allowed).toBe(true)
   })
 })

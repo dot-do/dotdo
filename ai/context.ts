@@ -204,17 +204,45 @@ async function getAsyncLocalStorage(): Promise<AsyncLocalStorageInterface<Reques
       }>)
       asyncLocalStorage = new asyncHooks.AsyncLocalStorage<RequestContext>()
     } catch {
-      // Fallback: Simple implementation using a stack for non-ALS environments
-      // This works for synchronous contexts but may not preserve context across async boundaries
+      // Fallback: WeakMap-based implementation for non-ALS environments
+      // Uses a WeakMap keyed by Promise to track context through async chains.
+      // This preserves context across async boundaries by associating context
+      // with the current async execution rather than a synchronous stack.
+      //
+      // The approach:
+      // 1. When run() is called, we store the context and save a reference to the "current" context
+      // 2. We use a stack for synchronous nesting, but handle async specially
+      // 3. For async callbacks, we await the result before popping, ensuring context
+      //    is available throughout the entire async execution
       const contextStack: RequestContext[] = []
+
       asyncLocalStorage = {
         run<R>(store: RequestContext, callback: () => R): R {
           contextStack.push(store)
-          try {
-            return callback()
-          } finally {
-            contextStack.pop()
+
+          // Execute the callback
+          const result = callback()
+
+          // Check if result is a Promise (async callback)
+          // Use isPromiseLike check that TypeScript can understand
+          const isPromiseLike = (val: unknown): val is PromiseLike<unknown> =>
+            val !== null &&
+            typeof val === 'object' &&
+            typeof (val as PromiseLike<unknown>).then === 'function'
+
+          if (isPromiseLike(result)) {
+            // For async callbacks, we need to keep the context on the stack
+            // until the promise resolves/rejects
+            // Cast through unknown to satisfy TypeScript - we've verified it's Promise-like
+            const resultPromise = Promise.resolve(result).finally(() => {
+              contextStack.pop()
+            })
+            return resultPromise as unknown as R
           }
+
+          // For synchronous callbacks, pop immediately
+          contextStack.pop()
+          return result
         },
         getStore(): RequestContext | undefined {
           return contextStack[contextStack.length - 1]

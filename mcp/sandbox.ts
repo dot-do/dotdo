@@ -459,8 +459,16 @@ export class SandboxResourceEnforcer {
       }
     }
 
+    // Create an idempotent release function to prevent double-release bugs
+    // This ensures calling release() multiple times only decrements the counter once
+    let released = false
     return {
-      release: () => this.concurrencyLimiter.release(clientId)
+      release: () => {
+        if (!released) {
+          released = true
+          this.concurrencyLimiter.release(clientId)
+        }
+      }
     }
   }
 
@@ -485,42 +493,6 @@ export class SandboxResourceEnforcer {
     this.rateLimiter.resetAll()
     this.concurrencyLimiter.resetAll()
   }
-}
-
-// Global default enforcer instance
-// WARNING: Deprecated due to state leakage issues in Workers (do-1oer)
-// Use createScopedResourceEnforcer() instead
-let globalEnforcer: SandboxResourceEnforcer | null = null
-
-/**
- * Get or create the global resource enforcer
- *
- * @deprecated Use `createScopedResourceEnforcer()` instead. This global enforcer causes
- * state leakage between requests in Worker environments, as documented in do-1oer.
- * Each request or DO operation should create its own scoped instance via
- * `createScopedResourceEnforcer(rateLimitConfig?, concurrencyConfig?)`.
- *
- * @see createScopedResourceEnforcer
- */
-export function getGlobalResourceEnforcer(): SandboxResourceEnforcer {
-  if (!globalEnforcer) {
-    globalEnforcer = new SandboxResourceEnforcer()
-  }
-  return globalEnforcer
-}
-
-/**
- * Set a custom global resource enforcer (useful for testing)
- *
- * @deprecated Use `createScopedResourceEnforcer()` instead. This global enforcer causes
- * state leakage between requests in Worker environments, as documented in do-1oer.
- * Each request or DO operation should create its own scoped instance via
- * `createScopedResourceEnforcer(rateLimitConfig?, concurrencyConfig?)`.
- *
- * @see createScopedResourceEnforcer
- */
-export function setGlobalResourceEnforcer(enforcer: SandboxResourceEnforcer | null): void {
-  globalEnforcer = enforcer
 }
 
 /**
@@ -697,91 +669,301 @@ __OriginalString.prototype.repeat = function(count) {
 }
 
 /**
+ * Placeholder type for storing comment positions
+ */
+interface CommentPlaceholder {
+  start: number
+  end: number
+  placeholder: string
+  original: string
+}
+
+/**
+ * Strip comments from code while preserving positions
+ * Returns the code with comments replaced by spaces and a mapping to restore them
+ *
+ * This is critical for security: comments can be used to obfuscate loop patterns
+ * e.g., "while/\* bypass \*\/(true)" would not match the while regex
+ */
+function stripComments(code: string): { stripped: string; placeholders: CommentPlaceholder[] } {
+  const placeholders: CommentPlaceholder[] = []
+  let result = ''
+  let i = 0
+
+  while (i < code.length) {
+    // Check for string literals (don't strip comments inside strings)
+    if (code[i] === '"' || code[i] === "'" || code[i] === '`') {
+      const quote = code[i]
+      result += code[i]
+      i++
+      // Handle template literal
+      if (quote === '`') {
+        while (i < code.length) {
+          if (code[i] === '\\' && i + 1 < code.length) {
+            result += code[i]! + code[i + 1]!
+            i += 2
+          } else if (code[i] === '$' && code[i + 1] === '{') {
+            // Template expression - find matching }
+            result += code[i]! + code[i + 1]!
+            i += 2
+            let braceDepth = 1
+            while (i < code.length && braceDepth > 0) {
+              if (code[i] === '{') braceDepth++
+              else if (code[i] === '}') braceDepth--
+              result += code[i]
+              i++
+            }
+          } else if (code[i] === '`') {
+            result += code[i]
+            i++
+            break
+          } else {
+            result += code[i]
+            i++
+          }
+        }
+      } else {
+        // Regular string
+        while (i < code.length && code[i] !== quote) {
+          if (code[i] === '\\' && i + 1 < code.length) {
+            result += code[i]! + code[i + 1]!
+            i += 2
+          } else {
+            result += code[i]
+            i++
+          }
+        }
+        if (i < code.length) {
+          result += code[i] // Closing quote
+          i++
+        }
+      }
+    }
+    // Check for line comment
+    else if (code[i] === '/' && code[i + 1] === '/') {
+      const start = i
+      let end = i
+      while (end < code.length && code[end] !== '\n') {
+        end++
+      }
+      // Replace with spaces to preserve positions
+      const original = code.slice(start, end)
+      const spaces = ' '.repeat(end - start)
+      placeholders.push({ start, end, placeholder: spaces, original })
+      result += spaces
+      i = end
+    }
+    // Check for block comment
+    else if (code[i] === '/' && code[i + 1] === '*') {
+      const start = i
+      let end = i + 2
+      while (end < code.length - 1 && !(code[end] === '*' && code[end + 1] === '/')) {
+        end++
+      }
+      end += 2 // Include */
+      // Replace with spaces, preserving newlines
+      const original = code.slice(start, end)
+      let spaces = ''
+      for (let j = start; j < end; j++) {
+        spaces += code[j] === '\n' ? '\n' : ' '
+      }
+      placeholders.push({ start, end, placeholder: spaces, original })
+      result += spaces
+      i = end
+    }
+    else {
+      result += code[i]
+      i++
+    }
+  }
+
+  return { stripped: result, placeholders }
+}
+
+/**
+ * Normalize Unicode whitespace characters to regular spaces
+ * This prevents bypasses using exotic whitespace characters like:
+ * - U+00A0 (non-breaking space)
+ * - U+200B (zero-width space)
+ * - U+2003 (em space)
+ * - etc.
+ */
+function normalizeWhitespace(code: string): string {
+  // Unicode whitespace characters that should be normalized
+  // Preserves newlines and tabs for readability
+  return code.replace(/[\u00A0\u1680\u2000-\u200B\u2028\u2029\u202F\u205F\u3000\uFEFF]/g, ' ')
+}
+
+/**
  * Find the matching closing parenthesis for an opening paren
  * Returns the index of the closing paren or -1 if not found
+ * Handles nested parentheses and string literals
  */
 function findMatchingParen(code: string, openIndex: number): number {
   let depth = 1
   let i = openIndex + 1
+
   while (i < code.length && depth > 0) {
-    if (code[i] === '(') depth++
-    else if (code[i] === ')') depth--
+    const char = code[i]
+
+    // Skip string literals
+    if (char === '"' || char === "'" || char === '`') {
+      const quote = char
+      i++
+      while (i < code.length) {
+        if (code[i] === '\\' && i + 1 < code.length) {
+          i += 2
+        } else if (code[i] === quote) {
+          i++
+          break
+        } else if (quote === '`' && code[i] === '$' && code[i + 1] === '{') {
+          // Skip template literal expression
+          i += 2
+          let braceDepth = 1
+          while (i < code.length && braceDepth > 0) {
+            if (code[i] === '{') braceDepth++
+            else if (code[i] === '}') braceDepth--
+            i++
+          }
+        } else {
+          i++
+        }
+      }
+      continue
+    }
+
+    if (char === '(') depth++
+    else if (char === ')') depth--
     i++
   }
   return depth === 0 ? i - 1 : -1
 }
 
 /**
+ * Find the end of a single statement (for braceless loops)
+ * Returns the index after the statement ends (after semicolon or newline for single statements)
+ */
+function findStatementEnd(code: string, startIndex: number): number {
+  let i = startIndex
+  let braceDepth = 0
+  let parenDepth = 0
+  let bracketDepth = 0
+
+  // Skip leading whitespace
+  while (i < code.length && /\s/.test(code[i])) {
+    i++
+  }
+
+  // Handle block statement (braces)
+  if (code[i] === '{') {
+    return -1 // Caller should handle braced body differently
+  }
+
+  // Handle empty statement (just semicolon)
+  if (code[i] === ';') {
+    return i + 1
+  }
+
+  // Find end of statement
+  while (i < code.length) {
+    const char = code[i]
+
+    // Skip string literals
+    if (char === '"' || char === "'" || char === '`') {
+      const quote = char
+      i++
+      while (i < code.length) {
+        if (code[i] === '\\' && i + 1 < code.length) {
+          i += 2
+        } else if (code[i] === quote) {
+          i++
+          break
+        } else if (quote === '`' && code[i] === '$' && code[i + 1] === '{') {
+          i += 2
+          let bd = 1
+          while (i < code.length && bd > 0) {
+            if (code[i] === '{') bd++
+            else if (code[i] === '}') bd--
+            i++
+          }
+        } else {
+          i++
+        }
+      }
+      continue
+    }
+
+    // Track nested structures
+    if (char === '{') braceDepth++
+    else if (char === '}') braceDepth--
+    else if (char === '(') parenDepth++
+    else if (char === ')') parenDepth--
+    else if (char === '[') bracketDepth++
+    else if (char === ']') bracketDepth--
+
+    // Statement ends at semicolon (when not nested)
+    if (char === ';' && braceDepth === 0 && parenDepth === 0 && bracketDepth === 0) {
+      return i + 1
+    }
+
+    // For braceless loop bodies that are single expressions without semicolon,
+    // the statement ends at newline when not in nested structure
+    if (char === '\n' && braceDepth === 0 && parenDepth === 0 && bracketDepth === 0) {
+      // Check if next non-whitespace is something that continues the statement
+      let j = i + 1
+      while (j < code.length && /[ \t]/.test(code[j])) j++
+      // If next char is operator or another control structure, statement continues
+      if (j < code.length && /[+\-*/%&|^<>=!?:,.]/.test(code[j])) {
+        i++
+        continue
+      }
+      return i + 1
+    }
+
+    i++
+  }
+
+  return i
+}
+
+/**
  * Inject CPU checkpoints and memory tracking into code
  * This adds checkpoint calls at loop boundaries and tracks string growth
+ *
+ * SECURITY FIX (do-94il): This implementation addresses regex bypass vulnerabilities:
+ * 1. Strips comments before processing to prevent comment obfuscation
+ * 2. Normalizes Unicode whitespace to prevent exotic whitespace bypasses
+ * 3. Handles braceless loops by wrapping single statements in braces with checkpoints
+ * 4. Tracks template literal concatenation for memory protection
  */
 function injectResourceChecks(code: string): string {
-  // Process loops by finding them manually to handle nested parens
-  let result = ''
-  let lastIndex = 0
+  // Step 1: Normalize Unicode whitespace to prevent exotic whitespace bypasses
+  code = normalizeWhitespace(code)
 
-  // Find while loops
-  const whileRegex = /while\s*\(/g
-  let match
-  while ((match = whileRegex.exec(code)) !== null) {
-    const openParenIndex = match.index + match[0].length - 1
-    const closeParenIndex = findMatchingParen(code, openParenIndex)
+  // Step 2: Strip comments to prevent comment obfuscation attacks
+  const { stripped } = stripComments(code)
+  // We work on stripped code for pattern matching, but we need to produce valid JS
+  // So we'll use the stripped version for everything
 
-    if (closeParenIndex === -1) continue
+  let processedCode = stripped
 
-    // Look for opening brace after the closing paren
-    const afterParen = code.slice(closeParenIndex + 1)
-    const braceMatch = afterParen.match(/^\s*\{/)
+  // Step 3: Process while loops (both braced and braceless)
+  processedCode = processLoops(processedCode, 'while')
 
-    if (braceMatch && braceMatch.index !== undefined) {
-      // Found a while loop with body
-      const braceIndex = closeParenIndex + 1 + braceMatch.index + braceMatch[0].length
-      // Copy everything up to and including the opening brace
-      result += code.slice(lastIndex, braceIndex)
-      // Add checkpoint
-      result += ' __resource__.checkCpuTime();'
-      lastIndex = braceIndex
-    }
-  }
-  result += code.slice(lastIndex)
-  code = result
+  // Step 4: Process for loops (both braced and braceless)
+  processedCode = processLoops(processedCode, 'for')
 
-  // Process for loops similarly
-  result = ''
-  lastIndex = 0
-  const forRegex = /for\s*\(/g
-  while ((match = forRegex.exec(code)) !== null) {
-    const openParenIndex = match.index + match[0].length - 1
-    const closeParenIndex = findMatchingParen(code, openParenIndex)
-
-    if (closeParenIndex === -1) continue
-
-    const afterParen = code.slice(closeParenIndex + 1)
-    const braceMatch = afterParen.match(/^\s*\{/)
-
-    if (braceMatch && braceMatch.index !== undefined) {
-      const braceIndex = closeParenIndex + 1 + braceMatch.index + braceMatch[0].length
-      result += code.slice(lastIndex, braceIndex)
-      result += ' __resource__.checkCpuTime();'
-      lastIndex = braceIndex
-    }
-  }
-  result += code.slice(lastIndex)
-  code = result
-
-  // Match do-while: do { ... } while
-  code = code.replace(
-    /do\s*\{/g,
+  // Step 5: Process do-while loops (always have braces in practice)
+  processedCode = processedCode.replace(
+    /\bdo\s*\{/g,
     'do { __resource__.checkCpuTime();'
   )
 
-  // Track string concatenation: str = str + str or str += str
-  // After any string assignment that uses +, track the result length
-  // Match: varname = anything + anything (where result could be string)
-  code = code.replace(
+  // Step 6: Track string concatenation patterns
+  // Standard concatenation: str = str + str or str += str
+  processedCode = processedCode.replace(
     /(\w+)\s*=\s*(\w+)\s*\+\s*(\w+)\s*;?/g,
     (match, varName, left, right) => {
-      // If same variable on both sides, likely string doubling
       if (left === varName || right === varName || left === right) {
         return `${match}; if (typeof ${varName} === 'string' && ${varName}.length > 1000) __resource__.trackAllocation(${varName}.length * 2);`
       }
@@ -789,7 +971,77 @@ function injectResourceChecks(code: string): string {
     }
   )
 
-  return code
+  // Track template literal assignments that could grow exponentially
+  // Pattern: str = `${str}${str}` or similar
+  processedCode = processedCode.replace(
+    /(\w+)\s*=\s*`[^`]*\$\{\s*\1\s*\}[^`]*\$\{\s*\1\s*\}[^`]*`\s*;?/g,
+    (match, varName) => {
+      return `${match}; if (typeof ${varName} === 'string' && ${varName}.length > 1000) __resource__.trackAllocation(${varName}.length * 2);`
+    }
+  )
+
+  return processedCode
+}
+
+/**
+ * Process loops of a given type (while or for)
+ * Handles both braced and braceless loop bodies
+ */
+function processLoops(code: string, loopType: 'while' | 'for'): string {
+  let result = ''
+  let lastIndex = 0
+  const loopRegex = new RegExp(`\\b${loopType}\\s*\\(`, 'g')
+  let match
+
+  while ((match = loopRegex.exec(code)) !== null) {
+    const openParenIndex = match.index + match[0].length - 1
+    const closeParenIndex = findMatchingParen(code, openParenIndex)
+
+    if (closeParenIndex === -1) continue
+
+    // Look for what comes after the closing paren
+    const afterParen = code.slice(closeParenIndex + 1)
+
+    // Skip whitespace to find first non-whitespace char
+    const firstNonWhitespaceMatch = afterParen.match(/^\s*/)
+    const whitespace = firstNonWhitespaceMatch ? firstNonWhitespaceMatch[0] : ''
+    const afterWhitespace = afterParen.slice(whitespace.length)
+
+    if (afterWhitespace.startsWith('{')) {
+      // Braced loop - inject checkpoint after opening brace
+      const braceIndex = closeParenIndex + 1 + whitespace.length + 1
+      result += code.slice(lastIndex, braceIndex)
+      result += ' __resource__.checkCpuTime();'
+      lastIndex = braceIndex
+    } else if (afterWhitespace.length > 0 && !afterWhitespace.startsWith(';')) {
+      // Braceless loop with statement body - wrap in braces with checkpoint
+      const statementStart = closeParenIndex + 1 + whitespace.length
+      const statementEnd = findStatementEnd(code, statementStart)
+
+      if (statementEnd > statementStart) {
+        const statement = code.slice(statementStart, statementEnd)
+        // Copy everything up to the statement
+        result += code.slice(lastIndex, statementStart)
+        // Wrap statement in braces with checkpoint
+        result += '{ __resource__.checkCpuTime(); ' + statement.trim() + ' }'
+        lastIndex = statementEnd
+      }
+    } else if (afterWhitespace.startsWith(';')) {
+      // Empty loop body (semicolon) - inject checkpoint in condition check
+      // This is tricky - for while(++x < n); we inject before the condition
+      // For now, wrap in braces
+      const semiIndex = closeParenIndex + 1 + whitespace.length + 1
+      result += code.slice(lastIndex, closeParenIndex + 1)
+      result += '{ __resource__.checkCpuTime(); }'
+      lastIndex = semiIndex
+    }
+
+    // Update regex lastIndex to continue from where we left off
+    loopRegex.lastIndex = lastIndex > match.index + match[0].length ? lastIndex : match.index + match[0].length
+  }
+
+  result += code.slice(lastIndex)
+  return result
 }
 
 /**
@@ -1240,4 +1492,17 @@ export function createSandbox(options: SandboxOptions): Sandbox {
       }
     }
   }
+}
+
+/**
+ * Test utilities - exported for unit testing the transformation functions
+ * These allow testing the code injection fix without needing the full sandbox runtime
+ */
+export const _testUtils = {
+  injectResourceChecks,
+  stripComments,
+  normalizeWhitespace,
+  findMatchingParen,
+  findStatementEnd,
+  processLoops
 }

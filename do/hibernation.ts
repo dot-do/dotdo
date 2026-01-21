@@ -30,11 +30,35 @@
  * - Keep attachments < 2048 bytes
  * - Restore in-memory state in webSocketMessage handler
  *
+ * ## Reconnection Protocol
+ *
+ * This module integrates with the reconnection protocol for session resumption:
+ * 1. On connect, server sends session.init with sessionId and sequence
+ * 2. Client tracks lastSeq from received messages
+ * 3. On disconnect, client reconnects with session.resume message
+ * 4. Server validates session and replays missed events
+ * 5. If session expired, server starts fresh with session.expired
+ *
  * @module @dotdo/do/hibernation
  * @see https://developers.cloudflare.com/durable-objects/api/websockets/
+ * @see {@link SessionManager} for reconnection session management
  */
 
 import { createLogger } from '@dotdo/utils'
+import {
+  SessionManager,
+  type SessionState,
+  type BufferedEvent,
+  type ReconnectionConfig,
+  type SessionResumeMessage,
+  type SessionInitMessage,
+  type SessionResumedMessage,
+  type SessionExpiredMessage,
+  type EventMessage,
+  parseProtocolMessage,
+  isProtocolMessage,
+  RECONNECTION_PROTOCOL_VERSION,
+} from './websocket-reconnection'
 
 const logger = createLogger('[Hibernation]')
 
@@ -131,6 +155,40 @@ export const DEFAULT_HIBERNATION_CONFIG: Required<HibernationConfig> = {
   maxAttachmentSize: 2048,
 }
 
+// Re-export reconnection protocol types for convenience
+export {
+  SessionManager,
+  type SessionState,
+  type BufferedEvent,
+  type ReconnectionConfig,
+  type SessionResumeMessage,
+  type SessionInitMessage,
+  type SessionResumedMessage,
+  type SessionExpiredMessage,
+  type EventMessage,
+  parseProtocolMessage,
+  isProtocolMessage,
+  RECONNECTION_PROTOCOL_VERSION,
+} from './websocket-reconnection'
+
+// Also re-export client-side helpers
+export {
+  type ClientReconnectionState,
+  type BackoffConfig,
+  createClientState,
+  handleSessionInit,
+  handleSessionResumed,
+  handleSessionExpired,
+  handleEvent,
+  handleDisconnect,
+  createResumeMessage,
+  shouldAttemptResume,
+  getNextRetryDelay,
+  calculateBackoffDelay,
+  shouldRetry,
+  DEFAULT_BACKOFF_CONFIG,
+} from './websocket-reconnection'
+
 // ============================================================================
 // Hibernation Manager
 // ============================================================================
@@ -143,6 +201,45 @@ export const DEFAULT_HIBERNATION_CONFIG: Required<HibernationConfig> = {
  * - Serializing/deserializing attachment data
  * - Persisting state to DO storage
  * - Restoring connections after hibernation wake-up
+ * - **Reconnection Protocol**: Session resumption after disconnect
+ *
+ * ## Reconnection Protocol Integration
+ *
+ * The HibernationManager now includes built-in reconnection protocol support:
+ *
+ * ```typescript
+ * class MyDO extends DO {
+ *   private hibernationManager: HibernationManager
+ *
+ *   constructor(state: DurableObjectState, env: DOEnv) {
+ *     super(state, env)
+ *     this.hibernationManager = new HibernationManager(state, {
+ *       reconnection: {
+ *         maxEventBuffer: 1000,
+ *         sessionTimeoutMs: 30 * 60 * 1000, // 30 minutes
+ *       }
+ *     })
+ *
+ *     // Restore connections and sessions on wake
+ *     state.blockConcurrencyWhile(async () => {
+ *       await this.hibernationManager.restoreFromHibernation()
+ *     })
+ *   }
+ *
+ *   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+ *     // Handle reconnection protocol messages automatically
+ *     const handled = await this.hibernationManager.handleProtocolMessage(ws, message)
+ *     if (handled) return
+ *
+ *     // Process regular messages...
+ *   }
+ *
+ *   // Emit events with automatic sequence tracking
+ *   emitEvent(type: string, payload: unknown) {
+ *     this.hibernationManager.broadcastEvent(type, payload)
+ *   }
+ * }
+ * ```
  *
  * @example
  * ```typescript
@@ -172,17 +269,46 @@ export class HibernationManager {
   private config: Required<HibernationConfig>
   private connectionCounter = 0
   private state: HibernationState = {}
+  private sessionManager: SessionManager | null = null
+  private reconnectionConfig?: Partial<ReconnectionConfig> | undefined
 
   constructor(
     ctx: DurableObjectState,
-    config: Partial<HibernationConfig> = {}
+    config: Partial<HibernationConfig> = {},
+    reconnectionConfig?: Partial<ReconnectionConfig>
   ) {
     this.ctx = ctx
     this.config = { ...DEFAULT_HIBERNATION_CONFIG, ...config }
+    this.reconnectionConfig = reconnectionConfig
+
+    // Initialize session manager for reconnection support
+    if (reconnectionConfig !== undefined || config) {
+      this.sessionManager = new SessionManager(ctx, reconnectionConfig)
+    }
 
     // Setup auto-response for ping/pong if enabled
     if (this.config.enableAutoResponse) {
       this.setupAutoResponse()
+    }
+  }
+
+  /**
+   * Get the session manager for advanced session management.
+   * Returns null if reconnection support is not enabled.
+   */
+  getSessionManager(): SessionManager | null {
+    return this.sessionManager
+  }
+
+  /**
+   * Enable reconnection support if not already enabled.
+   *
+   * @param config - Optional reconnection configuration
+   */
+  enableReconnection(config?: Partial<ReconnectionConfig>): void {
+    if (!this.sessionManager) {
+      this.reconnectionConfig = config
+      this.sessionManager = new SessionManager(this.ctx, config)
     }
   }
 

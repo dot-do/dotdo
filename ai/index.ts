@@ -30,7 +30,17 @@ export { createAIPromise } from "./promise"
 export * from './stream'
 
 // Export centralized types (single source of truth)
-export type { Provider, ProviderConfig, Capability, LoadBalancingStrategy } from './types'
+export type {
+  Provider,
+  ProviderConfig,
+  Capability,
+  LoadBalancingStrategy,
+  BackoffConfig,
+  CircuitBreakerConfig,
+  FallbackEntry,
+  FallbackChainConfig,
+  FallbackConfig
+} from './types'
 
 // Export from providers (includes router exports)
 export {

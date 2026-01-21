@@ -151,6 +151,11 @@ export type ComposedType<
 /**
  * Utility type to get the instance type of a composed mixin.
  *
+ * This type safely extracts the instance type from any constructor,
+ * with proper constraints to ensure T is a valid constructor type.
+ *
+ * @template T - A constructor type (constrained to ensure type safety)
+ *
  * @example
  * ```typescript
  * const MyDO = WithRPC(WithStorage(BaseDO))
@@ -158,4 +163,5 @@ export type ComposedType<
  * ```
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type InstanceOf<T> = T extends new (...args: unknown[]) => infer R ? R : never
+export type InstanceOf<T extends new (...args: any[]) => any> =
+  T extends new (...args: any[]) => infer R ? R : never

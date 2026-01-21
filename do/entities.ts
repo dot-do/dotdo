@@ -564,11 +564,13 @@ export class EntityManager {
 }
 
 /**
- * Constructor type for mixin pattern.
- */
-/**
- * Constructor type for mixin pattern.
- * TypeScript mixins require any[] for the constructor rest parameter.
+ * Constructor type for entity mixin pattern.
+ *
+ * TypeScript mixins require `any[]` for the constructor rest parameter (TS2545).
+ * The return type is constrained to `object` to ensure basic type safety while
+ * allowing any class to be used as a base for the mixin.
+ *
+ * @internal Used only by the withEntities mixin function
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type EntityMixinConstructor = new (...args: any[]) => object

@@ -439,9 +439,7 @@ export {
 export {
   IntegrationRegistry,
   IntegrationRegistryError,
-  integrationRegistry,
-  registerIntegration,
-  getIntegration,
+  createIntegrationRegistry,
   successResult,
   errorResult,
   type Integration,

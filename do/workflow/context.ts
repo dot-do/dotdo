@@ -198,6 +198,21 @@ interface EveryProxy {
 }
 
 /**
+ * Result of integration initialization errors
+ */
+export interface IntegrationInitError {
+  /** Integration name that failed */
+  integrationName: string
+  /** The error that occurred */
+  error: Error
+}
+
+/**
+ * Callback for integration initialization errors
+ */
+export type IntegrationErrorCallback = (errors: IntegrationInitError[]) => void
+
+/**
  * Options for creating a WorkflowContext
  */
 export interface CreateContextOptions {
@@ -207,6 +222,8 @@ export interface CreateContextOptions {
   integrationRegistry?: IntegrationRegistry
   /** Initial integration configurations to auto-initialize */
   integrationConfigs?: Record<string, IntegrationConfig>
+  /** Callback invoked when integration initialization fails */
+  onIntegrationError?: IntegrationErrorCallback
   /** File system capability instance (from fsx/gitx) for $.fs (do-5ljl) */
   fs?: FsCapability
   /** Git capability instance (from gitx) for $.git (do-5ljl) */
@@ -263,8 +280,53 @@ export function createContext(
 
   // Initialize integrations if configs provided
   if (options?.integrationConfigs) {
-    integrations.initAll(options.integrationConfigs).catch((err) => {
-      logger.error('Failed to initialize integrations:', err)
+    integrations.initAll(options.integrationConfigs).then((results) => {
+      // Collect all initialization errors
+      const errors: IntegrationInitError[] = []
+
+      for (const [name, error] of results) {
+        if (error !== null) {
+          // Log error with integration context
+          logger.error(`Failed to initialize integration "${name}":`, error.message, {
+            integrationName: name,
+            errorType: error.name,
+            stack: error.stack,
+          })
+
+          // Track in fire-and-forget error store
+          fireAndForgetErrors.track({
+            operation: 'integration.init',
+            message: error.message,
+            stack: error.stack,
+            errorType: error.name,
+            retriable: true,
+            context: {
+              integrationName: name,
+            },
+          })
+
+          errors.push({ integrationName: name, error })
+        }
+      }
+
+      // Invoke error callback if provided and there were errors
+      if (errors.length > 0 && options?.onIntegrationError) {
+        try {
+          options.onIntegrationError(errors)
+        } catch (callbackErr) {
+          logger.error('Error in onIntegrationError callback:', callbackErr)
+        }
+      }
+    }).catch((err) => {
+      // Handle unexpected errors from initAll itself (should be rare)
+      logger.error('Unexpected error during integrations.initAll:', err)
+      fireAndForgetErrors.track({
+        operation: 'integration.initAll',
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        errorType: err instanceof Error ? err.name : 'UnknownError',
+        retriable: false,
+      })
     })
   }
 
@@ -476,7 +538,8 @@ export function createContext(
   }
 
   // Wrap context in Proxy to support cross-DO RPC: $.Customer(id)
-  return createDORPCProxy(baseContext, { env, stubCache }) as WorkflowContext
+  // Uses _env and _stubCache from baseContext directly - no duplicate reference needed
+  return createDORPCProxy(baseContext) as WorkflowContext
 }
 
 // Re-export types for convenience

@@ -474,14 +474,36 @@ let asyncLocalStorage: AsyncLocalStorageInterface<ResourceContext> | null = null
 async function getAsyncLocalStorage(): Promise<AsyncLocalStorageInterface<ResourceContext>> {
   if (!asyncLocalStorage) {
     try {
-      // Try dynamic import for Node.js/Workers environments
+      // Try dynamic import for Node.js/Workers environments.
+      // The module name is stored in a variable to prevent bundlers from
+      // statically analyzing this import (which would fail in browser environments).
       const moduleName = 'node:async_hooks'
       const asyncHooks = await (import(moduleName) as Promise<{
         AsyncLocalStorage: new <T>() => AsyncLocalStorageInterface<T>
       }>)
+
+      // Verify that AsyncLocalStorage is available and is a constructor
+      if (typeof asyncHooks?.AsyncLocalStorage !== 'function') {
+        throw new Error('AsyncLocalStorage not available in this environment')
+      }
+
       asyncLocalStorage = new asyncHooks.AsyncLocalStorage<ResourceContext>()
-    } catch {
-      // Fallback: Simple implementation using a stack for non-ALS environments
+    } catch (error: unknown) {
+      // Fallback: Simple implementation using a stack for non-ALS environments.
+      // This handles:
+      // - Browser environments where 'node:async_hooks' doesn't exist
+      // - Older Node.js versions without AsyncLocalStorage support
+      // - Bundled environments where the dynamic import fails
+      // - Cloudflare Workers before AsyncLocalStorage was supported
+      //
+      // Note: The stack-based fallback works correctly for synchronous code
+      // but does NOT preserve context across async boundaries the way
+      // real AsyncLocalStorage does. For proper async context tracking,
+      // use an environment that supports AsyncLocalStorage natively.
+      if (process.env.NODE_ENV === 'development' && error instanceof Error) {
+        console.debug(`[resource] AsyncLocalStorage not available, using stack fallback: ${error.message}`)
+      }
+
       const contextStack: ResourceContext[] = []
       asyncLocalStorage = {
         run<R>(store: ResourceContext, callback: () => R): R {

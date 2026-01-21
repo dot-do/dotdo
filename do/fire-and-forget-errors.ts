@@ -229,10 +229,30 @@ function isRetriableByType(error: Error): boolean {
 }
 
 /**
+ * Options for configuring the in-memory error store
+ */
+export interface InMemoryErrorStoreOptions {
+  /**
+   * Maximum number of errors to store in memory.
+   * When exceeded, oldest errors are evicted (FIFO).
+   * Default: 1000
+   */
+  maxSize?: number
+}
+
+/**
+ * Default maximum size for in-memory error store
+ */
+const DEFAULT_MAX_ERROR_STORE_SIZE = 1000
+
+/**
  * Create an in-memory fire-and-forget error store
  * Used when SQLite is not available or for testing
+ *
+ * @param options Configuration options including maxSize to prevent unbounded memory growth
  */
-export function createInMemoryErrorStore(): FireAndForgetErrorStore {
+export function createInMemoryErrorStore(options: InMemoryErrorStoreOptions = {}): FireAndForgetErrorStore {
+  const { maxSize = DEFAULT_MAX_ERROR_STORE_SIZE } = options
   const errors: FireAndForgetError[] = []
 
   return {
@@ -244,6 +264,11 @@ export function createInMemoryErrorStore(): FireAndForgetErrorStore {
         recovered: false
       }
       errors.push(error)
+
+      // Evict oldest errors if we exceed maxSize (FIFO eviction)
+      while (errors.length > maxSize) {
+        errors.shift()
+      }
     },
 
     query(options = {}) {
