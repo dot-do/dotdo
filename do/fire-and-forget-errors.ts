@@ -247,14 +247,65 @@ function isRetriableByType(error: Error): boolean {
 }
 
 /**
+ * Options for configuring in-memory error store bounds
+ * See do-hmyi for context on why these limits are necessary
+ */
+export interface InMemoryErrorStoreOptions {
+  /** Maximum number of errors to keep (default: 10000) */
+  maxErrors?: number
+  /** Maximum age in ms for errors before cleanup (default: 24 hours) */
+  maxErrorAge?: number
+}
+
+/** Default bounds for in-memory error store */
+const DEFAULT_ERROR_STORE_BOUNDS = {
+  maxErrors: 10000,
+  maxErrorAge: 24 * 60 * 60 * 1000, // 24 hours
+}
+
+/**
  * Create an in-memory fire-and-forget error store
  * Used when SQLite is not available or for testing
+ *
+ * @param options - Optional configuration for memory bounds
  */
-export function createInMemoryErrorStore(): FireAndForgetErrorStore {
+export function createInMemoryErrorStore(options: InMemoryErrorStoreOptions = {}): FireAndForgetErrorStore {
+  const { maxErrors, maxErrorAge } = { ...DEFAULT_ERROR_STORE_BOUNDS, ...options }
   const errors: FireAndForgetError[] = []
+
+  /**
+   * Enforce bounds on the error array to prevent memory leaks.
+   * Removes oldest errors when at capacity, using FIFO with 10% batch removal.
+   */
+  function enforceBounds(): void {
+    // First pass: remove expired entries (older than maxErrorAge)
+    const now = Date.now()
+    let expiredCount = 0
+    for (let i = errors.length - 1; i >= 0; i--) {
+      const error = errors[i]
+      if (error && now - error.timestamp > maxErrorAge) {
+        errors.splice(i, 1)
+        expiredCount++
+      }
+    }
+
+    if (expiredCount > 0) {
+      logger.debug(`Error store cleanup: removed ${expiredCount} expired entries`)
+    }
+
+    // Second pass: if still over limit, remove oldest 10%
+    if (errors.length >= maxErrors) {
+      const removeCount = Math.max(1, Math.floor(maxErrors * 0.1))
+      errors.splice(0, removeCount)
+      logger.warn(`Error store exceeded max entries (${maxErrors}), removed ${removeCount} oldest entries`)
+    }
+  }
 
   return {
     track(data) {
+      // Enforce bounds before adding
+      enforceBounds()
+
       const error: FireAndForgetError = {
         ...data,
         id: generateErrorId(),
@@ -677,6 +728,10 @@ export interface RetryQueueOptions {
   autoProcess?: boolean
   /** Interval in ms to check for pending retries (default: 1000) */
   processInterval?: number
+  /** Maximum number of items in queue (default: 10000) - see do-hmyi */
+  maxQueueSize?: number
+  /** Maximum age in ms for completed/abandoned items before cleanup (default: 1 hour) */
+  completedItemMaxAge?: number
 }
 
 /**
@@ -822,14 +877,66 @@ export function createInMemoryRetryQueue(
     maxBackoff = 60000,
     backoffMultiplier = 2,
     autoProcess = false,
-    processInterval = 1000
+    processInterval = 1000,
+    maxQueueSize = 10000,
+    completedItemMaxAge = 60 * 60 * 1000 // 1 hour
   } = options
 
   const items = new Map<string, RetryQueueItem>()
   let autoProcessTimer: ReturnType<typeof setInterval> | null = null
 
+  /**
+   * Enforce bounds on the retry queue to prevent memory leaks (do-hmyi).
+   * Removes completed/abandoned items older than completedItemMaxAge,
+   * then removes oldest pending items if still over maxQueueSize.
+   */
+  function enforceBounds(): void {
+    const now = Date.now()
+
+    // First pass: remove old completed/abandoned items
+    let cleanedCount = 0
+    for (const [id, item] of items) {
+      const isTerminal = item.status === 'succeeded' || item.status === 'abandoned' || item.status === 'failed'
+      if (isTerminal && now - item.addedAt > completedItemMaxAge) {
+        items.delete(id)
+        cleanedCount++
+      }
+    }
+
+    if (cleanedCount > 0) {
+      logger.debug(`Retry queue cleanup: removed ${cleanedCount} old completed/abandoned items`)
+    }
+
+    // Second pass: if still over limit, remove oldest pending items
+    if (items.size >= maxQueueSize) {
+      // Sort by addedAt (oldest first) and prioritize removing non-pending items
+      const sortedEntries = Array.from(items.entries())
+        .sort((a, b) => {
+          // Terminal items should be removed first
+          const aTerminal = a[1].status !== 'pending' && a[1].status !== 'processing'
+          const bTerminal = b[1].status !== 'pending' && b[1].status !== 'processing'
+          if (aTerminal && !bTerminal) return -1
+          if (!aTerminal && bTerminal) return 1
+          // Then by age
+          return a[1].addedAt - b[1].addedAt
+        })
+
+      const removeCount = Math.max(1, Math.floor(maxQueueSize * 0.1))
+      for (let i = 0; i < removeCount && i < sortedEntries.length; i++) {
+        const entry = sortedEntries[i]
+        if (entry) {
+          items.delete(entry[0])
+        }
+      }
+      logger.warn(`Retry queue exceeded max size (${maxQueueSize}), removed ${removeCount} entries`)
+    }
+  }
+
   const queue: RetryQueue = {
     add(data) {
+      // Enforce bounds before adding
+      enforceBounds()
+
       const id = generateRetryId()
       const now = Date.now()
 
