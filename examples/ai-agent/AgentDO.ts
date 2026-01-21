@@ -349,7 +349,6 @@ export class AgentDO extends DO {
     })
 
     // Get specific memory
-    // @ts-expect-error - Hono type instantiation too deep with many routes
     app.get('/memory/:key', async (c) => {
       const key = c.req.param('key')
       const memories = await this.things.list({ type: 'Memory' })

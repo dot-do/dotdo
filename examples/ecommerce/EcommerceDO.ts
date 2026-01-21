@@ -132,7 +132,6 @@ export class EcommerceDO extends DO {
     })
 
     // Get single product
-    // @ts-expect-error - Hono type instantiation too deep with many routes
     app.get('/products/:id', async (c) => {
       const product = await this.things.get(c.req.param('id'))
       if (!product || product.$type !== 'Product') {
