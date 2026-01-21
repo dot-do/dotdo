@@ -143,3 +143,25 @@ export {
   type MeterConfig,
   type MetricsExporter,
 } from './metrics'
+
+// Durable Object integration
+export {
+  createDOObservability,
+  createDOMetrics,
+  extractDOContextFromHeaders,
+  injectDOContextToHeaders,
+  createStorageTracker,
+  type DOObservabilityConfig,
+  type DOObservabilityContext,
+  type DOMetrics,
+} from './do-integration'
+
+// API integration
+export {
+  createAPIObservabilityMiddleware,
+  createAPIMetrics,
+  createRouteTracer,
+  metricsEndpoint,
+  type APIObservabilityConfig,
+  type APIMetrics,
+} from './api-integration'
