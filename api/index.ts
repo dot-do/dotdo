@@ -1,63 +1,8 @@
-/**
- * @dotdo/api - Self-Describing Hono API
- *
- * Provides a HATEOAS-compliant API layer with automatic OpenAPI generation,
- * resource definitions, and self-describing endpoints. Define your API once
- * and get SDK, CLI, API documentation, and MCP tools automatically generated.
- *
- * ## Key Features
- *
- * - **HATEOAS**: Hypermedia links for API discoverability
- * - **Resource DSL**: Fluent API for defining REST resources
- * - **OpenAPI**: Automatic OpenAPI 3.0 specification generation
- * - **Code Generation**: SDK, MCP tools, and CLI from definitions
- * - **Rate Limiting**: Built-in distributed rate limiting
- *
- * @module @dotdo/api
- *
- * @example
- * ```typescript
- * import { createAPI, defineResource, generateOpenAPI } from '@dotdo/api'
- *
- * // Define a resource
- * const CustomerResource = defineResource('Customer')
- *   .fields({
- *     name: { type: 'string', required: true },
- *     email: { type: 'string', format: 'email' }
- *   })
- *   .build()
- *
- * // Create API with HATEOAS support
- * const api = createAPI({ baseUrl: 'https://api.example.com' })
- *
- * // Generate OpenAPI spec
- * const spec = generateOpenAPI(getAllResources(), {
- *   title: 'My API',
- *   version: '1.0.0'
- * })
- * ```
- */
-export { createAPI } from './app'
+// @dotdo/api - Self-Describing Hono API
+// HATEOAS with clickable links, auto OpenAPI
+// Define once → SDK, CLI, API, MCP all auto-generated
 
-// Service layer - business logic separated from transport
-// Clean architecture: services handle the "what", route handlers handle the "how"
-export {
-  // Health service
-  HealthService,
-  getHealthService,
-  resetHealthService,
-  type HealthResponse,
-  type ReadinessResponse,
-  type HealthDependency,
-  type HealthServiceConfig,
-  // Discovery service
-  DiscoveryService,
-  getDiscoveryService,
-  resetDiscoveryService,
-  type APIRootResponse,
-  type ErrorWithLinks,
-  type DiscoveryServiceConfig
-} from './services'
+export { createAPI } from './app'
 
 // Resource definition
 export {
@@ -65,13 +10,6 @@ export {
   getResource,
   getAllResources,
   clearRegistry,
-  clearGlobalRegistry,
-  // Request-scoped context for tenant isolation
-  createResourceContext,
-  runWithResourceContext,
-  getCurrentResourceContext,
-  getOrCreateResourceContext,
-  type ResourceContext,
   type ResourceDefinition,
   type ResourceFields,
   type FieldDef,
@@ -88,27 +26,9 @@ export {
   generateCollectionLinks,
   withLinks,
   withCollectionLinks,
-  // HAL-compliant responses with embedded resources
-  createCollectionResponse,
-  withEmbedded,
-  generateRelatedLinks,
-  // API root and discoverability
-  generateAPIRootLinks,
-  generateAPIRoot,
-  // Error responses with links
-  generateErrorLinks,
-  createErrorResponse,
-  // Types
   type Link,
-  type LinkRelation,
   type HATEOASResponse,
-  type HALResponse,
-  type CollectionResponse,
-  type PaginationMeta,
   type ResourceConfig,
-  type CollectionLinksOptions,
-  type APIRootConfig,
-  type ErrorResponse,
 } from './hateoas'
 export {
   generateOpenAPI,
@@ -118,8 +38,6 @@ export {
   addOpenAPIEndpoints,
   type OpenAPISpec,
   type InfoObject,
-  type ContactObject,
-  type LicenseObject,
   type ServerObject,
   type PathsObject,
   type PathItemObject,
@@ -130,8 +48,6 @@ export {
   type ResponseObject,
   type ComponentsObject,
   type SchemaObject,
-  type MediaTypeObject,
-  type ReferenceObject,
   type SecuritySchemeObject,
   type SecurityRequirementObject,
   type TagObject,
@@ -148,10 +64,8 @@ export {
   type MCPServerConfig
 } from './codegen/mcp'
 
-// Middleware layer - cross-cutting concerns
-// See api/middleware/index.ts for architecture documentation
+// Rate limiting middleware
 export {
-  // Rate limiting
   RateLimiter,
   rateLimitMiddleware,
   createRateLimiter,
@@ -159,9 +73,4 @@ export {
   type RateLimitConfig,
   type RateLimitTier,
   type RateLimitResult,
-  type RateLimitSqlStorage,
-  // Rate limiter DO for distributed state
-  RateLimiterDO,
-  type RateLimitCheckParams,
-  type RateLimitCheckResult,
-} from './middleware'
+} from './middleware/rate-limit'

@@ -439,8 +439,7 @@ export function setupEntityAssertions(): void {
 
 // Type declarations for custom matchers
 declare module 'vitest' {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  interface Assertion<T> {
+  interface Assertion<T = unknown> {
     toBeValidThing(): void
     toBeValidRelationship(): void
     toBeValidEvent(): void

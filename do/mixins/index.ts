@@ -53,23 +53,13 @@ export {
   WithWebSocket,
   type HasWebSocket,
   type WithWebSocketOptions,
-  // Hibernating WebSocket Mixin (includes reconnection protocol)
-  WithHibernatingWebSocket,
-  type HasHibernatingWebSocket,
-  type WithHibernatingWebSocketOptions,
   // Re-exports from websocket.ts
   WebSocketManager,
   type WebSocketMessage,
   type WebSocketHandler,
   type BroadcastResult,
   type ConnectionMetadata,
-  type ConnectionHandler,
-  // Hibernation types
-  HibernationManager,
-  type HibernationConfig,
-  type HibernationAttachment,
-  type ReconnectionConfig,
-  type SessionState,
+  type ConnectionHandler
 } from './websocket'
 
 // =============================================================================
@@ -133,13 +123,6 @@ export {
 // =============================================================================
 
 /**
- * Mixin function type for composing class capabilities.
- * This generic represents a function that takes a base class and returns an extended class.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MixinFunction<TBase = unknown, TResult = unknown> = (base: TBase) => TResult
-
-/**
  * Type helper for inferring the composed class type from multiple mixins.
  *
  * @example
@@ -152,19 +135,14 @@ type MixinFunction<TBase = unknown, TResult = unknown> = (base: TBase) => TResul
  * ```
  */
 export type ComposedType<
-  T1 extends MixinFunction,
-  T2 extends MixinFunction = MixinFunction,
-  T3 extends MixinFunction = MixinFunction,
-  T4 extends MixinFunction = MixinFunction
+  T1 extends (base: any) => any,
+  T2 extends (base: any) => any = (base: any) => any,
+  T3 extends (base: any) => any = (base: any) => any,
+  T4 extends (base: any) => any = (base: any) => any
 > = ReturnType<T1> & ReturnType<T2> & ReturnType<T3> & ReturnType<T4>
 
 /**
  * Utility type to get the instance type of a composed mixin.
- *
- * This type safely extracts the instance type from any constructor,
- * with proper constraints to ensure T is a valid constructor type.
- *
- * @template T - A constructor type (constrained to ensure type safety)
  *
  * @example
  * ```typescript
@@ -172,6 +150,4 @@ export type ComposedType<
  * type MyDOInstance = InstanceOf<typeof MyDO>
  * ```
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type InstanceOf<T extends new (...args: any[]) => any> =
-  T extends new (...args: any[]) => infer R ? R : never
+export type InstanceOf<T> = T extends new (...args: any[]) => infer R ? R : never

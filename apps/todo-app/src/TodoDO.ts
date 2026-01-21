@@ -28,7 +28,6 @@ interface TodoRow {
   completed: number // SQLite uses 0/1 for booleans
   created_at: number
   updated_at: number
-  [key: string]: string | number | null | ArrayBuffer  // Index signature for SqlStorageValue compatibility
 }
 
 // ============================================================================
@@ -155,7 +154,7 @@ export class TodoDO implements DurableObject {
         return c.json({ error: 'Todo not found' }, 404)
       }
 
-      return c.json(this.rowToTodo(rows[0]!))
+      return c.json(this.rowToTodo(rows[0]))
     })
 
     // Update todo
@@ -176,7 +175,7 @@ export class TodoDO implements DurableObject {
         return c.json({ error: 'Todo not found' }, 404)
       }
 
-      const current = this.rowToTodo(rows[0]!)
+      const current = this.rowToTodo(rows[0])
       const now = Date.now()
 
       // Build update
@@ -247,7 +246,7 @@ export class TodoDO implements DurableObject {
         return c.json({ error: 'Todo not found' }, 404)
       }
 
-      const current = this.rowToTodo(rows[0]!)
+      const current = this.rowToTodo(rows[0])
       const now = Date.now()
       const newCompleted = !current.completed
 

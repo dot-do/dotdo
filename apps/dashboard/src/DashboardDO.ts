@@ -50,9 +50,7 @@ export interface MetricsBucket {
   totalResponseTime: number
 }
 
-// SQL row types - all include index signature for SqlStorageValue compatibility
-type SqlStorageValue = string | number | null | ArrayBuffer
-
+// SQL row types
 interface DORegistrationRow {
   id: string
   name: string
@@ -62,7 +60,6 @@ interface DORegistrationRow {
   last_seen: number
   status: string
   metadata: string | null
-  [key: string]: SqlStorageValue
 }
 
 interface DOEventRow {
@@ -75,7 +72,6 @@ interface DOEventRow {
   timestamp: number
   duration: number | null
   error: string | null
-  [key: string]: SqlStorageValue
 }
 
 interface MetricsRow {
@@ -84,7 +80,6 @@ interface MetricsRow {
   error_count: number
   avg_response_time: number
   last_updated: number
-  [key: string]: SqlStorageValue
 }
 
 interface MetricsBucketRow {
@@ -93,18 +88,15 @@ interface MetricsBucketRow {
   requests: number
   errors: number
   total_response_time: number
-  [key: string]: SqlStorageValue
 }
 
 interface CountRow {
   count: number
-  [key: string]: SqlStorageValue
 }
 
 interface SumRow {
   total_requests: number
   total_errors: number
-  [key: string]: SqlStorageValue
 }
 
 export class DashboardDO implements DurableObject {
@@ -336,20 +328,17 @@ export class DashboardDO implements DurableObject {
       )
       const eventRows = [...eventsCursor]
 
-      const recentEvents: DOEvent[] = eventRows.map((e) => {
-        const event: DOEvent = {
-          id: e.id,
-          doId: e.do_id,
-          doName: e.do_name,
-          type: e.type,
-          payload: e.payload ? JSON.parse(e.payload) : undefined,
-          status: e.status as DOEvent['status'],
-          timestamp: e.timestamp,
-        }
-        if (e.duration != null) event.duration = e.duration
-        if (e.error != null) event.error = e.error
-        return event
-      })
+      const recentEvents: DOEvent[] = eventRows.map((e) => ({
+        id: e.id,
+        doId: e.do_id,
+        doName: e.do_name,
+        type: e.type,
+        payload: e.payload ? JSON.parse(e.payload) : undefined,
+        status: e.status as DOEvent['status'],
+        timestamp: e.timestamp,
+        duration: e.duration ?? undefined,
+        error: e.error ?? undefined,
+      }))
 
       return c.json({ registration, metrics, recentEvents })
     })
@@ -447,20 +436,17 @@ export class DashboardDO implements DurableObject {
       const cursor = this.sql.exec<DOEventRow>(query, ...params)
       const rows = [...cursor]
 
-      const events: DOEvent[] = rows.map((row) => {
-        const event: DOEvent = {
-          id: row.id,
-          doId: row.do_id,
-          doName: row.do_name,
-          type: row.type,
-          payload: row.payload ? JSON.parse(row.payload) : undefined,
-          status: row.status as DOEvent['status'],
-          timestamp: row.timestamp,
-        }
-        if (row.duration != null) event.duration = row.duration
-        if (row.error != null) event.error = row.error
-        return event
-      })
+      const events: DOEvent[] = rows.map((row) => ({
+        id: row.id,
+        doId: row.do_id,
+        doName: row.do_name,
+        type: row.type,
+        payload: row.payload ? JSON.parse(row.payload) : undefined,
+        status: row.status as DOEvent['status'],
+        timestamp: row.timestamp,
+        duration: row.duration ?? undefined,
+        error: row.error ?? undefined,
+      }))
 
       // Get total count with filters
       let countQuery = 'SELECT COUNT(*) as count FROM do_events WHERE 1=1'

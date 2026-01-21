@@ -15,7 +15,7 @@ describe('Hono App Setup', () => {
     })
   })
 
-  describe('Health Check Endpoint (Liveness)', () => {
+  describe('Health Check Endpoint', () => {
     it('should respond to /health with 200 OK', async () => {
       const app = createAPI()
       const res = await app.request('http://localhost/health')
@@ -34,52 +34,6 @@ describe('Hono App Setup', () => {
 
       const body = await res.json()
       expect(body.service).toBe('dotdo-api')
-    })
-  })
-
-  describe('Readiness Check Endpoint', () => {
-    it('should respond to /ready with 200 OK when ready', async () => {
-      const app = createAPI()
-      const res = await app.request('http://localhost/ready')
-
-      expect(res.status).toBe(200)
-      const body = await res.json()
-      expect(body).toMatchObject({
-        status: 'ready',
-        service: 'dotdo-api',
-        timestamp: expect.any(String),
-        checks: expect.any(Object)
-      })
-    })
-
-    it('should include api check in readiness response', async () => {
-      const app = createAPI()
-      const res = await app.request('http://localhost/ready')
-
-      const body = await res.json()
-      expect(body.checks).toBeDefined()
-      expect(body.checks.api).toBe(true)
-    })
-
-    it('should skip auth for ready endpoint', async () => {
-      const app = createAPI({
-        auth: {
-          enabled: true,
-          secret: 'test-secret-for-auth-middleware-testing-12345'
-        }
-      })
-      const res = await app.request('http://localhost/ready')
-
-      expect(res.status).toBe(200)
-    })
-
-    it('should work with basePath', async () => {
-      const app = createAPI({ basePath: '/api/v1' })
-      const res = await app.request('http://localhost/api/v1/ready')
-
-      expect(res.status).toBe(200)
-      const body = await res.json()
-      expect(body.status).toBe('ready')
     })
   })
 
@@ -111,31 +65,15 @@ describe('Hono App Setup', () => {
         href: expect.stringContaining('/health'),
         rel: 'health'
       })
-      expect(body._links.ready).toMatchObject({
-        href: expect.stringContaining('/ready'),
-        rel: 'ready'
-      })
     })
   })
 
   describe('CORS Middleware', () => {
-    it('should not add CORS headers when no origins configured (secure default)', async () => {
+    it('should add CORS headers to responses', async () => {
       const app = createAPI()
       const res = await app.request('http://localhost/health')
 
-      // Secure default: no CORS headers when no origins are explicitly allowed
-      expect(res.headers.get('access-control-allow-origin')).toBeNull()
-    })
-
-    it('should add CORS headers when origins are configured', async () => {
-      const app = createAPI({
-        cors: { allowedOrigins: ['https://app.dotdo.dev'] }
-      })
-      const res = await app.request('http://localhost/health', {
-        headers: { 'Origin': 'https://app.dotdo.dev' }
-      })
-
-      expect(res.headers.get('access-control-allow-origin')).toBe('https://app.dotdo.dev')
+      expect(res.headers.get('access-control-allow-origin')).toBe('*')
     })
 
     it('should handle OPTIONS preflight requests', async () => {
@@ -245,8 +183,7 @@ describe('Hono App Setup', () => {
       const app = createAPI({
         auth: {
           enabled: true,
-          skipPaths: ['/public'],
-          secret: 'test-secret-for-auth-middleware-testing-12345'
+          skipPaths: ['/public']
         }
       })
 

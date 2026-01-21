@@ -1,34 +1,8 @@
-/**
- * Fetch Tool - MCP tool that fetches a single Thing by $id with enrichments
- *
- * @module @dotdo/mcp/tools/fetch
- *
- * This tool is decoupled from @dotdo/db (do-7jse) and uses local type definitions.
- * Any store implementation that matches the interfaces in ../types.ts can be used.
- *
- * @example
- * ```typescript
- * import { createFetchTool } from '@dotdo/mcp'
- *
- * // With @dotdo/db stores (they implement the interfaces)
- * import { createThingsStore, createRelationshipsStore, createEventsStore } from '@dotdo/db'
- *
- * const fetchTool = createFetchTool({
- *   things: createThingsStore(),
- *   relationships: createRelationshipsStore(),
- *   events: createEventsStore()
- * })
- * ```
- */
-
-// Local type imports - decoupled from @dotdo/db
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- Used in JSDoc
-import type * as Types from '../types'
-type ThingsStore = Types.ThingsStore
-type RelationshipsStore = Types.RelationshipsStore
-type EventsStore = Types.EventsStore
-
+// fetch tool - MCP tool that fetches a single Thing by $id with enrichments
 import type { MCPTool } from '../server'
+import type { ThingsStore } from '../../db/things'
+import type { RelationshipsStore } from '../../db/relationships'
+import type { EventsStore } from '../../db/events'
 
 export interface FetchParams {
   $id: string
@@ -67,10 +41,6 @@ export function isFetchParams(value: unknown): value is FetchParams {
   return true
 }
 
-/**
- * Dependencies for fetch tool
- * Uses minimal interfaces from ../types.ts instead of @dotdo/db
- */
 export interface FetchToolDeps {
   things: ThingsStore
   relationships: RelationshipsStore
