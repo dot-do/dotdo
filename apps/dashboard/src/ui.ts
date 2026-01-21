@@ -2,6 +2,23 @@
  * Dashboard UI
  *
  * Simple HTML/CSS admin interface for monitoring Durable Objects
+ *
+ * ## Security: XSS Protection
+ *
+ * This file contains client-side JavaScript that renders API data into HTML.
+ * All user-controlled data MUST be escaped before insertion via innerHTML.
+ *
+ * Two escape functions are provided:
+ * - `escapeHtml(str)` - For text content, escapes < > & " '
+ * - `escapeAttr(str)` - For HTML attribute values (more strict)
+ *
+ * Rules:
+ * 1. Always use `escapeHtml()` for data displayed as text content
+ * 2. Always use `escapeAttr()` for data used in HTML attributes (onclick, class, id, etc.)
+ * 3. Never use innerHTML with unsanitized user data
+ * 4. Prefer textContent over innerHTML when no HTML formatting is needed
+ *
+ * @see apps/dashboard/tests/xss-security.test.ts for security tests
  */
 
 export function renderDashboardHTML(): string {
