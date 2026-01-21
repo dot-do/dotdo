@@ -597,7 +597,7 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
 
         // Extract error type from lastError (e.g., "NetworkError: ..." -> "NetworkError")
         const errorMatch = entry.lastError.match(/^(\w+Error|Error):?/)
-        const errorType = errorMatch ? errorMatch[1] : 'UnknownError'
+        const errorType = errorMatch?.[1] ?? 'UnknownError'
         byErrorType[errorType] = (byErrorType[errorType] || 0) + 1
 
         // Track unique events
@@ -615,15 +615,20 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
         }
       }
 
-      return {
+      const stats: DLQStats = {
         total: deadLetterQueue.length,
         byEventType,
         byErrorType,
-        oldestEntry,
-        newestEntry,
         averageAttempts: deadLetterQueue.length > 0 ? totalAttempts / deadLetterQueue.length : 0,
         uniqueEvents: uniqueEventIds.size
       }
+      if (oldestEntry !== undefined) {
+        stats.oldestEntry = oldestEntry
+      }
+      if (newestEntry !== undefined) {
+        stats.newestEntry = newestEntry
+      }
+      return stats
     },
 
     // Validation failure tracking
