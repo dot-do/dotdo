@@ -164,18 +164,11 @@ export type QueryFactory = (store: ThingsStore) => QueryBuilder
 // WorkflowContext Types
 // ============================================================================
 
-/**
- * Options for $.do() durable action execution
- * Mirrors DoOptions from @dotdo/do
- */
-export interface DoOptions {
-  /** Number of retry attempts (default: 3) */
-  retries?: number
-  /** Backoff strategy: 'linear' or 'exponential' (default: 'exponential') */
-  backoff?: 'linear' | 'exponential'
-  /** Timeout in milliseconds (default: 30000) */
-  timeout?: number
-}
+// Import DoOptions from @dotdo/do to avoid duplication (do-z304)
+import type { DoOptions } from '@dotdo/do'
+
+// Re-export for consumers
+export type { DoOptions }
 
 /**
  * Minimal WorkflowContext interface for MCP sandbox operations.
