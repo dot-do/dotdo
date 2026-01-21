@@ -81,6 +81,24 @@ export interface RateLimitConfig {
   windowStrategy?: 'sliding' | 'fixed'
   /** Skip rate limiting for specific paths */
   skipPaths?: string[]
+  /** Maximum number of entries before LRU eviction (default: 10000) */
+  maxEntries?: number
+  /** Cleanup interval in milliseconds (default: 300000 = 5 minutes) */
+  cleanupIntervalMs?: number
+}
+
+/**
+ * Rate limiter metrics
+ */
+export interface RateLimiterMetrics {
+  /** Number of sliding window entries */
+  slidingWindowCount: number
+  /** Number of fixed window entries */
+  fixedWindowCount: number
+  /** Total entries across both maps */
+  totalEntries: number
+  /** Timestamp of last cleanup (null if never cleaned) */
+  lastCleanup: number | null
 }
 
 /**
@@ -124,6 +142,22 @@ interface FixedWindowState {
   windowStart: number
 }
 
+/**
+ * Internal config with all required fields
+ */
+interface InternalRateLimitConfig {
+  keyStrategy: 'tenant' | 'user' | 'tenant+user' | 'ip'
+  defaultTier: string
+  tiers: Record<string, RateLimitTier>
+  tenantOverrides: Record<string, Partial<RateLimitTier>>
+  userOverrides: Record<string, Partial<RateLimitTier>>
+  failOpen: boolean
+  windowStrategy: 'sliding' | 'fixed'
+  skipPaths: string[]
+  maxEntries: number
+  cleanupIntervalMs: number
+}
+
 // ============================================================================
 // RATE LIMITER CLASS
 // ============================================================================
@@ -132,12 +166,19 @@ interface FixedWindowState {
  * Rate Limiter using sliding window algorithm
  *
  * Tracks request timestamps per key and enforces limits based on tier configuration.
+ * Includes memory management via periodic cleanup and LRU eviction.
+ *
+ * @issue do-ti43.9 - [TDD] Rate limiter memory cleanup
  */
 export class RateLimiter {
-  private readonly config: Required<RateLimitConfig>
+  private readonly config: InternalRateLimitConfig
   private readonly slidingWindows: Map<string, SlidingWindowState> = new Map()
   private readonly fixedWindows: Map<string, FixedWindowState> = new Map()
+  /** LRU order tracking - most recently used keys at the end */
+  private readonly lruOrder: string[] = []
   private simulateStorageFailure = false
+  private lastCleanup: number | null = null
+  private cleanupIntervalId: ReturnType<typeof setInterval> | null = null
 
   constructor(config: RateLimitConfig) {
     this.config = {
@@ -149,6 +190,8 @@ export class RateLimiter {
       failOpen: config.failOpen ?? true,
       windowStrategy: config.windowStrategy ?? 'sliding',
       skipPaths: config.skipPaths ?? [],
+      maxEntries: config.maxEntries ?? 10000,
+      cleanupIntervalMs: config.cleanupIntervalMs ?? 300000, // 5 minutes
     }
 
     // Validate tiers
@@ -175,10 +218,43 @@ export class RateLimiter {
     const tierConfig = this.getEffectiveTierConfig(tier, context)
     const now = Date.now()
 
+    // Update LRU order for the key
+    this.touchLRU(key)
+
+    // Enforce maxEntries limit via LRU eviction
+    this.enforceLRULimit()
+
     if (this.config.windowStrategy === 'sliding') {
       return this.checkSlidingWindow(key, tierConfig, now, tier)
     } else {
       return this.checkFixedWindow(key, tierConfig, now, tier)
+    }
+  }
+
+  /**
+   * Update LRU order - move key to end (most recently used)
+   */
+  private touchLRU(key: string): void {
+    const index = this.lruOrder.indexOf(key)
+    if (index !== -1) {
+      // Remove from current position
+      this.lruOrder.splice(index, 1)
+    }
+    // Add to end (most recently used)
+    this.lruOrder.push(key)
+  }
+
+  /**
+   * Enforce LRU eviction when maxEntries exceeded
+   */
+  private enforceLRULimit(): void {
+    while (this.lruOrder.length > this.config.maxEntries) {
+      // Remove least recently used (first in array)
+      const lruKey = this.lruOrder.shift()
+      if (lruKey) {
+        this.slidingWindows.delete(lruKey)
+        this.fixedWindows.delete(lruKey)
+      }
     }
   }
 
@@ -510,6 +586,92 @@ export class RateLimiter {
    */
   _simulateStorageFailure(fail: boolean): void {
     this.simulateStorageFailure = fail
+  }
+
+  /**
+   * Clean up expired entries from both window maps
+   * Removes entries where all requests have expired beyond the window duration
+   */
+  async cleanup(): Promise<void> {
+    const now = Date.now()
+    const defaultTier = this.config.tiers[this.config.defaultTier] ?? DEFAULT_TIERS['free']!
+    const windowMs = defaultTier.windowMs
+
+    // Clean sliding windows - remove entries with all requests expired
+    for (const [key, state] of this.slidingWindows) {
+      // Filter out expired requests
+      const cutoff = now - windowMs
+      state.requests = state.requests.filter((ts) => ts > cutoff)
+
+      // If no requests remain, delete the entry
+      if (state.requests.length === 0) {
+        this.slidingWindows.delete(key)
+        this.removeLRU(key)
+      }
+    }
+
+    // Clean fixed windows - remove entries past their window
+    for (const [key, state] of this.fixedWindows) {
+      if (now >= state.windowStart + windowMs) {
+        this.fixedWindows.delete(key)
+        this.removeLRU(key)
+      }
+    }
+
+    this.lastCleanup = now
+  }
+
+  /**
+   * Remove key from LRU tracking
+   */
+  private removeLRU(key: string): void {
+    const index = this.lruOrder.indexOf(key)
+    if (index !== -1) {
+      this.lruOrder.splice(index, 1)
+    }
+  }
+
+  /**
+   * Get metrics about the rate limiter's memory usage
+   */
+  async getMetrics(): Promise<RateLimiterMetrics> {
+    return {
+      slidingWindowCount: this.slidingWindows.size,
+      fixedWindowCount: this.fixedWindows.size,
+      totalEntries: this.slidingWindows.size + this.fixedWindows.size,
+      lastCleanup: this.lastCleanup,
+    }
+  }
+
+  /**
+   * Get the current configuration
+   */
+  getConfig(): InternalRateLimitConfig {
+    return { ...this.config }
+  }
+
+  /**
+   * Start automatic periodic cleanup
+   */
+  startAutoCleanup(): void {
+    // Don't start multiple intervals
+    if (this.cleanupIntervalId !== null) {
+      return
+    }
+
+    this.cleanupIntervalId = setInterval(async () => {
+      await this.cleanup()
+    }, this.config.cleanupIntervalMs)
+  }
+
+  /**
+   * Stop automatic periodic cleanup
+   */
+  stopAutoCleanup(): void {
+    if (this.cleanupIntervalId !== null) {
+      clearInterval(this.cleanupIntervalId)
+      this.cleanupIntervalId = null
+    }
   }
 }
 
