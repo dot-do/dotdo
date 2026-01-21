@@ -39,10 +39,9 @@ import {
   type ConnectionHandler
 } from '../websocket'
 import type { Constructor } from './storage'
-import { createScopedLogger, LogLevel } from '@dotdo/utils'
-import { DEFAULT_HEARTBEAT_INTERVAL_MS, DEFAULT_CONNECTION_TIMEOUT_MS } from '@dotdo/utils'
+import { createLogger } from '../../utils/logger'
 
-const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[WithWebSocket]' })
+const logger = createLogger('[WithWebSocket]')
 
 // =============================================================================
 // Types
@@ -62,9 +61,9 @@ export interface HasWebSocket {
 export interface WithWebSocketOptions {
   /** Enable heartbeat monitoring */
   enableHeartbeat?: boolean
-  /** Heartbeat interval in milliseconds (default: DEFAULT_HEARTBEAT_INTERVAL_MS = 30000) */
+  /** Heartbeat interval in milliseconds (default: 30000) */
   heartbeatInterval?: number
-  /** Connection timeout in milliseconds (default: DEFAULT_CONNECTION_TIMEOUT_MS = 60000) */
+  /** Connection timeout in milliseconds (default: 60000) */
   connectionTimeout?: number
 }
 
@@ -132,24 +131,17 @@ interface MinimalDOState {
 export function WithWebSocket<TBase extends Constructor>(
   Base: TBase,
   options: WithWebSocketOptions = {}
-): Constructor<HasWebSocket> & TBase {
+) {
   const {
     enableHeartbeat = false,
-    heartbeatInterval = DEFAULT_HEARTBEAT_INTERVAL_MS,
-    connectionTimeout = DEFAULT_CONNECTION_TIMEOUT_MS
+    heartbeatInterval = 30000,
+    connectionTimeout = 60000
   } = options
 
   return class WebSocketMixin extends Base implements HasWebSocket {
     private _websocketManager: WebSocketManager
     private _heartbeatIntervalId: number | null = null
 
-    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545).
-    // This is a TypeScript language limitation, not a design flaw. Type safety is preserved via:
-    // - Interface constraints (HasWebSocket) on the return type
-    // - Generic constraints (TBase extends Constructor) on the input
-    // - Instance type inference via MixinInstance<T>
-    // See @dotdo/utils/mixin-types.ts for full documentation (do-1sbr9).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
       this._websocketManager = new WebSocketManager()
@@ -262,7 +254,7 @@ export function WithWebSocket<TBase extends Constructor>(
         this._heartbeatIntervalId = null
       }
     }
-  } as Constructor<HasWebSocket> & TBase
+  }
 }
 
 // =============================================================================

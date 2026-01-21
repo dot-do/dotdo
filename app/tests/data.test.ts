@@ -1,18 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { MockAgent, setGlobalDispatcher, getGlobalDispatcher } from 'undici'
 import { createDataClient, DataMode } from '../data'
 import type { DataClient, DataClientOptions } from '../data'
 
-// Store original dispatcher
-const originalDispatcher = getGlobalDispatcher()
+// Mock fetch globally
+const mockFetch = vi.fn()
+global.fetch = mockFetch
 
 // Mock WebSocket
 class MockWebSocket {
   public readyState = 1 // OPEN
-  public onopen: ((event: Event) => void) | null = null
-  public onclose: ((event: CloseEvent) => void) | null = null
-  public onmessage: ((event: MessageEvent) => void) | null = null
-  public onerror: ((event: Event) => void) | null = null
+  public onopen: ((event: any) => void) | null = null
+  public onclose: ((event: any) => void) | null = null
+  public onmessage: ((event: any) => void) | null = null
+  public onerror: ((event: any) => void) | null = null
   public sentMessages: string[] = []
   static instances: MockWebSocket[] = []
 
@@ -41,7 +41,7 @@ class MockWebSocket {
   }
 
   // Simulate receiving a message from server
-  simulateMessage(data: unknown) {
+  simulateMessage(data: any) {
     if (this.onmessage) {
       this.onmessage({ type: 'message', data: JSON.stringify(data) })
     }
@@ -68,76 +68,100 @@ const OriginalWebSocket = global.WebSocket
 
 describe('Data Layer - REST Mode', () => {
   let client: DataClient
-  let mockAgent: MockAgent
-  let mockPool: ReturnType<MockAgent['get']>
 
   beforeEach(() => {
-    mockAgent = new MockAgent()
-    mockAgent.disableNetConnect()
-    setGlobalDispatcher(mockAgent)
-    mockPool = mockAgent.get('https://api.test.dotdo.dev')
-
+    mockFetch.mockReset()
     client = createDataClient({
       mode: 'rest',
       baseUrl: 'https://api.test.dotdo.dev',
     })
   })
 
-  afterEach(async () => {
-    setGlobalDispatcher(originalDispatcher)
-    await mockAgent.close()
-  })
-
   it('should fetch data via HTTP GET', async () => {
     const mockData = { $id: '1', $type: 'Customer', name: 'Alice' }
-
-    mockPool.intercept({
-      path: '/customers/1',
-      method: 'GET',
-    }).reply(200, mockData)
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => mockData,
+    })
 
     const result = await client.get('customers', '1')
 
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://api.test.dotdo.dev/customers/1',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+        }),
+      })
+    )
     expect(result).toEqual(mockData)
   })
 
   it('should create data via HTTP POST', async () => {
     const newCustomer = { name: 'Bob' }
     const createdCustomer = { $id: '2', $type: 'Customer', ...newCustomer }
-
-    mockPool.intercept({
-      path: '/customers',
-      method: 'POST',
-    }).reply(201, createdCustomer)
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => createdCustomer,
+    })
 
     const result = await client.create('customers', newCustomer)
 
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://api.test.dotdo.dev/customers',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+        }),
+        body: JSON.stringify(newCustomer),
+      })
+    )
     expect(result).toEqual(createdCustomer)
   })
 
   it('should update data via HTTP PUT', async () => {
     const updates = { name: 'Alice Updated' }
     const updatedCustomer = { $id: '1', $type: 'Customer', ...updates }
-
-    mockPool.intercept({
-      path: '/customers/1',
-      method: 'PUT',
-    }).reply(200, updatedCustomer)
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => updatedCustomer,
+    })
 
     const result = await client.update('customers', '1', updates)
 
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://api.test.dotdo.dev/customers/1',
+      expect.objectContaining({
+        method: 'PUT',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+        }),
+        body: JSON.stringify(updates),
+      })
+    )
     expect(result).toEqual(updatedCustomer)
   })
 
   it('should delete data via HTTP DELETE', async () => {
-    mockPool.intercept({
-      path: '/customers/1',
-      method: 'DELETE',
-    }).reply(204, {})
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 204,
+      json: async () => ({}),
+    })
 
     await client.delete('customers', '1')
-    // If we get here without error, the delete succeeded
-    expect(true).toBe(true)
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://api.test.dotdo.dev/customers/1',
+      expect.objectContaining({
+        method: 'DELETE',
+      })
+    )
   })
 
   it('should list data via HTTP GET', async () => {
@@ -145,22 +169,30 @@ describe('Data Layer - REST Mode', () => {
       { $id: '1', $type: 'Customer', name: 'Alice' },
       { $id: '2', $type: 'Customer', name: 'Bob' },
     ]
-
-    mockPool.intercept({
-      path: '/customers',
-      method: 'GET',
-    }).reply(200, mockList)
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => mockList,
+    })
 
     const result = await client.list('customers')
 
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://api.test.dotdo.dev/customers',
+      expect.objectContaining({
+        method: 'GET',
+      })
+    )
     expect(result).toEqual(mockList)
   })
 
   it('should throw on HTTP error', async () => {
-    mockPool.intercept({
-      path: '/customers/999',
-      method: 'GET',
-    }).reply(404, { error: 'Customer not found' })
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      json: async () => ({ error: 'Customer not found' }),
+    })
 
     await expect(client.get('customers', '999')).rejects.toThrow()
   })
@@ -169,17 +201,11 @@ describe('Data Layer - REST Mode', () => {
 describe('Data Layer - TanStack DB Mode', () => {
   let client: DataClient
   let mockWs: MockWebSocket | undefined
-  let mockAgent: MockAgent
-  let mockPool: ReturnType<MockAgent['get']>
 
   beforeEach(() => {
-    mockAgent = new MockAgent()
-    mockAgent.disableNetConnect()
-    setGlobalDispatcher(mockAgent)
-    mockPool = mockAgent.get('https://api.test.dotdo.dev')
-
     // Reset mock WebSocket instances
     MockWebSocket.reset()
+    mockFetch.mockReset()
 
     // Replace global WebSocket with mock
     global.WebSocket = MockWebSocket as any
@@ -193,15 +219,13 @@ describe('Data Layer - TanStack DB Mode', () => {
     mockWs = MockWebSocket.getLatest()
   })
 
-  afterEach(async () => {
+  afterEach(() => {
     // Restore original WebSocket
     global.WebSocket = OriginalWebSocket
     if (client) {
       client.disconnect()
     }
     MockWebSocket.reset()
-    setGlobalDispatcher(originalDispatcher)
-    await mockAgent.close()
   })
 
   it('should connect via WebSocket', async () => {
@@ -223,10 +247,11 @@ describe('Data Layer - TanStack DB Mode', () => {
     const expectedResult = { $id: '3', $type: 'Customer', ...newCustomer }
 
     // Setup fallback fetch just in case
-    mockPool.intercept({
-      path: '/customers',
-      method: 'POST',
-    }).reply(201, expectedResult)
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => expectedResult,
+    })
 
     // Create a promise that will send the message and wait for response
     const createPromise = (async () => {
@@ -267,10 +292,11 @@ describe('Data Layer - TanStack DB Mode', () => {
     const expectedResult = { $id: '3', $type: 'Customer', ...updates }
 
     // Setup fallback fetch just in case
-    mockPool.intercept({
-      path: '/customers/3',
-      method: 'PUT',
-    }).reply(200, expectedResult)
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => expectedResult,
+    })
 
     // Create a promise that will send the message and wait for response
     const updatePromise = (async () => {
@@ -305,7 +331,7 @@ describe('Data Layer - TanStack DB Mode', () => {
   it('should support real-time updates via WebSocket broadcast', async () => {
     await new Promise((resolve) => setTimeout(resolve, 10))
 
-    const updates: unknown[] = []
+    const updates: any[] = []
     client.onUpdate((update) => {
       updates.push(update)
     })
@@ -338,32 +364,27 @@ describe('Data Layer - TanStack DB Mode', () => {
 
     // Should fall back to REST mode
     const mockData = { $id: '1', $type: 'Customer', name: 'Alice' }
-    mockPool.intercept({
-      path: '/customers/1',
-      method: 'GET',
-    }).reply(200, mockData)
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => mockData,
+    })
 
     const result = await client.get('customers', '1')
 
+    expect(mockFetch).toHaveBeenCalled()
     expect(result).toEqual(mockData)
   })
 })
 
 describe('Data Layer - Mode Switching', () => {
-  let mockAgent: MockAgent
-
   beforeEach(() => {
     MockWebSocket.reset()
-    mockAgent = new MockAgent()
-    mockAgent.disableNetConnect()
-    setGlobalDispatcher(mockAgent)
   })
 
-  afterEach(async () => {
+  afterEach(() => {
     global.WebSocket = OriginalWebSocket
     MockWebSocket.reset()
-    setGlobalDispatcher(originalDispatcher)
-    await mockAgent.close()
   })
 
   it('should switch from REST to TanStack DB mode', async () => {
@@ -409,15 +430,9 @@ describe('Data Layer - Mode Switching', () => {
 
 describe('Data Layer - Optimistic Updates', () => {
   let client: DataClient
-  let mockAgent: MockAgent
-  let mockPool: ReturnType<MockAgent['get']>
 
   beforeEach(() => {
-    mockAgent = new MockAgent()
-    mockAgent.disableNetConnect()
-    setGlobalDispatcher(mockAgent)
-    mockPool = mockAgent.get('https://api.test.dotdo.dev')
-
+    mockFetch.mockReset()
     client = createDataClient({
       mode: 'rest',
       baseUrl: 'https://api.test.dotdo.dev',
@@ -425,19 +440,24 @@ describe('Data Layer - Optimistic Updates', () => {
     })
   })
 
-  afterEach(async () => {
-    setGlobalDispatcher(originalDispatcher)
-    await mockAgent.close()
-  })
-
   it('should return optimistic result immediately', async () => {
     const newCustomer = { name: 'Dave' }
 
-    // Mock a slow response using undici's delay
-    mockPool.intercept({
-      path: '/customers',
-      method: 'POST',
-    }).reply(201, { $id: '4', $type: 'Customer', ...newCustomer }).delay(100)
+    // Mock a slow response
+    mockFetch.mockImplementation(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                ok: true,
+                status: 201,
+                json: async () => ({ $id: '4', $type: 'Customer', ...newCustomer }),
+              }),
+            100
+          )
+        )
+    )
 
     const result = await client.create('customers', newCustomer)
 
@@ -451,7 +471,7 @@ describe('Data Layer - Optimistic Updates', () => {
 
     // Wait for the real response to come back in the background
     let realResponse: Thing | null = null
-    const updates: unknown[] = []
+    const updates: any[] = []
 
     client.onUpdate((update) => {
       updates.push(update)
@@ -460,10 +480,15 @@ describe('Data Layer - Optimistic Updates', () => {
       }
     })
 
-    mockPool.intercept({
-      path: '/customers',
-      method: 'POST',
-    }).reply(201, { $id: '5', $type: 'Customer', ...newCustomer }).delay(10)
+    mockFetch.mockImplementation(async () => {
+      // Simulate a slight delay
+      await new Promise((r) => setTimeout(r, 10))
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({ $id: '5', $type: 'Customer', ...newCustomer }),
+      }
+    })
 
     const result = await client.create('customers', newCustomer)
 
@@ -473,20 +498,17 @@ describe('Data Layer - Optimistic Updates', () => {
 
     // Wait for background request to complete
     await new Promise((resolve) => setTimeout(resolve, 100))
+
+    // Should have called fetch in background
+    expect(mockFetch).toHaveBeenCalled()
   })
 })
 
 describe('Data Layer - Cache Invalidation', () => {
   let client: DataClient
-  let mockAgent: MockAgent
-  let mockPool: ReturnType<MockAgent['get']>
 
   beforeEach(() => {
-    mockAgent = new MockAgent()
-    mockAgent.disableNetConnect()
-    setGlobalDispatcher(mockAgent)
-    mockPool = mockAgent.get('https://api.test.dotdo.dev')
-
+    mockFetch.mockReset()
     client = createDataClient({
       mode: 'rest',
       baseUrl: 'https://api.test.dotdo.dev',
@@ -494,23 +516,18 @@ describe('Data Layer - Cache Invalidation', () => {
     })
   })
 
-  afterEach(async () => {
-    setGlobalDispatcher(originalDispatcher)
-    await mockAgent.close()
-  })
-
   it('should cache GET requests', async () => {
     const mockData = { $id: '1', $type: 'Customer', name: 'Alice' }
-
-    // Only intercept once - the second call should use cache
-    mockPool.intercept({
-      path: '/customers/1',
-      method: 'GET',
-    }).reply(200, mockData)
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockData,
+    })
 
     const result1 = await client.get('customers', '1')
     const result2 = await client.get('customers', '1')
 
+    expect(mockFetch).toHaveBeenCalledTimes(1) // Only called once
     expect(result1).toEqual(result2)
   })
 
@@ -518,40 +535,46 @@ describe('Data Layer - Cache Invalidation', () => {
     const mockData = { $id: '1', $type: 'Customer', name: 'Alice' }
     const updatedData = { $id: '1', $type: 'Customer', name: 'Alice Updated' }
 
-    mockPool.intercept({
-      path: '/customers/1',
-      method: 'GET',
-    }).reply(200, mockData)
-
-    mockPool.intercept({
-      path: '/customers/1',
-      method: 'PUT',
-    }).reply(200, updatedData)
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => mockData,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => updatedData,
+      })
 
     await client.get('customers', '1')
     await client.update('customers', '1', { name: 'Alice Updated' })
     const result = await client.get('customers', '1')
 
+    // First GET, UPDATE (which updates cache), second GET uses cached value
+    expect(mockFetch).toHaveBeenCalledTimes(2)
     expect(result).toEqual(updatedData)
   })
 
   it('should invalidate cache on delete', async () => {
     const mockData = { $id: '1', $type: 'Customer', name: 'Alice' }
 
-    mockPool.intercept({
-      path: '/customers/1',
-      method: 'GET',
-    }).reply(200, mockData)
-
-    mockPool.intercept({
-      path: '/customers/1',
-      method: 'DELETE',
-    }).reply(204, {})
-
-    mockPool.intercept({
-      path: '/customers/1',
-      method: 'GET',
-    }).reply(404, { error: 'Not found' })
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => mockData,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 204,
+        json: async () => ({}),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({ error: 'Not found' }),
+      })
 
     await client.get('customers', '1')
     await client.delete('customers', '1')
@@ -561,23 +584,16 @@ describe('Data Layer - Cache Invalidation', () => {
 
   it('should manually invalidate cache', async () => {
     const mockData = { $id: '1', $type: 'Customer', name: 'Alice' }
-
-    // Intercept twice for the two GET requests
-    mockPool.intercept({
-      path: '/customers/1',
-      method: 'GET',
-    }).reply(200, mockData)
-
-    mockPool.intercept({
-      path: '/customers/1',
-      method: 'GET',
-    }).reply(200, mockData)
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockData,
+    })
 
     await client.get('customers', '1')
     client.invalidateCache('customers', '1')
     await client.get('customers', '1')
 
-    // Both requests should have gone through
-    expect(true).toBe(true)
+    expect(mockFetch).toHaveBeenCalledTimes(2)
   })
 })
