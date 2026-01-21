@@ -1,9 +1,9 @@
 // Data Layer - Dual-Mode (REST/TanStack DB) Data Client
 // Provides abstraction for data fetching with REST and real-time WebSocket sync
 
-import { createLogger } from '../../utils/logger'
+import { createScopedLogger, LogLevel } from '../../utils/logger'
 
-const logger = createLogger('[DataClient]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[DataClient]' })
 
 export type DataMode = 'rest' | 'tanstack-db'
 
@@ -81,7 +81,7 @@ class RESTClient implements DataClient {
   private timeout: number
   private optimistic: boolean
   private cache: boolean
-  private token?: string
+  private token?: string | undefined
   private cacheStore: Map<string, Thing> = new Map()
   private updateListeners: Set<UpdateListener> = new Set()
   private optimisticCounter = 0
@@ -118,8 +118,8 @@ class RESTClient implements DataClient {
     })
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }))
-      throw new Error(error.error || `HTTP ${response.status}: ${response.statusText}`)
+      const errorData = await response.json().catch(() => ({ error: response.statusText })) as { error?: string }
+      throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`)
     }
 
     return response
@@ -134,7 +134,7 @@ class RESTClient implements DataClient {
 
     const url = `${this.baseUrl}/${resource}/${id}`
     const response = await this.fetchWithTimeout(url, { method: 'GET' })
-    const data = await response.json()
+    const data = (await response.json()) as Thing
 
     if (this.cache) {
       this.cacheStore.set(cacheKey, data)
@@ -176,7 +176,7 @@ class RESTClient implements DataClient {
             method: 'POST',
             body: JSON.stringify(data),
           })
-          const realResult = await response.json()
+          const realResult = (await response.json()) as Thing
 
           // Notify listeners of the real result
           this.notifyListeners({
@@ -203,7 +203,7 @@ class RESTClient implements DataClient {
       method: 'POST',
       body: JSON.stringify(data),
     })
-    const result = await response.json()
+    const result = (await response.json()) as Thing
 
     if (this.cache) {
       const cacheKey = this.getCacheKey(resource, result.$id)
@@ -219,7 +219,7 @@ class RESTClient implements DataClient {
       method: 'PUT',
       body: JSON.stringify(data),
     })
-    const result = await response.json()
+    const result = (await response.json()) as Thing
 
     // Invalidate cache
     if (this.cache) {
@@ -288,8 +288,8 @@ class TanStackDBClient implements DataClient {
   private ws: WebSocket | null = null
   private baseUrl: string
   private timeout: number
-  private token?: string
-  private pendingRequests: Map<string, (value: any) => void> = new Map()
+  // Note: Token is passed through to REST fallback via options spread
+  private pendingRequests: Map<string, (value: unknown) => void> = new Map()
   private requestCounter = 0
   private updateListeners: Set<UpdateListener> = new Set()
   private restFallback: RESTClient
@@ -300,9 +300,8 @@ class TanStackDBClient implements DataClient {
   constructor(options: DataClientOptions) {
     this.baseUrl = options.baseUrl
     this.timeout = options.timeout || 30000
-    this.token = options.token
 
-    // Create REST fallback client
+    // Create REST fallback client (includes token from options)
     const restUrl = this.baseUrl.replace(/^wss?:\/\//, 'https://')
     this.restFallback = new RESTClient({
       ...options,
@@ -374,7 +373,7 @@ class TanStackDBClient implements DataClient {
     }
   }
 
-  private async sendRequest(message: any): Promise<any> {
+  private async sendRequest(message: Record<string, unknown>): Promise<unknown> {
     if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       // Fallback to REST
       logger.warn('WebSocket not connected, falling back to REST')
@@ -383,7 +382,7 @@ class TanStackDBClient implements DataClient {
 
     return new Promise((resolve, reject) => {
       const requestId = `req-${++this.requestCounter}`
-      message.requestId = requestId
+      message['requestId'] = requestId
 
       this.pendingRequests.set(requestId, resolve)
 
@@ -399,19 +398,39 @@ class TanStackDBClient implements DataClient {
     })
   }
 
-  private async fallbackToREST(message: any): Promise<any> {
+  private async fallbackToREST(message: Record<string, unknown>): Promise<unknown> {
     const { type, resource, id, data } = message
+
+    // Type guards to ensure proper types for REST fallback
+    if (typeof resource !== 'string') {
+      throw new Error('Resource must be a string')
+    }
 
     switch (type) {
       case 'get':
+        if (typeof id !== 'string') {
+          throw new Error('ID must be a string for get operation')
+        }
         return this.restFallback.get(resource, id)
       case 'list':
-        return this.restFallback.list(resource, data)
+        return this.restFallback.list(resource, data as Record<string, unknown> | undefined)
       case 'create':
-        return this.restFallback.create(resource, data)
+        if (!data || typeof data !== 'object') {
+          throw new Error('Data must be an object for create operation')
+        }
+        return this.restFallback.create(resource, data as Record<string, unknown>)
       case 'update':
-        return this.restFallback.update(resource, id, data)
+        if (typeof id !== 'string') {
+          throw new Error('ID must be a string for update operation')
+        }
+        if (!data || typeof data !== 'object') {
+          throw new Error('Data must be an object for update operation')
+        }
+        return this.restFallback.update(resource, id, data as Record<string, unknown>)
       case 'delete':
+        if (typeof id !== 'string') {
+          throw new Error('ID must be a string for delete operation')
+        }
         return this.restFallback.delete(resource, id)
       default:
         throw new Error(`Unsupported operation: ${type}`)
@@ -419,19 +438,23 @@ class TanStackDBClient implements DataClient {
   }
 
   async get(resource: string, id: string): Promise<Thing> {
-    return this.sendRequest({ type: 'get', resource, id })
+    const result = await this.sendRequest({ type: 'get', resource, id })
+    return result as Thing
   }
 
   async list(resource: string, query?: Record<string, unknown>): Promise<Thing[]> {
-    return this.sendRequest({ type: 'list', resource, data: query })
+    const result = await this.sendRequest({ type: 'list', resource, data: query })
+    return result as Thing[]
   }
 
   async create(resource: string, data: Record<string, unknown>): Promise<Thing> {
-    return this.sendRequest({ type: 'create', resource, data })
+    const result = await this.sendRequest({ type: 'create', resource, data })
+    return result as Thing
   }
 
   async update(resource: string, id: string, data: Record<string, unknown>): Promise<Thing> {
-    return this.sendRequest({ type: 'update', resource, id, data })
+    const result = await this.sendRequest({ type: 'update', resource, id, data })
+    return result as Thing
   }
 
   async delete(resource: string, id: string): Promise<void> {
@@ -547,19 +570,19 @@ class DualModeClient implements DataClient {
  * // REST mode
  * const client = createDataClient({
  *   mode: 'rest',
- *   baseUrl: 'https://api.example.com',
+ *   baseUrl: 'https://api.example.com.ai',
  * })
  *
  * // TanStack DB mode with WebSocket sync
  * const client = createDataClient({
  *   mode: 'tanstack-db',
- *   baseUrl: 'wss://api.example.com',
+ *   baseUrl: 'wss://api.example.com.ai',
  * })
  *
  * // With optimistic updates
  * const client = createDataClient({
  *   mode: 'rest',
- *   baseUrl: 'https://api.example.com',
+ *   baseUrl: 'https://api.example.com.ai',
  *   optimistic: true,
  * })
  * ```
@@ -568,5 +591,3 @@ export function createDataClient(options: DataClientOptions): DataClient {
   return new DualModeClient(options)
 }
 
-// Re-export for convenience
-export type { DataClient, DataClientOptions }

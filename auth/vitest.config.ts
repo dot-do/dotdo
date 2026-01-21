@@ -1,12 +1,12 @@
 /**
  * Vitest Configuration for Auth Package Tests
  *
- * This configuration runs auth tests in Node environment since they
- * don't require Durable Objects or Workers runtime.
+ * Uses @cloudflare/vitest-pool-workers to ensure auth code
+ * works correctly in the Cloudflare Workers runtime.
  *
  * IMPORTANT: Tests using this config get access to:
- * - JWT operations via jose
- * - API key generation and validation
+ * - JWT operations via jose (Workers-compatible)
+ * - API key generation and validation (Web Crypto API)
  * - Session management
  * - JWKS validation
  *
@@ -18,10 +18,17 @@
  * @module auth/vitest.config
  */
 
-import { defineConfig } from 'vitest/config'
+import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
+import { workspaceAliases } from '../vitest.config'
 
-export default defineConfig({
+export default defineWorkersConfig({
+  // Inherit workspace aliases for package resolution
+  resolve: {
+    alias: workspaceAliases,
+  },
   test: {
+    name: 'auth',
+
     // Include ALL auth tests
     include: [
       'tests/**/*.test.ts',
@@ -38,9 +45,26 @@ export default defineConfig({
     minWorkers: 1,
     fileParallelism: false,
 
-    // Reasonable timeouts for auth tests
-    testTimeout: 10000,
-    hookTimeout: 10000,
+    // Pool worker options
+    poolOptions: {
+      workers: {
+        wrangler: {
+          configPath: './wrangler.jsonc',
+        },
+        singleWorker: true,
+        isolatedStorage: false,
+        miniflare: {
+          durableObjectsPersist: false,
+          bindings: {
+            TEST_MODE: 'true',
+          },
+        },
+      },
+    },
+
+    // Test timeouts
+    testTimeout: 15000,
+    hookTimeout: 15000,
 
     // Coverage configuration
     coverage: {

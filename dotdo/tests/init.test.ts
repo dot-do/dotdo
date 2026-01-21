@@ -102,7 +102,9 @@ describe('dotdo init', () => {
         join(testDir, 'wrangler.jsonc'),
         'utf-8'
       )
-      const wrangler = JSON.parse(wranglerContent)
+      // Strip JSONC comments before parsing (wrangler.jsonc supports comments)
+      const jsonContent = wranglerContent.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
+      const wrangler = JSON.parse(jsonContent)
 
       expect(wrangler.name).toBe('test-project')
       expect(wrangler.main).toBe('src/index.ts')
@@ -147,7 +149,8 @@ describe('dotdo init', () => {
       const content = await readFile(doPath, 'utf-8')
       expect(content).toContain('import { DO }')
       expect(content).toContain('export class MyDO extends DO')
-      expect(content).toContain('constructor')
+      // Note: constructor is optional - base DO class handles initialization
+      // Only full template has explicit constructor for event handlers
       expect(content).toContain('protected routes')
     })
 

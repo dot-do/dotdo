@@ -18,8 +18,13 @@
  */
 
 import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
+import { workspaceAliases } from '../vitest.config'
 
 export default defineWorkersConfig({
+  // Inherit workspace aliases for package resolution
+  resolve: {
+    alias: workspaceAliases,
+  },
   test: {
     // Include ALL api tests
     include: [
@@ -69,7 +74,7 @@ export default defineWorkersConfig({
     // Coverage configuration
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text', 'json', 'html', 'lcov'],
       include: ['src/**/*.ts'],
       exclude: ['**/*.test.ts', '**/__tests__/**', '**/node_modules/**'],
       thresholds: {
