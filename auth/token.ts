@@ -99,10 +99,11 @@ export async function verifyTokenSignature(
   const secretKey = typeof secret === 'string' ? new TextEncoder().encode(secret) : secret
 
   try {
-    const { payload } = await jwtVerify(token, secretKey, {
-      issuer,
-      audience,
-    })
+    const verifyOptions: Parameters<typeof jwtVerify>[2] = {}
+    if (issuer !== undefined) verifyOptions.issuer = issuer
+    if (audience !== undefined) verifyOptions.audience = audience
+
+    const { payload } = await jwtVerify(token, secretKey, verifyOptions)
 
     return payload as TokenPayload
   } catch (error) {

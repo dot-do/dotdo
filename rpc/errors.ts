@@ -1,6 +1,8 @@
 // Structured Error Types for @dotdo/rpc
 // Provides a hierarchy of typed RPC errors with serialization support
 
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
+
 /**
  * Standard RPC error codes with semantic meaning
  */
@@ -25,7 +27,7 @@ export enum RPCErrorCode {
 /**
  * Mapping from error codes to HTTP status codes
  */
-const ERROR_CODE_TO_HTTP_STATUS: Record<RPCErrorCode, number> = {
+const ERROR_CODE_TO_HTTP_STATUS: Record<RPCErrorCode, ContentfulStatusCode> = {
   [RPCErrorCode.NOT_FOUND]: 404,
   [RPCErrorCode.VALIDATION_ERROR]: 400,
   [RPCErrorCode.AUTHENTICATION_ERROR]: 401,
@@ -51,7 +53,7 @@ export interface RPCErrorOptions {
  * Base RPC Error class with code, message, details, and HTTP status
  */
 export class RPCError extends Error {
-  public readonly httpStatus: number
+  public readonly httpStatus: ContentfulStatusCode
 
   constructor(
     public readonly code: RPCErrorCode,
@@ -61,7 +63,7 @@ export class RPCError extends Error {
   ) {
     super(message, options)
     this.name = 'RPCError'
-    this.httpStatus = ERROR_CODE_TO_HTTP_STATUS[code] ?? 500
+    this.httpStatus = ERROR_CODE_TO_HTTP_STATUS[code] ?? (500 as ContentfulStatusCode)
     Object.setPrototypeOf(this, new.target.prototype)
   }
 
@@ -435,7 +437,7 @@ export interface SerializedError {
   /** Additional error details */
   details?: Record<string, unknown>
   /** HTTP status code */
-  httpStatus?: number
+  httpStatus?: ContentfulStatusCode
   /** Stack trace (optional) */
   stack?: string
 }
@@ -538,7 +540,7 @@ export function serializeUnknownError(error: unknown, options: SerializeErrorOpt
     name: 'UnknownError',
     code: RPCErrorCode.INTERNAL_ERROR,
     message: String(error),
-    httpStatus: 500,
+    httpStatus: 500 as ContentfulStatusCode,
   }
 }
 

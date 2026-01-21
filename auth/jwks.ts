@@ -83,7 +83,7 @@ export async function fetchJwks(jwksUri: string): Promise<Jwks> {
     throw new Error(`Failed to fetch JWKS: ${response.status} ${response.statusText}`)
   }
 
-  const jwks = await response.json()
+  const jwks = await response.json() as { keys?: unknown }
 
   if (!jwks || !Array.isArray(jwks.keys)) {
     throw new Error('Invalid JWKS: missing keys array')
@@ -243,12 +243,13 @@ export async function verifyTokenWithJwks(
   // Get the public key
   const key = await client.getKey(header.kid)
 
+  // Build verify options, only including defined values
+  const verifyOptions: Parameters<typeof jwtVerify>[2] = { algorithms }
+  if (issuer !== undefined) verifyOptions.issuer = issuer
+  if (audience !== undefined) verifyOptions.audience = audience
+
   // Verify the token
-  const { payload } = await jwtVerify(token, key, {
-    issuer,
-    audience,
-    algorithms,
-  })
+  const { payload } = await jwtVerify(token, key, verifyOptions)
 
   return payload as TokenPayload
 }

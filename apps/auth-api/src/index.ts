@@ -184,7 +184,7 @@ app.post('/auth/register', async (c) => {
 
   if (!response.ok) {
     const error = await response.json<{ error: string }>()
-    return c.json(error, response.status)
+    return c.json(error, response.status as 400 | 401 | 403 | 404 | 409 | 500)
   }
 
   const user = await response.json<AuthUser>()
@@ -227,7 +227,7 @@ app.post('/auth/login', async (c) => {
 
   if (!response.ok) {
     const error = await response.json<{ error: string }>()
-    return c.json(error, response.status)
+    return c.json(error, response.status as 400 | 401 | 403 | 404 | 409 | 500)
   }
 
   const user = await response.json<AuthUser>()

@@ -521,8 +521,9 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
           try {
             // Decode without verification just to get the subject
             const parts = token.split('.')
-            if (parts.length === 3) {
-              const payload = JSON.parse(atob(parts[1]))
+            const payloadPart = parts[1]
+            if (parts.length === 3 && payloadPart) {
+              const payload = JSON.parse(atob(payloadPart))
               return payload.sub ?? null
             }
           } catch {

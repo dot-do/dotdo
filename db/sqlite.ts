@@ -1159,7 +1159,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
       return stats
     },
 
-    async getDLQEntry(eventId): Promise<DLQEntry | null> {
+    async getDLQEntry(eventId: string): Promise<DLQEntry | null> {
       const row = await sql
         .prepare(
           `SELECT id, event_id, event_type, event_payload, event_timestamp, event_source, event_correlation_id, attempts, last_error, handler_index, timestamp
@@ -1191,7 +1191,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
       }
     },
 
-    async cleanupDeadLetterQueue(options): Promise<DLQCleanupResult> {
+    async cleanupDeadLetterQueue(options: DLQCleanupOptions): Promise<DLQCleanupResult> {
       const result: DLQCleanupResult = {
         removed: 0,
         removedByType: {}

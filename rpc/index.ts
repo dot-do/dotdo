@@ -1,6 +1,9 @@
 // @dotdo/rpc - Cap'n Web RPC Layer
 // Client/server for all communication: client→worker, worker→worker, worker→DO, DO→worker, DO→DO
 
+// Re-export Hono's ContentfulStatusCode for type compatibility in consumers
+export type { ContentfulStatusCode } from 'hono/utils/http-status'
+
 export * from './client'
 export * from './server'
 export * from './pipeline'
