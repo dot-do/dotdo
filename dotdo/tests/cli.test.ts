@@ -12,8 +12,6 @@ import {
   getDefaultConfig,
   mergeConfig,
   createProgram,
-  ConfigTimeoutError,
-  ConfigLoadError,
   type DotdoConfig,
 } from '../cli'
 
@@ -237,9 +235,6 @@ describe('CLI Framework', () => {
       // Configuration
       expect(commandNames).toContain('config')
 
-      // RPC
-      expect(commandNames).toContain('repl')
-
       // Utilities
       expect(commandNames).toContain('version')
     })
@@ -423,8 +418,8 @@ describe('CLI Framework', () => {
         await program.parseAsync(['node', 'dotdo', 'config', 'get', 'nonexistent'], {
           from: 'user',
         })
-      } catch (e: unknown) {
-        expect((e as Error).message).toContain('process.exit(1)')
+      } catch (e: any) {
+        expect(e.message).toContain('process.exit(1)')
       }
 
       exitSpy.mockRestore()
@@ -442,143 +437,5 @@ describe('CLI Integration', () => {
     expect(cliModule.mergeConfig).toBeDefined()
     expect(cliModule.createProgram).toBeDefined()
     expect(cliModule.program).toBeDefined()
-  })
-})
-
-describe('Config File Timeout Handling', () => {
-  let testDir: string
-
-  beforeEach(() => {
-    // Create a temporary directory for tests
-    testDir = join(tmpdir(), `dotdo-cli-timeout-test-${Date.now()}`)
-    mkdirSync(testDir, { recursive: true })
-  })
-
-  afterEach(() => {
-    // Clean up test directory
-    if (existsSync(testDir)) {
-      rmSync(testDir, { recursive: true, force: true })
-    }
-    vi.restoreAllMocks()
-  })
-
-  describe('loadConfigFile timeout', () => {
-    it('ConfigTimeoutError has correct message format', () => {
-      const error = new ConfigTimeoutError('/path/to/config.ts', 5000)
-
-      expect(error.name).toBe('ConfigTimeoutError')
-      expect(error.message).toContain('Config file loading timed out')
-      expect(error.message).toContain('/path/to/config.ts')
-      expect(error.message).toContain('5000ms')
-      expect(error.message).toContain('Suggestions')
-    })
-
-    it('ConfigLoadError has correct message format for JSON files', () => {
-      const originalError = new SyntaxError('Unexpected token')
-      const error = new ConfigLoadError('/path/to/.dotdo.json', originalError)
-
-      expect(error.name).toBe('ConfigLoadError')
-      expect(error.message).toContain('Failed to load config file')
-      expect(error.message).toContain('.dotdo.json')
-      expect(error.message).toContain('Unexpected token')
-      expect(error.message).toContain('JSON syntax')
-    })
-
-    it('ConfigLoadError has correct message format for TypeScript files', () => {
-      const originalError = new Error('Cannot find module')
-      const error = new ConfigLoadError('/path/to/dotdo.config.ts', originalError)
-
-      expect(error.name).toBe('ConfigLoadError')
-      expect(error.message).toContain('Failed to load config file')
-      expect(error.message).toContain('dotdo.config.ts')
-      expect(error.message).toContain('Cannot find module')
-      expect(error.message).toContain('imports exist')
-    })
-
-    it('normal config loading still works within timeout', async () => {
-      const configPath = join(testDir, '.dotdo.json')
-      const testConfig: DotdoConfig = {
-        apiUrl: 'https://fast.api.dev',
-        namespace: 'fast-namespace',
-      }
-
-      writeFileSync(configPath, JSON.stringify(testConfig, null, 2))
-
-      const originalCwd = process.cwd()
-      process.chdir(testDir)
-
-      try {
-        const config = await loadConfig()
-        expect(config.apiUrl).toBe('https://fast.api.dev')
-        expect(config.namespace).toBe('fast-namespace')
-      } finally {
-        process.chdir(originalCwd)
-      }
-    })
-
-    it('throws ConfigLoadError for JSON syntax errors', async () => {
-      const configPath = join(testDir, '.dotdo.json')
-      writeFileSync(configPath, '{ invalid json without quotes }')
-
-      const originalCwd = process.cwd()
-      process.chdir(testDir)
-
-      try {
-        await expect(loadConfig()).rejects.toThrow(ConfigLoadError)
-
-        try {
-          await loadConfig()
-        } catch (error) {
-          expect(error).toBeInstanceOf(ConfigLoadError)
-          const configError = error as ConfigLoadError
-          expect(configError.message).toContain('.dotdo.json')
-          expect(configError.message).toContain('JSON syntax')
-        }
-      } finally {
-        process.chdir(originalCwd)
-      }
-    })
-
-    it('error message includes suggestions for JSON errors', async () => {
-      const configPath = join(testDir, '.dotdo.json')
-      writeFileSync(configPath, '{ "key": value }') // Missing quotes around value
-
-      const originalCwd = process.cwd()
-      process.chdir(testDir)
-
-      try {
-        try {
-          await loadConfig()
-          // Should not reach here
-          expect(true).toBe(false)
-        } catch (error) {
-          expect(error).toBeInstanceOf(ConfigLoadError)
-          const errorMessage = (error as Error).message
-          expect(errorMessage).toContain('Suggestions')
-          expect(errorMessage).toContain('JSON')
-        }
-      } finally {
-        process.chdir(originalCwd)
-      }
-    })
-
-    it('valid TypeScript config file loads correctly', async () => {
-      const configPath = join(testDir, 'dotdo.config.ts')
-      writeFileSync(
-        configPath,
-        `export default { apiUrl: 'https://ts.api.dev', namespace: 'ts-namespace' }`
-      )
-
-      const originalCwd = process.cwd()
-      process.chdir(testDir)
-
-      try {
-        const config = await loadConfig()
-        expect(config.apiUrl).toBe('https://ts.api.dev')
-        expect(config.namespace).toBe('ts-namespace')
-      } finally {
-        process.chdir(originalCwd)
-      }
-    })
   })
 })

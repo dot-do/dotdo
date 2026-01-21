@@ -308,10 +308,8 @@ export class IntegrationRegistry {
 
   /**
    * Shutdown all integrations
-   * @returns Map of integration names to errors (null if successful)
    */
-  async shutdownAll(): Promise<Map<string, Error | null>> {
-    const results = new Map<string, Error | null>()
+  async shutdownAll(): Promise<void> {
     // Shutdown in reverse initialization order
     const reverseOrder = [...this.initializationOrder].reverse()
 
@@ -320,16 +318,12 @@ export class IntegrationRegistry {
       if (entry?.integration.shutdown) {
         try {
           await entry.integration.shutdown()
-          results.set(name, null)
-        } catch (error) {
-          const err = error instanceof Error ? error : new Error(String(error))
-          results.set(name, err)
-          // Continue shutting down other integrations even if one fails
+        } catch {
+          // Log error but continue shutting down others
+          console.error(`Failed to shutdown integration "${name}":`)
         }
       }
     }
-
-    return results
   }
 
   /**

@@ -314,41 +314,6 @@ AI routing uses template literals: `` await ai`Summarize: ${text}` ``
 
 Full TypeScript support across all packages with strict type checking.
 
-### 7. DO Sharding
-
-For high-throughput scenarios, use sharding to distribute load across multiple DO instances. See [docs/SHARDING.md](./docs/SHARDING.md) for comprehensive patterns.
-
-```typescript
-import { ShardRouter, HealthAwareRouter } from '@dotdo/do'
-
-// Basic sharding with consistent hashing
-const router = new ShardRouter({
-  defaultShardCount: 16,
-  entityShards: { users: 32, orders: 64 }
-})
-
-// Route request to appropriate shard
-const { doName } = router.route({
-  namespace: 'acme',
-  path: '/users/user-123',
-  entityType: 'users',
-  entityId: 'user-123',
-})
-// doName = 'acme:users:shard-7'
-
-// Health-aware routing (production)
-const healthRouter = new HealthAwareRouter({
-  defaultShardCount: 8,
-  skipUnhealthyShards: true,
-  preferHealthierShards: true,
-})
-```
-
-**Available Routers:**
-- `ShardRouter` - Basic consistent hashing
-- `LoadBalancedRouter` - Load-aware routing (least-loaded, round-robin, weighted)
-- `HealthAwareRouter` - Health-aware routing with automatic failover
-
 ## Git Submodules
 
 The `primitives/` directory is a **git submodule** pointing to [primitives.org.ai](https://primitives.org.ai).

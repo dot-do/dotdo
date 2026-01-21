@@ -31,58 +31,16 @@ import type {
   AuditContext,
   QueryBuilder,
   StorableData
-} from '@dotdo/db'
-
-// Re-export Constructor and MixinInstance from @dotdo/utils for backward compatibility
-// These are the canonical definitions used across all @dotdo packages
-export { Constructor, MixinInstance } from '@dotdo/utils'
-import type { Constructor } from '@dotdo/utils'
+} from '../../db'
 
 // =============================================================================
 // Types
 // =============================================================================
 
 /**
- * Base interface for classes that have DurableObjectState.
- * Use this constraint when a mixin needs to access state properties.
- *
- * @example
- * ```typescript
- * function WithStateAccess<TBase extends Constructor<HasDurableObjectState>>(Base: TBase) {
- *   return class extends Base {
- *     getStateId() {
- *       return this.state?.id?.toString() // Type-safe access
- *     }
- *   }
- * }
- * ```
+ * Constructor type for mixin pattern
  */
-export interface HasDurableObjectState {
-  state?: DurableObjectState
-}
-
-/**
- * Base interface for classes that have environment bindings.
- * Use this constraint when a mixin needs to access env properties.
- *
- * @example
- * ```typescript
- * interface MyEnv {
- *   DATABASE: DurableObjectNamespace
- * }
- *
- * function WithDatabase<TBase extends Constructor<HasEnv<MyEnv>>>(Base: TBase) {
- *   return class extends Base {
- *     getDatabase() {
- *       return this.env?.DATABASE // Type-safe access
- *     }
- *   }
- * }
- * ```
- */
-export interface HasEnv<E = unknown> {
-  env?: E
-}
+export type Constructor<T = object> = new (...args: any[]) => T
 
 /**
  * Interface for classes that have storage capabilities
@@ -159,17 +117,10 @@ export interface WithStorageOptions {
 export function WithStorage<TBase extends Constructor>(
   Base: TBase,
   options: WithStorageOptions = {}
-): Constructor<HasStorage> & TBase {
+) {
   return class StorageMixin extends Base implements HasStorage {
     private _entityManager: EntityManager
 
-    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545).
-    // This is a TypeScript language limitation, not a design flaw. Type safety is preserved via:
-    // - Interface constraints (HasStorage) on the return type
-    // - Generic constraints (TBase extends Constructor) on the input
-    // - Instance type inference via MixinInstance<T>
-    // See @dotdo/utils/mixin-types.ts for full documentation (do-1sbr9).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
       this._entityManager = new EntityManager(options.entityManagerOptions)
@@ -324,7 +275,15 @@ export function WithStorage<TBase extends Constructor>(
     query<T extends StorableData = StorableData>(): QueryBuilder<T> {
       return this._entityManager.query<T>()
     }
-  } as Constructor<HasStorage> & TBase
+  }
 }
 
-// MixinInstance type is now imported and re-exported from @dotdo/utils above
+/**
+ * Type helper to extract the instance type of a mixin result
+ *
+ * @example
+ * ```typescript
+ * type MyDOInstance = MixinInstance<typeof WithStorage<typeof BaseDO>>
+ * ```
+ */
+export type MixinInstance<T> = T extends new (...args: any[]) => infer R ? R : never

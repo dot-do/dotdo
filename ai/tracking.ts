@@ -4,8 +4,7 @@
 import type { AIMeta } from './promise'
 import { countTokens as countTokensTiktoken, estimateCost as estimateCostTiktoken } from './tokens'
 
-// Import Provider from router to avoid duplicate exports in index.ts
-import type { Provider } from './router'
+export type Provider = 'openai' | 'anthropic' | 'google' | 'cloudflare'
 
 export interface ModelConfig {
   inputCostPer1M: number
@@ -32,8 +31,8 @@ export interface UsageReport {
   requestCount: number
   byProvider: Record<Provider, UsageStats>
   byModel: Record<string, UsageStats>
-  startTime?: number | undefined
-  endTime?: number | undefined
+  startTime?: number
+  endTime?: number
 }
 
 export interface ReportFilter {
@@ -276,19 +275,17 @@ export class UsageTracker {
       if (!byProvider[record.provider]) {
         byProvider[record.provider] = { cost: 0, tokens: 0, requests: 0 }
       }
-      const providerStats = byProvider[record.provider]!
-      providerStats.cost += record.cost
-      providerStats.tokens += record.tokens.input + record.tokens.output
-      providerStats.requests++
+      byProvider[record.provider].cost += record.cost
+      byProvider[record.provider].tokens += record.tokens.input + record.tokens.output
+      byProvider[record.provider].requests++
 
       // By model
       if (!byModel[record.model]) {
         byModel[record.model] = { cost: 0, tokens: 0, requests: 0 }
       }
-      const modelStats = byModel[record.model]!
-      modelStats.cost += record.cost
-      modelStats.tokens += record.tokens.input + record.tokens.output
-      modelStats.requests++
+      byModel[record.model].cost += record.cost
+      byModel[record.model].tokens += record.tokens.input + record.tokens.output
+      byModel[record.model].requests++
     }
 
     return {
@@ -330,227 +327,6 @@ export class UsageTracker {
 
 /**
  * Global singleton tracker instance.
- *
- * @deprecated The globalTracker singleton causes state leakage between requests
- * in multi-tenant environments. Use request-scoped tracking instead.
- *
- * **Migration Guide:**
- *
- * Instead of using globalTracker directly:
- * ```ts
- * // OLD (deprecated):
- * import { globalTracker } from '@dotdo/ai/tracking'
- * globalTracker.record({ ... })
- * const report = globalTracker.getReport()
- * ```
- *
- * Use request-scoped tracking:
- * ```ts
- * // NEW (recommended):
- * import { runWithContext, getCurrentContext } from '@dotdo/ai/context'
- *
- * // Option 1: Use runWithContext (automatic cleanup)
- * await runWithContext(async () => {
- *   const ctx = getCurrentContext()!
- *   ctx.tracker.record({ ... })
- *   const report = ctx.tracker.getReport()
- * })
- *
- * // Option 2: Create context manually
- * import { createRequestContext } from '@dotdo/ai/context'
- * const ctx = createRequestContext()
- * try {
- *   ctx.tracker.record({ ... })
- * } finally {
- *   ctx.cleanup()
- * }
- * ```
- *
- * For convenience, you can also use the request-scoped helper functions:
- * ```ts
- * import { getRequestTracker, recordUsage, getUsageReport } from '@dotdo/ai/tracking'
- *
- * // Inside runWithContext:
- * await runWithContext(async () => {
- *   recordUsage({ provider: 'openai', model: 'gpt-4o', ... })
- *   const report = getUsageReport()
- * })
- * ```
- *
- * @see do-y5xe - Fix for global mutable tracker state leakage
+ * Can be used for application-wide tracking.
  */
 export const globalTracker = new UsageTracker()
-
-/**
- * Cached reference to getCurrentContext from context module.
- * Uses lazy initialization to avoid circular dependency issues.
- */
-let getCurrentContextFn: (() => { tracker: UsageTracker } | undefined) | null = null
-
-/**
- * Initialize the context getter function.
- * This should be called by the context module after it initializes.
- *
- * @internal
- */
-export function _initializeContextGetter(fn: () => { tracker: UsageTracker } | undefined): void {
-  getCurrentContextFn = fn
-}
-
-/**
- * Get the request-scoped tracker from the current AsyncLocalStorage context.
- *
- * Returns the tracker from the current request context if available,
- * otherwise returns undefined.
- *
- * @returns The request-scoped UsageTracker or undefined
- *
- * @example
- * ```ts
- * import { runWithContext } from '@dotdo/ai/context'
- * import { getRequestTracker } from '@dotdo/ai/tracking'
- *
- * await runWithContext(async () => {
- *   const tracker = getRequestTracker()
- *   tracker?.record({ ... })
- * })
- * ```
- */
-export function getRequestTracker(): UsageTracker | undefined {
-  if (!getCurrentContextFn) {
-    return undefined
-  }
-  return getCurrentContextFn()?.tracker
-}
-
-/**
- * Get a tracker, preferring request-scoped over global.
- *
- * Returns the request-scoped tracker if available, otherwise falls back
- * to the (deprecated) globalTracker for backward compatibility.
- *
- * @returns A UsageTracker instance (request-scoped if available, global otherwise)
- *
- * @example
- * ```ts
- * import { getTracker } from '@dotdo/ai/tracking'
- *
- * // Works both inside and outside of runWithContext
- * const tracker = getTracker()
- * tracker.record({ ... })
- * ```
- */
-export function getTracker(): UsageTracker {
-  return getRequestTracker() ?? globalTracker
-}
-
-/**
- * Record usage in the current request context (or global tracker as fallback).
- *
- * This is a convenience function that automatically uses the request-scoped
- * tracker when available, falling back to globalTracker for backward compatibility.
- *
- * @param record - The usage record to track
- *
- * @example
- * ```ts
- * import { runWithContext } from '@dotdo/ai/context'
- * import { recordUsage } from '@dotdo/ai/tracking'
- *
- * await runWithContext(async () => {
- *   recordUsage({
- *     provider: 'openai',
- *     model: 'gpt-4o',
- *     tokens: { input: 100, output: 50 },
- *     cost: 0.001,
- *     timestamp: Date.now(),
- *   })
- * })
- * ```
- */
-export function recordUsage(record: UsageRecord): void {
-  getTracker().record(record)
-}
-
-/**
- * Record usage from AIMeta in the current request context (or global tracker as fallback).
- *
- * @param provider - The provider name
- * @param meta - The AIMeta object containing usage information
- *
- * @example
- * ```ts
- * import { recordUsageFromMeta } from '@dotdo/ai/tracking'
- *
- * recordUsageFromMeta('openai', aiPromise.$meta)
- * ```
- */
-export function recordUsageFromMeta(provider: Provider, meta: AIMeta): void {
-  getTracker().recordFromMeta(provider, meta)
-}
-
-/**
- * Get a usage report from the current request context (or global tracker as fallback).
- *
- * @param filter - Optional filter for the report
- * @returns The usage report
- *
- * @example
- * ```ts
- * import { runWithContext } from '@dotdo/ai/context'
- * import { getUsageReport } from '@dotdo/ai/tracking'
- *
- * await runWithContext(async () => {
- *   // ... make AI requests ...
- *   const report = getUsageReport()
- *   console.log(`Total cost: $${report.totalCost.toFixed(4)}`)
- * })
- * ```
- */
-export function getUsageReport(filter?: ReportFilter): UsageReport {
-  return getTracker().getReport(filter)
-}
-
-/**
- * Set budget limit for the current request context (or global tracker as fallback).
- *
- * @param limit - The budget limit in dollars
- *
- * @example
- * ```ts
- * import { runWithContext } from '@dotdo/ai/context'
- * import { setBudgetLimit } from '@dotdo/ai/tracking'
- *
- * await runWithContext(async () => {
- *   setBudgetLimit(5.0) // $5 limit for this request
- *   // ... make AI requests ...
- * })
- * ```
- */
-export function setBudgetLimit(limit: number): void {
-  getTracker().setBudgetLimit(limit)
-}
-
-/**
- * Register a budget threshold callback for the current request context.
- *
- * @param threshold - Percentage of budget (0-1) to trigger callback
- * @param callback - Function called when threshold is reached
- *
- * @example
- * ```ts
- * import { runWithContext } from '@dotdo/ai/context'
- * import { onBudgetThreshold, setBudgetLimit } from '@dotdo/ai/tracking'
- *
- * await runWithContext(async () => {
- *   setBudgetLimit(10.0)
- *   onBudgetThreshold(0.8, (cost) => {
- *     console.warn(`Warning: ${cost} of budget used`)
- *   })
- *   // ... make AI requests ...
- * })
- * ```
- */
-export function onBudgetThreshold(threshold: number, callback: (currentCost: number) => void): void {
-  getTracker().onBudgetThreshold(threshold, callback)
-}
