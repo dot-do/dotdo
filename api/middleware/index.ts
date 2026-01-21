@@ -53,7 +53,6 @@ export {
   type RateLimitConfig,
   type RateLimitTier,
   type RateLimitResult,
-  type RateLimitSqlStorage,
 } from './rate-limit'
 
 // Rate limiter Durable Object for distributed state
