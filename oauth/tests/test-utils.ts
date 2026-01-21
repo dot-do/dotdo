@@ -38,6 +38,10 @@ export interface TestProviderConfig {
   errorMessage?: string
   /** Track calls for verification */
   trackCalls?: boolean
+  /** Whether to omit refreshToken method (for testing providers without refresh support) */
+  noRefreshToken?: boolean
+  /** Whether to omit tokenExchange method (for testing providers without token exchange support) */
+  noTokenExchange?: boolean
 }
 
 /**
@@ -197,6 +201,34 @@ export class TestProvider implements OAuthProvider {
  */
 export function createTestProvider(config: TestProviderConfig = {}): TestProvider {
   return new TestProvider({ trackCalls: true, ...config })
+}
+
+/**
+ * Create a minimal provider without optional methods (refreshToken, tokenExchange).
+ * Useful for testing error handling when these methods are not available.
+ */
+export function createMinimalProvider(config: TestProviderConfig = {}): OAuthProvider {
+  const provider = new TestProvider({ trackCalls: true, ...config })
+
+  // Return only the required methods
+  const minimalProvider: OAuthProvider = {
+    name: provider.name,
+    getAuthorizationUrl: provider.getAuthorizationUrl.bind(provider),
+    exchangeCode: provider.exchangeCode.bind(provider),
+    getUser: provider.getUser.bind(provider),
+  }
+
+  // Optionally include refreshToken
+  if (!config.noRefreshToken) {
+    minimalProvider.refreshToken = provider.refreshToken.bind(provider)
+  }
+
+  // Optionally include tokenExchange
+  if (!config.noTokenExchange) {
+    minimalProvider.tokenExchange = provider.tokenExchange.bind(provider)
+  }
+
+  return minimalProvider
 }
 
 /**
