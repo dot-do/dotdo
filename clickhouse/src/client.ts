@@ -14,6 +14,7 @@ import type {
   PageView,
   QueryOptions,
   QueryResult,
+  QueryStatistics,
   FunnelStep,
   FunnelResult,
   DateRange,
@@ -265,12 +266,23 @@ export async function createClickHouseClient(
   return client
 }
 
+// Internal resolved config type with all required properties except optional r2
+interface ResolvedClickHouseConfig {
+  profile: BuildProfile
+  r2: R2Bucket | undefined
+  storage: DurableObjectStorage
+  namespace: string
+  maxMemory: number
+  cacheSize: number
+  writeBufferSize: number
+}
+
 /**
  * Internal implementation
  */
 class ClickHouseClientImpl implements AnalyticsClient {
   private storage: DurableObjectStorage
-  private config: Required<ClickHouseConfig>
+  private config: ResolvedClickHouseConfig
   private wasmModule: ChdbWasmModule | null = null
   private eventBuffer: AnalyticsEvent[] = []
   private cache: Map<string, { data: unknown; expires: number }> = new Map()
@@ -319,16 +331,18 @@ class ClickHouseClientImpl implements AnalyticsClient {
 
   async pageview(input: PageViewInput): Promise<void> {
     const url = new URL(input.url)
+    const properties: PageView['properties'] = {
+      url: input.url,
+      path: url.pathname,
+      ...input.properties
+    }
+    if (input.referrer !== undefined) properties.referrer = input.referrer
+    if (input.title !== undefined) properties.title = input.title
+
     const event: PageView = {
       type: 'page_view',
       timestamp: Date.now(),
-      properties: {
-        url: input.url,
-        path: url.pathname,
-        referrer: input.referrer,
-        title: input.title,
-        ...input.properties
-      },
+      properties,
       visitorId: input.visitorId ?? this.generateVisitorId(),
       sessionId: input.sessionId
     }
@@ -365,24 +379,34 @@ class ClickHouseClientImpl implements AnalyticsClient {
     const module = await this.ensureWasmModule()
 
     const startTime = performance.now()
-    const result = await module.execute(sql, {
-      format: options?.format ?? 'JSONEachRow',
-      maxRows: options?.limit
-    })
+    const executeOptions: { format?: string; maxRows?: number } = {
+      format: options?.format ?? 'JSONEachRow'
+    }
+    if (options?.limit !== undefined) {
+      executeOptions.maxRows = options.limit
+    }
+    const result = await module.execute(sql, executeOptions)
     const elapsed = performance.now() - startTime
 
-    return {
+    const statistics: QueryStatistics = {
+      elapsed,
+      rowsRead: result.statistics?.rowsRead ?? 0,
+      bytesRead: result.statistics?.bytesRead ?? 0
+    }
+    if (result.statistics?.memoryUsage !== undefined) {
+      statistics.memoryUsage = result.statistics.memoryUsage
+    }
+
+    const queryResult: QueryResult<T> = {
       data: result.data as T[],
       meta: result.meta,
       rows: result.rows,
-      statistics: {
-        elapsed,
-        rowsRead: result.statistics?.rowsRead ?? 0,
-        bytesRead: result.statistics?.bytesRead ?? 0,
-        memoryUsage: result.statistics?.memoryUsage
-      },
-      extensions: result.extensions
+      statistics
     }
+    if (result.extensions !== undefined) {
+      queryResult.extensions = result.extensions
+    }
+    return queryResult
   }
 
   async queryWithParams<T = unknown>(
@@ -406,10 +430,13 @@ class ClickHouseClientImpl implements AnalyticsClient {
   ): AsyncIterable<T> {
     const module = await this.ensureWasmModule()
 
-    const stream = await module.executeStream(sql, {
-      format: 'JSONEachRow',
-      maxRows: options?.limit
-    })
+    const streamOptions: { format?: string; maxRows?: number } = {
+      format: 'JSONEachRow'
+    }
+    if (options?.limit !== undefined) {
+      streamOptions.maxRows = options.limit
+    }
+    const stream = await module.executeStream(sql, streamOptions)
 
     for await (const row of stream) {
       yield row as T
@@ -446,17 +473,24 @@ class ClickHouseClientImpl implements AnalyticsClient {
 
     // Calculate funnel metrics
     const stepCounts = steps.map((_, i) =>
-      result.data.filter(row => row[`step_${i}`] > 0).length
+      result.data.filter(row => (row[`step_${i}`] ?? 0) > 0).length
     )
 
+    const firstStepCount = stepCounts[0] ?? 0
+    const lastStepCount = stepCounts[stepCounts.length - 1] ?? 0
+
     return {
-      steps: steps.map((step, i) => ({
-        name: step.name,
-        count: stepCounts[i],
-        conversionRate: i === 0 ? 1 : stepCounts[i] / (stepCounts[i - 1] || 1),
-        dropoffRate: i === 0 ? 0 : 1 - (stepCounts[i] / (stepCounts[i - 1] || 1))
-      })),
-      overallConversionRate: stepCounts[stepCounts.length - 1] / (stepCounts[0] || 1)
+      steps: steps.map((step, i) => {
+        const currentCount = stepCounts[i] ?? 0
+        const prevCount = i > 0 ? (stepCounts[i - 1] ?? 1) : 1
+        return {
+          name: step.name,
+          count: currentCount,
+          conversionRate: i === 0 ? 1 : currentCount / (prevCount || 1),
+          dropoffRate: i === 0 ? 0 : 1 - (currentCount / (prevCount || 1))
+        }
+      }),
+      overallConversionRate: lastStepCount / (firstStepCount || 1)
     }
   }
 
@@ -629,7 +663,7 @@ class ClickHouseClientImpl implements AnalyticsClient {
       average: avgMRR * avgLifetimeMonths
     }
 
-    return {
+    const result: SaaSMetrics = {
       mrr,
       arr: currentMRR * 12,
       churn,
@@ -639,11 +673,14 @@ class ClickHouseClientImpl implements AnalyticsClient {
         : 1,
       grr: beginningMRR > 0
         ? (beginningMRR - contractionMRR - churnedMRR) / beginningMRR
-        : 1,
-      quickRatio: (churnedMRR + contractionMRR) > 0
-        ? (newMRR + expansionMRR) / (churnedMRR + contractionMRR)
-        : undefined
+        : 1
     }
+
+    if ((churnedMRR + contractionMRR) > 0) {
+      result.quickRatio = (newMRR + expansionMRR) / (churnedMRR + contractionMRR)
+    }
+
+    return result
   }
 
   async getCurrentMRR(): Promise<number> {
@@ -759,9 +796,15 @@ class ClickHouseClientImpl implements AnalyticsClient {
     `)
 
     const deviceMap = new Map(devices.data.map(d => [d.deviceType, d.count]))
+    const baseData = result.data[0]
 
     return {
-      ...result.data[0],
+      pageViews: baseData?.pageViews ?? 0,
+      uniqueVisitors: baseData?.uniqueVisitors ?? 0,
+      sessions: baseData?.sessions ?? 0,
+      avgSessionDuration: baseData?.avgSessionDuration ?? 0,
+      bounceRate: baseData?.bounceRate ?? 0,
+      pagesPerSession: baseData?.pagesPerSession ?? 0,
       topPages: topPages.data,
       topReferrers: topReferrers.data,
       devices: {
@@ -887,33 +930,50 @@ class ClickHouseClientImpl implements AnalyticsClient {
       const conversions = data?.conversions ?? 0
       const conversionRate = participants > 0 ? conversions / participants : 0
 
-      return {
+      const variantResult: ExperimentResults['variants'][number] = {
         variant,
         participants,
         conversions,
-        conversionRate,
-        improvement: controlRate > 0 ? (conversionRate - controlRate) / controlRate : undefined,
-        pValue: this.calculatePValue(controlData, data),
-        confidenceInterval: this.calculateCI(conversionRate, participants)
+        conversionRate
       }
+
+      const improvement = controlRate > 0 ? (conversionRate - controlRate) / controlRate : undefined
+      if (improvement !== undefined) {
+        variantResult.improvement = improvement
+      }
+
+      const pValue = this.calculatePValue(controlData, data)
+      if (pValue !== undefined) {
+        variantResult.pValue = pValue
+      }
+
+      const confidenceInterval = this.calculateCI(conversionRate, participants)
+      if (confidenceInterval !== undefined) {
+        variantResult.confidenceInterval = confidenceInterval
+      }
+
+      return variantResult
     })
 
     // Determine significance and winner
     const significantVariants = variants.filter(
       v => !v.variant.isControl && v.pValue !== undefined && v.pValue < 0.05
     )
-    const winner = significantVariants.length > 0
+    const winnerKey = significantVariants.length > 0
       ? significantVariants.reduce((best, v) =>
           (v.improvement ?? 0) > (best.improvement ?? 0) ? v : best
         ).variant.key
       : undefined
 
-    return {
+    const experimentResults: ExperimentResults = {
       experiment,
       variants,
-      isSignificant: significantVariants.length > 0,
-      winner
+      isSignificant: significantVariants.length > 0
     }
+    if (winnerKey !== undefined) {
+      experimentResults.winner = winnerKey
+    }
+    return experimentResults
   }
 
   // ===========================================================================
@@ -999,13 +1059,11 @@ class ClickHouseClientImpl implements AnalyticsClient {
     const events = this.eventBuffer.splice(0)
 
     // Insert into DO SQLite (hot storage)
-    const stmt = this.storage.sql.prepare(`
-      INSERT INTO events (id, type, timestamp, visitorId, sessionId, properties, device, geo)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-
     for (const event of events) {
-      stmt.run(
+      this.storage.sql.exec(`
+        INSERT INTO events (id, type, timestamp, visitorId, sessionId, properties, device, geo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
         crypto.randomUUID(),
         event.type,
         event.timestamp,

@@ -58,12 +58,28 @@ export interface R2ProviderConfig {
  * const data = await r2Provider.read('data/events/20240115_1_1_0/data.bin', 0, 4096)
  * ```
  */
+// Internal resolved config type with all required properties
+interface ResolvedR2Config {
+  bucket: R2Bucket
+  prefix: string
+  cache: {
+    enabled: boolean
+    maxSize: number
+    maxFileSize: number
+    ttl: number
+  }
+  writeBuffer: {
+    threshold: number
+    maxCount: number
+  }
+}
+
 export class R2Provider implements VFSStorageProvider {
   private bucket: R2Bucket
   private prefix: string
   private cache: FileCache
   private writeBuffers: Map<string, WriteBuffer> = new Map()
-  private config: Required<R2ProviderConfig>
+  private config: ResolvedR2Config
 
   constructor(config: R2ProviderConfig) {
     this.bucket = config.bucket
@@ -246,11 +262,14 @@ export class R2Provider implements VFSStorageProvider {
 
     let cursor: string | undefined
     do {
-      const result = await this.bucket.list({
+      const listOptions: R2ListOptions = {
         prefix: normalizedPrefix,
-        cursor,
         delimiter: '/'
-      })
+      }
+      if (cursor !== undefined) {
+        listOptions.cursor = cursor
+      }
+      const result = await this.bucket.list(listOptions)
 
       // Add files
       for (const obj of result.objects) {
@@ -368,7 +387,11 @@ export class R2Provider implements VFSStorageProvider {
     let cursor: string | undefined
 
     do {
-      const result = await this.bucket.list({ prefix, cursor })
+      const listOptions: R2ListOptions = { prefix }
+      if (cursor !== undefined) {
+        listOptions.cursor = cursor
+      }
+      const result = await this.bucket.list(listOptions)
 
       for (const obj of result.objects) {
         totalSize += obj.size
@@ -426,14 +449,22 @@ interface CacheEntry {
   lastAccess: number
 }
 
+// Resolved cache config type
+interface ResolvedCacheConfig {
+  enabled: boolean
+  maxSize: number
+  maxFileSize: number
+  ttl: number
+}
+
 class FileCache {
   private entries = new Map<string, CacheEntry>()
   private totalSize = 0
   private hits = 0
   private misses = 0
-  private config: Required<R2ProviderConfig['cache']>
+  private config: ResolvedCacheConfig
 
-  constructor(config: Required<R2ProviderConfig['cache']>) {
+  constructor(config: ResolvedCacheConfig) {
     this.config = config
   }
 
@@ -545,16 +576,28 @@ class WriteBuffer {
 
   read(offset: number, length: number): ArrayBuffer {
     const combined = this.toUint8Array()
-    return combined.slice(offset, offset + length).buffer
+    const sliced = combined.slice(offset, offset + length)
+    // Always copy to a new ArrayBuffer to ensure correct type
+    const result = new ArrayBuffer(sliced.byteLength)
+    new Uint8Array(result).set(sliced)
+    return result
   }
 
   toArrayBuffer(): ArrayBuffer {
-    return this.toUint8Array().buffer
+    const arr = this.toUint8Array()
+    // Always copy to a new ArrayBuffer to ensure correct type
+    const result = new ArrayBuffer(arr.byteLength)
+    new Uint8Array(result).set(arr)
+    return result
   }
 
   private toUint8Array(): Uint8Array {
     if (this.chunks.length === 1) {
-      return this.chunks[0]
+      const chunk = this.chunks[0]
+      if (chunk === undefined) {
+        return new Uint8Array(0)
+      }
+      return chunk
     }
 
     const combined = new Uint8Array(this._size)
