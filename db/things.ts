@@ -18,6 +18,8 @@ import {
   validateListOptions,
   validateBulkUpdateItems
 } from './validation'
+import { applyCursorPagination } from './pagination'
+import type { CursorPaginationOptions, CursorPaginatedResult } from './pagination'
 
 /**
  * Base Thing interface with system fields.
@@ -69,16 +71,15 @@ export interface BulkUpdateItem<T extends StorableData = StorableData> {
  */
 export interface CursorResult<T> {
   items: T[]
-  cursor?: string
+  nextCursor?: string
+  prevCursor?: string
   hasMore: boolean
 }
 
 /**
  * Options for cursor-based pagination
  */
-export interface CursorOptions {
-  cursor?: string
-  limit?: number
+export interface CursorOptions extends CursorPaginationOptions {
   type?: string
 }
 
@@ -449,6 +450,33 @@ export function createThingsStore(): ThingsStore {
       results.sort((a, b) => b.$createdAt - a.$createdAt)
 
       return results.slice(offset, offset + limit)
+    },
+
+    async listWithCursor(options = {}) {
+      const { type } = options
+
+      let results = Array.from(things.values())
+
+      if (type) {
+        results = results.filter(t => t.$type === type)
+      }
+
+      // Sort by createdAt descending, then by ID descending for stable ordering
+      results.sort((a, b) => {
+        const timeDiff = b.$createdAt - a.$createdAt
+        if (timeDiff !== 0) return timeDiff
+        // Secondary sort by ID descending for stable cursor pagination
+        return b.$id.localeCompare(a.$id)
+      })
+
+      return applyCursorPagination(
+        results,
+        options,
+        '$createdAt',
+        'desc',
+        (item) => item.$id,
+        (item) => item.$createdAt
+      )
     },
 
     async bulkCreate(items) {

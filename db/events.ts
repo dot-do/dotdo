@@ -10,6 +10,7 @@ import type { EventId, ThingId, CorrelationId } from './branded-types'
 import { generateEventId } from './id'
 import { createLogger } from '@dotdo/utils'
 import { MemoryStorageAdapter } from './adapters/memory'
+import { applyCursorPagination } from './pagination'
 
 const logger = createLogger('[Events]')
 
@@ -736,6 +737,28 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
       let events = Array.from(result.entries.values()).filter((e): e is Event<P> => e !== undefined)
       events = filterEvents(events, options)
       return sortAndPaginateEvents(events, options)
+    },
+
+    async queryWithCursor(options = {}) {
+      const result = await adapter.list<Event<P>>({ prefix: EVENTS_PREFIX, includeValues: true })
+      let events = Array.from(result.entries.values()).filter((e): e is Event<P> => e !== undefined)
+      events = filterEvents(events, options)
+      // Sort by timestamp descending, then by ID descending for stable ordering
+      events.sort((a, b) => {
+        const timeDiff = b.$timestamp - a.$timestamp
+        if (timeDiff !== 0) return timeDiff
+        // Secondary sort by ID descending for stable cursor pagination
+        return b.$id.localeCompare(a.$id)
+      })
+
+      return applyCursorPagination(
+        events,
+        options,
+        '$timestamp',
+        'desc',
+        (item) => item.$id,
+        (item) => item.$timestamp
+      )
     },
 
     subscribe(handler) {

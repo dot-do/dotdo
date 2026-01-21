@@ -39,8 +39,31 @@ export interface QueryLimitsConfig {
   defaultJoinLimit?: number
   maxLimit?: number
   warningThreshold?: number
+  /** Mode: 'warn' emits warnings, 'strict' throws errors for limit violations */
+  mode?: 'warn' | 'strict'
   /** Optional callback for warnings */
   onWarning?: (message: string, context: { operation: string; requested: number; actual: number }) => void
+}
+
+/**
+ * Error thrown when query limits are exceeded in strict mode
+ */
+export class QueryLimitError extends Error {
+  public readonly maxAllowed: number
+  public readonly requested: number
+  public readonly operation: string
+
+  constructor(operation: string, requested: number, maxAllowed: number) {
+    super(
+      `Query limit exceeded in ${operation}: requested ${requested} but max allowed is ${maxAllowed}. ` +
+      `Use configureQueryLimits() to adjust limits or use pagination.`
+    )
+    this.name = 'QueryLimitError'
+    this.operation = operation
+    this.requested = requested
+    this.maxAllowed = maxAllowed
+    Object.setPrototypeOf(this, new.target.prototype)
+  }
 }
 
 // Global limits configuration (can be updated via configureQueryLimits)
@@ -56,22 +79,29 @@ export function configureQueryLimits(config: QueryLimitsConfig): void {
 /**
  * Get current query limits
  */
-export function getQueryLimits(): Required<Omit<QueryLimitsConfig, 'onWarning'>> & { onWarning?: QueryLimitsConfig['onWarning'] } {
+export function getQueryLimits(): Required<Omit<QueryLimitsConfig, 'onWarning' | 'mode'>> & { onWarning?: QueryLimitsConfig['onWarning']; mode: 'warn' | 'strict' } {
   return {
     defaultLimit: queryLimitsConfig.defaultLimit ?? DEFAULT_QUERY_LIMITS.DEFAULT_LIMIT,
     defaultJoinLimit: queryLimitsConfig.defaultJoinLimit ?? DEFAULT_QUERY_LIMITS.DEFAULT_JOIN_LIMIT,
     maxLimit: queryLimitsConfig.maxLimit ?? DEFAULT_QUERY_LIMITS.MAX_LIMIT,
     warningThreshold: queryLimitsConfig.warningThreshold ?? DEFAULT_QUERY_LIMITS.WARNING_THRESHOLD,
+    mode: queryLimitsConfig.mode ?? 'strict',
     onWarning: queryLimitsConfig.onWarning,
   }
 }
 
 /**
  * Clamp a limit to the configured max and warn if approaching threshold
+ * In strict mode, throws QueryLimitError if limit exceeds max
  */
 function clampAndWarnLimit(requested: number | undefined, operation: string, defaultLimit: number): number {
   const limits = getQueryLimits()
   const effectiveLimit = requested ?? defaultLimit
+
+  // In strict mode, throw if limit exceeds max
+  if (limits.mode === 'strict' && effectiveLimit > limits.maxLimit) {
+    throw new QueryLimitError(operation, effectiveLimit, limits.maxLimit)
+  }
 
   // Clamp to max
   const clampedLimit = Math.min(effectiveLimit, limits.maxLimit)
@@ -218,7 +248,7 @@ const VALID_FIELD_NAME = /^[$a-zA-Z_][a-zA-Z0-9_$]*$/
  * Validates a field name to prevent SQL injection (do-xdq7)
  * Throws a DbValidationError if the field name is invalid
  */
-function validateFieldName(field: string): void {
+export function validateFieldName(field: string): void {
   if (!VALID_FIELD_NAME.test(field)) {
     throw DbValidationError.forField(
       field,
@@ -576,18 +606,37 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
 
       let results: Thing[]
 
+      // Validate user-requested limit and handle warnings
+      const limits = getQueryLimits()
+      const userRequestedLimit = options.limit ?? limits.defaultLimit
+
+      // In strict mode, throw if limit exceeds max
+      if (limits.mode === 'strict' && userRequestedLimit > limits.maxLimit) {
+        throw new QueryLimitError('query.execute', userRequestedLimit, limits.maxLimit)
+      }
+
+      // In warn mode, emit warning if limit exceeds threshold
+      const effectiveLimit = Math.min(userRequestedLimit, limits.maxLimit)
+      if (effectiveLimit >= limits.warningThreshold && limits.onWarning) {
+        limits.onWarning(
+          `Large query detected: query.execute requesting ${effectiveLimit} results (threshold: ${limits.warningThreshold})`,
+          { operation: 'query.execute', requested: userRequestedLimit, actual: effectiveLimit }
+        )
+      }
+
       if (sqlStore.queryWithConditions) {
         results = await sqlStore.queryWithConditions(options)
       } else {
-        // Fallback: In-memory filtering with bounded limit (do-bgr1)
-        const fallbackLimit = clampAndWarnLimit(
+        // Fallback: In-memory filtering
+        // Use a large internal limit for fetching, but don't subject it to strict mode
+        // The user's limit is already validated above
+        const internalFetchLimit = Math.max(
           DEFAULT_QUERY_LIMITS.FALLBACK_QUERY_LIMIT,
-          'fallback-query',
-          DEFAULT_QUERY_LIMITS.FALLBACK_QUERY_LIMIT
+          limits.maxLimit
         )
         results = await store.list({
           ...(options.type !== undefined && { type: options.type }),
-          limit: fallbackLimit,
+          limit: internalFetchLimit,
         })
 
         // Apply whereConditions
@@ -616,9 +665,9 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
           })
         }
 
-        // Apply pagination with bounded limits (do-bgr1)
+        // Apply pagination with the validated limit
         const offset = options.offset || 0
-        const limit = clampAndWarnLimit(options.limit, 'execute-pagination', getQueryLimits().defaultLimit)
+        const limit = Math.min(userRequestedLimit, limits.maxLimit)
         results = results.slice(offset, offset + limit)
 
         // Apply projection
@@ -840,15 +889,15 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
         return sqlStore.countWithConditions(options)
       }
 
-      // Use bounded max limit for count fallback (do-bgr1)
+      // For count fallback, use the user's explicit limit or maxLimit
+      // Don't trigger strict mode check for internal counting - the user's limit is already validated
       const hadLimit = 'limit' in options && options.limit !== undefined
       const originalLimit = options.limit
-      const countLimit = clampAndWarnLimit(
-        getQueryLimits().maxLimit,
-        'count-fallback',
-        getQueryLimits().maxLimit
-      )
-      options.limit = countLimit
+      const limits = getQueryLimits()
+      // Use the explicit limit if provided, otherwise use maxLimit for counting
+      options.limit = hadLimit && originalLimit !== undefined
+        ? Math.min(originalLimit, limits.maxLimit)
+        : limits.maxLimit
       const results = await builder.execute()
       if (hadLimit && originalLimit !== undefined) {
         options.limit = originalLimit

@@ -18,17 +18,25 @@
  */
 
 import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
+import { workspaceAliases } from '../vitest.config'
 
 export default defineWorkersConfig({
+  // Inherit workspace aliases for package resolution
+  resolve: {
+    alias: workspaceAliases,
+  },
   test: {
     // Include ALL db tests
     include: [
       'tests/**/*.test.ts',
     ],
 
-    // Exclude only non-test files
+    // Exclude non-test files and tests incompatible with vitest-pool-workers
     exclude: [
       '**/node_modules/**',
+      // transactions.test.ts uses Miniflare directly with Node.js modules (os, fs, path)
+      // which are incompatible with vitest-pool-workers
+      'tests/transactions.test.ts',
     ],
 
     // CRITICAL: Limit concurrency to prevent resource exhaustion

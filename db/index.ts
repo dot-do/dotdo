@@ -91,6 +91,9 @@ export * from './audit'
 /** Schema validation and type inference */
 export * from './schema'
 
+/** Cursor-based pagination utilities */
+export * from './pagination'
+
 /** Input validation utilities */
 export {
   // Configuration

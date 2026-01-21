@@ -6,6 +6,7 @@
 import type { StorableData, JsonValue } from './types'
 import type { StorageAdapter } from './storage'
 import type { ThingId } from './branded-types'
+import { applyCursorPagination } from './pagination'
 
 /**
  * Base Relationship interface with system fields
@@ -254,6 +255,35 @@ export function createRelationshipsStore<M extends StorableData = StorableData>(
         if (query.object && r.object !== query.object) return false
         return true
       })
+    },
+
+    async findWithCursor(options = {}) {
+      let results = relationships.filter(r => {
+        if (options.subject && r.subject !== options.subject) return false
+        if (options.predicate && r.predicate !== options.predicate) return false
+        if (options.object && r.object !== options.object) return false
+        return true
+      })
+
+      // Generate a unique ID for relationships based on the triple
+      const getRelId = (r: Relationship<M>) => `${r.subject}:${r.predicate}:${r.object}`
+
+      // Sort by createdAt descending, then by ID descending for stable ordering
+      results.sort((a, b) => {
+        const timeDiff = b.$createdAt - a.$createdAt
+        if (timeDiff !== 0) return timeDiff
+        // Secondary sort by ID descending for stable cursor pagination
+        return getRelId(b).localeCompare(getRelId(a))
+      })
+
+      return applyCursorPagination(
+        results,
+        options,
+        '$createdAt',
+        'desc',
+        getRelId,
+        (item) => item.$createdAt
+      )
     },
 
     async getRelated(subjectId, predicate) {
