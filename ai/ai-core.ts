@@ -16,8 +16,16 @@
  * - Chat API support
  */
 
-import type { LanguageModel, EmbeddingModel } from 'ai'
 import type { ZodTypeAny } from 'zod'
+
+// Type aliases for AI SDK models
+// We define these locally because the 'ai' package's type exports may not resolve
+// correctly under moduleResolution: "bundler" with the complex GlobalProviderModelId type.
+// These types match the actual shape expected by the AI SDK functions.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type LanguageModel = any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type EmbeddingModel = any
 
 // Core types (defined inline to avoid dependency on primitives submodule)
 export interface JSONSchema {
@@ -368,7 +376,7 @@ export interface GenerateObjectResult<T = unknown> {
     completionTokens: number
     totalTokens: number
   }
-  finishReason?: string
+  finishReason?: string | undefined
 }
 
 /**

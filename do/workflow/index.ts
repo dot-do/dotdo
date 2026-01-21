@@ -60,3 +60,19 @@ export {
   type DOStubProxy,
   type CrossDORPCConfig,
 } from './rpc'
+
+// Async context propagation (do-nexi)
+export {
+  runWithWorkflowContext,
+  runWithWorkflowContextSync,
+  getCurrentWorkflowContext,
+  getCurrentRequestContext,
+  getContextMetadata,
+  setContextMetadata,
+  getRequestId,
+  hasWorkflowContext,
+  wrapHandler,
+  initializeAsyncContext,
+  resetAsyncContext,
+  type RequestScopedContext,
+} from './async-context'
