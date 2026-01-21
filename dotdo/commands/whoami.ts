@@ -50,23 +50,15 @@ export async function whoami(options: WhoamiOptions = {}): Promise<void> {
     const token = await getStoredToken()
 
     if (!token) {
-      if (options.json) {
-        console.log(JSON.stringify({ error: 'not_logged_in', message: 'Not logged in' }))
-      } else {
-        console.log('Not logged in')
-        console.log('Run: dotdo login')
-      }
+      console.log('Not logged in')
+      console.log('Run: dotdo login')
       return
     }
 
     // Check if token is expired (only if no refresh_token available)
     if (token.expires_at && token.expires_at < Date.now() && !token.refresh_token) {
-      if (options.json) {
-        console.log(JSON.stringify({ error: 'session_expired', message: 'Session expired' }))
-      } else {
-        console.log('Session expired')
-        console.log('Run: dotdo login')
-      }
+      console.log('Session expired')
+      console.log('Run: dotdo login')
       return
     }
 
@@ -74,18 +66,14 @@ export async function whoami(options: WhoamiOptions = {}): Promise<void> {
     const userInfo = await getUserInfo(token.access_token)
 
     if (!userInfo) {
-      if (options.json) {
-        console.log(JSON.stringify({ error: 'fetch_failed', message: 'Failed to fetch user information' }))
-      } else {
-        console.log('Failed to fetch user information')
-        console.log('Session may be invalid. Run: dotdo login')
-      }
+      console.log('Failed to fetch user information')
+      console.log('Session may be invalid. Run: dotdo login')
       return
     }
 
     // Display user info
     if (options.json) {
-      console.log(JSON.stringify(userInfo))
+      console.log(JSON.stringify(userInfo, null, 2))
     } else {
       console.log(`Logged in as: ${userInfo.email || userInfo.id}`)
 
@@ -107,11 +95,7 @@ export async function whoami(options: WhoamiOptions = {}): Promise<void> {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    if (options.json) {
-      console.log(JSON.stringify({ error: 'exception', message }))
-    } else {
-      console.error('Failed to get user info:', message)
-    }
+    console.error('Failed to get user info:', message)
     throw new Error(`Failed to get user info: ${message}`)
   }
 }

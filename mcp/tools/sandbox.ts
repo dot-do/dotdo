@@ -108,7 +108,7 @@ export function createSandboxTool(deps: SandboxToolDeps): MCPTool {
           timeout: effectiveTimeout
         },
         audit,
-        ...(onAudit !== undefined && { onAudit })
+        onAudit
       }
 
       // Create and execute sandbox

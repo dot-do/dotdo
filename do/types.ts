@@ -54,7 +54,7 @@
  * ```
  */
 
-import type { EventsStore, Event } from '@dotdo/db'
+import type { EventsStore, Event } from '../db'
 import type { EventHandler } from './on'
 import type { ScheduleRegistration, ScheduleHandler } from './schedule'
 import type { FireAndForgetErrorStore } from './fire-and-forget-errors'
@@ -654,5 +654,4 @@ export interface CreateTypedContextOptions {
 // Re-export related types that users commonly need
 export type { EventHandler } from './on'
 export type { ScheduleRegistration, ScheduleHandler, ScheduleInterval } from './schedule'
-// NOTE: Event type should be imported directly from @dotdo/db to avoid circular dependencies
-// See issue do-njqb: Event, EventsStore, and other db types belong in @dotdo/db
+export type { Event } from '../db'
