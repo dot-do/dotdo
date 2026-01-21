@@ -13,7 +13,7 @@
 // The server resolves the chain and returns the final result.
 
 import type { Transport, RPCMessage, RPCResponse } from './transport/types'
-import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
+import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
 import { deserializeError } from './errors'
 
 // ============================================================================

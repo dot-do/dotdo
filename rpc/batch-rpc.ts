@@ -9,7 +9,7 @@
  */
 
 import { deserializeError, isRPCError, type SerializedError } from './errors'
-import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
+import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
 
 /**
  * A single RPC call in a batch request

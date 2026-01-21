@@ -1,9 +1,8 @@
 // DO Stub Transport - Durable Object stub-based RPC transport
 // Used for Worker-to-DO and DO-to-DO communication within Cloudflare Workers
 
-import { generateCorrelationId, CORRELATION_ID_HEADER } from '../client'
 import { isSerializedError, TransportError, type SerializedError } from '../errors'
-import { DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER } from '../headers'
+import { generateCorrelationId, CORRELATION_ID_HEADER, DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER } from '../headers'
 import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportState } from './types'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 

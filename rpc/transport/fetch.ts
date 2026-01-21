@@ -1,7 +1,7 @@
 // Fetch Transport - HTTP/fetch-based RPC transport
 // Used for client-to-worker communication over HTTP
 
-import { generateCorrelationId, CORRELATION_ID_HEADER } from '../client'
+import { generateCorrelationId, CORRELATION_ID_HEADER } from '../headers'
 import { isSerializedError, TransportError, type SerializedError } from '../errors'
 import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportState } from './types'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'

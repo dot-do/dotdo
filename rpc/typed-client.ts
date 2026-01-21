@@ -1,7 +1,7 @@
 // Typed RPC Client - provides full type inference for DO method calls
 // Uses TypeScript utility types to infer methods, parameters, and return types from DO classes
 
-import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
+import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
 import { deserializeError, isRPCError, type SerializedError } from './errors'
 import type {
   RPCClient,

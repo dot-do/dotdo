@@ -1,7 +1,7 @@
 // WebSocket Transport - Real-time bidirectional RPC transport
 // Used for long-lived connections with push capabilities
 
-import { generateCorrelationId } from '../client'
+import { generateCorrelationId } from '../headers'
 import { type SerializedError } from '../errors'
 import type {
   Transport,

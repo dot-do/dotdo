@@ -2,6 +2,29 @@
 // These constants are used by both @dotdo/rpc and @dotdo/do for DO-to-DO communication
 // They are defined here in @dotdo/rpc to avoid circular dependencies
 
+// ============================================================================
+// Correlation ID Utilities
+// ============================================================================
+
+/**
+ * Generate a unique correlation ID for request tracing
+ * Uses crypto.randomUUID() when available, otherwise falls back to a timestamp-based ID
+ */
+export function generateCorrelationId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  // Fallback for environments without crypto.randomUUID
+  return `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 11)}`
+}
+
+/** Header name for correlation ID */
+export const CORRELATION_ID_HEADER = 'X-Correlation-ID'
+
+// ============================================================================
+// DO-to-DO Headers
+// ============================================================================
+
 /**
  * Header indicating the request is from another DO
  */

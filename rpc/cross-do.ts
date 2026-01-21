@@ -1,9 +1,8 @@
 // Cross-DO RPC - Durable Object to Durable Object communication
 // Provides typed RPC between DOs with stub caching and connection pooling
 
-import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
 import { RPCError, RPCErrorCode, isSerializedError, deserializeError, TransportError } from './errors'
-import { DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER } from './headers'
+import { generateCorrelationId, CORRELATION_ID_HEADER, DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER } from './headers'
 
 // Re-export for convenience
 export { generateCorrelationId, CORRELATION_ID_HEADER }

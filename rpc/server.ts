@@ -1,7 +1,7 @@
 // RPC Server - exposes methods via HTTP/RPC
 // Includes Cap'n Proto-style promise pipelining support
 import { Hono } from 'hono'
-import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
+import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
 import {
   NotFoundError,
   ValidationError,
