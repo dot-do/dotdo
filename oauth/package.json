@@ -25,6 +25,10 @@
     "./providers": {
       "import": "./src/providers/index.ts",
       "types": "./src/providers/index.ts"
+    },
+    "./middleware": {
+      "import": "./src/middleware/index.ts",
+      "types": "./src/middleware/index.ts"
     }
   },
   "scripts": {
@@ -32,7 +36,9 @@
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {},
+  "dependencies": {
+    "hono": "^4.7.0"
+  },
   "devDependencies": {
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"

@@ -73,3 +73,22 @@ export type {
   MicrosoftProviderConfig,
   CustomProviderConfig,
 } from './providers'
+
+// Middleware and handlers
+export {
+  oauthMiddleware,
+  createCallbackHandler,
+  createAuthorizeHandler,
+  createTokenEndpoint,
+} from './middleware'
+
+export type {
+  OAuthMiddlewareOptions,
+  JwtPayload,
+  CallbackHandlerOptions,
+  CookieOptions,
+  AuthorizeHandlerOptions,
+  AuthorizeHandlerOptionsWithProvider,
+  AuthorizeHandlerOptionsWithRegistry,
+  TokenEndpointOptions,
+} from './middleware'
