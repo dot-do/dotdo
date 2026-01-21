@@ -8,3 +8,7 @@ packages:
   - api
   - app
   - dotdo
+  - utils
+  - integrations
+  - test-utils
+  - primitives/packages/**

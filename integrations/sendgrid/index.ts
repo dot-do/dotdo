@@ -11,6 +11,7 @@ import type {
   IntegrationEvent,
 } from '../types'
 import { successResult, errorResult } from '../registry'
+import { verifySendGridSignature } from '../webhook-verify'
 
 /**
  * SendGrid-specific configuration
@@ -313,10 +314,41 @@ export class SendGridIntegration implements Integration<SendGridConfig, SendGrid
     try {
       const body = await request.text()
 
-      // In a real implementation, you would:
-      // 1. Verify the webhook signature using webhookSigningKey
-      // 2. Parse the events
-      // 3. Call registered handlers
+      // Verify webhook signature if signing key is configured
+      // SendGrid uses ECDSA signature verification
+      // Headers: X-Twilio-Email-Event-Webhook-Signature, X-Twilio-Email-Event-Webhook-Timestamp
+      if (this.config.webhookSigningKey) {
+        const signature = request.headers.get('X-Twilio-Email-Event-Webhook-Signature')
+        const timestamp = request.headers.get('X-Twilio-Email-Event-Webhook-Timestamp')
+
+        if (!signature || !timestamp) {
+          return new Response(
+            JSON.stringify({ error: 'Missing webhook signature or timestamp headers' }),
+            {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          )
+        }
+
+        const verification = await verifySendGridSignature(
+          body,
+          signature,
+          timestamp,
+          this.config.webhookSigningKey
+        )
+
+        if (!verification.valid) {
+          console.error('SendGrid webhook signature verification failed:', verification.error)
+          return new Response(
+            JSON.stringify({ error: 'Signature verification failed', details: verification.error }),
+            {
+              status: 401,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          )
+        }
+      }
 
       const events = JSON.parse(body) as Array<{
         event: string

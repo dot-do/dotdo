@@ -191,9 +191,3 @@ export class ToolRegistry {
   }
 }
 
-/**
- * Create and populate a registry with the standard dotdo MCP tools
- */
-export function createDefaultRegistry(): ToolRegistry {
-  return new ToolRegistry()
-}
