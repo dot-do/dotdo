@@ -258,12 +258,13 @@ export function orgAiAuthMiddleware(options: OrgAiAuthOptions = {}): MiddlewareH
     const authHeader = c.req.header('Authorization')
 
     if (!sessionHeader && !authHeader) {
-      const error = new HTTPException(401, { message: 'org.ai session required' })
-      error.res = new Response(JSON.stringify({ error: 'org.ai session required' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
+      throw new HTTPException(401, {
+        message: 'org.ai session required',
+        res: new Response(JSON.stringify({ error: 'org.ai session required' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+        })
       })
-      throw error
     }
 
     let session: Session | null = null
@@ -287,12 +288,13 @@ export function orgAiAuthMiddleware(options: OrgAiAuthOptions = {}): MiddlewareH
 
     // Check if session is expired
     if (isSessionExpired(session)) {
-      const error = new HTTPException(401, { message: 'org.ai session expired' })
-      error.res = new Response(JSON.stringify({ error: 'org.ai session expired' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
+      throw new HTTPException(401, {
+        message: 'org.ai session expired',
+        res: new Response(JSON.stringify({ error: 'org.ai session expired' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+        })
       })
-      throw error
     }
 
     // Custom session validation
@@ -316,16 +318,15 @@ export function orgAiAuthMiddleware(options: OrgAiAuthOptions = {}): MiddlewareH
     if (requireOrganization) {
       const isMember = organizations.some(org => org.$id === requireOrganization)
       if (!isMember) {
-        const error = new HTTPException(403, {
-          message: `Organization membership required: ${requireOrganization}`
+        throw new HTTPException(403, {
+          message: `Organization membership required: ${requireOrganization}`,
+          res: new Response(JSON.stringify({
+            error: `Organization membership required: ${requireOrganization}`
+          }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json' }
+          })
         })
-        error.res = new Response(JSON.stringify({
-          error: `Organization membership required: ${requireOrganization}`
-        }), {
-          status: 403,
-          headers: { 'Content-Type': 'application/json' }
-        })
-        throw error
       }
     }
 
