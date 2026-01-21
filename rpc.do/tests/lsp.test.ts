@@ -525,7 +525,7 @@ describe('LSPService.getSignatureHelp', () => {
     const signature = lsp.getSignatureHelp(position, code)
 
     expect(signature).toBeDefined()
-    const sig = signature!.signatures[0]
+    const sig = signature!.signatures[0]!
     // If documentation exists for the method, it should be present
     if (sig.documentation) {
       expect(typeof sig.documentation).toBe('string')
