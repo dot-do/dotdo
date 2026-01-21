@@ -344,6 +344,24 @@ export {
   // Event handler result types
   type HandlerResult,
   type InvokeHandlersResult,
+  // Entity accessor types (do-lekf.2)
+  type EntitySchema,
+  type EntityListOptions,
+  type EntityInstance,
+  type EntityAccessor,
+  type EntityProxy,
+  type EntityProxyConfig,
+  // Typed entity accessor types with type narrowing (do-b1tuz)
+  type TypedEntityInstance,
+  type TypedEntityAccessor,
+  type TypedEntityProxy,
+  type EntityDefinitionsConstraint,
+  type EmptyEntityDefinitions,
+  type DefineEntities,
+  type EntitySchemaDefinition,
+  type EntityAccessors,
+  type TypedWorkflowContextWithEntities,
+  type CreateTypedEntityContext,
 } from './workflow'
 
 /**
@@ -857,3 +875,74 @@ export {
   type ScheduleProxyOptions,
   type EntityProxyOptions,
 } from '@dotdo/utils'
+
+/**
+ * Saga Pattern for Cross-DO Transaction Coordination (do-o9ix8).
+ *
+ * Implements the Saga pattern for managing distributed transactions across
+ * multiple Durable Objects. Each saga consists of a sequence of steps,
+ * where each step has an execute action and a compensating action.
+ *
+ * If any step fails, all previously completed steps are compensated
+ * (rolled back) in reverse order.
+ *
+ * @example
+ * ```typescript
+ * import { createSaga, executeSaga } from '@dotdo/do'
+ *
+ * const orderSaga = createSaga<OrderContext>({
+ *   name: 'create-order',
+ *   steps: [
+ *     {
+ *       name: 'reserve-inventory',
+ *       execute: async (ctx) => {
+ *         await $.Inventory(ctx.productId).reserve(ctx.quantity)
+ *         return { ...ctx, inventoryReserved: true }
+ *       },
+ *       compensate: async (ctx) => {
+ *         await $.Inventory(ctx.productId).release(ctx.quantity)
+ *       },
+ *     },
+ *     {
+ *       name: 'charge-payment',
+ *       execute: async (ctx) => {
+ *         await $.Payment(ctx.customerId).charge(ctx.amount)
+ *         return { ...ctx, paymentCharged: true }
+ *       },
+ *       compensate: async (ctx) => {
+ *         await $.Payment(ctx.customerId).refund(ctx.amount)
+ *       },
+ *     },
+ *   ],
+ * })
+ *
+ * const result = await executeSaga(orderSaga, {
+ *   productId: 'p-1',
+ *   quantity: 5,
+ *   customerId: 'cust-123',
+ *   amount: 100,
+ * })
+ *
+ * if (result.status === 'completed') {
+ *   console.log('Order created successfully')
+ * } else if (result.status === 'compensated') {
+ *   console.log(`Order failed at step: ${result.failedStep}`)
+ * }
+ * ```
+ */
+export {
+  createSaga,
+  executeSaga,
+  compensateSaga,
+  SagaError,
+  isSagaSuccess,
+  isSagaCompensated,
+  isSagaCompensationFailed,
+  type Saga,
+  type SagaStep,
+  type SagaConfig,
+  type SagaResult,
+  type SagaState,
+  type SagaStatus,
+  type CompensationError,
+} from './workflow/saga'

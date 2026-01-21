@@ -100,3 +100,21 @@ export {
   type EntityProxy,
   type EntityProxyConfig,
 } from './entity'
+
+// Saga pattern for cross-DO transactions (do-o9ix8)
+export {
+  createSaga,
+  executeSaga,
+  compensateSaga,
+  SagaError,
+  isSagaSuccess,
+  isSagaCompensated,
+  isSagaCompensationFailed,
+  type Saga,
+  type SagaStep,
+  type SagaConfig,
+  type SagaResult,
+  type SagaState,
+  type SagaStatus,
+  type CompensationError,
+} from './saga'
