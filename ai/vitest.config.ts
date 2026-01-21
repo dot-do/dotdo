@@ -22,14 +22,19 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    // Include ALL ai tests
+    // Root directory for this config
+    root: './ai',
+
+    // Include Node-environment AI tests (template literals, providers, etc.)
+    // DO integration tests run with vitest.workers.config.ts
     include: [
       'tests/**/*.test.ts',
     ],
 
-    // Exclude only non-test files
+    // Exclude non-test files and DO integration tests (those use workers pool)
     exclude: [
       '**/node_modules/**',
+      'tests/do-integration.test.ts',
     ],
 
     // CRITICAL: Limit concurrency to prevent resource exhaustion
