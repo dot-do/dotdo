@@ -1,5 +1,6 @@
 // Integration Types - Third-party integration interface definitions
 // Part of the dotdo integration registry system (do-laux)
+// Integration hooks pattern standardized in do-07dn
 
 /**
  * Configuration for initializing an integration
@@ -19,6 +20,71 @@ export interface IntegrationConfig {
   timeout?: number
   /** Additional service-specific configuration */
   [key: string]: unknown
+}
+
+// ============================================================================
+// Integration Hooks Pattern (do-07dn)
+// ============================================================================
+//
+// All integrations MUST implement the following hooks consistently:
+//
+// LIFECYCLE HOOKS (required):
+// - init(config): Initialize the integration
+// - shutdown(): Clean up resources
+// - healthCheck(): Verify connectivity
+//
+// EVENT HOOKS (required for webhook-capable integrations):
+// - handleWebhook(request): Process incoming webhooks
+// - onEvent(handler): Register event listeners
+//
+// METHOD HOOKS (optional, for observability):
+// - onMethodCall(hook): Called before/after method execution
+// - onError(handler): Centralized error handling
+//
+// ============================================================================
+
+/**
+ * Hook called before and after integration method calls.
+ * Provides observability into integration operations.
+ */
+export interface MethodCallHook {
+  /** Called before method execution */
+  before?: (context: MethodCallContext) => void | Promise<void>
+  /** Called after method execution (success or failure) */
+  after?: (context: MethodCallContext, result: IntegrationResult) => void | Promise<void>
+}
+
+/**
+ * Context passed to method call hooks
+ */
+export interface MethodCallContext {
+  /** Name of the method being called */
+  method: string
+  /** Arguments passed to the method */
+  args: unknown[]
+  /** Timestamp when the method was called */
+  timestamp: Date
+  /** Optional correlation ID for tracing */
+  correlationId?: string
+}
+
+/**
+ * Error handler for integration errors
+ */
+export type IntegrationErrorHandler = (error: IntegrationError, context: {
+  integration: string
+  method?: string
+  args?: unknown[]
+}) => void | Promise<void>
+
+/**
+ * Hooks configuration for integrations
+ */
+export interface IntegrationHooks {
+  /** Hook for method calls (before/after) */
+  onMethodCall?: MethodCallHook
+  /** Centralized error handler */
+  onError?: IntegrationErrorHandler
 }
 
 /**
@@ -116,6 +182,45 @@ export type IntegrationMethods = {
 /**
  * Core Integration interface
  * All third-party integrations must implement this interface
+ *
+ * ## Hooks Pattern (do-07dn)
+ *
+ * Integrations implement a consistent hooks pattern:
+ *
+ * ### Required Lifecycle Hooks
+ * - `init(config)`: Initialize with configuration
+ * - `shutdown()`: Clean up resources (optional but recommended)
+ * - `healthCheck()`: Verify connectivity (optional but recommended)
+ *
+ * ### Event Hooks (for webhook-capable integrations)
+ * - `handleWebhook(request)`: Process incoming webhooks
+ * - `onEvent(handler)`: Register event listeners
+ *
+ * ### Observability Hooks (optional)
+ * - `setHooks(hooks)`: Configure method call and error hooks
+ *
+ * @example
+ * ```typescript
+ * const stripe = createStripeIntegration()
+ *
+ * // Set up observability hooks
+ * stripe.setHooks?.({
+ *   onMethodCall: {
+ *     before: (ctx) => console.log(`Calling ${ctx.method}`),
+ *     after: (ctx, result) => console.log(`${ctx.method} completed`)
+ *   },
+ *   onError: (error, ctx) => reportError(error, ctx)
+ * })
+ *
+ * // Register event handlers
+ * stripe.onEvent?.((event) => {
+ *   if (event.type === 'payment_intent.succeeded') {
+ *     // Handle successful payment
+ *   }
+ * })
+ *
+ * await stripe.init(config)
+ * ```
  */
 export interface Integration<
   TConfig extends IntegrationConfig = IntegrationConfig,
@@ -130,36 +235,64 @@ export interface Integration<
   /** Current status of the integration */
   readonly status: IntegrationStatus
 
+  // ============================================================================
+  // LIFECYCLE HOOKS (required)
+  // ============================================================================
+
   /**
-   * Initialize the integration with configuration
+   * Initialize the integration with configuration.
+   * Must set status to 'ready' on success or 'error' on failure.
    * @param config - Configuration for the integration
    */
   init(config: TConfig): Promise<void>
 
   /**
-   * Shutdown the integration cleanly
+   * Shutdown the integration cleanly.
+   * Should reset status to 'uninitialized' and clean up resources.
    */
   shutdown?(): Promise<void>
 
   /**
-   * Check if the integration is healthy and connected
+   * Check if the integration is healthy and connected.
+   * Returns true if the integration can successfully communicate with the service.
    */
   healthCheck?(): Promise<boolean>
 
+  // ============================================================================
+  // METHODS
+  // ============================================================================
+
   /**
-   * Methods exposed by this integration
+   * Methods exposed by this integration.
+   * All methods should return IntegrationResult for consistent error handling.
    */
   readonly methods: TMethods
 
+  // ============================================================================
+  // EVENT HOOKS (for webhook-capable integrations)
+  // ============================================================================
+
   /**
-   * Handle incoming webhooks from the service
+   * Handle incoming webhooks from the service.
+   * Should verify signatures, parse events, and dispatch to registered handlers.
    */
   handleWebhook?(request: Request): Promise<Response>
 
   /**
-   * Register a handler for integration events
+   * Register a handler for integration events.
+   * Events are emitted when webhooks are received or internal events occur.
    */
   onEvent?(handler: IntegrationWebhookHandler): void
+
+  // ============================================================================
+  // OBSERVABILITY HOOKS (optional)
+  // ============================================================================
+
+  /**
+   * Configure observability hooks for method calls and errors.
+   * Allows intercepting method calls for logging, metrics, and error handling.
+   */
+  setHooks?(hooks: IntegrationHooks): void
 }
 
 /**

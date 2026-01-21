@@ -39,7 +39,7 @@ import {
   type ConnectionHandler
 } from '../websocket'
 import type { Constructor } from './storage'
-import { createLogger } from '../../utils/logger'
+import { createLogger } from '@dotdo/utils'
 
 const logger = createLogger('[WithWebSocket]')
 
@@ -142,6 +142,7 @@ export function WithWebSocket<TBase extends Constructor>(
     private _websocketManager: WebSocketManager
     private _heartbeatIntervalId: number | null = null
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
       this._websocketManager = new WebSocketManager()

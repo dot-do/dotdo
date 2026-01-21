@@ -2,12 +2,31 @@
   "name": "@dotdo/integrations",
   "version": "0.1.0",
   "type": "module",
-  "main": "./index.ts",
-  "types": "./index.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./index.ts",
-    "./stripe": "./stripe/index.ts",
-    "./sendgrid": "./sendgrid/index.ts"
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./stripe": {
+      "import": "./dist/stripe/index.js",
+      "types": "./dist/stripe/index.d.ts"
+    },
+    "./sendgrid": {
+      "import": "./dist/sendgrid/index.js",
+      "types": "./dist/sendgrid/index.d.ts"
+    }
   },
-  "description": "Third-party integration registry for dotdo"
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "description": "Third-party integration registry for dotdo",
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
 }

@@ -269,7 +269,6 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
       // Note: There's no allowNetwork option in the current interface
       const sandbox = createSandbox({
         context: mockContext,
-        // @ts-expect-error - allowNetwork doesn't exist in the interface yet
         allowNetwork: true
       })
 
@@ -672,6 +671,50 @@ describe('MCP Sandbox Resource Limits - RED Tests', () => {
       expect(limiter.getActiveCount('client1')).toBe(1)
 
       release()
+      expect(limiter.getActiveCount('client1')).toBe(0)
+    })
+
+    it('should handle double-release safely (do-hnx0)', async () => {
+      // Acquire two slots
+      const slot1 = await enforcer.acquire('client1')
+      const slot2 = await enforcer.acquire('client1')
+
+      const limiter = enforcer.getConcurrencyLimiter()
+      expect(limiter.getActiveCount('client1')).toBe(2)
+
+      // Release slot1 twice - second call should be a no-op
+      slot1.release()
+      expect(limiter.getActiveCount('client1')).toBe(1)
+
+      slot1.release() // Double release!
+      expect(limiter.getActiveCount('client1')).toBe(1) // Should still be 1, not 0
+
+      // slot2 should still be held
+      slot2.release()
+      expect(limiter.getActiveCount('client1')).toBe(0)
+    })
+
+    it('should not release other clients slots on double-release', async () => {
+      // This tests the scenario where double-release could decrement
+      // a different client's slot count
+      const slot1 = await enforcer.acquire('client1')
+
+      const limiter = enforcer.getConcurrencyLimiter()
+      expect(limiter.getActiveCount('client1')).toBe(1)
+
+      // Release and then acquire again
+      slot1.release()
+      expect(limiter.getActiveCount('client1')).toBe(0)
+
+      // Acquire a new slot
+      const slot2 = await enforcer.acquire('client1')
+      expect(limiter.getActiveCount('client1')).toBe(1)
+
+      // Double-release of slot1 should not affect slot2
+      slot1.release() // This is the double-release
+      expect(limiter.getActiveCount('client1')).toBe(1) // slot2 should still be held
+
+      slot2.release()
       expect(limiter.getActiveCount('client1')).toBe(0)
     })
   })

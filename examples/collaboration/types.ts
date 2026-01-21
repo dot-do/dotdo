@@ -5,10 +5,11 @@
  */
 export interface Document {
   $type: 'Document'
+  $id: string
   title: string
   content: string
   version: number
-  lastEditedBy?: string
+  lastEditedBy?: string | undefined
 }
 
 /**
@@ -19,8 +20,8 @@ export interface Collaborator {
   userId: string
   name: string
   color: string  // Cursor/selection color
-  email?: string
-  avatarUrl?: string
+  email?: string | undefined
+  avatarUrl?: string | undefined
 }
 
 /**
@@ -32,7 +33,7 @@ export interface CursorPosition {
   selection?: {
     start: number
     end: number
-  }
+  } | undefined
   updatedAt: string
 }
 
@@ -47,8 +48,8 @@ export type OperationType = 'insert' | 'delete' | 'retain'
 export interface Operation {
   type: OperationType
   position: number
-  content?: string     // For insert
-  length?: number      // For delete/retain
+  content?: string | undefined     // For insert
+  length?: number | undefined      // For delete/retain
 }
 
 /**
@@ -90,8 +91,8 @@ export interface Comment {
   }
   resolved: boolean
   createdAt: string
-  resolvedAt?: string
-  resolvedBy?: string
+  resolvedAt?: string | undefined
+  resolvedBy?: string | undefined
 }
 
 // ============================================================================
@@ -139,7 +140,7 @@ export interface CursorMessage {
   selection?: {
     start: number
     end: number
-  }
+  } | undefined
 }
 
 /**

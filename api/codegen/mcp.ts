@@ -114,7 +114,9 @@ export class MCPGenerator {
       description,
       inputSchema,
       handler: async (params: unknown) => {
-        return await actionDef.handler(params)
+        // Note: MCP tools don't receive a Hono context, they pass params directly
+        // The handler signature differs from resource actions - cast is needed here
+        return await (actionDef.handler as (params: unknown) => Promise<unknown>)(params)
       }
     }
   }
@@ -258,15 +260,17 @@ export class MCPGenerator {
       }
 
       // Placeholder response - in real implementation, this would call the API
+      // Cast params to object type for spreading
+      const paramsObj = params as Record<string, unknown>
       switch (operation) {
         case 'create':
-          return { id: 'generated-id', ...params }
+          return { id: 'generated-id', ...paramsObj }
         case 'get':
-          return { id: (params as { id: string }).id, ...params }
+          return { id: (paramsObj as { id: string }).id, ...paramsObj }
         case 'update':
-          return { id: 'existing-id', ...params }
+          return { id: 'existing-id', ...paramsObj }
         case 'delete':
-          return { success: true, id: (params as { id: string }).id }
+          return { success: true, id: (paramsObj as { id: string }).id }
         case 'list':
           return { items: [], total: 0 }
         default:

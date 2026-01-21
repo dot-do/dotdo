@@ -117,7 +117,7 @@ class MockDurableObjectStorage implements DurableObjectStorage {
       // Handle CREATE TABLE
       if (queryLower.startsWith('create table')) {
         const match = query.match(/create table if not exists (\w+)/i)
-        if (match) {
+        if (match?.[1]) {
           this.tables.push(match[1])
           if (!this.data.has(match[1])) {
             this.data.set(match[1], [])
@@ -127,7 +127,7 @@ class MockDurableObjectStorage implements DurableObjectStorage {
       // Handle INSERT
       else if (queryLower.startsWith('insert into')) {
         const match = query.match(/insert into (\w+)/i)
-        if (match) {
+        if (match?.[1]) {
           const tableName = match[1]
           const rows = this.data.get(tableName) || []
           rows.push({
@@ -144,7 +144,7 @@ class MockDurableObjectStorage implements DurableObjectStorage {
       // Handle SELECT
       else if (queryLower.startsWith('select')) {
         const match = query.match(/from (\w+)/i)
-        if (match) {
+        if (match?.[1]) {
           const tableName = match[1]
           const rows = (this.data.get(tableName) || []) as T[]
           result.push(...rows)
@@ -153,7 +153,7 @@ class MockDurableObjectStorage implements DurableObjectStorage {
       // Handle UPDATE
       else if (queryLower.startsWith('update')) {
         const match = query.match(/update (\w+)/i)
-        if (match) {
+        if (match?.[1]) {
           const tableName = match[1]
           const rows = this.data.get(tableName) || []
           // Simple update - just update the first row
@@ -264,7 +264,7 @@ function createMockEnv(): TestEnv {
       get: (id: DurableObjectId) => {
         const name = id.toString()
         if (!userDOInstances.has(name)) {
-          const state = new MockDurableObjectState(name)
+          const state = new MockDurableObjectState(name) as unknown as DurableObjectState
           userDOInstances.set(name, new UserDO(state, {}))
         }
         const instance = userDOInstances.get(name)!

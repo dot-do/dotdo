@@ -5,7 +5,8 @@ import type {
   StorageAdapter,
   StorageAdapterOptions,
   ListOptions,
-  ListResult
+  ListResult,
+  TransactionOptions
 } from '../storage'
 
 /**
@@ -24,10 +25,17 @@ interface StoredEntry<T = unknown> {
  * and development. Data is not persisted across process restarts.
  *
  * Thread-safe within a single JavaScript execution context.
+ *
+ * Transaction Semantics:
+ * - Uses snapshot/restore for atomicity
+ * - Supports nested transactions via nested snapshots
+ * - Automatic rollback on error
  */
 export class MemoryStorageAdapter implements StorageAdapter {
   private store: Map<string, StoredEntry<unknown>>
   private namespace: string
+  private transactionDepth = 0
+  private snapshotStack: Map<string, StoredEntry<unknown>>[] = []
 
   constructor(options: StorageAdapterOptions = {}) {
     this.store = new Map()
@@ -172,19 +180,55 @@ export class MemoryStorageAdapter implements StorageAdapter {
     return resultObj
   }
 
-  async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    // For in-memory storage, we can provide basic atomicity by:
+  async transaction<T>(fn: () => Promise<T>, _options?: TransactionOptions): Promise<T> {
+    // For in-memory storage, we provide atomicity by:
     // 1. Creating a snapshot before the operation
     // 2. Restoring on failure
-    const snapshot = new Map(this.store)
+    // Nested transactions are supported by pushing multiple snapshots onto a stack
+
+    // Create deep copy of current state
+    const snapshot = new Map<string, StoredEntry<unknown>>()
+    for (const [key, entry] of this.store) {
+      snapshot.set(key, {
+        value: JSON.parse(JSON.stringify(entry.value)),
+        createdAt: entry.createdAt,
+        updatedAt: entry.updatedAt
+      })
+    }
+
+    this.snapshotStack.push(snapshot)
+    this.transactionDepth++
 
     try {
-      return await fn()
+      const result = await fn()
+      // Success - pop snapshot without restoring
+      this.snapshotStack.pop()
+      this.transactionDepth--
+      return result
     } catch (error) {
-      // Restore snapshot on failure
-      this.store = snapshot
+      // Failure - restore from snapshot
+      const restorePoint = this.snapshotStack.pop()
+      if (restorePoint) {
+        this.store = restorePoint
+      }
+      this.transactionDepth--
       throw error
     }
+  }
+
+  /**
+   * Check if currently inside a transaction
+   */
+  inTransaction(): boolean {
+    return this.transactionDepth > 0
+  }
+
+  /**
+   * Check if the adapter supports nested transactions
+   * Memory adapter supports nested transactions via snapshot stack
+   */
+  supportsNestedTransactions(): boolean {
+    return true
   }
 
   async has(key: string): Promise<boolean> {

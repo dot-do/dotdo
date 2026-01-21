@@ -10,6 +10,13 @@ export {
   getResource,
   getAllResources,
   clearRegistry,
+  clearGlobalRegistry,
+  // Request-scoped context for tenant isolation
+  createResourceContext,
+  runWithResourceContext,
+  getCurrentResourceContext,
+  getOrCreateResourceContext,
+  type ResourceContext,
   type ResourceDefinition,
   type ResourceFields,
   type FieldDef,
@@ -26,9 +33,20 @@ export {
   generateCollectionLinks,
   withLinks,
   withCollectionLinks,
+  // API root and discoverability
+  generateAPIRootLinks,
+  generateAPIRoot,
+  // Error responses with links
+  generateErrorLinks,
+  createErrorResponse,
+  // Types
   type Link,
+  type LinkRelation,
   type HATEOASResponse,
   type ResourceConfig,
+  type CollectionLinksOptions,
+  type APIRootConfig,
+  type ErrorResponse,
 } from './hateoas'
 export {
   generateOpenAPI,
@@ -38,6 +56,8 @@ export {
   addOpenAPIEndpoints,
   type OpenAPISpec,
   type InfoObject,
+  type ContactObject,
+  type LicenseObject,
   type ServerObject,
   type PathsObject,
   type PathItemObject,
@@ -48,6 +68,8 @@ export {
   type ResponseObject,
   type ComponentsObject,
   type SchemaObject,
+  type MediaTypeObject,
+  type ReferenceObject,
   type SecuritySchemeObject,
   type SecurityRequirementObject,
   type TagObject,
@@ -64,8 +86,10 @@ export {
   type MCPServerConfig
 } from './codegen/mcp'
 
-// Rate limiting middleware
+// Middleware layer - cross-cutting concerns
+// See api/middleware/index.ts for architecture documentation
 export {
+  // Rate limiting
   RateLimiter,
   rateLimitMiddleware,
   createRateLimiter,
@@ -73,4 +97,9 @@ export {
   type RateLimitConfig,
   type RateLimitTier,
   type RateLimitResult,
-} from './middleware/rate-limit'
+  type RateLimitSqlStorage,
+  // Rate limiter DO for distributed state
+  RateLimiterDO,
+  type RateLimitCheckParams,
+  type RateLimitCheckResult,
+} from './middleware'
