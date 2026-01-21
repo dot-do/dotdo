@@ -109,6 +109,49 @@ function loggingMiddleware(): MiddlewareHandler {
   }
 }
 
+/**
+ * Creates a self-describing HATEOAS API with Hono.
+ *
+ * The API includes built-in support for:
+ * - Health and readiness endpoints
+ * - CORS configuration
+ * - JWT/API key authentication
+ * - Rate limiting
+ * - Request body size limits
+ * - Automatic request ID tracking
+ * - Structured logging
+ *
+ * @param options - Configuration options for the API
+ * @returns A configured Hono app instance
+ *
+ * @example
+ * ```typescript
+ * import { createAPI } from '@dotdo/api'
+ *
+ * // Basic usage
+ * const api = createAPI()
+ *
+ * // With authentication and rate limiting
+ * const api = createAPI({
+ *   basePath: '/api/v1',
+ *   auth: {
+ *     enabled: true,
+ *     secret: process.env.JWT_SECRET,
+ *     skipPaths: ['/health']
+ *   },
+ *   rateLimit: {
+ *     enabled: true,
+ *     keyStrategy: 'tenant+user',
+ *     defaultTier: 'free'
+ *   }
+ * })
+ *
+ * // Add custom routes
+ * api.get('/users', (c) => c.json({ users: [] }))
+ *
+ * export default api
+ * ```
+ */
 export function createAPI(options?: APIOptions) {
   const { basePath = '', auth, rateLimit, bodyLimit } = options || {}
 
