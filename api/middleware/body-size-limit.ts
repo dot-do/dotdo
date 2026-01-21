@@ -321,8 +321,11 @@ export function bodySizeLimitMiddleware(config: BodySizeLimitConfig = {}): Middl
           method: c.req.raw.method,
           headers,
           body: stream,
-          // duplex is required for streaming bodies in newer fetch implementations
-          // @ts-expect-error - duplex is not in the type definition but is required
+          // duplex: 'half' is required for streaming request bodies per the Fetch Standard
+          // (https://fetch.spec.whatwg.org/#dom-requestinit-duplex). TypeScript's lib.dom.d.ts
+          // does not include this property in RequestInit yet, but it's required at runtime
+          // for streaming bodies in browsers and Cloudflare Workers.
+          // @ts-expect-error - TypeScript RequestInit missing 'duplex' property (lib.dom.d.ts gap)
           duplex: 'half',
         })
 

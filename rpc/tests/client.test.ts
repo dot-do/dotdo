@@ -25,16 +25,19 @@ describe('RPC Client', () => {
     })
 
     it('should not be a thenable (not a promise itself)', () => {
+      // RPC proxy objects must NOT be thenables, otherwise `await client` would
+      // trigger the proxy trap instead of waiting for method calls. This is a
+      // critical design decision - the proxy returns methods, not promises.
       interface TestAPI {
         greet(name: string): Promise<string>
       }
 
       const client = createClient<TestAPI>({ url: 'http://localhost:8787' })
-      // @ts-expect-error - testing that then is undefined
+      // @ts-expect-error - proxy excludes 'then' to prevent accidental await
       expect(client.then).toBeUndefined()
-      // @ts-expect-error - testing that catch is undefined
+      // @ts-expect-error - proxy excludes 'catch' to prevent Promise-like behavior
       expect(client.catch).toBeUndefined()
-      // @ts-expect-error - testing that finally is undefined
+      // @ts-expect-error - proxy excludes 'finally' to prevent Promise-like behavior
       expect(client.finally).toBeUndefined()
     })
 
@@ -373,11 +376,12 @@ describe('RPC Client', () => {
 
       const stub = createDOStub<DOAPI>(mockBinding, 'test-id')
 
-      // @ts-expect-error - testing that then is undefined
+      // Same as createClient - DO stubs must not be thenables
+      // @ts-expect-error - proxy excludes 'then' to prevent accidental await
       expect(stub.then).toBeUndefined()
-      // @ts-expect-error - testing that catch is undefined
+      // @ts-expect-error - proxy excludes 'catch' to prevent Promise-like behavior
       expect(stub.catch).toBeUndefined()
-      // @ts-expect-error - testing that finally is undefined
+      // @ts-expect-error - proxy excludes 'finally' to prevent Promise-like behavior
       expect(stub.finally).toBeUndefined()
     })
   })

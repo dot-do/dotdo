@@ -232,15 +232,17 @@ describe('Runtime Behavior: Proxy Creation', () => {
 })
 
 describe('Type Safety: Promise-like exclusion', () => {
+  // RPC proxy objects must NOT be thenables. If they were, `await client` would
+  // trigger the proxy trap and try to call a method named "then", rather than
+  // waiting for an actual method call result. This is a critical invariant.
   it('should not be thenable (prevent accidental await)', () => {
     const client = createClient<CustomerAPI>({ url: 'https://test.api' })
 
-    // These should be undefined to prevent the proxy from being awaited directly
-    // @ts-expect-error - testing that then is undefined
+    // @ts-expect-error - proxy excludes 'then' to prevent accidental await
     expect(client.then).toBeUndefined()
-    // @ts-expect-error - testing that catch is undefined
+    // @ts-expect-error - proxy excludes 'catch' to prevent Promise-like behavior
     expect(client.catch).toBeUndefined()
-    // @ts-expect-error - testing that finally is undefined
+    // @ts-expect-error - proxy excludes 'finally' to prevent Promise-like behavior
     expect(client.finally).toBeUndefined()
   })
 
@@ -252,9 +254,9 @@ describe('Type Safety: Promise-like exclusion', () => {
 
     const stub = createDOStub<CustomerAPI>(mockBinding, 'test-id')
 
-    // @ts-expect-error - testing that then is undefined
+    // @ts-expect-error - proxy excludes 'then' to prevent accidental await
     expect(stub.then).toBeUndefined()
-    // @ts-expect-error - testing that catch is undefined
+    // @ts-expect-error - proxy excludes 'catch' to prevent Promise-like behavior
     expect(stub.catch).toBeUndefined()
   })
 })
