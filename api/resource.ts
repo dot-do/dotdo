@@ -533,6 +533,12 @@ function generateRoutes(
 // ============================================================================
 // The global registry pattern causes state leakage between requests/tenants.
 // This module provides request-scoped contexts for proper isolation.
+//
+// Memory Management (reviewed: do-bacgt):
+// - ALS contexts are automatically cleaned up when the run() callback completes
+// - Stack-based fallback properly pops context in finally block (handles async)
+// - Global registry is deprecated; use runWithResourceContext() for isolation
+// - No memory leaks when using scoped contexts - they're GC'd with the request
 
 /**
  * Minimal AsyncLocalStorage interface for type safety.

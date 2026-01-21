@@ -1069,7 +1069,7 @@ function buildAuthUrl(
   url.searchParams.set('state', params.state)
   url.searchParams.set('scope', params.scopes.join(' '))
 
-  // Add client_id (TODO: make configurable)
+  // Client ID (hardcoded; make configurable via params if needed)
   url.searchParams.set('client_id', 'dotdo-auth')
 
   // PKCE parameters

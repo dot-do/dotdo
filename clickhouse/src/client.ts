@@ -1078,9 +1078,10 @@ class ClickHouseClientImpl implements AnalyticsClient {
       )
     }
 
-    // TODO: Also write to R2 for cold storage if R2 is configured
+    // R2 cold storage integration (not yet implemented)
+    // When enabled, batch write events to R2 as Parquet or MergeTree parts
     if (this.config.r2) {
-      // Batch write to R2 as Parquet or MergeTree parts
+      // Reserved for future R2 cold storage implementation
     }
   }
 

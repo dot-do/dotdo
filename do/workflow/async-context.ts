@@ -10,6 +10,12 @@
  * - Uses native AsyncLocalStorage with a robust fallback
  * - Provides scoped context for event handlers and actions
  *
+ * Memory Management (reviewed: do-bacgt):
+ * - ALS contexts are automatically cleaned up when run() callback completes
+ * - Fallback uses WeakMap for async tracking - entries are GC'd automatically
+ * - Stack cleanup happens in finally block, ensuring no leaks on errors
+ * - No manual cleanup required - contexts are scoped to request lifecycle
+ *
  * @see do-nexi - Inconsistent async context propagation
  * @module do/workflow/async-context
  */

@@ -72,18 +72,16 @@ export function ai(strings: TemplateStringsArray, ...values: unknown[]): AIPromi
            error.message.includes('Failed to resolve'))
 
         if (isModuleError) {
-          // TODO: ai-providers package not installed
+          // ai-providers package not installed
           // Install with: npm install ai-providers
-          // This package provides the LLM integration layer
           throw new Error(
             'AI providers not configured. Install ai-providers package: npm install ai-providers'
           )
         }
 
         if (!process.env['ANTHROPIC_API_KEY']) {
-          // TODO: Configure AI provider API keys
+          // AI provider API key not configured
           // Set ANTHROPIC_API_KEY environment variable for Anthropic models
-          // Or configure other providers (OpenAI, etc.) as needed
           throw new Error(
             'AI provider API key not configured. Set ANTHROPIC_API_KEY environment variable.'
           )

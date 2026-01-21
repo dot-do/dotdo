@@ -534,6 +534,12 @@ export function createCircuitBreakerRegistry(defaultConfig?: Partial<CircuitBrea
 // ============================================================================
 // The global registry pattern causes state leakage between requests/tenants.
 // This module provides request-scoped contexts for isolation.
+//
+// Memory Management (reviewed: do-bacgt):
+// - runWithCircuitBreakerRegistry() explicitly calls registry.clear() in finally
+// - ALS contexts are automatically cleaned up when run() completes
+// - Stack-based fallback properly pops context in finally block (handles async)
+// - Global registry is deprecated; use runWithCircuitBreakerRegistry() instead
 
 /**
  * Minimal AsyncLocalStorage interface for type safety.
