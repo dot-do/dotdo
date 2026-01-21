@@ -78,15 +78,15 @@ function createBrowserClient(baseUrl: string, apiKey?: string) {
 
     things: {
       list: async (options?: { signal?: AbortSignal }) => {
-        const res = await request<{ data: any[] } | any[]>('/things', 'GET', undefined, options)
+        const res = await request<{ data: unknown[] } | unknown[]>('/things', 'GET', undefined, options)
         return Array.isArray(res) ? res : res.data || []
       },
       get: async (id: string, options?: { signal?: AbortSignal }) =>
-        request<any>(`/things/${id}`, 'GET', undefined, options),
+        request<unknown>(`/things/${id}`, 'GET', undefined, options),
       create: async (data: { $type: string; name?: string; data?: unknown }, options?: { signal?: AbortSignal }) =>
-        request<any>('/things', 'POST', data, options),
+        request<unknown>('/things', 'POST', data, options),
       update: async (id: string, data: Partial<{ name?: string; data?: unknown }>, options?: { signal?: AbortSignal }) =>
-        request<any>(`/things/${id}`, 'PUT', data, options),
+        request<unknown>(`/things/${id}`, 'PUT', data, options),
       delete: async (id: string, options?: { signal?: AbortSignal }) =>
         request<void>(`/things/${id}`, 'DELETE', undefined, options)
     },
@@ -315,7 +315,7 @@ describe.skipIf(skipIfNoWorker())('E2E: Browser Environment', () => {
 
     it('should handle rapid sequential requests', async () => {
       // Simulate rapid UI interactions
-      const results: any[] = []
+      const results: unknown[] = []
 
       for (let i = 0; i < 5; i++) {
         const created = await client.things.create({
