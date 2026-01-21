@@ -13,8 +13,9 @@
 // The server resolves the chain and returns the final result.
 
 import type { Transport, RPCMessage, RPCResponse } from './transport/types'
-import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
+import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
 import { deserializeError } from './errors'
+import { DEFAULT_RPC_TIMEOUT_MS, DEFAULT_MAX_PIPELINE_DEPTH } from '@dotdo/utils'
 
 // ============================================================================
 // Pipeline Types
@@ -53,18 +54,18 @@ export interface PipelineRequest {
  */
 export interface PipelineResponse<T = unknown> {
   /** Final result after all pipeline steps */
-  result?: T
+  result?: T | undefined
   /** Error if any step failed */
   error?: {
     /** Index of the failed step (-1 for initial call) */
     stepIndex: number
     /** Error details */
     message: string
-    code?: string
-    details?: Record<string, unknown>
-  }
+    code?: string | undefined
+    details?: Record<string, unknown> | undefined
+  } | undefined
   /** Correlation ID echoed back */
-  correlationId?: string
+  correlationId?: string | undefined
 }
 
 // ============================================================================
@@ -181,8 +182,10 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
     }
     this.initialMethod = method
     this.initialArgs = args
-    this.correlationId = options?.correlationId
-    this.timeout = options?.timeout ?? 30000
+    if (options?.correlationId !== undefined) {
+      this.correlationId = options.correlationId
+    }
+    this.timeout = options?.timeout ?? DEFAULT_RPC_TIMEOUT_MS
   }
 
   /**
@@ -214,7 +217,10 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
       this.transport || this.baseUrl!,
       this.initialMethod,
       this.initialArgs,
-      { correlationId: this.correlationId, timeout: this.timeout }
+      {
+        ...(this.correlationId !== undefined && { correlationId: this.correlationId }),
+        timeout: this.timeout,
+      }
     )
     clone.steps = [...this.steps]
     return clone
@@ -298,7 +304,7 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
     })
 
     if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({}))
+      const errorBody = await response.json().catch(() => ({})) as { message?: string }
       throw new Error(errorBody.message || `Pipeline error: ${response.status}`)
     }
 
@@ -385,7 +391,7 @@ export function createPipelineClient<T extends object>(options: PipelineClientOp
    */
   pipelineFrom<R>(methodPath: string, ...args: unknown[]): PipelineBuilder<R>
 } {
-  const { url, transport, timeout = 30000, correlationId } = options
+  const { url, transport, timeout = DEFAULT_RPC_TIMEOUT_MS, correlationId } = options
 
   const proxy = new Proxy({} as T, {
     get(_, prop: string | symbol) {
@@ -404,7 +410,10 @@ export function createPipelineClient<T extends object>(options: PipelineClientOp
             transport || url!,
             String(method),
             args,
-            { correlationId, timeout }
+            {
+              ...(correlationId !== undefined && { correlationId }),
+              timeout,
+            }
           )
         }
       }
@@ -416,7 +425,10 @@ export function createPipelineClient<T extends object>(options: PipelineClientOp
             transport || url!,
             methodPath,
             args,
-            { correlationId, timeout }
+            {
+              ...(correlationId !== undefined && { correlationId }),
+              timeout,
+            }
           )
         }
       }
@@ -427,7 +439,10 @@ export function createPipelineClient<T extends object>(options: PipelineClientOp
           transport || url!,
           String(prop),
           args,
-          { correlationId, timeout }
+          {
+            ...(correlationId !== undefined && { correlationId }),
+            timeout,
+          }
         )
       }
     }
@@ -450,9 +465,9 @@ export function createPipelineClient<T extends object>(options: PipelineClientOp
  * Options for pipeline execution
  */
 export interface PipelineExecutorOptions {
-  /** Maximum pipeline depth (default: 10) */
+  /** Maximum pipeline depth (default: DEFAULT_MAX_PIPELINE_DEPTH = 10) */
   maxDepth?: number
-  /** Timeout for entire pipeline execution in ms (default: 30000) */
+  /** Timeout for entire pipeline execution in ms (default: DEFAULT_RPC_TIMEOUT_MS = 30000) */
   timeout?: number
 }
 
@@ -482,7 +497,7 @@ export async function executePipeline<T>(
   request: PipelineRequest,
   options: PipelineExecutorOptions = {}
 ): Promise<PipelineResponse<T>> {
-  const { maxDepth = 10, timeout = 30000 } = options
+  const { maxDepth = DEFAULT_MAX_PIPELINE_DEPTH, timeout = DEFAULT_RPC_TIMEOUT_MS } = options
   const { method, args, pipeline, correlationId } = request
 
   // Validate pipeline depth
@@ -554,6 +569,11 @@ async function executeSteps(
   // Navigate to the method
   for (let i = 0; i < methodParts.length - 1; i++) {
     const part = methodParts[i]
+    if (part === undefined) {
+      const error = new Error(`Invalid method path: empty segment at index ${i}`) as Error & { stepIndex: number }
+      error.stepIndex = -1
+      throw error
+    }
     if (!current || typeof current !== 'object') {
       const error = new Error(`Cannot access ${part} on ${typeof current}`) as Error & { stepIndex: number }
       error.stepIndex = -1
@@ -564,6 +584,11 @@ async function executeSteps(
 
   // Get and execute the final method
   const methodName = methodParts[methodParts.length - 1]
+  if (methodName === undefined) {
+    const error = new Error(`Invalid method path: empty method name`) as Error & { stepIndex: number }
+    error.stepIndex = -1
+    throw error
+  }
   if (!current || typeof current !== 'object') {
     const error = new Error(`Method ${method} not found`) as Error & { stepIndex: number }
     error.stepIndex = -1
@@ -582,7 +607,7 @@ async function executeSteps(
 
   // Execute pipeline steps
   for (let i = 0; i < steps.length; i++) {
-    const step = steps[i]
+    const step = steps[i]!
 
     try {
       switch (step.type) {
