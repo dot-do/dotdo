@@ -5,9 +5,8 @@
  * Supports real-time log streaming with filtering.
  */
 
-import { spawn, type ChildProcess } from 'child_process'
-import { resolve } from 'path'
-import { existsSync } from 'fs'
+import { spawn } from 'child_process'
+import { findWrangler } from './utils'
 
 export const name = 'logs'
 export const description = 'Tail logs from deployed worker'
@@ -23,8 +22,8 @@ export interface LogsOptions {
   env?: string
   /** Path to wrangler config */
   config?: string
-  /** Output format */
-  format?: 'json' | 'pretty'
+  /** Output as JSON for scripting */
+  json?: boolean
   /** Enable verbose output */
   verbose?: boolean
 }
@@ -37,26 +36,6 @@ export interface LogEntry {
   scriptName?: string
   exceptions?: Array<{ name: string; message: string }>
   logs?: Array<{ message: string[]; level: string; timestamp: number }>
-}
-
-/**
- * Find wrangler binary in node_modules or global install
- */
-function findWrangler(): string {
-  // Try local node_modules first
-  const localWrangler = resolve(process.cwd(), 'node_modules', '.bin', 'wrangler')
-  if (existsSync(localWrangler)) {
-    return localWrangler
-  }
-
-  // Try workspace root
-  const workspaceWrangler = resolve(process.cwd(), '..', '..', 'node_modules', '.bin', 'wrangler')
-  if (existsSync(workspaceWrangler)) {
-    return workspaceWrangler
-  }
-
-  // Fall back to global wrangler
-  return 'wrangler'
 }
 
 /**
@@ -154,7 +133,7 @@ export async function logs(options: LogsOptions = {}): Promise<void> {
     name: workerName,
     env,
     config,
-    format = 'pretty',
+    json = false,
     verbose = false,
   } = options
 
@@ -187,18 +166,20 @@ export async function logs(options: LogsOptions = {}): Promise<void> {
     console.log(`[logs] Starting wrangler tail with args:`, args)
   }
 
-  // Display header
-  console.log('')
-  console.log('  \x1b[36mTailing logs...\x1b[0m')
-  console.log('  \x1b[2mPress Ctrl+C to stop\x1b[0m')
-  console.log('')
+  // Display header (only in non-JSON mode)
+  if (!json) {
+    console.log('')
+    console.log('  \x1b[36mTailing logs...\x1b[0m')
+    console.log('  \x1b[2mPress Ctrl+C to stop\x1b[0m')
+    console.log('')
+  }
 
   return new Promise((resolve, reject) => {
     const proc = spawn(wranglerPath, args, {
       cwd: process.cwd(),
       env: {
         ...process.env,
-        FORCE_COLOR: '1',
+        FORCE_COLOR: json ? '0' : '1',
       },
     })
 
@@ -216,7 +197,7 @@ export async function logs(options: LogsOptions = {}): Promise<void> {
           const entryLevel = levelOrder.indexOf(entry.level)
           if (entryLevel < minLevel) continue
 
-          if (format === 'json') {
+          if (json) {
             console.log(JSON.stringify(entry))
           } else {
             console.log(formatLogEntry(entry))
@@ -235,7 +216,10 @@ export async function logs(options: LogsOptions = {}): Promise<void> {
           return
         }
 
-        if (output) {
+        // In JSON mode, output errors as JSON
+        if (json && output) {
+          console.log(JSON.stringify({ type: 'error', message: output }))
+        } else if (output) {
           console.error('\x1b[2m' + output + '\x1b[0m')
         }
       })
@@ -243,7 +227,9 @@ export async function logs(options: LogsOptions = {}): Promise<void> {
 
     // Handle process errors
     proc.on('error', (error) => {
-      if (error.message.includes('ENOENT')) {
+      if (json) {
+        console.log(JSON.stringify({ type: 'error', message: error.message }))
+      } else if (error.message.includes('ENOENT')) {
         console.error('Error: wrangler not found. Install with: npm install -D wrangler')
       } else {
         console.error('Error:', error.message)
@@ -254,14 +240,20 @@ export async function logs(options: LogsOptions = {}): Promise<void> {
     // Handle process exit
     proc.on('close', (code) => {
       if (code !== 0 && code !== null) {
-        console.error(`\nLogs stream ended with code ${code}`)
+        if (json) {
+          console.log(JSON.stringify({ type: 'exit', code }))
+        } else {
+          console.error(`\nLogs stream ended with code ${code}`)
+        }
       }
       resolve()
     })
 
     // Handle graceful shutdown
     const shutdown = () => {
-      console.log('\n\n  \x1b[2mStopping log stream...\x1b[0m\n')
+      if (!json) {
+        console.log('\n\n  \x1b[2mStopping log stream...\x1b[0m\n')
+      }
       proc.kill()
       process.exit(0)
     }

@@ -5,9 +5,9 @@
  * Shows storage contents, alarms, and WebSocket connections.
  */
 
-import { spawn, type ChildProcess } from 'child_process'
 import { resolve } from 'path'
 import { existsSync, readFileSync } from 'fs'
+import { findWrangler, runWranglerOrThrow } from './utils'
 
 export const name = 'do-inspect'
 export const description = 'Inspect a Durable Object'
@@ -19,8 +19,8 @@ export interface DoInspectOptions {
   namespace?: string
   /** Path to wrangler config */
   config?: string
-  /** Output format */
-  format?: 'table' | 'json'
+  /** Output as JSON for scripting */
+  json?: boolean
   /** Show storage contents */
   storage?: boolean
   /** Enable verbose output */
@@ -43,62 +43,6 @@ export interface DoInspectResult {
     count: number
   } | undefined
   metadata?: Record<string, unknown> | undefined
-}
-
-/**
- * Find wrangler binary
- */
-function findWrangler(): string {
-  const localWrangler = resolve(process.cwd(), 'node_modules', '.bin', 'wrangler')
-  if (existsSync(localWrangler)) {
-    return localWrangler
-  }
-
-  const workspaceWrangler = resolve(process.cwd(), '..', '..', 'node_modules', '.bin', 'wrangler')
-  if (existsSync(workspaceWrangler)) {
-    return workspaceWrangler
-  }
-
-  return 'wrangler'
-}
-
-/**
- * Run a wrangler command and capture output
- */
-async function runWrangler(args: string[]): Promise<string> {
-  const wranglerPath = findWrangler()
-
-  return new Promise((resolve, reject) => {
-    let output = ''
-    let error = ''
-
-    const proc = spawn(wranglerPath, args, {
-      cwd: process.cwd(),
-      env: process.env,
-    })
-
-    if (proc.stdout) {
-      proc.stdout.on('data', (data: Buffer) => {
-        output += data.toString()
-      })
-    }
-
-    if (proc.stderr) {
-      proc.stderr.on('data', (data: Buffer) => {
-        error += data.toString()
-      })
-    }
-
-    proc.on('close', (code) => {
-      if (code === 0) {
-        resolve(output)
-      } else {
-        reject(new Error(error || `wrangler exited with code ${code}`))
-      }
-    })
-
-    proc.on('error', reject)
-  })
 }
 
 /**
@@ -166,7 +110,7 @@ function formatBytes(bytes: number): string {
  * Main do inspect command function
  */
 export async function doInspect(options: DoInspectOptions): Promise<DoInspectResult> {
-  const { id, namespace, config, format = 'table', storage = true, verbose = false } = options
+  const { id, namespace, config, json = false, storage = true, verbose = false } = options
 
   if (verbose) {
     console.log('[do inspect] Options:', options)
@@ -204,8 +148,8 @@ export async function doInspect(options: DoInspectOptions): Promise<DoInspectRes
   }
 
   // Output
-  if (format === 'json') {
-    console.log(JSON.stringify(result, null, 2))
+  if (json) {
+    console.log(JSON.stringify(result))
   } else {
     console.log('')
     console.log(formatTable(result))

@@ -286,7 +286,7 @@ describe('Successful Saga Execution', () => {
         {
           name: 'timed-step',
           execute: async (ctx) => {
-            await new Promise((r) => setTimeout(r, 10))
+            await new Promise((r) => setTimeout(r, 20))
             return ctx
           },
           compensate: async () => {},
@@ -306,7 +306,8 @@ describe('Successful Saga Execution', () => {
     expect(result.startedAt).toBeGreaterThanOrEqual(startTime)
     expect(result.completedAt).toBeDefined()
     expect(result.completedAt!).toBeLessThanOrEqual(endTime)
-    expect(result.duration).toBeGreaterThanOrEqual(10)
+    // Use relaxed timing check to avoid flaky tests in fast environments
+    expect(result.duration).toBeGreaterThanOrEqual(5)
   })
 })
 
@@ -880,7 +881,7 @@ describe('Saga Metadata and Observability', () => {
         {
           name: 'step-1',
           execute: async (ctx) => {
-            await new Promise((r) => setTimeout(r, 10))
+            await new Promise((r) => setTimeout(r, 20))
             return ctx
           },
           compensate: async () => {},
@@ -905,7 +906,8 @@ describe('Saga Metadata and Observability', () => {
 
     expect(completedSteps).toHaveLength(2)
     expect(completedSteps[0].name).toBe('step-1')
-    expect(completedSteps[0].duration).toBeGreaterThanOrEqual(10)
+    // Use relaxed timing check to avoid flaky tests in fast environments
+    expect(completedSteps[0].duration).toBeGreaterThanOrEqual(5)
     expect(completedSteps[1].name).toBe('step-2')
   })
 

@@ -5,9 +5,11 @@
  * Supports minification, sourcemaps, and output directory configuration.
  */
 
-import { spawn, type ChildProcess } from 'child_process'
-import { resolve as pathResolve, join } from 'path'
+import { spawn } from 'child_process'
+import { resolve as pathResolve } from 'path'
 import { existsSync, mkdirSync } from 'fs'
+import { findWrangler } from './utils'
+import { createProgress } from '../utils/progress'
 
 export const name = 'build'
 export const description = 'Build project for deployment'
@@ -35,23 +37,6 @@ export interface BuildResult {
 }
 
 /**
- * Find wrangler binary
- */
-function findWrangler(): string {
-  const localWrangler = pathResolve(process.cwd(), 'node_modules', '.bin', 'wrangler')
-  if (existsSync(localWrangler)) {
-    return localWrangler
-  }
-
-  const workspaceWrangler = pathResolve(process.cwd(), '..', '..', 'node_modules', '.bin', 'wrangler')
-  if (existsSync(workspaceWrangler)) {
-    return workspaceWrangler
-  }
-
-  return 'wrangler'
-}
-
-/**
  * Format duration in human-readable format
  */
 function formatDuration(ms: number): string {
@@ -75,15 +60,13 @@ export async function build(options: BuildOptions = {}): Promise<BuildResult> {
   } = options
 
   const startTime = Date.now()
+  const progress = createProgress()
 
   if (verbose) {
     console.log('[build] Options:', options)
   }
 
-  // Display header
-  console.log('')
-  console.log('  \x1b[36mBuilding...\x1b[0m')
-  console.log('')
+  progress.start('Building project...')
 
   const wranglerPath = findWrangler()
   const args = ['deploy', '--dry-run']
@@ -176,6 +159,7 @@ export async function build(options: BuildOptions = {}): Promise<BuildResult> {
 
     // Handle process errors
     proc.on('error', (error) => {
+      progress.fail('Build failed')
       if (error.message.includes('ENOENT')) {
         console.error('  \x1b[31mError: wrangler not found.\x1b[0m')
         console.error('  \x1b[31mInstall with: npm install -D wrangler\x1b[0m')
@@ -194,19 +178,15 @@ export async function build(options: BuildOptions = {}): Promise<BuildResult> {
       const duration = Date.now() - startTime
       const success = code === 0
 
-      console.log('')
-
       if (success) {
-        console.log(`  \x1b[32mBuild completed in ${formatDuration(duration)}\x1b[0m`)
+        progress.succeed(`Build completed in ${formatDuration(duration)}`)
 
         if (outdir) {
           console.log(`  \x1b[2mOutput: ${pathResolve(process.cwd(), outdir)}\x1b[0m`)
         }
       } else {
-        console.log(`  \x1b[31mBuild failed with exit code ${code}\x1b[0m`)
+        progress.fail(`Build failed with exit code ${code}`)
       }
-
-      console.log('')
 
       resolve({
         success,

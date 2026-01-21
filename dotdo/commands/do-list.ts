@@ -5,9 +5,9 @@
  * Shows namespaces and their associated objects.
  */
 
-import { spawn, type ChildProcess } from 'child_process'
 import { resolve } from 'path'
 import { existsSync, readFileSync } from 'fs'
+import { findWrangler } from './utils'
 
 export const name = 'do-list'
 export const description = 'List Durable Objects'
@@ -15,8 +15,8 @@ export const description = 'List Durable Objects'
 export interface DoListOptions {
   /** Filter by namespace */
   namespace?: string
-  /** Output format */
-  format?: 'table' | 'json'
+  /** Output as JSON for scripting */
+  json?: boolean
   /** Path to wrangler config */
   config?: string
   /** Enable verbose output */
@@ -35,23 +35,6 @@ export interface DurableObjectInfo {
   name?: string
   namespace: string
   hasStorage: boolean
-}
-
-/**
- * Find wrangler binary in node_modules or global install
- */
-function findWrangler(): string {
-  const localWrangler = resolve(process.cwd(), 'node_modules', '.bin', 'wrangler')
-  if (existsSync(localWrangler)) {
-    return localWrangler
-  }
-
-  const workspaceWrangler = resolve(process.cwd(), '..', '..', 'node_modules', '.bin', 'wrangler')
-  if (existsSync(workspaceWrangler)) {
-    return workspaceWrangler
-  }
-
-  return 'wrangler'
 }
 
 /**
@@ -178,7 +161,7 @@ function formatTable(namespaces: DurableObjectNamespace[]): string {
  * Main do list command function
  */
 export async function doList(options: DoListOptions = {}): Promise<DurableObjectNamespace[]> {
-  const { namespace, format = 'table', config, verbose = false } = options
+  const { namespace, json = false, config, verbose = false } = options
 
   if (verbose) {
     console.log('[do list] Options:', options)
@@ -193,8 +176,8 @@ export async function doList(options: DoListOptions = {}): Promise<DurableObject
     : namespaces
 
   // Output
-  if (format === 'json') {
-    console.log(JSON.stringify(filtered, null, 2))
+  if (json) {
+    console.log(JSON.stringify(filtered))
   } else {
     console.log('')
     console.log('  \x1b[36mDurable Object Bindings\x1b[0m')

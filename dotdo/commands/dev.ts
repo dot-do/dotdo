@@ -1,6 +1,5 @@
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions as NodeSpawnOptions } from 'child_process'
-import { resolve, join } from 'path'
-import { existsSync } from 'fs'
+import { findWrangler } from './utils'
 
 /**
  * Spawn function type for dependency injection
@@ -145,38 +144,6 @@ export function startDevServer(options: DevServerOptions = {}): DevServer {
       }
     },
   }
-}
-
-/**
- * Find wrangler binary in node_modules or global install
- */
-function findWrangler(): string {
-  // Try local node_modules first
-  const localWrangler = resolve(
-    process.cwd(),
-    'node_modules',
-    '.bin',
-    'wrangler'
-  )
-  if (existsSync(localWrangler)) {
-    return localWrangler
-  }
-
-  // Try workspace root
-  const workspaceWrangler = resolve(
-    process.cwd(),
-    '..',
-    '..',
-    'node_modules',
-    '.bin',
-    'wrangler'
-  )
-  if (existsSync(workspaceWrangler)) {
-    return workspaceWrangler
-  }
-
-  // Fall back to global wrangler
-  return 'wrangler'
 }
 
 /**
