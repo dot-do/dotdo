@@ -27,6 +27,8 @@ export interface BuildOptions {
   env?: string
   /** Enable verbose output */
   verbose?: boolean
+  /** Output as JSON for scripting */
+  json?: boolean
 }
 
 export interface BuildResult {
@@ -57,12 +59,13 @@ export async function build(options: BuildOptions = {}): Promise<BuildResult> {
     config,
     env,
     verbose = false,
+    json: jsonMode = false,
   } = options
 
   const startTime = Date.now()
-  const progress = createProgress()
+  const progress = createProgress({ silent: jsonMode })
 
-  if (verbose) {
+  if (verbose && !jsonMode) {
     console.log('[build] Options:', options)
   }
 
@@ -96,7 +99,7 @@ export async function build(options: BuildOptions = {}): Promise<BuildResult> {
     args.push('--outdir', fullOutdir)
   }
 
-  if (verbose) {
+  if (verbose && !jsonMode) {
     console.log(`  \x1b[2mRunning: ${wranglerPath} ${args.join(' ')}\x1b[0m`)
     console.log('')
   }
@@ -118,6 +121,11 @@ export async function build(options: BuildOptions = {}): Promise<BuildResult> {
       proc.stdout.on('data', (data: Buffer) => {
         const text = data.toString()
         output += text
+
+        if (jsonMode) {
+          // In JSON mode, suppress all output
+          return
+        }
 
         if (verbose) {
           // Show all output in verbose mode
@@ -144,6 +152,15 @@ export async function build(options: BuildOptions = {}): Promise<BuildResult> {
       proc.stderr.on('data', (data: Buffer) => {
         const text = data.toString()
 
+        if (jsonMode) {
+          // In JSON mode, suppress output but track errors
+          const importantPatterns = [/error/i, /warning/i, /failed/i]
+          if (importantPatterns.some((p) => p.test(text))) {
+            hasError = true
+          }
+          return
+        }
+
         // Filter out wrangler info messages unless verbose
         if (!verbose) {
           const importantPatterns = [/error/i, /warning/i, /failed/i]
@@ -160,17 +177,24 @@ export async function build(options: BuildOptions = {}): Promise<BuildResult> {
     // Handle process errors
     proc.on('error', (error) => {
       progress.fail('Build failed')
-      if (error.message.includes('ENOENT')) {
-        console.error('  \x1b[31mError: wrangler not found.\x1b[0m')
-        console.error('  \x1b[31mInstall with: npm install -D wrangler\x1b[0m')
-      } else {
-        console.error(`  \x1b[31mError: ${error.message}\x1b[0m`)
-      }
 
-      resolve({
+      const result: BuildResult = {
         success: false,
         exitCode: 1,
-      })
+      }
+
+      if (jsonMode) {
+        console.log(JSON.stringify({ ...result, error: error.message }))
+      } else {
+        if (error.message.includes('ENOENT')) {
+          console.error('  \x1b[31mError: wrangler not found.\x1b[0m')
+          console.error('  \x1b[31mInstall with: npm install -D wrangler\x1b[0m')
+        } else {
+          console.error(`  \x1b[31mError: ${error.message}\x1b[0m`)
+        }
+      }
+
+      resolve(result)
     })
 
     // Handle process exit
@@ -178,22 +202,28 @@ export async function build(options: BuildOptions = {}): Promise<BuildResult> {
       const duration = Date.now() - startTime
       const success = code === 0
 
-      if (success) {
-        progress.succeed(`Build completed in ${formatDuration(duration)}`)
-
-        if (outdir) {
-          console.log(`  \x1b[2mOutput: ${pathResolve(process.cwd(), outdir)}\x1b[0m`)
-        }
-      } else {
-        progress.fail(`Build failed with exit code ${code}`)
-      }
-
-      resolve({
+      const result: BuildResult = {
         success,
         exitCode: code || 0,
         outputPath: outdir ? pathResolve(process.cwd(), outdir) : undefined,
         duration,
-      })
+      }
+
+      if (jsonMode) {
+        console.log(JSON.stringify(result))
+      } else {
+        if (success) {
+          progress.succeed(`Build completed in ${formatDuration(duration)}`)
+
+          if (outdir) {
+            console.log(`  \x1b[2mOutput: ${pathResolve(process.cwd(), outdir)}\x1b[0m`)
+          }
+        } else {
+          progress.fail(`Build failed with exit code ${code}`)
+        }
+      }
+
+      resolve(result)
     })
   })
 }
