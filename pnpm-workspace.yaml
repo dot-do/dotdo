@@ -2,6 +2,7 @@ packages:
   - core
   - rpc
   - rpc.do
+  - sdk.do
   - mcp
   - auth
   - oauth

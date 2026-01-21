@@ -373,4 +373,4 @@ npm run dev               # Start with Turbo
 
 ## License
 
-Apache-2.0
+MIT

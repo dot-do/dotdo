@@ -14,6 +14,8 @@
     "types": ["@cloudflare/workers-types"],
     "baseUrl": ".",
     "paths": {
+      "@dotdo/core": ["core/index.ts"],
+      "@dotdo/core/*": ["core/*"],
       "@dotdo/do": ["do/index.ts"],
       "@dotdo/db": ["db/index.ts"],
       "@dotdo/rpc": ["rpc/index.ts"],
