@@ -107,7 +107,7 @@
     "@dotdo/mcp": "workspace:*",
     "@dotdo/rpc": "workspace:*",
     "rpc.do": "workspace:*",
-    "commander": "^13.0.0",
+    "commander": "^14.0.2",
     "hono": "^4.7.0"
   },
   "devDependencies": {

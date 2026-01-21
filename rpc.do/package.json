@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@dotdo/utils": "workspace:*",
-    "commander": "^12.1.0",
+    "commander": "^14.0.2",
     "hono": "^4.7.0",
     "typescript": "^5.7.0"
   },
