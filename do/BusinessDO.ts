@@ -38,7 +38,7 @@
  */
 
 import { DO, type DOEnv, type DOOptions } from './DO'
-import type { StorableData } from '../db/types'
+import type { StorableData } from '@dotdo/db'
 
 // =============================================================================
 // Dynamic Import Module Types

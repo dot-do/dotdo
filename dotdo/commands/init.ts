@@ -3,6 +3,7 @@ import { writeFile, mkdir, access } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import * as readline from 'node:readline/promises'
+import { stepRunner } from '../utils/progress'
 
 export interface InitOptions {
   name?: string
@@ -10,6 +11,8 @@ export interface InitOptions {
   template?: 'basic' | 'api' | 'full'
   skipGit?: boolean
   skipInstall?: boolean
+  /** Output as JSON for scripting */
+  json?: boolean
 }
 
 interface ProjectConfig {
@@ -23,62 +26,145 @@ interface ProjectConfig {
   }
 }
 
+/**
+ * Result returned by init command for JSON output
+ */
+export interface InitResult {
+  success: boolean
+  name: string
+  template: string
+  path: string
+  features: {
+    auth: boolean
+    db: boolean
+    ai: boolean
+    mcp: boolean
+  }
+  message?: string
+  error?: string
+}
+
 // Current date for compatibility_date
 const COMPATIBILITY_DATE = new Date().toISOString().split('T')[0]
 
-export async function init(targetDir: string = '.', options: InitOptions = {}): Promise<void> {
-  const rl = readline.createInterface({
+export async function init(targetDir: string = '.', options: InitOptions = {}): Promise<InitResult> {
+  const jsonMode = options.json ?? false
+  const resolvedPath = join(process.cwd(), targetDir)
+
+  // In JSON mode with --yes, skip interactive prompts entirely
+  const rl = !jsonMode ? readline.createInterface({
     input: process.stdin,
     output: process.stdout,
-  })
+  }) : null
 
   try {
     // Check if directory exists and is empty
     await checkDirectory(targetDir)
 
-    // Get project configuration
-    const config = await getProjectConfig(rl, options)
+    // Get project configuration (force yes mode in JSON mode)
+    const config = await getProjectConfig(rl, { ...options, yes: jsonMode ? true : options.yes })
 
-    console.log(`\nInitializing dotdo project: ${config.name}`)
-    console.log(`Template: ${config.template}`)
-    console.log('')
+    if (!jsonMode) {
+      console.log(`\nInitializing dotdo project: ${config.name}`)
+      console.log(`Template: ${config.template}`)
+      console.log('')
+    }
+
+    const steps = stepRunner({ silent: jsonMode })
 
     // Create directory structure
-    await createDirectoryStructure(targetDir, config)
+    await steps.run('Creating project structure...', async () => {
+      await createDirectoryStructure(targetDir, config)
+    })
 
     // Generate files
-    await generatePackageJson(targetDir, config)
-    await generateTsConfig(targetDir, config)
-    await generateWranglerConfig(targetDir, config)
-    await generateEnvTypes(targetDir, config)
-    await generateEnvExample(targetDir, config)
-    await generateGitignore(targetDir)
-    await generateSourceFiles(targetDir, config)
-    await generateTestFiles(targetDir, config)
-    await generateReadme(targetDir, config)
+    await steps.run('Generating package.json...', async () => {
+      await generatePackageJson(targetDir, config)
+    })
+
+    await steps.run('Generating TypeScript config...', async () => {
+      await generateTsConfig(targetDir, config)
+    })
+
+    await steps.run('Generating Wrangler config...', async () => {
+      await generateWranglerConfig(targetDir, config)
+    })
+
+    await steps.run('Generating environment files...', async () => {
+      await generateEnvTypes(targetDir, config)
+      await generateEnvExample(targetDir, config)
+      await generateGitignore(targetDir)
+    })
+
+    await steps.run('Generating source files...', async () => {
+      await generateSourceFiles(targetDir, config)
+    })
+
+    await steps.run('Generating test files...', async () => {
+      await generateTestFiles(targetDir, config)
+    })
+
+    await steps.run('Generating README...', async () => {
+      await generateReadme(targetDir, config)
+    })
 
     // Initialize git
     if (!options.skipGit) {
-      await initGit(targetDir)
+      await steps.run('Initializing git repository...', async () => {
+        await initGit(targetDir)
+      })
     }
 
     // Install dependencies
     if (!options.skipInstall) {
-      await installDependencies(targetDir)
+      await steps.run('Installing dependencies...', async () => {
+        await installDependencies(targetDir)
+      })
     }
 
-    console.log('\n✓ Project initialized successfully!')
-    console.log('\nNext steps:')
-    if (targetDir !== '.') {
-      console.log(`  cd ${config.name}`)
+    const result: InitResult = {
+      success: true,
+      name: config.name,
+      template: config.template,
+      path: resolvedPath,
+      features: config.features,
+      message: 'Project initialized successfully',
     }
-    if (options.skipInstall) {
-      console.log('  npm install')
+
+    if (jsonMode) {
+      console.log(JSON.stringify(result))
+    } else {
+      steps.complete('Project initialized successfully!')
+      console.log('\nNext steps:')
+      if (targetDir !== '.') {
+        console.log(`  cd ${config.name}`)
+      }
+      if (options.skipInstall) {
+        console.log('  npm install')
+      }
+      console.log('  npm run dev')
+      console.log('')
     }
-    console.log('  npm run dev')
-    console.log('')
+
+    return result
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const result: InitResult = {
+      success: false,
+      name: options.name || 'unknown',
+      template: options.template || 'basic',
+      path: resolvedPath,
+      features: { auth: false, db: false, ai: false, mcp: false },
+      error: errorMessage,
+    }
+
+    if (jsonMode) {
+      console.log(JSON.stringify(result))
+    }
+
+    throw error
   } finally {
-    rl.close()
+    rl?.close()
   }
 }
 
@@ -1564,37 +1650,26 @@ ${config.features.mcp ? '- MCP server' : ''}
 }
 
 async function initGit(targetDir: string): Promise<void> {
+  // Check if git is available
+  execSync('git --version', { stdio: 'ignore' })
+
+  // Check if already a git repo
   try {
-    // Check if git is available
-    execSync('git --version', { stdio: 'ignore' })
-
-    // Check if already a git repo
-    try {
-      execSync('git rev-parse --git-dir', { cwd: targetDir, stdio: 'ignore' })
-      console.log('Git repository already exists, skipping git init')
-      return
-    } catch {
-      // Not a git repo, proceed
-    }
-
-    execSync('git init', { cwd: targetDir, stdio: 'ignore' })
-    execSync('git add .', { cwd: targetDir, stdio: 'ignore' })
-    execSync('git commit -m "Initial commit from dotdo init"', {
-      cwd: targetDir,
-      stdio: 'ignore',
-    })
-    console.log('✓ Initialized git repository')
-  } catch (error) {
-    console.log('Git initialization skipped (git not available)')
+    execSync('git rev-parse --git-dir', { cwd: targetDir, stdio: 'ignore' })
+    // Git repo already exists, skip init but don't fail
+    return
+  } catch {
+    // Not a git repo, proceed
   }
+
+  execSync('git init', { cwd: targetDir, stdio: 'ignore' })
+  execSync('git add .', { cwd: targetDir, stdio: 'ignore' })
+  execSync('git commit -m "Initial commit from dotdo init"', {
+    cwd: targetDir,
+    stdio: 'ignore',
+  })
 }
 
 async function installDependencies(targetDir: string): Promise<void> {
-  console.log('\nInstalling dependencies...')
-  try {
-    execSync('npm install', { cwd: targetDir, stdio: 'inherit' })
-    console.log('✓ Dependencies installed')
-  } catch (error) {
-    console.error('Failed to install dependencies. Run `npm install` manually.')
-  }
+  execSync('npm install', { cwd: targetDir, stdio: 'pipe' })
 }
