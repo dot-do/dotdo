@@ -552,6 +552,12 @@ __createTrackedArray.prototype = __OriginalArray.prototype;
 // Replace Array globally
 globalThis.Array = __createTrackedArray;
 
+// SECURITY FIX (do-94il): Hook Array.prototype.join/fill to track memory
+const __origJoin = __OriginalArray.prototype.join;
+__OriginalArray.prototype.join = function(sep) { const r = __origJoin.call(this, sep); if (r.length > 1000) __resource__.trackAllocation(r.length * 2); return r; };
+const __origFill = __OriginalArray.prototype.fill;
+__OriginalArray.prototype.fill = function(v, s, e) { const r = __origFill.call(this, v, s, e); const fs = s || 0, fe = e !== undefined ? e : this.length; if (typeof v === 'string' && v.length > 0) __resource__.trackAllocation((fe - fs) * v.length * 2); return r; };
+
 // Track string length to catch exponential growth
 // Intercept String.prototype.concat and the + operator by watching string creation
 let __lastStringLength = 0;
@@ -610,84 +616,179 @@ function findMatchingParen(code: string, openIndex: number): number {
 }
 
 /**
- * Inject CPU checkpoints and memory tracking into code
- * This adds checkpoint calls at loop boundaries and tracks string growth
+ * Normalize Unicode whitespace characters to regular spaces.
+ * Prevents bypasses using exotic whitespace like U+00A0, U+200B, etc.
+ * SECURITY FIX (do-94il): Addresses Unicode whitespace obfuscation bypass.
+ */
+function normalizeWhitespace(code: string): string {
+  return code.replace(/[\u00A0\u1680\u2000-\u200B\u2028\u2029\u202F\u205F\u3000\uFEFF]/g, ' ')
+}
+
+/**
+ * Strip comments from code while preserving string literals.
+ * Returns code with comments replaced by spaces to preserve positions.
+ * SECURITY FIX (do-94il): Addresses comment obfuscation bypass.
+ */
+function stripComments(code: string): { stripped: string } {
+  let result = ''
+  let i = 0
+  while (i < code.length) {
+    if (code[i] === '"' || code[i] === "'" || code[i] === '`') {
+      const quote = code[i]
+      result += code[i]
+      i++
+      if (quote === '`') {
+        while (i < code.length) {
+          if (code[i] === '\\' && i + 1 < code.length) { result += code[i]! + code[i + 1]!; i += 2 }
+          else if (code[i] === '$' && code[i + 1] === '{') {
+            result += code[i]! + code[i + 1]!; i += 2
+            let bd = 1
+            while (i < code.length && bd > 0) { if (code[i] === '{') bd++; else if (code[i] === '}') bd--; result += code[i]; i++ }
+          } else if (code[i] === '`') { result += code[i]; i++; break }
+          else { result += code[i]; i++ }
+        }
+      } else {
+        while (i < code.length && code[i] !== quote) {
+          if (code[i] === '\\' && i + 1 < code.length) { result += code[i]! + code[i + 1]!; i += 2 }
+          else { result += code[i]; i++ }
+        }
+        if (i < code.length) { result += code[i]; i++ }
+      }
+    } else if (code[i] === '/' && code[i + 1] === '/') {
+      let end = i; while (end < code.length && code[end] !== '\n') end++
+      result += ' '.repeat(end - i); i = end
+    } else if (code[i] === '/' && code[i + 1] === '*') {
+      let end = i + 2; while (end < code.length - 1 && !(code[end] === '*' && code[end + 1] === '/')) end++; end += 2
+      let spaces = ''; for (let j = i; j < end; j++) spaces += code[j] === '\n' ? '\n' : ' '
+      result += spaces; i = end
+    } else { result += code[i]; i++ }
+  }
+  return { stripped: result }
+}
+
+/**
+ * Find the end of a control flow body (handles both braced and braceless).
+ */
+function findControlFlowBodyEnd(code: string, startIndex: number): number {
+  let i = startIndex
+  while (i < code.length && /\s/.test(code[i])) i++
+  if (i >= code.length) return i
+  if (code[i] === '{') {
+    let bd = 1; i++
+    while (i < code.length && bd > 0) {
+      if (code[i] === '"' || code[i] === "'" || code[i] === '`') {
+        const q = code[i]; i++
+        while (i < code.length) { if (code[i] === '\\' && i + 1 < code.length) i += 2; else if (code[i] === q) { i++; break } else i++ }
+        continue
+      }
+      if (code[i] === '{') bd++; else if (code[i] === '}') bd--; i++
+    }
+    return i
+  }
+  if (code[i] === ';') return i + 1
+  return findStatementEnd(code, i)
+}
+
+/**
+ * Find the end of a statement, handling control flow keywords recursively.
+ * SECURITY FIX (do-94il): Critical for nested braceless loops like: for (...) for (...) x++
+ */
+function findStatementEnd(code: string, startIndex: number): number {
+  let i = startIndex
+  while (i < code.length && /\s/.test(code[i])) i++
+  if (i >= code.length) return i
+  if (code[i] === '{') return -1
+  if (code[i] === ';') return i + 1
+  const keywords = ['for', 'while', 'do', 'if', 'switch', 'with', 'try']
+  for (const kw of keywords) {
+    if (code.slice(i, i + kw.length) === kw && (!code[i + kw.length] || /[\s(;{]/.test(code[i + kw.length]))) {
+      i += kw.length; while (i < code.length && /\s/.test(code[i])) i++
+      if (kw === 'do') {
+        i = findControlFlowBodyEnd(code, i); while (i < code.length && /\s/.test(code[i])) i++
+        if (code.slice(i, i + 5) === 'while') { i += 5; while (i < code.length && /\s/.test(code[i])) i++; if (code[i] === '(') { const c = findMatchingParen(code, i); if (c !== -1) i = c + 1 }; while (i < code.length && /\s/.test(code[i])) i++; if (code[i] === ';') i++ }
+        return i
+      } else if (kw === 'if') {
+        if (code[i] === '(') { const c = findMatchingParen(code, i); if (c !== -1) { i = c + 1; i = findControlFlowBodyEnd(code, i); let j = i; while (j < code.length && /\s/.test(code[j])) j++; if (code.slice(j, j + 4) === 'else') { i = j + 4; i = findControlFlowBodyEnd(code, i) } } }
+        return i
+      } else {
+        if (code[i] === '(') { const c = findMatchingParen(code, i); if (c !== -1) { i = c + 1; i = findControlFlowBodyEnd(code, i) } }
+        return i
+      }
+    }
+  }
+  let bd = 0, pd = 0, bk = 0
+  while (i < code.length) {
+    const ch = code[i]
+    if (ch === '"' || ch === "'" || ch === '`') { const q = ch; i++; while (i < code.length) { if (code[i] === '\\' && i + 1 < code.length) i += 2; else if (code[i] === q) { i++; break } else i++ }; continue }
+    if (ch === '{') bd++; else if (ch === '}') bd--; else if (ch === '(') pd++; else if (ch === ')') pd--; else if (ch === '[') bk++; else if (ch === ']') bk--
+    if (ch === ';' && bd === 0 && pd === 0 && bk === 0) return i + 1
+    if (ch === '\n' && bd === 0 && pd === 0 && bk === 0) { let j = i + 1; while (j < code.length && /[ \t]/.test(code[j])) j++; if (j < code.length && /[+\-*/%&|^<>=!?:,.]/.test(code[j])) { i++; continue }; return i + 1 }
+    i++
+  }
+  return i
+}
+
+/**
+ * Process loops of a given type (while or for).
+ * Handles both braced and braceless loop bodies.
+ * SECURITY FIX (do-94il): Handles braceless loops by wrapping them with checkpoints.
+ */
+function processLoops(code: string, loopType: 'while' | 'for'): string {
+  let result = '', lastIndex = 0
+  const loopRegex = new RegExp(`\\b${loopType}\\s*\\(`, 'g')
+  let match
+  while ((match = loopRegex.exec(code)) !== null) {
+    const openParenIndex = match.index + match[0].length - 1
+    const closeParenIndex = findMatchingParen(code, openParenIndex)
+    if (closeParenIndex === -1) continue
+    const afterParen = code.slice(closeParenIndex + 1)
+    const wsMatch = afterParen.match(/^\s*/), whitespace = wsMatch ? wsMatch[0] : ''
+    const afterWhitespace = afterParen.slice(whitespace.length)
+    if (afterWhitespace.startsWith('{')) {
+      const braceIndex = closeParenIndex + 1 + whitespace.length + 1
+      result += code.slice(lastIndex, braceIndex); result += ' __resource__.checkCpuTime();'; lastIndex = braceIndex
+    } else if (afterWhitespace.length > 0 && !afterWhitespace.startsWith(';')) {
+      const statementStart = closeParenIndex + 1 + whitespace.length
+      const statementEnd = findStatementEnd(code, statementStart)
+      if (statementEnd > statementStart) {
+        let statement = code.slice(statementStart, statementEnd)
+        statement = processLoops(statement, 'for'); statement = processLoops(statement, 'while')
+        result += code.slice(lastIndex, statementStart); result += '{ __resource__.checkCpuTime(); ' + statement.trim() + ' }'; lastIndex = statementEnd
+      }
+    } else if (afterWhitespace.startsWith(';')) {
+      const semiIndex = closeParenIndex + 1 + whitespace.length + 1
+      result += code.slice(lastIndex, closeParenIndex + 1); result += '{ __resource__.checkCpuTime(); }'; lastIndex = semiIndex
+    }
+    loopRegex.lastIndex = lastIndex > match.index + match[0].length ? lastIndex : match.index + match[0].length
+  }
+  result += code.slice(lastIndex)
+  return result
+}
+
+/**
+ * Inject CPU checkpoints and memory tracking into code.
+ * SECURITY FIX (do-94il): Addresses regex bypass vulnerabilities:
+ * 1. Normalizes Unicode whitespace to prevent exotic whitespace bypasses
+ * 2. Strips comments to prevent comment obfuscation attacks
+ * 3. Handles braceless loops by wrapping them in braces with checkpoints
+ * 4. Recursively processes nested loops
+ * 5. Tracks string concatenation for memory protection
  */
 function injectResourceChecks(code: string): string {
-  // Process loops by finding them manually to handle nested parens
-  let result = ''
-  let lastIndex = 0
-
-  // Find while loops
-  const whileRegex = /while\s*\(/g
-  let match
-  while ((match = whileRegex.exec(code)) !== null) {
-    const openParenIndex = match.index + match[0].length - 1
-    const closeParenIndex = findMatchingParen(code, openParenIndex)
-
-    if (closeParenIndex === -1) continue
-
-    // Look for opening brace after the closing paren
-    const afterParen = code.slice(closeParenIndex + 1)
-    const braceMatch = afterParen.match(/^\s*\{/)
-
-    if (braceMatch) {
-      // Found a while loop with body
-      const braceIndex = closeParenIndex + 1 + braceMatch.index + braceMatch[0].length
-      // Copy everything up to and including the opening brace
-      result += code.slice(lastIndex, braceIndex)
-      // Add checkpoint
-      result += ' __resource__.checkCpuTime();'
-      lastIndex = braceIndex
-    }
-  }
-  result += code.slice(lastIndex)
-  code = result
-
-  // Process for loops similarly
-  result = ''
-  lastIndex = 0
-  const forRegex = /for\s*\(/g
-  while ((match = forRegex.exec(code)) !== null) {
-    const openParenIndex = match.index + match[0].length - 1
-    const closeParenIndex = findMatchingParen(code, openParenIndex)
-
-    if (closeParenIndex === -1) continue
-
-    const afterParen = code.slice(closeParenIndex + 1)
-    const braceMatch = afterParen.match(/^\s*\{/)
-
-    if (braceMatch) {
-      const braceIndex = closeParenIndex + 1 + braceMatch.index + braceMatch[0].length
-      result += code.slice(lastIndex, braceIndex)
-      result += ' __resource__.checkCpuTime();'
-      lastIndex = braceIndex
-    }
-  }
-  result += code.slice(lastIndex)
-  code = result
-
-  // Match do-while: do { ... } while
-  code = code.replace(
-    /do\s*\{/g,
-    'do { __resource__.checkCpuTime();'
-  )
-
-  // Track string concatenation: str = str + str or str += str
-  // After any string assignment that uses +, track the result length
-  // Match: varname = anything + anything (where result could be string)
-  code = code.replace(
-    /(\w+)\s*=\s*(\w+)\s*\+\s*(\w+)\s*;?/g,
-    (match, varName, left, right) => {
-      // If same variable on both sides, likely string doubling
-      if (left === varName || right === varName || left === right) {
-        return `${match}; if (typeof ${varName} === 'string' && ${varName}.length > 1000) __resource__.trackAllocation(${varName}.length * 2);`
-      }
-      return match
-    }
-  )
-
-  return code
+  code = normalizeWhitespace(code)
+  const { stripped } = stripComments(code)
+  let processedCode = stripped
+  processedCode = processLoops(processedCode, 'while')
+  processedCode = processLoops(processedCode, 'for')
+  processedCode = processedCode.replace(/\bdo\s*\{/g, 'do { __resource__.checkCpuTime();')
+  processedCode = processedCode.replace(/(\w+)\s*=\s*(\w+)\s*\+\s*(\w+)\s*;?/g, (m, v, l, r) => {
+    if (l === v || r === v || l === r) return `${m}; if (typeof ${v} === 'string' && ${v}.length > 1000) __resource__.trackAllocation(${v}.length * 2);`
+    return m
+  })
+  processedCode = processedCode.replace(/(\w+)\s*=\s*`[^`]*\$\{\s*\1\s*\}[^`]*\$\{\s*\1\s*\}[^`]*`\s*;?/g, (m, v) => {
+    return `${m}; if (typeof ${v} === 'string' && ${v}.length > 1000) __resource__.trackAllocation(${v}.length * 2);`
+  })
+  return processedCode
 }
 
 /**
