@@ -16,6 +16,7 @@
       "@dotdo/testing": ["./testing/index.ts"],
       "@dotdo/fsx": ["./fsx/index.ts"],
       "@dotdo/test-utils": ["./test-utils/index.ts"],
+      "@dotdo/utils": ["./utils/index.ts"],
       "dotdo": ["./dotdo/index.ts"]
     }
   }

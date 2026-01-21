@@ -19,9 +19,17 @@
  */
 
 import { defineConfig } from 'vitest/config'
+import path from 'path'
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@dotdo/do': path.resolve(__dirname, '../do/index.ts'),
+      '@dotdo/utils': path.resolve(__dirname, '../utils/index.ts'),
+    },
+  },
   test: {
+    name: 'rpc-client',
     globals: true,
     include: ['tests/**/*.test.ts'],
     exclude: ['**/node_modules/**'],
