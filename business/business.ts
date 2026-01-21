@@ -10,11 +10,13 @@
  */
 
 import { DO } from '@dotdo/do'
+import { Hono } from 'hono'
 import type { DurableObjectState } from '@cloudflare/workers-types'
 import type {
   BusinessConfig,
   Product,
   Service,
+  ServicePricing,
   Experiment,
   Variant,
   FeatureFlag,
@@ -24,6 +26,100 @@ import type {
   BusinessMetrics,
   DateRange
 } from './types'
+
+// =============================================================================
+// OKR Helper Functions
+// =============================================================================
+
+/**
+ * Calculate progress percentage for a key result
+ * Returns 0-1 range, handles division by zero
+ */
+function calculateKeyResultProgress(currentValue: number, targetValue: number): number {
+  if (targetValue === 0) return 0
+  return Math.min(currentValue / targetValue, 1)
+}
+
+/**
+ * Determine status based on progress percentage
+ * - completed: progress >= 1.0
+ * - on-track: progress >= 0.6
+ * - at-risk: progress >= 0.3
+ * - behind: progress < 0.3
+ */
+function determineStatus(progress: number): 'on-track' | 'at-risk' | 'behind' | 'completed' {
+  if (progress >= 1.0) return 'completed'
+  if (progress >= 0.6) return 'on-track'
+  if (progress >= 0.3) return 'at-risk'
+  return 'behind'
+}
+
+/**
+ * Parse a period string into OKRPeriod object
+ * Supports: Q1-2024, H1-2024, 2024, January 2024, etc.
+ */
+function parsePeriod(periodStr: string): OKRPeriod {
+  const now = new Date()
+  const year = parseInt(periodStr.match(/\d{4}/)?.[0] ?? String(now.getFullYear()))
+
+  // Quarter format: Q1-2024
+  const quarterMatch = periodStr.match(/Q(\d)/i)
+  if (quarterMatch?.[1]) {
+    const quarter = parseInt(quarterMatch[1])
+    const startMonth = (quarter - 1) * 3
+    return {
+      type: 'quarter',
+      name: periodStr,
+      start: new Date(year, startMonth, 1),
+      end: new Date(year, startMonth + 3, 0),
+    }
+  }
+
+  // Half format: H1-2024
+  const halfMatch = periodStr.match(/H(\d)/i)
+  if (halfMatch?.[1]) {
+    const half = parseInt(halfMatch[1])
+    const startMonth = (half - 1) * 6
+    return {
+      type: 'custom',
+      name: periodStr,
+      start: new Date(year, startMonth, 1),
+      end: new Date(year, startMonth + 6, 0),
+    }
+  }
+
+  // Year format: 2024
+  if (/^\d{4}$/.test(periodStr)) {
+    return {
+      type: 'year',
+      name: periodStr,
+      start: new Date(year, 0, 1),
+      end: new Date(year, 11, 31),
+    }
+  }
+
+  // Default: treat as custom period spanning current year
+  return {
+    type: 'custom',
+    name: periodStr,
+    start: new Date(year, 0, 1),
+    end: new Date(year, 11, 31),
+  }
+}
+
+/**
+ * Generate a unique ID for an objective
+ */
+function generateObjectiveId(): string {
+  return `obj_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+/**
+ * Generate a unique ID for a key result
+ */
+function generateKeyResultId(): string {
+  return `kr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
 
 // =============================================================================
 // Business Class
@@ -73,6 +169,53 @@ export class Business extends DO {
   ) {
     super(state, env, { backend: config.backend ?? 'db4' })
     this.businessConfig = config
+  }
+
+  // ===========================================================================
+  // HTTP Routes - Override to add goals routes
+  // ===========================================================================
+
+  protected routes(app: Hono): void {
+    // Create objective
+    app.post('/goals', async (c) => {
+      const body = await c.req.json() as {
+        name: string
+        description?: string
+        keyResults: Array<{
+          name: string
+          target: number
+          unit?: string
+          metricKey?: string
+        }>
+        period: string
+        owner?: string
+      }
+
+      const objective = await this.goals.createObjective(body)
+      return c.json(objective)
+    })
+
+    // List objectives
+    app.get('/goals', async (c) => {
+      const period = c.req.query('period')
+      const objectives = await this.goals.list(period)
+      return c.json(objectives)
+    })
+
+    // Get objective progress
+    app.get('/goals/:nameOrId/progress', async (c) => {
+      const nameOrId = decodeURIComponent(c.req.param('nameOrId') ?? '')
+      const progress = await this.goals.progress(nameOrId)
+      return c.json(progress)
+    })
+
+    // Update objective
+    app.patch('/goals/:id', async (c) => {
+      const id = c.req.param('id') ?? ''
+      const updates = await c.req.json() as Partial<Objective>
+      const objective = await this.goals.updateObjective(id, updates)
+      return c.json(objective)
+    })
   }
 
   // ===========================================================================
@@ -282,11 +425,112 @@ class GoalsAPI {
   }
 
   /**
+   * Create an objective from data (used by HTTP route)
+   */
+  async createObjective(data: {
+    name: string
+    description?: string
+    keyResults: Array<{
+      name: string
+      target: number
+      unit?: string
+      metricKey?: string
+    }>
+    period: string
+    owner?: string
+  }): Promise<Objective> {
+    const now = new Date()
+    const id = generateObjectiveId()
+
+    // Convert key results to proper format
+    const keyResults: KeyResult[] = data.keyResults.map((kr) => ({
+      id: generateKeyResultId(),
+      name: kr.name,
+      targetValue: kr.target,
+      currentValue: 0,
+      unit: kr.unit,
+      metricKey: kr.metricKey,
+      status: 'behind' as const,
+    }))
+
+    // Parse period string to OKRPeriod
+    const period = parsePeriod(data.period)
+
+    // Create the objective
+    const objective: Objective = {
+      id,
+      name: data.name,
+      description: data.description,
+      owner: data.owner,
+      period,
+      status: 'behind',
+      keyResults,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    // Store in things
+    await this.business.things.create({
+      $id: id,
+      $type: 'Objective',
+      name: objective.name,
+      description: objective.description,
+      owner: objective.owner,
+      period: JSON.stringify(period),
+      status: objective.status,
+      keyResults: JSON.stringify(keyResults),
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    })
+
+    return objective
+  }
+
+  /**
+   * Update an objective (used by HTTP route)
+   */
+  async updateObjective(id: string, updates: Partial<Objective>): Promise<Objective> {
+    const thing = await this.business.things.get(id)
+    if (!thing || thing.$type !== 'Objective') {
+      throw new Error(`Objective not found: ${id}`)
+    }
+
+    const now = new Date()
+
+    // Merge updates
+    const updateData: Record<string, unknown> = {
+      updatedAt: now.toISOString(),
+    }
+
+    if (updates.name !== undefined) updateData['name'] = updates.name
+    if (updates.description !== undefined) updateData['description'] = updates.description
+    if (updates.owner !== undefined) updateData['owner'] = updates.owner
+    if (updates.status !== undefined) updateData['status'] = updates.status
+    if (updates.keyResults !== undefined) {
+      updateData['keyResults'] = JSON.stringify(updates.keyResults)
+    }
+
+    await this.business.things.update(id, updateData)
+
+    // Return updated objective
+    const updated = await this.business.things.get(id)
+    return this.thingToObjective(updated!)
+  }
+
+  /**
    * Get all objectives for a period
    */
   async list(period?: string): Promise<Objective[]> {
-    // Implementation
-    return []
+    const things = await this.business.things.list({ type: 'Objective' })
+
+    const objectives = things.map((thing) => this.thingToObjective(thing))
+
+    // Filter by period if specified
+    if (period) {
+      return objectives.filter((obj) => obj.period.name === period)
+    }
+
+    return objectives
   }
 
   /**
@@ -298,8 +542,82 @@ class GoalsAPI {
     status: 'on-track' | 'at-risk' | 'behind' | 'completed'
     recommendations?: string[]
   }> {
-    // Implementation would calculate progress from bound metrics
-    throw new Error('Not implemented')
+    // Find objective by name or id
+    const objective = await this.findObjective(nameOrId)
+    if (!objective) {
+      throw new Error(`Objective not found: ${nameOrId}`)
+    }
+
+    // Calculate progress for each key result
+    const keyResultsProgress = objective.keyResults.map((kr) => {
+      const progress = calculateKeyResultProgress(kr.currentValue, kr.targetValue)
+      const status = determineStatus(progress)
+      return {
+        name: kr.name,
+        progress,
+        status,
+      }
+    })
+
+    // Calculate overall progress (average of all key results)
+    const overall =
+      keyResultsProgress.length > 0
+        ? keyResultsProgress.reduce((sum, kr) => sum + kr.progress, 0) / keyResultsProgress.length
+        : 0
+
+    // Determine overall status
+    const status = determineStatus(overall)
+
+    return {
+      overall,
+      keyResults: keyResultsProgress,
+      status,
+    }
+  }
+
+  /**
+   * Find an objective by name or id
+   */
+  private async findObjective(nameOrId: string): Promise<Objective | null> {
+    // Try by ID first
+    const byId = await this.business.things.get(nameOrId)
+    if (byId && byId.$type === 'Objective') {
+      return this.thingToObjective(byId)
+    }
+
+    // Try by name
+    const all = await this.business.things.list({ type: 'Objective' })
+    const byName = all.find((thing) => thing['name'] === nameOrId)
+    if (byName) {
+      return this.thingToObjective(byName)
+    }
+
+    return null
+  }
+
+  /**
+   * Convert a Thing to an Objective
+   */
+  private thingToObjective(thing: Record<string, unknown>): Objective {
+    const keyResults: KeyResult[] = typeof thing['keyResults'] === 'string'
+      ? JSON.parse(thing['keyResults'] as string)
+      : (thing['keyResults'] as KeyResult[]) ?? []
+
+    const period: OKRPeriod = typeof thing['period'] === 'string'
+      ? JSON.parse(thing['period'] as string)
+      : (thing['period'] as OKRPeriod)
+
+    return {
+      id: thing.$id as string,
+      name: thing['name'] as string,
+      description: thing['description'] as string | undefined,
+      owner: thing['owner'] as string | undefined,
+      period,
+      status: (thing['status'] as Objective['status']) ?? 'behind',
+      keyResults,
+      createdAt: new Date(thing['createdAt'] as string),
+      updatedAt: new Date(thing['updatedAt'] as string),
+    }
   }
 
   /**
@@ -660,9 +978,13 @@ class ProductsAPI {
    */
   async create(data: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>): Promise<Product> {
     const now = new Date()
+    // Extract metadata and spread rest to handle type compatibility
+    const { metadata, ...rest } = data
     const thing = await this.business.things.create({
       $type: 'Product',
-      ...data,
+      ...rest,
+      // Cast metadata to JsonValue type for storage compatibility
+      ...(metadata && { metadata: metadata as Record<string, string | number | boolean | null> }),
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     })
@@ -685,7 +1007,7 @@ class ProductsAPI {
    * List all products
    */
   async list(): Promise<Product[]> {
-    const things = await this.business.things.list({ $type: 'Product' })
+    const things = await this.business.things.list({ type: 'Product' })
     return things.map(t => this.thingToProduct(t))
   }
 
@@ -699,8 +1021,12 @@ class ProductsAPI {
     }
 
     const now = new Date()
+    // Extract metadata and id (which shouldn't be updated via things.update)
+    const { metadata, id: _id, createdAt: _createdAt, ...rest } = data
     const updated = await this.business.things.update(id, {
-      ...data,
+      ...rest,
+      // Cast metadata to JsonValue type for storage compatibility
+      ...(metadata && { metadata: metadata as Record<string, string | number | boolean | null> }),
       updatedAt: now.toISOString(),
     })
 
@@ -734,19 +1060,32 @@ class ProductsAPI {
 
   /**
    * Convert a Thing to a Product
+   * Uses spread to conditionally include optional properties
    */
   private thingToProduct(thing: Record<string, unknown>): Product {
-    return {
-      id: thing.$id as string,
+    const result: Product = {
+      id: thing['$id'] as string,
       name: thing['name'] as string,
-      description: thing['description'] as string | undefined,
-      price: thing['price'] as number | undefined,
-      currency: thing['currency'] as string | undefined,
       active: thing['active'] as boolean,
-      metadata: thing['metadata'] as Record<string, unknown> | undefined,
       createdAt: new Date(thing['createdAt'] as string),
       updatedAt: new Date(thing['updatedAt'] as string),
     }
+
+    // Conditionally add optional properties only if they exist
+    if (thing['description'] !== undefined) {
+      result.description = thing['description'] as string
+    }
+    if (thing['price'] !== undefined) {
+      result.price = thing['price'] as number
+    }
+    if (thing['currency'] !== undefined) {
+      result.currency = thing['currency'] as string
+    }
+    if (thing['metadata'] !== undefined) {
+      result.metadata = thing['metadata'] as Record<string, unknown>
+    }
+
+    return result
   }
 }
 
@@ -758,9 +1097,14 @@ class ServicesAPI {
    */
   async create(data: Omit<Service, 'id' | 'createdAt' | 'updatedAt'>): Promise<Service> {
     const now = new Date()
+    // Extract metadata and pricing to handle type compatibility
+    const { metadata, pricing, ...rest } = data
     const thing = await this.business.things.create({
       $type: 'Service',
-      ...data,
+      ...rest,
+      // Cast pricing and metadata to JsonValue type for storage compatibility
+      ...(pricing && { pricing: pricing as unknown as Record<string, string | number | boolean | null> }),
+      ...(metadata && { metadata: metadata as Record<string, string | number | boolean | null> }),
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     })
@@ -783,7 +1127,7 @@ class ServicesAPI {
    * List all services
    */
   async list(): Promise<Service[]> {
-    const things = await this.business.things.list({ $type: 'Service' })
+    const things = await this.business.things.list({ type: 'Service' })
     return things.map(t => this.thingToService(t))
   }
 
@@ -797,8 +1141,13 @@ class ServicesAPI {
     }
 
     const now = new Date()
+    // Extract metadata, pricing, and id (which shouldn't be updated via things.update)
+    const { metadata, pricing, id: _id, createdAt: _createdAt, ...rest } = data
     const updated = await this.business.things.update(id, {
-      ...data,
+      ...rest,
+      // Cast pricing and metadata to JsonValue type for storage compatibility
+      ...(pricing && { pricing: pricing as unknown as Record<string, string | number | boolean | null> }),
+      ...(metadata && { metadata: metadata as Record<string, string | number | boolean | null> }),
       updatedAt: now.toISOString(),
     })
 
@@ -820,18 +1169,29 @@ class ServicesAPI {
 
   /**
    * Convert a Thing to a Service
+   * Uses spread to conditionally include optional properties
    */
   private thingToService(thing: Record<string, unknown>): Service {
-    return {
-      id: thing.$id as string,
+    const result: Service = {
+      id: thing['$id'] as string,
       name: thing['name'] as string,
-      description: thing['description'] as string | undefined,
-      pricing: thing['pricing'] as ServicePricing | undefined,
       active: thing['active'] as boolean,
-      metadata: thing['metadata'] as Record<string, unknown> | undefined,
       createdAt: new Date(thing['createdAt'] as string),
       updatedAt: new Date(thing['updatedAt'] as string),
     }
+
+    // Conditionally add optional properties only if they exist
+    if (thing['description'] !== undefined) {
+      result.description = thing['description'] as string
+    }
+    if (thing['pricing'] !== undefined) {
+      result.pricing = thing['pricing'] as ServicePricing
+    }
+    if (thing['metadata'] !== undefined) {
+      result.metadata = thing['metadata'] as Record<string, unknown>
+    }
+
+    return result
   }
 }
 
