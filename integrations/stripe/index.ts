@@ -1,18 +1,23 @@
 // Stripe Integration Stub
 // Example integration for the dotdo integration registry (do-laux)
 //
+// IMPLEMENTED FEATURES:
+// - Webhook signature verification using HMAC-SHA256 (via verifyStripeSignature)
+// - Stub methods for all core Stripe operations (customers, payments, subscriptions)
+// - Full webhook event handling with registered handlers
+// - Lifecycle management (init, shutdown, healthCheck)
+//
 // TODO: Replace stub with real Stripe SDK integration
 // Action items for real implementation:
 // 1. Add 'stripe' npm package dependency
 // 2. Initialize Stripe SDK in init() method with config.apiKey
 // 3. Implement real API calls in all methods using Stripe SDK
-// 4. Implement webhook signature verification using stripe.webhooks.constructEvent()
-// 5. Add proper error mapping from Stripe errors to IntegrationError
-// 6. Add request retries with exponential backoff for transient errors
-// 7. Add request/response logging for debugging
-// 8. Support idempotency keys for safe retries
-// 9. Add rate limiting awareness (handle 429 responses)
-// 10. Validate webhook events before processing
+// 4. Add proper error mapping from Stripe errors to IntegrationError
+// 5. Add request retries with exponential backoff for transient errors
+// 6. Add request/response logging for debugging
+// 7. Support idempotency keys for safe retries
+// 8. Add rate limiting awareness (handle 429 responses)
+// 9. Validate webhook events before processing
 
 import type {
   Integration,
@@ -24,6 +29,7 @@ import type {
   IntegrationEvent,
 } from '../types'
 import { successResult, errorResult } from '../registry'
+import { verifyStripeSignature } from '../webhook-verify'
 
 /**
  * Stripe-specific configuration
@@ -422,6 +428,7 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
       const body = await request.text()
       const signature = request.headers.get('stripe-signature')
 
+      // Check for missing signature when secret is configured
       if (!signature && this.config.webhookSecret) {
         return new Response(
           JSON.stringify({ error: 'Missing stripe-signature header' }),
@@ -429,18 +436,23 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
         )
       }
 
-      // TODO: Real implementation:
-      // 1. Verify the webhook signature using stripe.webhooks.constructEvent():
-      //    const event = stripe.webhooks.constructEvent(
-      //      body,
-      //      signature,
-      //      this.config.webhookSecret
-      //    )
-      // 2. Validate event type and structure
-      // 3. Call registered handlers with proper error handling
-      // 4. Return appropriate status codes based on processing result
+      // Verify signature if webhook secret is configured
+      if (this.config.webhookSecret && signature) {
+        const verification = await verifyStripeSignature(
+          body,
+          signature,
+          this.config.webhookSecret
+        )
 
-      // STUB: Parse event without signature verification
+        if (!verification.valid) {
+          return new Response(
+            JSON.stringify({ error: 'Signature verification failed' }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } }
+          )
+        }
+      }
+
+      // Parse the event payload
       const event = JSON.parse(body) as { type: string; data: { object: unknown } }
 
       // Create integration event

@@ -104,6 +104,8 @@ export default defineWorkersConfig({
       './ai/vitest.config.ts',
       // Utils package
       './utils/vitest.config.ts',
+      // Integrations package
+      './integrations/vitest.config.ts',
     ],
 
     // CRITICAL: Limit concurrency to prevent resource exhaustion
@@ -114,7 +116,7 @@ export default defineWorkersConfig({
     fileParallelism: false,
 
     // Include test packages that work with the root wrangler.jsonc
-    // Note: Core packages (auth, oauth, ai, rpc, etc.) now have their own configs in projects array
+    // Note: Core packages (auth, oauth, ai, rpc, integrations, etc.) now have their own configs in projects array
     include: [
       // SDK packages
       'sdk.do/tests/**/*.test.ts',
@@ -131,7 +133,6 @@ export default defineWorkersConfig({
       'testing/**/*.test.ts',
       'observability/tests/**/*.test.ts',
       'utils/tests/**/*.test.ts',
-      'integrations/tests/**/*.test.ts',
     ],
 
     // Exclude external packages and archived versions

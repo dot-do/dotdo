@@ -473,6 +473,188 @@ describe('createStripeIntegration', () => {
   })
 })
 
+describe('StripeIntegration webhook signature verification', () => {
+  let stripe: StripeIntegration
+
+  // Helper function to compute HMAC-SHA256 signature for test webhooks
+  async function computeStripeSignature(
+    payload: string,
+    secret: string,
+    timestamp: number
+  ): Promise<string> {
+    const signedPayload = `${timestamp}.${payload}`
+    const encoder = new TextEncoder()
+    const keyData = encoder.encode(secret)
+    const messageData = encoder.encode(signedPayload)
+
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    )
+
+    const signature = await crypto.subtle.sign('HMAC', cryptoKey, messageData)
+    return Array.from(new Uint8Array(signature))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+  }
+
+  beforeEach(async () => {
+    stripe = createStripeIntegration()
+    await stripe.init({
+      apiKey: 'sk_test_abc123',
+      webhookSecret: 'whsec_test_secret',
+    })
+  })
+
+  it('should accept valid webhook signature', async () => {
+    const payload = JSON.stringify({
+      type: 'payment_intent.succeeded',
+      data: { object: { id: 'pi_123', amount: 1000 } },
+    })
+
+    // Use a timestamp within tolerance (now)
+    const timestamp = Math.floor(Date.now() / 1000)
+    const signature = await computeStripeSignature(payload, 'whsec_test_secret', timestamp)
+
+    const request = new Request('https://example.com/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'stripe-signature': `t=${timestamp},v1=${signature}`,
+      },
+      body: payload,
+    })
+
+    const response = await stripe.handleWebhook!(request)
+    expect(response.status).toBe(200)
+
+    const body = await response.json()
+    expect(body.received).toBe(true)
+  })
+
+  it('should reject expired webhook signature (timestamp too old)', async () => {
+    const payload = JSON.stringify({
+      type: 'payment_intent.succeeded',
+      data: { object: { id: 'pi_123' } },
+    })
+
+    // Use a timestamp that's 10 minutes old (beyond 5-minute tolerance)
+    const timestamp = Math.floor(Date.now() / 1000) - 600
+    const signature = await computeStripeSignature(payload, 'whsec_test_secret', timestamp)
+
+    const request = new Request('https://example.com/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'stripe-signature': `t=${timestamp},v1=${signature}`,
+      },
+      body: payload,
+    })
+
+    const response = await stripe.handleWebhook!(request)
+    expect(response.status).toBe(401)
+  })
+
+  it('should reject webhook with wrong secret', async () => {
+    const payload = JSON.stringify({
+      type: 'payment_intent.succeeded',
+      data: { object: { id: 'pi_123' } },
+    })
+
+    const timestamp = Math.floor(Date.now() / 1000)
+    // Sign with wrong secret
+    const signature = await computeStripeSignature(payload, 'wrong_secret', timestamp)
+
+    const request = new Request('https://example.com/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'stripe-signature': `t=${timestamp},v1=${signature}`,
+      },
+      body: payload,
+    })
+
+    const response = await stripe.handleWebhook!(request)
+    expect(response.status).toBe(401)
+  })
+
+  it('should reject webhook with malformed signature header', async () => {
+    const payload = JSON.stringify({
+      type: 'payment_intent.succeeded',
+      data: { object: { id: 'pi_123' } },
+    })
+
+    const request = new Request('https://example.com/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // Missing timestamp in signature
+        'stripe-signature': 'v1=somesignature',
+      },
+      body: payload,
+    })
+
+    const response = await stripe.handleWebhook!(request)
+    expect(response.status).toBe(401)
+  })
+
+  it('should skip verification when no webhook secret is configured', async () => {
+    // Create a new instance without webhook secret
+    const stripeNoSecret = createStripeIntegration()
+    await stripeNoSecret.init({ apiKey: 'sk_test_abc123' })
+
+    const payload = JSON.stringify({
+      type: 'payment_intent.succeeded',
+      data: { object: { id: 'pi_123' } },
+    })
+
+    const request = new Request('https://example.com/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // Invalid signature, but no secret configured so it should be ignored
+        'stripe-signature': 't=1234567890,v1=invalidsignature',
+      },
+      body: payload,
+    })
+
+    const response = await stripeNoSecret.handleWebhook!(request)
+    expect(response.status).toBe(200)
+  })
+
+  it('should call event handlers with verified webhook', async () => {
+    const events: unknown[] = []
+    stripe.onEvent!((event) => events.push(event))
+
+    const payload = JSON.stringify({
+      type: 'customer.created',
+      data: { object: { id: 'cus_123', email: 'test@example.com' } },
+    })
+
+    const timestamp = Math.floor(Date.now() / 1000)
+    const signature = await computeStripeSignature(payload, 'whsec_test_secret', timestamp)
+
+    const request = new Request('https://example.com/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'stripe-signature': `t=${timestamp},v1=${signature}`,
+      },
+      body: payload,
+    })
+
+    const response = await stripe.handleWebhook!(request)
+    expect(response.status).toBe(200)
+
+    expect(events).toHaveLength(1)
+    expect((events[0] as any).type).toBe('customer.created')
+    expect((events[0] as any).payload.id).toBe('cus_123')
+  })
+})
+
 describe('StripeIntegration error handling', () => {
   let stripe: StripeIntegration
 
