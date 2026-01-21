@@ -74,6 +74,13 @@ const MODEL_CATALOG: Record<string, ModelInfo> = {
     maxTokens: 128000,
     speed: 'fast'
   },
+  'gpt-4': {
+    provider: 'openai',
+    model: 'gpt-4',
+    costPer1kTokens: 0.03, // TODO: Verify pricing
+    maxTokens: 8192,
+    speed: 'medium'
+  },
   'gpt-4-turbo': {
     provider: 'openai',
     model: 'gpt-4-turbo',
@@ -108,6 +115,13 @@ const MODEL_CATALOG: Record<string, ModelInfo> = {
   'claude-3.5-sonnet': {
     provider: 'anthropic',
     model: 'claude-3-5-sonnet-20241022',
+    costPer1kTokens: 0.003, // TODO: Verify pricing
+    maxTokens: 200000,
+    speed: 'fast'
+  },
+  'claude-3-sonnet': {
+    provider: 'anthropic',
+    model: 'claude-3-sonnet-20240229',
     costPer1kTokens: 0.003, // TODO: Verify pricing
     maxTokens: 200000,
     speed: 'fast'
@@ -163,6 +177,13 @@ const MODEL_CATALOG: Record<string, ModelInfo> = {
     costPer1kTokens: 0.00025, // TODO: Verify pricing
     maxTokens: 32000,
     speed: 'fast'
+  },
+  'gemini-ultra': {
+    provider: 'google',
+    model: 'gemini-ultra',
+    costPer1kTokens: 0.005, // TODO: Verify pricing
+    maxTokens: 32000,
+    speed: 'medium'
   },
 
   // Cloudflare Workers AI
@@ -567,7 +588,30 @@ export class Router {
 }
 
 /**
- * Configure global providers (legacy API from providers.ts)
+ * Configures and returns an AI Router with the specified providers.
+ *
+ * This is a convenience function for creating a Router with provider
+ * configurations. Use this when you want to set up multiple providers
+ * with their API keys and settings.
+ *
+ * @param configs - Array of provider configurations with API keys
+ * @returns A configured Router instance
+ *
+ * @example
+ * ```typescript
+ * import { configureProviders } from '@dotdo/ai'
+ *
+ * const router = configureProviders([
+ *   { provider: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY },
+ *   { provider: 'openai', apiKey: process.env.OPENAI_API_KEY },
+ *   { provider: 'google', apiKey: process.env.GOOGLE_API_KEY }
+ * ])
+ *
+ * const result = await router.execute('Generate a haiku about code')
+ * ```
+ *
+ * @stable
+ * @since 1.0.0
  */
 export function configureProviders(configs: ProviderConfig[]): Router {
   return new Router({ providers: configs })

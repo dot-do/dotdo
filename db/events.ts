@@ -8,7 +8,7 @@ import type { StorableData, JsonValue } from './types'
 import type { StorageAdapter } from './storage'
 import type { EventId, ThingId, CorrelationId } from './branded-types'
 import { generateEventId } from './id'
-import { createLogger } from '../utils/logger'
+import { createLogger } from '@dotdo/utils'
 import { MemoryStorageAdapter } from './adapters/memory'
 
 const logger = createLogger('[Events]')
@@ -571,9 +571,40 @@ function getDurabilityConfigForType<P extends JsonValue>(
 // ============================================================================
 
 /**
- * Create an EventsStore backed by a StorageAdapter
- * This allows using any storage backend (SQLite, memory, etc.)
- * Refactored per do-fo3n to use shared helper functions
+ * Creates an EventsStore backed by a StorageAdapter.
+ *
+ * This factory function creates an event store that persists events using the
+ * provided storage adapter, allowing any storage backend (SQLite, memory, etc.).
+ *
+ * @typeParam P - The payload type for events, defaults to JsonValue
+ * @param adapter - The storage adapter to use for persistence
+ * @returns An EventsStore instance with full event management capabilities
+ *
+ * @example
+ * ```typescript
+ * import { createEventsStoreWithAdapter, SQLiteAdapter } from '@dotdo/db'
+ *
+ * // Create store with SQLite backend
+ * const adapter = new SQLiteAdapter(storage)
+ * const events = createEventsStoreWithAdapter(adapter)
+ *
+ * // Emit an event
+ * const event = await events.emit({
+ *   type: 'user.signup',
+ *   payload: { userId: 'user-123', email: 'alice@example.com' }
+ * })
+ *
+ * // Query events
+ * const signups = await events.query({ type: 'user.signup', limit: 10 })
+ *
+ * // Subscribe to new events
+ * const unsubscribe = events.subscribe((event) => {
+ *   console.log('New event:', event.type)
+ * })
+ * ```
+ *
+ * @stable
+ * @since 1.0.0
  */
 export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
   adapter: StorageAdapter
@@ -751,9 +782,33 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
 }
 
 /**
- * Create an in-memory EventsStore with generic type parameter
- * P defaults to JsonValue for backward compatibility
- * Refactored per do-1knp.4 to use createEventsStoreWithAdapter with MemoryStorageAdapter
+ * Creates an in-memory EventsStore for testing and development.
+ *
+ * This factory function creates an event store backed by a MemoryStorageAdapter.
+ * Events are stored in-memory and will be lost when the process ends.
+ * Use `createEventsStoreWithAdapter()` with a persistent adapter for production.
+ *
+ * @typeParam P - The payload type for events, defaults to JsonValue
+ * @returns An EventsStore instance with full event management capabilities
+ *
+ * @example
+ * ```typescript
+ * import { createEventsStore } from '@dotdo/db'
+ *
+ * const events = createEventsStore()
+ *
+ * // Emit typed events
+ * interface UserSignupPayload { userId: string; email: string }
+ * const typedEvents = createEventsStore<UserSignupPayload>()
+ *
+ * await typedEvents.emit({
+ *   type: 'user.signup',
+ *   payload: { userId: 'user-123', email: 'alice@example.com' }
+ * })
+ * ```
+ *
+ * @stable
+ * @since 1.0.0
  */
 export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStore<P> {
   return createEventsStoreWithAdapter<P>(new MemoryStorageAdapter())

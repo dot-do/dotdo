@@ -97,15 +97,74 @@ export function ai(strings: TemplateStringsArray, ...values: unknown[]): AIPromi
   )
 }
 
-// Convenience functions
+/**
+ * Convenience function for writing content using AI.
+ *
+ * Wraps the prompt with "Write: " prefix for content generation tasks.
+ *
+ * @param strings - Template literal strings
+ * @param values - Template literal interpolated values
+ * @returns An AIPromise that resolves to the generated text
+ *
+ * @example
+ * ```typescript
+ * import { write } from '@dotdo/ai'
+ *
+ * const blogPost = await write`a blog post about TypeScript best practices`
+ * const email = await write`a professional email declining a meeting`.with({ temperature: 0.3 })
+ * ```
+ *
+ * @stable
+ * @since 1.0.0
+ */
 export function write(strings: TemplateStringsArray, ...values: unknown[]): AIPromise<string> {
   return ai`Write: ${strings.reduce((acc, str, i) => acc + str + (values[i] ?? ''), '')}`
 }
 
+/**
+ * Convenience function for summarizing content using AI.
+ *
+ * Wraps the prompt with "Summarize: " prefix for summarization tasks.
+ *
+ * @param strings - Template literal strings
+ * @param values - Template literal interpolated values
+ * @returns An AIPromise that resolves to the summary
+ *
+ * @example
+ * ```typescript
+ * import { summarize } from '@dotdo/ai'
+ *
+ * const summary = await summarize`${longArticle}`
+ * const briefing = await summarize`${meetingNotes} in 3 bullet points`
+ * ```
+ *
+ * @stable
+ * @since 1.0.0
+ */
 export function summarize(strings: TemplateStringsArray, ...values: unknown[]): AIPromise<string> {
   return ai`Summarize: ${strings.reduce((acc, str, i) => acc + str + (values[i] ?? ''), '')}`
 }
 
+/**
+ * Convenience function for generating code using AI.
+ *
+ * Wraps the prompt with "Generate code: " prefix for code generation tasks.
+ *
+ * @param strings - Template literal strings
+ * @param values - Template literal interpolated values
+ * @returns An AIPromise that resolves to the generated code
+ *
+ * @example
+ * ```typescript
+ * import { code } from '@dotdo/ai'
+ *
+ * const sortFunc = await code`a TypeScript function to sort an array of objects by date`
+ * const regex = await code`a regex to validate email addresses`
+ * ```
+ *
+ * @stable
+ * @since 1.0.0
+ */
 export function code(strings: TemplateStringsArray, ...values: unknown[]): AIPromise<string> {
   return ai`Generate code: ${strings.reduce((acc, str, i) => acc + str + (values[i] ?? ''), '')}`
 }

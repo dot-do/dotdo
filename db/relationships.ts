@@ -81,8 +81,45 @@ function relationshipKey(rel: Pick<BaseRelationship, 'subject' | 'predicate' | '
 }
 
 /**
- * Create a RelationshipsStore backed by a StorageAdapter
- * This allows using any storage backend (SQLite, memory, etc.)
+ * Creates a RelationshipsStore backed by a StorageAdapter.
+ *
+ * This factory function creates a relationship store that persists relationships
+ * using the provided storage adapter. Relationships are subject-predicate-object
+ * triples (e.g., "User owns Order", "Order belongsTo Customer").
+ *
+ * @typeParam M - The metadata type for relationships, defaults to StorableData
+ * @param adapter - The storage adapter to use for persistence
+ * @returns A RelationshipsStore instance for managing entity relationships
+ *
+ * @example
+ * ```typescript
+ * import { createRelationshipsStoreWithAdapter, SQLiteAdapter } from '@dotdo/db'
+ *
+ * // Create store with SQLite backend
+ * const adapter = new SQLiteAdapter(storage)
+ * const relationships = createRelationshipsStoreWithAdapter(adapter)
+ *
+ * // Add a relationship
+ * await relationships.add({
+ *   subject: 'user-123',
+ *   predicate: 'owns',
+ *   object: 'order-456'
+ * })
+ *
+ * // Find relationships
+ * const userOrders = await relationships.find({ subject: 'user-123', predicate: 'owns' })
+ *
+ * // Get related object IDs
+ * const ownedOrderIds = await relationships.getRelated('user-123', 'owns')
+ * // ['order-456', 'order-789', ...]
+ *
+ * // Get subjects related to an object
+ * const orderOwners = await relationships.getRelatedTo('order-456', 'owns')
+ * // ['user-123']
+ * ```
+ *
+ * @stable
+ * @since 1.0.0
  */
 export function createRelationshipsStoreWithAdapter<M extends StorableData = StorableData>(
   adapter: StorageAdapter
@@ -143,8 +180,36 @@ export function createRelationshipsStoreWithAdapter<M extends StorableData = Sto
 }
 
 /**
- * Create an in-memory RelationshipsStore with generic type parameter
- * M defaults to StorableData for backward compatibility
+ * Creates an in-memory RelationshipsStore for testing and development.
+ *
+ * This factory function creates a relationship store backed by in-memory storage.
+ * Relationships will be lost when the process ends. Use
+ * `createRelationshipsStoreWithAdapter()` with a persistent adapter for production.
+ *
+ * @typeParam M - The metadata type for relationships, defaults to StorableData
+ * @returns A RelationshipsStore instance for managing entity relationships
+ *
+ * @example
+ * ```typescript
+ * import { createRelationshipsStore } from '@dotdo/db'
+ *
+ * const relationships = createRelationshipsStore()
+ *
+ * // With typed metadata
+ * interface RelationshipMeta { createdBy: string; note?: string }
+ * const typedRels = createRelationshipsStore<RelationshipMeta>()
+ *
+ * await typedRels.add({
+ *   subject: 'user-123',
+ *   predicate: 'follows',
+ *   object: 'user-456',
+ *   createdBy: 'system',
+ *   note: 'Auto-follow on signup'
+ * })
+ * ```
+ *
+ * @stable
+ * @since 1.0.0
  */
 export function createRelationshipsStore<M extends StorableData = StorableData>(): RelationshipsStore<M> {
   const relationships: Relationship<M>[] = []

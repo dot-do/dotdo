@@ -16,6 +16,10 @@ import {
   getMethodSchema,
   isValidRPCMethod,
   type MethodSchemaRegistry,
+  validateZodArgs,
+  getZodMethodSchema,
+  isZodMethodSchema,
+  type ZodMethodSchemaRegistry,
 } from './validation'
 import {
   executePipeline,
@@ -49,8 +53,8 @@ export interface RPCServerOptions {
   target: object
   /** Optional whitelist of allowed method names or glob patterns */
   whitelist?: string[]
-  /** Optional schema registry for argument validation */
-  schemas?: MethodSchemaRegistry
+  /** Optional schema registry for argument validation (supports both regular and Zod schemas) */
+  schemas?: MethodSchemaRegistry | ZodMethodSchemaRegistry
   /** Options for pipeline execution */
   pipeline?: PipelineExecutorOptions
   /** Enable pipeline support (default: true) */
@@ -64,7 +68,7 @@ export interface RPCServerOptions {
  */
 export interface RPCServerApp extends ReturnType<typeof createHonoApp> {
   updateWhitelist(whitelist: string[]): void
-  updateSchemas(schemas: MethodSchemaRegistry): void
+  updateSchemas(schemas: MethodSchemaRegistry | ZodMethodSchemaRegistry): void
 }
 
 function createHonoApp() {
@@ -221,10 +225,66 @@ function createMethodNotAllowedError(): AuthorizationError {
   return new AuthorizationError('Method not allowed')
 }
 
+/**
+ * Creates an RPC server that exposes methods via HTTP.
+ *
+ * The server provides JSON-RPC style method invocation over HTTP POST requests.
+ * Features include:
+ * - Method whitelisting with glob pattern support
+ * - Schema validation for arguments (supports both Zod and regular schemas)
+ * - Cap'n Proto-style promise pipelining for reduced round trips
+ * - Correlation ID propagation for distributed tracing
+ * - Execution context injection for method handlers
+ * - Protection against prototype pollution attacks
+ *
+ * @param options - Server configuration options
+ * @returns A Hono app configured as an RPC server
+ *
+ * @example
+ * ```typescript
+ * import { createServer } from '@dotdo/rpc'
+ *
+ * // Basic usage
+ * const api = {
+ *   greet(name: string) { return `Hello, ${name}!` },
+ *   users: {
+ *     create(user: User) { return { id: generateId(), ...user } }
+ *   }
+ * }
+ *
+ * const server = createServer({ target: api })
+ *
+ * // With whitelist (only expose specific methods)
+ * const server = createServer({
+ *   target: api,
+ *   whitelist: ['greet', 'users.*']  // Glob patterns supported
+ * })
+ *
+ * // With Zod schema validation
+ * import { z } from 'zod'
+ *
+ * const server = createServer({
+ *   target: api,
+ *   schemas: {
+ *     greet: { type: 'zod', schema: z.tuple([z.string()]) },
+ *     'users.create': { type: 'zod', schema: z.tuple([userSchema]) }
+ *   }
+ * })
+ *
+ * // With execution context (correlation ID, caller info)
+ * const server = createServer({
+ *   target: api,
+ *   passContext: true  // Methods receive execution context as last arg
+ * })
+ * ```
+ *
+ * @stable
+ * @since 1.0.0
+ */
 export function createServer(options: RPCServerOptions): RPCServerApp {
   const { target, enablePipeline = true, pipeline: pipelineOptions, passContext = false } = options
   let currentWhitelist: string[] | undefined = options.whitelist
-  let currentSchemas: MethodSchemaRegistry | undefined = options.schemas
+  let currentSchemas: MethodSchemaRegistry | ZodMethodSchemaRegistry | undefined = options.schemas
   const app = new Hono() as RPCServerApp
 
   // Add updateWhitelist method to the app
@@ -233,7 +293,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
   }
 
   // Add updateSchemas method to the app
-  app.updateSchemas = (newSchemas: MethodSchemaRegistry) => {
+  app.updateSchemas = (newSchemas: MethodSchemaRegistry | ZodMethodSchemaRegistry) => {
     currentSchemas = newSchemas
   }
 
@@ -391,10 +451,18 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
 
       // Validate arguments if schema is defined for this method
       if (currentSchemas) {
-        const methodSchema = getMethodSchema(currentSchemas, method)
-        if (methodSchema) {
-          // validateArgs throws ValidationError if validation fails
-          validateArgs(args, methodSchema)
+        // First try Zod schemas
+        const zodSchema = getZodMethodSchema(currentSchemas as ZodMethodSchemaRegistry, method)
+        if (zodSchema && isZodMethodSchema(zodSchema)) {
+          // validateZodArgs throws ValidationError if validation fails
+          validateZodArgs(args, zodSchema)
+        } else {
+          // Fall back to regular schemas
+          const methodSchema = getMethodSchema(currentSchemas as MethodSchemaRegistry, method)
+          if (methodSchema) {
+            // validateArgs throws ValidationError if validation fails
+            validateArgs(args, methodSchema)
+          }
         }
       }
 
@@ -447,7 +515,29 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
   return app
 }
 
-// Cloudflare Worker export helper
+/**
+ * Creates a Cloudflare Worker export from a target object.
+ *
+ * This helper wraps any object with RPC methods into a format
+ * suitable for Cloudflare Worker export.
+ *
+ * @param target - The object containing methods to expose via RPC
+ * @returns A Worker-compatible export with a fetch handler
+ *
+ * @example
+ * ```typescript
+ * import { createWorkerFromTarget } from '@dotdo/rpc'
+ *
+ * const api = {
+ *   greet(name: string) { return `Hello, ${name}!` }
+ * }
+ *
+ * export default createWorkerFromTarget(api)
+ * ```
+ *
+ * @stable
+ * @since 1.0.0
+ */
 export function createWorkerFromTarget(target: object) {
   const app = createServer({ target })
 
