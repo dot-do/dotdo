@@ -54,6 +54,18 @@ export const LogLevel = {
   error: 'error',
 } as const
 
+/**
+ * Log level type derived from the LogLevel constant.
+ *
+ * Valid values are: 'debug', 'info', 'warn', 'error'
+ *
+ * @example
+ * ```typescript
+ * import type { LogLevelType } from 'rpc.do'
+ *
+ * const level: LogLevelType = 'info'
+ * ```
+ */
 export type LogLevelType = (typeof LogLevel)[keyof typeof LogLevel]
 
 /**
@@ -162,7 +174,46 @@ function defaultOutput(entry: LogEntry): void {
 // ============================================================================
 
 /**
- * Create a structured logger
+ * Create a structured logger instance.
+ *
+ * Creates a new logger with configurable log level, correlation ID support,
+ * and customizable output. The logger provides methods for debug, info, warn,
+ * and error logging, plus utilities for timing and request/response logging.
+ *
+ * @param options - Configuration options for the logger
+ * @returns A Logger instance with all logging methods
+ *
+ * @example Basic usage
+ * ```typescript
+ * import { createLogger } from 'rpc.do'
+ *
+ * const logger = createLogger({ level: 'debug' })
+ * logger.info('Server started', { port: 3000 })
+ * logger.debug('Processing request', { id: 'req-123' })
+ * ```
+ *
+ * @example With correlation ID
+ * ```typescript
+ * const logger = createLogger({
+ *   level: 'info',
+ *   correlationId: 'request-abc-123',
+ * })
+ *
+ * // All log entries will include the correlation ID
+ * logger.info('Handling request')
+ * logger.info('Request complete', { status: 200 })
+ * ```
+ *
+ * @example With custom output
+ * ```typescript
+ * const entries: LogEntry[] = []
+ * const logger = createLogger({
+ *   output: (entry) => entries.push(entry),
+ * })
+ * ```
+ *
+ * @see {@link Logger} for the logger interface
+ * @see {@link LoggerOptions} for configuration options
  */
 export function createLogger(options: LoggerOptions = {}): Logger {
   const level = options.level ?? 'info'
@@ -363,15 +414,30 @@ export interface CLILoggerOptions {
 }
 
 /**
- * Create a logger from CLI options
+ * Create a logger from CLI options.
  *
- * @example
+ * Convenience function that creates a logger configured based on common CLI flags.
+ * Maps --verbose to 'debug' level and --quiet to 'warn' level.
+ *
+ * @param options - CLI options for verbose/quiet modes
+ * @returns A Logger instance configured for CLI usage
+ *
+ * @example Basic CLI integration
  * ```typescript
+ * import { createLoggerFromCLI } from 'rpc.do'
+ *
+ * // In your CLI command handler
  * const logger = createLoggerFromCLI({
  *   verbose: options.verbose,
  *   quiet: options.quiet,
  * })
+ *
+ * logger.info('Processing file', { file: 'input.txt' })
+ * logger.debug('Detailed info') // Only shown with --verbose
  * ```
+ *
+ * @see {@link createLogger} for full logger configuration
+ * @see {@link CLILoggerOptions} for available options
  */
 export function createLoggerFromCLI(options: CLILoggerOptions = {}): Logger {
   let level: LogLevelType = 'info'

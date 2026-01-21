@@ -8,6 +8,7 @@
  * - Pluggable transport layer (fetch, WebSocket, DO stubs)
  * - OAuth 2.0 authentication with device flow
  * - CLI tools for type generation, REPL, and scripting
+ * - Structured logging with correlation ID propagation
  *
  * @example Basic client usage
  * ```typescript
@@ -39,6 +40,13 @@
  * const client = createClient<MyAPI>('https://api.example.com', { transport })
  * ```
  *
+ * @see {@link createClient} - Factory for creating RPC clients
+ * @see {@link FetchTransport} - HTTP transport for client-to-worker
+ * @see {@link WebSocketTransport} - Real-time bidirectional transport
+ * @see {@link AuthTransport} - Transport with OAuth authentication
+ * @see {@link createLogger} - Structured logging
+ *
+ * @since 0.0.1
  * @packageDocumentation
  */
 

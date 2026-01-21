@@ -420,6 +420,11 @@ function createLegacyNestedProxy(
  * @param urlOrOptions - URL string or configuration options
  * @param options - Additional options when first arg is URL string
  * @returns A typed proxy that forwards method calls via RPC
+ *
+ * @see {@link FetchTransport} for HTTP-based transport
+ * @see {@link WebSocketTransport} for real-time transport
+ * @see {@link AuthTransport} for authenticated transport
+ * @since 0.0.1
  */
 export function createClient<T extends object>(
   urlOrOptions: string | RPCClientOptions,
@@ -473,6 +478,9 @@ export function createClient<T extends object>(
  *
  * @param handler - Function to handle method calls
  * @returns A proxy object
+ *
+ * @see {@link createClient} for the high-level typed client
+ * @since 0.0.1
  */
 export function createProxy(
   handler: (path: string[], args: unknown[]) => Promise<unknown>
