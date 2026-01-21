@@ -17,6 +17,9 @@
  */
 
 import type { ZodTypeAny } from 'zod'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('[ai-core]')
 
 // ============================================================================
 // Internal Type Definitions for AI SDK Compatibility
@@ -326,7 +329,7 @@ function warnMockUsage(model: string, operation: string): void {
   if (mockConfig.onMockWarning) {
     mockConfig.onMockWarning(message, { model, operation })
   } else {
-    console.warn(message)
+    logger.warn(message)
   }
 
   if (operation === 'resolve') {

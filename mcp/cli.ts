@@ -31,6 +31,9 @@ import { fetchTool } from './fetch'
 import { doTool } from './do'
 import { createReadStream, createWriteStream } from 'fs'
 import { createInterface } from 'readline'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('[mcp]')
 
 /**
  * CLI options parsed from arguments
@@ -137,7 +140,7 @@ async function handleMessage(
   const { method, params, id } = message
 
   if (verbose) {
-    console.error(`[mcp] <- ${method}`, params)
+    logger.debug(`[mcp] <- ${method}`, params)
   }
 
   try {
@@ -201,7 +204,7 @@ async function handleMessage(
     }
 
     if (verbose) {
-      console.error(`[mcp] -> response`, result)
+      logger.debug(`[mcp] -> response`, result)
     }
 
     return { jsonrpc: '2.0', id, result }
@@ -227,7 +230,7 @@ async function runStdioServer(verbose: boolean): Promise<void> {
   server.addTool(doTool)
 
   if (verbose) {
-    console.error('[mcp] Starting stdio server with tools:', server.tools.map((t) => t.name))
+    logger.debug('[mcp] Starting stdio server with tools:', server.tools.map((t) => t.name))
   }
 
   // Set up stdin/stdout for JSON-RPC
@@ -259,7 +262,7 @@ async function runStdioServer(verbose: boolean): Promise<void> {
 
   rl.on('close', () => {
     if (verbose) {
-      console.error('[mcp] stdin closed, shutting down')
+      logger.debug('[mcp] stdin closed, shutting down')
     }
     process.exit(0)
   })
@@ -277,8 +280,8 @@ async function runHttpServer(port: number, verbose: boolean): Promise<void> {
   server.addTool(doTool)
 
   if (verbose) {
-    console.log(`[mcp] Starting HTTP server on port ${port}`)
-    console.log(`[mcp] Tools:`, server.tools.map((t) => t.name))
+    logger.debug(`Starting HTTP server on port ${port}`)
+    logger.debug('Tools:', server.tools.map((t) => t.name))
   }
 
   // Use Node's built-in http server
@@ -313,12 +316,12 @@ async function runHttpServer(port: number, verbose: boolean): Promise<void> {
   })
 
   httpServer.listen(port, () => {
-    console.log(`dotdo-mcp HTTP server running on http://localhost:${port}`)
-    console.log('Endpoints:')
-    console.log(`  POST /mcp/initialize   - Initialize server`)
-    console.log(`  GET  /mcp/tools        - List available tools`)
-    console.log(`  POST /mcp/tools/call   - Call a tool`)
-    console.log(`  GET  /                 - Health check`)
+    logger.info(`dotdo-mcp HTTP server running on http://localhost:${port}`)
+    logger.info('Endpoints:')
+    logger.info(`  POST /mcp/initialize   - Initialize server`)
+    logger.info(`  GET  /mcp/tools        - List available tools`)
+    logger.info(`  POST /mcp/tools/call   - Call a tool`)
+    logger.info(`  GET  /                 - Health check`)
   })
 }
 
@@ -356,7 +359,7 @@ const isMain =
 
 if (isMain) {
   main().catch((error) => {
-    console.error('Error:', error)
+    logger.error('Error:', error)
     process.exit(1)
   })
 }

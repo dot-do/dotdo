@@ -6,6 +6,9 @@ import { Command } from 'commander'
 import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { resolve, join } from 'path'
+import { createLogger } from '../utils/logger'
+
+const logger = createLogger('[dotdo]')
 
 /**
  * Configuration type for dotdo CLI and projects
@@ -142,7 +145,7 @@ export function createProgram(): Command {
       const config = await loadConfig(opts.config)
 
       if (opts.verbose || config.verbose) {
-        console.log('[dotdo] Config loaded:', config)
+        logger.debug('[dotdo] Config loaded:', config)
       }
 
       // Store config on command for access in actions
@@ -165,8 +168,8 @@ export function createProgram(): Command {
     .action(async (directory, options, command) => {
       const config = (command.parent as any)?._dotdoConfig || {}
       if (config.verbose) {
-        console.log('[dotdo init] Directory:', directory)
-        console.log('[dotdo init] Options:', options)
+        logger.debug('[dotdo init] Directory:', directory)
+        logger.debug('[dotdo init] Options:', options)
       }
 
       try {
@@ -182,7 +185,7 @@ export function createProgram(): Command {
           skipInstall: options.skipInstall,
         })
       } catch (error) {
-        console.error('Error:', error instanceof Error ? error.message : error)
+        logger.error('Error:', error instanceof Error ? error.message : error)
         process.exit(1)
       }
     })
@@ -205,8 +208,8 @@ export function createProgram(): Command {
     .action(async (options, command) => {
       const config = (command.parent as any)?._dotdoConfig || {}
       if (config.verbose || options.verbose) {
-        console.log('[dotdo dev] Options:', options)
-        console.log('[dotdo dev] Config:', config)
+        logger.debug('[dotdo dev] Options:', options)
+        logger.debug('[dotdo dev] Config:', config)
       }
 
       // Import dev command
@@ -238,7 +241,7 @@ export function createProgram(): Command {
       const verbose = config.verbose || options.verbose
 
       if (verbose) {
-        console.log('[dotdo build] Options:', options)
+        logger.debug('[dotdo build] Options:', options)
       }
 
       try {
@@ -259,7 +262,7 @@ export function createProgram(): Command {
           process.exit(result.exitCode)
         }
       } catch (error) {
-        console.error('Build error:', error instanceof Error ? error.message : String(error))
+        logger.error('Build error:', error instanceof Error ? error.message : String(error))
         process.exit(1)
       }
     })
@@ -284,8 +287,8 @@ export function createProgram(): Command {
       const verbose = config.verbose || options.verbose
 
       if (verbose) {
-        console.log('[dotdo deploy] Options:', options)
-        console.log('[dotdo deploy] Config:', config)
+        logger.debug('[dotdo deploy] Options:', options)
+        logger.debug('[dotdo deploy] Config:', config)
       }
 
       // Import deploy command
@@ -340,7 +343,7 @@ export function createProgram(): Command {
           process.exit(result.exitCode)
         }
       } catch (error) {
-        console.error('Deployment error:', error instanceof Error ? error.message : String(error))
+        logger.error('Deployment error:', error instanceof Error ? error.message : String(error))
         process.exit(1)
       }
     })
@@ -368,7 +371,7 @@ export function createProgram(): Command {
           noBrowser: options.noBrowser,
         })
       } catch (error) {
-        console.error('Error:', error instanceof Error ? error.message : error)
+        logger.error('Error:', error instanceof Error ? error.message : error)
         process.exit(1)
       }
     })
@@ -388,7 +391,7 @@ export function createProgram(): Command {
           verbose: config.verbose || options.verbose,
         })
       } catch (error) {
-        console.error('Error:', error instanceof Error ? error.message : error)
+        logger.error('Error:', error instanceof Error ? error.message : error)
         process.exit(1)
       }
     })
@@ -410,7 +413,7 @@ export function createProgram(): Command {
           json: options.json,
         })
       } catch (error) {
-        console.error('Error:', error instanceof Error ? error.message : error)
+        logger.error('Error:', error instanceof Error ? error.message : error)
         process.exit(1)
       }
     })
@@ -435,7 +438,7 @@ export function createProgram(): Command {
       const verbose = config.verbose || options.verbose
 
       if (verbose) {
-        console.log('[dotdo do list] Options:', options)
+        logger.debug('[dotdo do list] Options:', options)
       }
 
       try {
@@ -450,7 +453,7 @@ export function createProgram(): Command {
           verbose,
         })
       } catch (error) {
-        console.error('Error:', error instanceof Error ? error.message : String(error))
+        logger.error('Error:', error instanceof Error ? error.message : String(error))
         process.exit(1)
       }
     })
@@ -467,7 +470,7 @@ export function createProgram(): Command {
       const verbose = config.verbose || options.verbose
 
       if (verbose) {
-        console.log('[dotdo do inspect] Options:', options)
+        logger.debug('[dotdo do inspect] Options:', options)
       }
 
       try {
@@ -484,7 +487,7 @@ export function createProgram(): Command {
           verbose,
         })
       } catch (error) {
-        console.error('Error:', error instanceof Error ? error.message : String(error))
+        logger.error('Error:', error instanceof Error ? error.message : String(error))
         process.exit(1)
       }
     })
@@ -500,7 +503,7 @@ export function createProgram(): Command {
       const verbose = config.verbose || options.verbose
 
       if (verbose) {
-        console.log('[dotdo do delete] Options:', options)
+        logger.debug('[dotdo do delete] Options:', options)
       }
 
       try {
@@ -521,7 +524,7 @@ export function createProgram(): Command {
           process.exit(1)
         }
       } catch (error) {
-        console.error('Error:', error instanceof Error ? error.message : String(error))
+        logger.error('Error:', error instanceof Error ? error.message : String(error))
         process.exit(1)
       }
     })
@@ -544,7 +547,7 @@ export function createProgram(): Command {
       const verbose = config.verbose || options.verbose
 
       if (verbose) {
-        console.log('[dotdo logs] Options:', options)
+        logger.debug('[dotdo logs] Options:', options)
       }
 
       try {
@@ -562,7 +565,7 @@ export function createProgram(): Command {
           verbose,
         })
       } catch (error) {
-        console.error('Logs error:', error instanceof Error ? error.message : String(error))
+        logger.error('Logs error:', error instanceof Error ? error.message : String(error))
         process.exit(1)
       }
     })
@@ -580,8 +583,8 @@ export function createProgram(): Command {
     .description('Show current configuration')
     .action(async (options, command) => {
       const config = (command.parent?.parent as any)?._dotdoConfig || {}
-      console.log('Current dotdo configuration:')
-      console.log(JSON.stringify(config, null, 2))
+      logger.info('Current dotdo configuration:')
+      logger.info(JSON.stringify(config, null, 2))
     })
 
   configCommand
@@ -593,9 +596,9 @@ export function createProgram(): Command {
       const verbose = config.verbose || options.verbose
 
       if (verbose) {
-        console.log('[dotdo config set] Key:', key)
-        console.log('[dotdo config set] Value:', value)
-        console.log('[dotdo config set] Options:', options)
+        logger.debug('[dotdo config set] Key:', key)
+        logger.debug('[dotdo config set] Value:', value)
+        logger.debug('[dotdo config set] Options:', options)
       }
 
       try {
@@ -610,7 +613,7 @@ export function createProgram(): Command {
           verbose,
         })
       } catch (error) {
-        console.error('Error:', error instanceof Error ? error.message : String(error))
+        logger.error('Error:', error instanceof Error ? error.message : String(error))
         process.exit(1)
       }
     })
@@ -624,8 +627,8 @@ export function createProgram(): Command {
       const verbose = config.verbose || options.verbose
 
       if (verbose) {
-        console.log('[dotdo config get] Key:', key)
-        console.log('[dotdo config get] Options:', options)
+        logger.debug('[dotdo config get] Key:', key)
+        logger.debug('[dotdo config get] Options:', options)
       }
 
       try {
@@ -643,7 +646,7 @@ export function createProgram(): Command {
           process.exit(1)
         }
       } catch (error) {
-        console.error('Error:', error instanceof Error ? error.message : String(error))
+        logger.error('Error:', error instanceof Error ? error.message : String(error))
         process.exit(1)
       }
     })
@@ -656,8 +659,8 @@ export function createProgram(): Command {
     .command('version')
     .description('Show version information')
     .action(() => {
-      console.log('dotdo version 0.0.1')
-      console.log('Runtime/Framework for Durable Objects')
+      logger.info('dotdo version 0.0.1')
+      logger.info('Runtime/Framework for Durable Objects')
     })
 
   return program
