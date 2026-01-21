@@ -5,6 +5,7 @@
 import { Command } from 'commander'
 import { pull } from './pull'
 import { evalCommand, runCommand } from './eval'
+import { startRepl } from './repl'
 
 const program = new Command()
 
@@ -84,6 +85,31 @@ program
     if (!result.success) {
       process.exit(1)
     }
+  })
+
+program
+  .command('repl')
+  .description('Start interactive REPL connected to endpoint')
+  .argument('<endpoint>', 'RPC endpoint URL')
+  .option('-t, --types <path>', 'Path to TypeScript types file (default: fetch from endpoint)')
+  .option('-H, --history <path>', 'Path to history file (default: ~/.do/repl_history)')
+  .action(async (endpoint: string, options: { types?: string; history?: string }) => {
+    // Read types from file if provided
+    let types: string | undefined
+    if (options.types) {
+      const fs = await import('node:fs')
+      try {
+        types = fs.readFileSync(options.types, 'utf-8')
+      } catch (error) {
+        console.error(`Error reading types file: ${error instanceof Error ? error.message : error}`)
+        process.exit(1)
+      }
+    }
+
+    await startRepl(endpoint, {
+      types,
+      historyPath: options.history,
+    })
   })
 
 program.parse()
