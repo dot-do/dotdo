@@ -17,6 +17,8 @@ export interface ConfigGetOptions {
   key?: string
   /** Global config (~/.dotdo/config.json) instead of local */
   global?: boolean
+  /** Output as JSON for scripting */
+  json?: boolean
   /** Enable verbose output */
   verbose?: boolean
 }
@@ -86,43 +88,59 @@ function loadConfig(path: string): DotdoConfig {
  * Main config get command function
  */
 export async function configGet(options: ConfigGetOptions = {}): Promise<ConfigGetResult> {
-  const { key, global = false, verbose = false } = options
+  const { key, global = false, json: jsonMode = false, verbose = false } = options
 
-  if (verbose) {
+  if (verbose && !jsonMode) {
     console.log('[config get] Options:', options)
   }
 
   // Get config path
   const configPath = getConfigPath(global)
 
-  if (verbose) {
+  if (verbose && !jsonMode) {
     console.log(`[config get] Config path: ${configPath}`)
   }
 
   // Load config
   const config = loadConfig(configPath)
 
-  if (verbose) {
+  if (verbose && !jsonMode) {
     console.log(`[config get] Loaded config:`, config)
   }
 
   // If no key specified, return all config
   if (!key) {
-    console.log(JSON.stringify(config, null, 2))
-
-    return {
+    const result: ConfigGetResult = {
       success: true,
       value: config,
       path: configPath,
       found: true,
     }
+
+    if (jsonMode) {
+      console.log(JSON.stringify(result))
+    } else {
+      console.log(JSON.stringify(config, null, 2))
+    }
+
+    return result
   }
 
   // Get the specific key (supports dot notation)
   const value = getNestedKey(config as Record<string, unknown>, key)
   const found = value !== undefined
 
-  if (found) {
+  const result: ConfigGetResult = {
+    success: found,
+    key,
+    value,
+    path: configPath,
+    found,
+  }
+
+  if (jsonMode) {
+    console.log(JSON.stringify(result))
+  } else if (found) {
     // Output the value
     if (typeof value === 'object') {
       console.log(JSON.stringify(value, null, 2))
@@ -133,13 +151,7 @@ export async function configGet(options: ConfigGetOptions = {}): Promise<ConfigG
     console.error(`Configuration key not found: ${key}`)
   }
 
-  return {
-    success: found,
-    key,
-    value,
-    path: configPath,
-    found,
-  }
+  return result
 }
 
 /**

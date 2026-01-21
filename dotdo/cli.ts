@@ -181,7 +181,10 @@ export function createProgram(): Command {
     .option('--skip-install', 'Skip npm install')
     .action(async (directory, options, command) => {
       const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
-      if (config.verbose) {
+      const globalJson = (command.parent as CommandWithConfig | undefined)?._jsonOutput
+      const json = globalJson
+
+      if (config.verbose && !json) {
         logger.debug('[dotdo init] Directory:', directory)
         logger.debug('[dotdo init] Options:', options)
       }
@@ -197,9 +200,12 @@ export function createProgram(): Command {
           template: options.template as 'basic' | 'api' | 'full',
           skipGit: options.skipGit,
           skipInstall: options.skipInstall,
+          json,
         })
       } catch (error) {
-        logger.error('Error:', error instanceof Error ? error.message : error)
+        if (!json) {
+          logger.error('Error:', error instanceof Error ? error.message : error)
+        }
         process.exit(1)
       }
     })
@@ -252,9 +258,11 @@ export function createProgram(): Command {
     .option('-e, --env <environment>', 'Environment to build for')
     .action(async (options, command) => {
       const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
+      const globalJson = (command.parent as CommandWithConfig | undefined)?._jsonOutput
       const verbose = config.verbose || options.verbose
+      const json = globalJson
 
-      if (verbose) {
+      if (verbose && !json) {
         logger.debug('[dotdo build] Options:', options)
       }
 
@@ -270,13 +278,16 @@ export function createProgram(): Command {
           config: options.config,
           env: options.env,
           verbose,
+          json,
         })
 
         if (!result.success) {
           process.exit(result.exitCode)
         }
       } catch (error) {
-        logger.error('Build error:', error instanceof Error ? error.message : String(error))
+        if (!json) {
+          logger.error('Build error:', error instanceof Error ? error.message : String(error))
+        }
         process.exit(1)
       }
     })
@@ -298,9 +309,11 @@ export function createProgram(): Command {
     .allowUnknownOption() // Allow passing through wrangler options
     .action(async (options, command) => {
       const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
+      const globalJson = (command.parent as CommandWithConfig | undefined)?._jsonOutput
       const verbose = config.verbose || options.verbose
+      const json = globalJson
 
-      if (verbose) {
+      if (verbose && !json) {
         logger.debug('[dotdo deploy] Options:', options)
         logger.debug('[dotdo deploy] Config:', config)
       }
@@ -332,7 +345,7 @@ export function createProgram(): Command {
 
       // Add any unknown options (passed through to wrangler)
       const processedArgs = process.argv.slice(process.argv.indexOf('deploy') + 1)
-      const knownOptions = ['--env', '-e', '--dry-run', '--name', '--minify', '--config', '--rollback', '--skip-build', '-v', '--verbose', '-c']
+      const knownOptions = ['--env', '-e', '--dry-run', '--name', '--minify', '--config', '--rollback', '--skip-build', '-v', '--verbose', '-c', '--json']
       for (let i = 0; i < processedArgs.length; i++) {
         const arg = processedArgs[i]
         if (!knownOptions.includes(arg) && !args.includes(arg)) {
@@ -351,13 +364,16 @@ export function createProgram(): Command {
           apiUrl: config.apiUrl,
           verbose,
           skipBuild: options.skipBuild,
+          json,
         })
 
         if (!result.success) {
           process.exit(result.exitCode)
         }
       } catch (error) {
-        logger.error('Deployment error:', error instanceof Error ? error.message : String(error))
+        if (!json) {
+          logger.error('Deployment error:', error instanceof Error ? error.message : String(error))
+        }
         process.exit(1)
       }
     })
@@ -373,6 +389,8 @@ export function createProgram(): Command {
     .option('--no-browser', 'Do not open browser automatically')
     .action(async (options, command) => {
       const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
+      const globalJson = (command.parent as CommandWithConfig | undefined)?._jsonOutput
+      const json = globalJson
 
       try {
         // Import login command
@@ -383,9 +401,12 @@ export function createProgram(): Command {
           token: options.token,
           verbose: config.verbose || options.verbose,
           noBrowser: options.noBrowser,
+          json,
         })
       } catch (error) {
-        logger.error('Error:', error instanceof Error ? error.message : error)
+        if (!json) {
+          logger.error('Error:', error instanceof Error ? error.message : error)
+        }
         process.exit(1)
       }
     })
@@ -395,6 +416,8 @@ export function createProgram(): Command {
     .description('Logout and clear credentials')
     .action(async (options, command) => {
       const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
+      const globalJson = (command.parent as CommandWithConfig | undefined)?._jsonOutput
+      const json = globalJson
 
       try {
         // Import logout command
@@ -403,9 +426,12 @@ export function createProgram(): Command {
         // Run logout with options
         await logout({
           verbose: config.verbose || options.verbose,
+          json,
         })
       } catch (error) {
-        logger.error('Error:', error instanceof Error ? error.message : error)
+        if (!json) {
+          logger.error('Error:', error instanceof Error ? error.message : error)
+        }
         process.exit(1)
       }
     })
@@ -416,6 +442,8 @@ export function createProgram(): Command {
     .option('--json', 'Output as JSON')
     .action(async (options, command) => {
       const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
+      const globalJson = (command.parent as CommandWithConfig | undefined)?._jsonOutput
+      const json = options.json || globalJson
 
       try {
         // Import whoami command
@@ -424,10 +452,12 @@ export function createProgram(): Command {
         // Run whoami with options
         await whoami({
           verbose: config.verbose || options.verbose,
-          json: options.json,
+          json,
         })
       } catch (error) {
-        logger.error('Error:', error instanceof Error ? error.message : error)
+        if (!json) {
+          logger.error('Error:', error instanceof Error ? error.message : error)
+        }
         process.exit(1)
       }
     })
@@ -589,7 +619,9 @@ export function createProgram(): Command {
           verbose,
         })
       } catch (error) {
-        logger.error('Logs error:', error instanceof Error ? error.message : String(error))
+        if (!json) {
+          logger.error('Logs error:', error instanceof Error ? error.message : String(error))
+        }
         process.exit(1)
       }
     })
@@ -625,9 +657,11 @@ export function createProgram(): Command {
     .option('-g, --global', 'Use global config (~/.dotdo/config.json)')
     .action(async (key, value, options, command) => {
       const config = (command.parent?.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
+      const globalJson = (command.parent?.parent as CommandWithConfig | undefined)?._jsonOutput
       const verbose = config.verbose || options.verbose
+      const json = globalJson
 
-      if (verbose) {
+      if (verbose && !json) {
         logger.debug('[dotdo config set] Key:', key)
         logger.debug('[dotdo config set] Value:', value)
         logger.debug('[dotdo config set] Options:', options)
@@ -643,9 +677,12 @@ export function createProgram(): Command {
           value,
           global: options.global,
           verbose,
+          json,
         })
       } catch (error) {
-        logger.error('Error:', error instanceof Error ? error.message : String(error))
+        if (!json) {
+          logger.error('Error:', error instanceof Error ? error.message : String(error))
+        }
         process.exit(1)
       }
     })
@@ -661,7 +698,7 @@ export function createProgram(): Command {
       const verbose = config.verbose || options.verbose
       const json = options.json || globalJson
 
-      if (verbose) {
+      if (verbose && !json) {
         logger.debug('[dotdo config get] Key:', key)
         logger.debug('[dotdo config get] Options:', options)
       }
@@ -682,7 +719,9 @@ export function createProgram(): Command {
           process.exit(1)
         }
       } catch (error) {
-        logger.error('Error:', error instanceof Error ? error.message : String(error))
+        if (!json) {
+          logger.error('Error:', error instanceof Error ? error.message : String(error))
+        }
         process.exit(1)
       }
     })
@@ -693,11 +732,12 @@ export function createProgram(): Command {
 
   program
     .command('repl')
-    .description('Start interactive REPL connected to an RPC endpoint')
-    .argument('<endpoint>', 'RPC endpoint URL (e.g., https://my-tenant.api.dotdo.dev)')
+    .description('Start interactive REPL connected to an RPC endpoint or local sandbox')
+    .argument('[endpoint]', 'RPC endpoint URL (e.g., https://my-tenant.api.dotdo.dev). If omitted, starts local sandbox.')
     .option('-t, --types <path>', 'Path to TypeScript types file (default: fetch from endpoint)')
     .option('-H, --history <path>', 'Path to history file (default: ~/.do/repl_history)')
-    .action(async (endpoint: string, options: { types?: string; history?: string }, command) => {
+    .option('-l, --local', 'Force local sandbox mode even if endpoint is provided')
+    .action(async (endpoint: string | undefined, options: { types?: string; history?: string; local?: boolean }, command) => {
       const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
       const verbose = config.verbose || false
 
@@ -707,6 +747,15 @@ export function createProgram(): Command {
       }
 
       try {
+        // If no endpoint or --local flag, start local sandbox
+        if (!endpoint || options.local) {
+          const { startSandboxRepl } = await import('./commands/sandbox')
+          await startSandboxRepl({
+            historyPath: options.history,
+          })
+          return
+        }
+
         // Read types from file if provided
         let types: string | undefined
         if (options.types) {
@@ -754,11 +803,48 @@ export function createProgram(): Command {
 // Create and export program for testing
 export const program = createProgram()
 
+/**
+ * Start local sandbox REPL as default action
+ *
+ * Called when `dotdo` is run with no arguments or when
+ * the first argument is a URL (treated as endpoint).
+ */
+async function startDefaultRepl(endpoint?: string): Promise<void> {
+  try {
+    if (!endpoint) {
+      // No endpoint - start local sandbox
+      const { startSandboxRepl } = await import('./commands/sandbox')
+      await startSandboxRepl({})
+    } else {
+      // Endpoint provided - connect to remote
+      const { startRepl } = await import('rpc.do/cli')
+      await startRepl(endpoint, {})
+    }
+  } catch (error) {
+    console.error('REPL error:', error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  }
+}
+
 // Only run if this is the main module (ES module compatible)
 const isMain =
   import.meta.url === `file://${process.argv[1]}` ||
   import.meta.url === `file://${process.argv[1]}.ts`
 
 if (isMain) {
-  program.parse()
+  // Check if running with no command or just a URL
+  const args = process.argv.slice(2)
+
+  // If no arguments, start local sandbox REPL
+  if (args.length === 0) {
+    startDefaultRepl()
+  }
+  // If first argument looks like a URL, start remote REPL
+  else if (args.length === 1 && (args[0].startsWith('http://') || args[0].startsWith('https://'))) {
+    startDefaultRepl(args[0])
+  }
+  // Otherwise, parse normally
+  else {
+    program.parse()
+  }
 }

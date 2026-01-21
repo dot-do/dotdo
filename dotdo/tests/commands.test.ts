@@ -76,7 +76,7 @@ describe('CLI Commands', () => {
       const options = {
         follow: true,
         level: 'info' as const,
-        format: 'pretty' as const,
+        json: false,
         verbose: false,
       }
       // Just verify the function accepts these options (don't run it as it needs wrangler)
@@ -121,7 +121,7 @@ describe('CLI Commands', () => {
       const output = captureConsole()
 
       try {
-        const result = await doList({ format: 'json' })
+        const result = await doList({ json: true })
 
         expect(result).toHaveLength(2)
         expect(result[0].name).toBe('DO')
@@ -143,7 +143,7 @@ describe('CLI Commands', () => {
       const output = captureConsole()
 
       try {
-        const result = await doList({ format: 'json' })
+        const result = await doList({ json: true })
         expect(result).toEqual([])
       } finally {
         process.chdir(originalCwd)
@@ -172,9 +172,42 @@ describe('CLI Commands', () => {
       const output = captureConsole()
 
       try {
-        const result = await doList({ namespace: 'DO', format: 'json' })
+        const result = await doList({ namespace: 'DO', json: true })
         expect(result).toHaveLength(1)
         expect(result[0].name).toBe('DO')
+      } finally {
+        process.chdir(originalCwd)
+        output.restore()
+      }
+    })
+
+    it('outputs valid JSON when --json flag is set', async () => {
+      const { doList } = await import('../commands/do-list')
+
+      const wranglerConfig = {
+        durable_objects: {
+          bindings: [
+            { name: 'DO', class_name: 'DurableObject' },
+          ],
+        },
+      }
+
+      const configPath = join(testDir, 'wrangler.json')
+      writeFileSync(configPath, JSON.stringify(wranglerConfig, null, 2))
+
+      const originalCwd = process.cwd()
+      process.chdir(testDir)
+
+      const output = captureConsole()
+
+      try {
+        await doList({ json: true })
+
+        // Should have output valid JSON
+        expect(output.logs.length).toBeGreaterThan(0)
+        const parsed = JSON.parse(output.logs[0])
+        expect(Array.isArray(parsed)).toBe(true)
+        expect(parsed[0].name).toBe('DO')
       } finally {
         process.chdir(originalCwd)
         output.restore()
@@ -198,7 +231,7 @@ describe('CLI Commands', () => {
       try {
         const result = await doInspect({
           id: 'test-do-123',
-          format: 'json',
+          json: true,
         })
 
         expect(result.id).toBe('test-do-123')
@@ -217,10 +250,31 @@ describe('CLI Commands', () => {
         const result = await doInspect({
           id: 'test-do-456',
           namespace: 'MY_DO',
-          format: 'json',
+          json: true,
         })
 
         expect(result.namespace).toBe('MY_DO')
+      } finally {
+        output.restore()
+      }
+    })
+
+    it('outputs valid JSON when --json flag is set', async () => {
+      const { doInspect } = await import('../commands/do-inspect')
+
+      const output = captureConsole()
+
+      try {
+        await doInspect({
+          id: 'test-do-789',
+          json: true,
+        })
+
+        // Should have output valid JSON
+        expect(output.logs.length).toBeGreaterThan(0)
+        const parsed = JSON.parse(output.logs[0])
+        expect(parsed.id).toBe('test-do-789')
+        expect(parsed.exists).toBe(true)
       } finally {
         output.restore()
       }
@@ -251,6 +305,29 @@ describe('CLI Commands', () => {
         expect(result.id).toBe('test-do-789')
         // Will be false since no local dev server is running
         expect(result.deleted).toBe(false)
+      } finally {
+        output.restore()
+      }
+    })
+
+    it('outputs valid JSON when --json flag is set', async () => {
+      const { doDelete } = await import('../commands/do-delete')
+
+      const output = captureConsole()
+
+      try {
+        // JSON mode also skips interactive prompt
+        await doDelete({
+          id: 'test-do-json',
+          json: true,
+        })
+
+        // Should have output valid JSON
+        expect(output.logs.length).toBeGreaterThan(0)
+        const parsed = JSON.parse(output.logs[0])
+        expect(parsed.id).toBe('test-do-json')
+        expect(typeof parsed.deleted).toBe('boolean')
+        expect(typeof parsed.message).toBe('string')
       } finally {
         output.restore()
       }
@@ -455,6 +532,35 @@ describe('CLI Commands', () => {
         output.restore()
       }
     })
+
+    it('outputs JSON when json option is true', async () => {
+      const { configSet } = await import('../commands/config-set')
+
+      const originalCwd = process.cwd()
+      process.chdir(testDir)
+
+      const output = captureConsole()
+
+      try {
+        const result = await configSet({
+          key: 'testKey',
+          value: 'testValue',
+          json: true,
+        })
+
+        expect(result.success).toBe(true)
+        expect(output.logs.length).toBe(1)
+
+        // Verify JSON is parseable
+        const parsed = JSON.parse(output.logs[0])
+        expect(parsed.success).toBe(true)
+        expect(parsed.key).toBe('testKey')
+        expect(parsed.value).toBe('testValue')
+      } finally {
+        process.chdir(originalCwd)
+        output.restore()
+      }
+    })
   })
 
   describe('config-get command', () => {
@@ -580,6 +686,36 @@ describe('CLI Commands', () => {
         output.restore()
       }
     })
+
+    it('outputs JSON when json option is true', async () => {
+      const { configGet } = await import('../commands/config-get')
+
+      // Create test config
+      const initialConfig = { apiUrl: 'https://test.api.dev', verbose: true }
+      writeFileSync(join(testDir, '.dotdo.json'), JSON.stringify(initialConfig, null, 2))
+
+      const originalCwd = process.cwd()
+      process.chdir(testDir)
+
+      const output = captureConsole()
+
+      try {
+        const result = await configGet({ key: 'apiUrl', json: true })
+
+        expect(result.success).toBe(true)
+        expect(output.logs.length).toBe(1)
+
+        // Verify JSON is parseable
+        const parsed = JSON.parse(output.logs[0])
+        expect(parsed.success).toBe(true)
+        expect(parsed.key).toBe('apiUrl')
+        expect(parsed.value).toBe('https://test.api.dev')
+        expect(parsed.found).toBe(true)
+      } finally {
+        process.chdir(originalCwd)
+        output.restore()
+      }
+    })
   })
 
   describe('CLI integration', () => {
@@ -609,7 +745,7 @@ describe('CLI Commands', () => {
       expect(optionFlags).toContain('--level')
       expect(optionFlags).toContain('--name')
       expect(optionFlags).toContain('--env')
-      expect(optionFlags).toContain('--format')
+      expect(optionFlags).toContain('--json')
     })
 
     it('do command has list subcommand with correct options', async () => {
@@ -623,7 +759,7 @@ describe('CLI Commands', () => {
 
       const optionFlags = listCmd?.options.map((opt) => opt.long) || []
       expect(optionFlags).toContain('--namespace')
-      expect(optionFlags).toContain('--format')
+      expect(optionFlags).toContain('--json')
     })
 
     it('do command has inspect subcommand with correct options', async () => {
@@ -637,7 +773,7 @@ describe('CLI Commands', () => {
 
       const optionFlags = inspectCmd?.options.map((opt) => opt.long) || []
       expect(optionFlags).toContain('--namespace')
-      expect(optionFlags).toContain('--format')
+      expect(optionFlags).toContain('--json')
       expect(optionFlags).toContain('--storage')
     })
 
@@ -653,6 +789,7 @@ describe('CLI Commands', () => {
       const optionFlags = deleteCmd?.options.map((opt) => opt.long) || []
       expect(optionFlags).toContain('--force')
       expect(optionFlags).toContain('--namespace')
+      expect(optionFlags).toContain('--json')
     })
 
     it('config command has set subcommand with correct options', async () => {
@@ -679,6 +816,127 @@ describe('CLI Commands', () => {
 
       const optionFlags = getCmd?.options.map((opt) => opt.long) || []
       expect(optionFlags).toContain('--global')
+      expect(optionFlags).toContain('--json')
+    })
+
+    it('program has global --json option', async () => {
+      const { createProgram } = await import('../cli')
+      const program = createProgram()
+
+      const optionFlags = program.options.map((opt) => opt.long) || []
+      expect(optionFlags).toContain('--json')
+    })
+
+    it('whoami command has --json option', async () => {
+      const { createProgram } = await import('../cli')
+      const program = createProgram()
+
+      const whoamiCmd = program.commands.find((cmd) => cmd.name() === 'whoami')
+      expect(whoamiCmd).toBeDefined()
+
+      const optionFlags = whoamiCmd?.options.map((opt) => opt.long) || []
+      expect(optionFlags).toContain('--json')
+    })
+
+    it('config show command has --json option', async () => {
+      const { createProgram } = await import('../cli')
+      const program = createProgram()
+
+      const configCmd = program.commands.find((cmd) => cmd.name() === 'config')
+      const showCmd = configCmd?.commands.find((cmd) => cmd.name() === 'show')
+
+      expect(showCmd).toBeDefined()
+
+      const optionFlags = showCmd?.options.map((opt) => opt.long) || []
+      expect(optionFlags).toContain('--json')
+    })
+  })
+
+  describe('JSON output mode', () => {
+    it('config-get outputs valid JSON when --json flag is set', async () => {
+      const { configGet } = await import('../commands/config-get')
+
+      // Create test config
+      const initialConfig = { apiUrl: 'https://test.api.dev', verbose: true }
+      writeFileSync(join(testDir, '.dotdo.json'), JSON.stringify(initialConfig, null, 2))
+
+      const originalCwd = process.cwd()
+      process.chdir(testDir)
+
+      const output = captureConsole()
+
+      try {
+        await configGet({ json: true })
+
+        // Should have output valid JSON
+        expect(output.logs.length).toBeGreaterThan(0)
+        const parsed = JSON.parse(output.logs[0])
+        expect(parsed.success).toBe(true)
+        expect(parsed.found).toBe(true)
+        expect(parsed.value).toEqual(initialConfig)
+      } finally {
+        process.chdir(originalCwd)
+        output.restore()
+      }
+    })
+
+    it('config-get with key outputs valid JSON when --json flag is set', async () => {
+      const { configGet } = await import('../commands/config-get')
+
+      // Create test config
+      const initialConfig = { apiUrl: 'https://test.api.dev' }
+      writeFileSync(join(testDir, '.dotdo.json'), JSON.stringify(initialConfig, null, 2))
+
+      const originalCwd = process.cwd()
+      process.chdir(testDir)
+
+      const output = captureConsole()
+
+      try {
+        await configGet({ key: 'apiUrl', json: true })
+
+        // Should have output valid JSON
+        expect(output.logs.length).toBeGreaterThan(0)
+        const parsed = JSON.parse(output.logs[0])
+        expect(parsed.success).toBe(true)
+        expect(parsed.found).toBe(true)
+        expect(parsed.key).toBe('apiUrl')
+        expect(parsed.value).toBe('https://test.api.dev')
+      } finally {
+        process.chdir(originalCwd)
+        output.restore()
+      }
+    })
+
+    it('JSON output is compact (no pretty printing)', async () => {
+      const { doList } = await import('../commands/do-list')
+
+      const wranglerConfig = {
+        durable_objects: {
+          bindings: [
+            { name: 'DO', class_name: 'DurableObject' },
+          ],
+        },
+      }
+
+      const configPath = join(testDir, 'wrangler.json')
+      writeFileSync(configPath, JSON.stringify(wranglerConfig, null, 2))
+
+      const originalCwd = process.cwd()
+      process.chdir(testDir)
+
+      const output = captureConsole()
+
+      try {
+        await doList({ json: true })
+
+        // JSON should be on a single line (compact)
+        expect(output.logs.length).toBe(1)
+        expect(output.logs[0]).not.toContain('\n')
+      } finally {
+        process.chdir(originalCwd)
+        output.restore()
+      }
     })
   })
 })

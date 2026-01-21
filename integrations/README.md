@@ -83,25 +83,51 @@ const result = await integrationRegistry
 
 ### Payment Processing
 
-#### Stripe
+#### Stripe (Stub)
 
-Full Stripe integration with customers, payment intents, and subscriptions.
+The `@dotdo/integrations/stripe` module provides a **stub/mock implementation** for testing and development:
 
 ```typescript
 import { createStripeIntegration } from '@dotdo/integrations'
 
-const stripe = createStripeIntegration({
+// This is a STUB - returns mock data, no real API calls
+const stripe = createStripeIntegration()
+await stripe.init({
+  apiKey: 'sk_test_xxx',  // Format validated, not used for real calls
+  webhookSecret: 'whsec_xxx'  // Used for real signature verification
+})
+
+// All methods return mock data:
+// - createCustomer(data) -> mock customer with cus_* ID
+// - getCustomer(id) -> mock customer
+// - createPaymentIntent(data) -> mock payment intent with pi_* ID
+// - confirmPaymentIntent(id) -> mock succeeded payment
+// - createSubscription(data) -> mock active subscription with sub_* ID
+// - cancelSubscription(id) -> mock canceled subscription
+```
+
+**For Production Use:**
+
+Use `@dotdo/business/finance` which provides full Stripe SDK integration:
+
+```typescript
+import { StripeProvider } from '@dotdo/business/finance/providers/stripe-provider'
+
+const stripe = new StripeProvider({
   apiKey: process.env.STRIPE_SECRET_KEY!,
   webhookSecret: process.env.STRIPE_WEBHOOK_SECRET
 })
 
-// Available methods:
-// - createCustomer(data)
-// - getCustomer(id)
-// - createPaymentIntent(data)
-// - confirmPaymentIntent(id)
-// - createSubscription(data)
-// - cancelSubscription(id)
+// Real API calls with:
+// - Full error handling and Stripe error mapping
+// - SaaS metrics (MRR, ARR, churn calculations)
+// - Invoice and subscription lifecycle management
+// - Proper webhook event type mapping
+
+const customer = await stripe.customers.create({
+  email: 'customer@example.com',
+  name: 'Alice Smith'
+})
 ```
 
 ### Email Services

@@ -21,6 +21,8 @@ export interface ConfigSetOptions {
   global?: boolean
   /** Enable verbose output */
   verbose?: boolean
+  /** Output as JSON for scripting */
+  json?: boolean
 }
 
 export interface ConfigSetResult {
@@ -126,16 +128,16 @@ function saveConfig(path: string, config: DotdoConfig): void {
  * Main config set command function
  */
 export async function configSet(options: ConfigSetOptions): Promise<ConfigSetResult> {
-  const { key, value, global = false, verbose = false } = options
+  const { key, value, global = false, verbose = false, json: jsonMode = false } = options
 
-  if (verbose) {
+  if (verbose && !jsonMode) {
     console.log('[config set] Options:', options)
   }
 
   // Get config path
   const configPath = getConfigPath(global)
 
-  if (verbose) {
+  if (verbose && !jsonMode) {
     console.log(`[config set] Config path: ${configPath}`)
   }
 
@@ -145,7 +147,7 @@ export async function configSet(options: ConfigSetOptions): Promise<ConfigSetRes
   // Parse and set value
   const parsedValue = parseValue(value)
 
-  if (verbose) {
+  if (verbose && !jsonMode) {
     console.log(`[config set] Parsed value:`, parsedValue, `(type: ${typeof parsedValue})`)
   }
 
@@ -155,18 +157,24 @@ export async function configSet(options: ConfigSetOptions): Promise<ConfigSetRes
   // Save config
   saveConfig(configPath, config)
 
-  // Output
-  console.log('')
-  console.log(`  \x1b[32mSet ${key} = ${JSON.stringify(parsedValue)}\x1b[0m`)
-  console.log(`  \x1b[2mSaved to: ${configPath}\x1b[0m`)
-  console.log('')
-
-  return {
+  const result: ConfigSetResult = {
     success: true,
     key,
     value: parsedValue,
     path: configPath,
   }
+
+  // Output
+  if (jsonMode) {
+    console.log(JSON.stringify(result))
+  } else {
+    console.log('')
+    console.log(`  \x1b[32mSet ${key} = ${JSON.stringify(parsedValue)}\x1b[0m`)
+    console.log(`  \x1b[2mSaved to: ${configPath}\x1b[0m`)
+    console.log('')
+  }
+
+  return result
 }
 
 /**
