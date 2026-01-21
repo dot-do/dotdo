@@ -412,11 +412,70 @@ export class SandboxResourceEnforcer {
   }
 }
 
+/**
+ * Create a request-scoped resource enforcer.
+ *
+ * This is the PREFERRED pattern for multi-tenant environments like Cloudflare Workers.
+ * Each DO instance or request context should create its own enforcer to prevent
+ * rate limit state from leaking between tenants.
+ *
+ * @example
+ * ```typescript
+ * // In your DO constructor or request handler:
+ * class MyDO {
+ *   private enforcer: SandboxResourceEnforcer
+ *
+ *   constructor(state: DurableObjectState, env: Env) {
+ *     // Each DO instance gets its own isolated enforcer
+ *     this.enforcer = createScopedResourceEnforcer()
+ *   }
+ *
+ *   async fetch(request: Request): Promise<Response> {
+ *     const { release } = await this.enforcer.acquire(clientId)
+ *     try {
+ *       // ... execute sandboxed code
+ *     } finally {
+ *       release()
+ *     }
+ *   }
+ * }
+ * ```
+ *
+ * @param rateLimitConfig - Optional rate limit configuration
+ * @param concurrencyConfig - Optional concurrency limit configuration
+ * @returns A new isolated SandboxResourceEnforcer instance
+ */
+export function createScopedResourceEnforcer(
+  rateLimitConfig?: Partial<RateLimitConfig>,
+  concurrencyConfig?: Partial<ConcurrencyLimitConfig>
+): SandboxResourceEnforcer {
+  return new SandboxResourceEnforcer(rateLimitConfig, concurrencyConfig)
+}
+
 // Global default enforcer instance
+/**
+ * @deprecated Global state can leak between tenants in Workers environments.
+ * Use createScopedResourceEnforcer() instead to create isolated enforcer instances.
+ * @internal
+ */
 let globalEnforcer: SandboxResourceEnforcer | null = null
 
 /**
- * Get or create the global resource enforcer
+ * Get or create the global resource enforcer.
+ *
+ * @deprecated This function uses global state which can leak rate limits between
+ * tenants in multi-tenant Workers environments. Use createScopedResourceEnforcer()
+ * instead to create isolated enforcer instances per DO or request context.
+ *
+ * Migration guide:
+ * ```typescript
+ * // BEFORE (deprecated):
+ * const enforcer = getGlobalResourceEnforcer()
+ *
+ * // AFTER (recommended):
+ * const enforcer = createScopedResourceEnforcer()
+ * // Store the enforcer in your DO instance or request context
+ * ```
  */
 export function getGlobalResourceEnforcer(): SandboxResourceEnforcer {
   if (!globalEnforcer) {
@@ -426,7 +485,21 @@ export function getGlobalResourceEnforcer(): SandboxResourceEnforcer {
 }
 
 /**
- * Set a custom global resource enforcer (useful for testing)
+ * Set a custom global resource enforcer (useful for testing).
+ *
+ * @deprecated This function uses global state which can leak rate limits between
+ * tenants in multi-tenant Workers environments. Use createScopedResourceEnforcer()
+ * instead to create isolated enforcer instances per DO or request context.
+ *
+ * Migration guide:
+ * ```typescript
+ * // BEFORE (deprecated):
+ * setGlobalResourceEnforcer(customEnforcer)
+ *
+ * // AFTER (recommended):
+ * // Pass the enforcer directly to your sandbox or DO instance:
+ * const enforcer = createScopedResourceEnforcer(rateLimitConfig, concurrencyConfig)
+ * ```
  */
 export function setGlobalResourceEnforcer(enforcer: SandboxResourceEnforcer | null): void {
   globalEnforcer = enforcer
@@ -671,21 +744,22 @@ function stripComments(code: string): { stripped: string } {
  */
 function findControlFlowBodyEnd(code: string, startIndex: number): number {
   let i = startIndex
-  while (i < code.length && /\s/.test(code[i])) i++
+  while (i < code.length && /\s/.test(code.charAt(i))) i++
   if (i >= code.length) return i
-  if (code[i] === '{') {
+  if (code.charAt(i) === '{') {
     let bd = 1; i++
     while (i < code.length && bd > 0) {
-      if (code[i] === '"' || code[i] === "'" || code[i] === '`') {
-        const q = code[i]; i++
-        while (i < code.length) { if (code[i] === '\\' && i + 1 < code.length) i += 2; else if (code[i] === q) { i++; break } else i++ }
+      const ch = code.charAt(i)
+      if (ch === '"' || ch === "'" || ch === '`') {
+        const q = ch; i++
+        while (i < code.length) { if (code.charAt(i) === '\\' && i + 1 < code.length) i += 2; else if (code.charAt(i) === q) { i++; break } else i++ }
         continue
       }
-      if (code[i] === '{') bd++; else if (code[i] === '}') bd--; i++
+      if (ch === '{') bd++; else if (ch === '}') bd--; i++
     }
     return i
   }
-  if (code[i] === ';') return i + 1
+  if (code.charAt(i) === ';') return i + 1
   return findStatementEnd(code, i)
 }
 
@@ -695,34 +769,35 @@ function findControlFlowBodyEnd(code: string, startIndex: number): number {
  */
 function findStatementEnd(code: string, startIndex: number): number {
   let i = startIndex
-  while (i < code.length && /\s/.test(code[i])) i++
+  while (i < code.length && /\s/.test(code.charAt(i))) i++
   if (i >= code.length) return i
-  if (code[i] === '{') return -1
-  if (code[i] === ';') return i + 1
+  if (code.charAt(i) === '{') return -1
+  if (code.charAt(i) === ';') return i + 1
   const keywords = ['for', 'while', 'do', 'if', 'switch', 'with', 'try']
   for (const kw of keywords) {
-    if (code.slice(i, i + kw.length) === kw && (!code[i + kw.length] || /[\s(;{]/.test(code[i + kw.length]))) {
-      i += kw.length; while (i < code.length && /\s/.test(code[i])) i++
+    const nextChar = code.charAt(i + kw.length)
+    if (code.slice(i, i + kw.length) === kw && (!nextChar || /[\s(;{]/.test(nextChar))) {
+      i += kw.length; while (i < code.length && /\s/.test(code.charAt(i))) i++
       if (kw === 'do') {
-        i = findControlFlowBodyEnd(code, i); while (i < code.length && /\s/.test(code[i])) i++
-        if (code.slice(i, i + 5) === 'while') { i += 5; while (i < code.length && /\s/.test(code[i])) i++; if (code[i] === '(') { const c = findMatchingParen(code, i); if (c !== -1) i = c + 1 }; while (i < code.length && /\s/.test(code[i])) i++; if (code[i] === ';') i++ }
+        i = findControlFlowBodyEnd(code, i); while (i < code.length && /\s/.test(code.charAt(i))) i++
+        if (code.slice(i, i + 5) === 'while') { i += 5; while (i < code.length && /\s/.test(code.charAt(i))) i++; if (code.charAt(i) === '(') { const c = findMatchingParen(code, i); if (c !== -1) i = c + 1 }; while (i < code.length && /\s/.test(code.charAt(i))) i++; if (code.charAt(i) === ';') i++ }
         return i
       } else if (kw === 'if') {
-        if (code[i] === '(') { const c = findMatchingParen(code, i); if (c !== -1) { i = c + 1; i = findControlFlowBodyEnd(code, i); let j = i; while (j < code.length && /\s/.test(code[j])) j++; if (code.slice(j, j + 4) === 'else') { i = j + 4; i = findControlFlowBodyEnd(code, i) } } }
+        if (code.charAt(i) === '(') { const c = findMatchingParen(code, i); if (c !== -1) { i = c + 1; i = findControlFlowBodyEnd(code, i); let j = i; while (j < code.length && /\s/.test(code.charAt(j))) j++; if (code.slice(j, j + 4) === 'else') { i = j + 4; i = findControlFlowBodyEnd(code, i) } } }
         return i
       } else {
-        if (code[i] === '(') { const c = findMatchingParen(code, i); if (c !== -1) { i = c + 1; i = findControlFlowBodyEnd(code, i) } }
+        if (code.charAt(i) === '(') { const c = findMatchingParen(code, i); if (c !== -1) { i = c + 1; i = findControlFlowBodyEnd(code, i) } }
         return i
       }
     }
   }
   let bd = 0, pd = 0, bk = 0
   while (i < code.length) {
-    const ch = code[i]
-    if (ch === '"' || ch === "'" || ch === '`') { const q = ch; i++; while (i < code.length) { if (code[i] === '\\' && i + 1 < code.length) i += 2; else if (code[i] === q) { i++; break } else i++ }; continue }
+    const ch = code.charAt(i)
+    if (ch === '"' || ch === "'" || ch === '`') { const q = ch; i++; while (i < code.length) { if (code.charAt(i) === '\\' && i + 1 < code.length) i += 2; else if (code.charAt(i) === q) { i++; break } else i++ }; continue }
     if (ch === '{') bd++; else if (ch === '}') bd--; else if (ch === '(') pd++; else if (ch === ')') pd--; else if (ch === '[') bk++; else if (ch === ']') bk--
     if (ch === ';' && bd === 0 && pd === 0 && bk === 0) return i + 1
-    if (ch === '\n' && bd === 0 && pd === 0 && bk === 0) { let j = i + 1; while (j < code.length && /[ \t]/.test(code[j])) j++; if (j < code.length && /[+\-*/%&|^<>=!?:,.]/.test(code[j])) { i++; continue }; return i + 1 }
+    if (ch === '\n' && bd === 0 && pd === 0 && bk === 0) { let j = i + 1; while (j < code.length && /[ \t]/.test(code.charAt(j))) j++; if (j < code.length && /[+\-*/%&|^<>=!?:,.]/.test(code.charAt(j))) { i++; continue }; return i + 1 }
     i++
   }
   return i
