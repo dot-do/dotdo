@@ -27,8 +27,4 @@ export default defineConfig({
       entry: './client.tsx',
     },
   },
-  // Additional static export configuration
-  deployment: {
-    preset: 'cloudflare-pages-static',
-  },
 })

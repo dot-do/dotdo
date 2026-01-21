@@ -23,7 +23,8 @@ interface AdminState {
 function AdminPortal() {
   const params = useParams({ from: '/admin/$' })
   const navigate = useNavigate()
-  const path = params['*'] || 'things'
+  // TanStack Router uses _splat for splat route params
+  const path = params._splat || 'things'
 
   const [entityType, viewMode, entityId] = path.split('/') as [EntityType, ViewMode?, string?]
 
