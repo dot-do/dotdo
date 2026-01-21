@@ -1,6 +1,6 @@
 {
   "name": "dotdo-api",
-  "main": "index.ts",
+  "main": "test-entry.ts",
   "compatibility_date": "2025-01-15",
 
   // Durable Object bindings for API tests

@@ -23,9 +23,13 @@
  * ```
  */
 
+import { NotFoundError } from '@dotdo/rpc'
+
 /**
  * Generic DurableObjectNamespace type that works with any type parameter.
  * This ensures compatibility with both typed and untyped DO namespaces.
+ * The `any` type parameter is required because DurableObjectNamespace is generic
+ * and we need to match namespaces with arbitrary DO class types.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyDurableObjectNamespace = DurableObjectNamespace<any>
@@ -142,7 +146,7 @@ export function createBindingAccessor<T extends DOBindingConstraint>(
     get<K extends BindingNames<T>>(name: K): T[K] {
       const binding = env[name]
       if (!binding) {
-        throw new Error(`Durable Object binding "${name}" not found in environment`)
+        throw NotFoundError.forResource('DOBinding', name)
       }
       return binding
     },
@@ -206,7 +210,7 @@ export function getBinding<
 >(name: K, env: T): T[K] {
   const binding = env[name]
   if (!binding) {
-    throw new Error(`Durable Object binding "${name}" not found in environment`)
+    throw NotFoundError.forResource('DOBinding', name)
   }
   return binding
 }
@@ -235,7 +239,7 @@ export function getStub<
 >(name: K, id: string | DurableObjectId, env: T): DurableObjectStub<undefined> {
   const namespace = env[name] as DurableObjectNamespace<undefined>
   if (!namespace) {
-    throw new Error(`Durable Object binding "${name}" not found in environment`)
+    throw NotFoundError.forResource('DOBinding', name)
   }
   const doId = typeof id === 'string' ? namespace.idFromName(id) : id
   return namespace.get(doId)

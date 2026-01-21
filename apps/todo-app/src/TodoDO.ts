@@ -22,13 +22,15 @@ export interface Todo {
   updatedAt: number
 }
 
-interface TodoRow {
+type SqlStorageValue = string | number | null | ArrayBuffer
+
+type TodoRow = {
   id: string
   title: string
   completed: number // SQLite uses 0/1 for booleans
   created_at: number
   updated_at: number
-}
+} & Record<string, SqlStorageValue>
 
 // ============================================================================
 // Durable Object

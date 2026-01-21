@@ -1,7 +1,10 @@
 {
   "name": "dotdo-do",
-  "main": "index.ts",
+  "main": "test-entry.ts",
   "compatibility_date": "2025-01-15",
+
+  // Compatibility flags for _eval functionality
+  "compatibility_flags": ["nodejs_compat"],
 
   // Durable Object bindings for tests
   "durable_objects": {
