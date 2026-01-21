@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type PluginOption } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'path'
@@ -14,9 +14,10 @@ import { resolve } from 'path'
  * - Cloudflare Pages deployment compatibility
  */
 export default defineConfig({
+  // Type assertion needed due to vite version mismatch in monorepo
   plugins: [
-    react(),
-    tailwindcss(),
+    react() as unknown as PluginOption,
+    tailwindcss() as unknown as PluginOption,
   ],
 
   // Build configuration for static export
@@ -54,7 +55,7 @@ export default defineConfig({
     },
 
     // Source maps for debugging (disable in production)
-    sourcemap: process.env.NODE_ENV !== 'production',
+    sourcemap: process.env['NODE_ENV'] !== 'production',
 
     // CSS code splitting
     cssCodeSplit: true,
@@ -92,7 +93,7 @@ export default defineConfig({
 
   // Define global constants
   define: {
-    __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '0.0.1'),
+    __APP_VERSION__: JSON.stringify(process.env['npm_package_version'] || '0.0.1'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
 

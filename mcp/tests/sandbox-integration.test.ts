@@ -1,46 +1,24 @@
 // Integration tests for sandbox tool with MCP server
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+// IMPORTANT: This test follows the NO MOCKS philosophy from CLAUDE.md.
+import { describe, it, expect, beforeEach } from 'vitest'
 import { createMCPServer, type MCPServer } from '../server'
 import { createSandboxTool } from '../tools/sandbox'
 import { ToolRegistry, ToolCategory } from '../discovery'
-import type { WorkflowContext } from '../../do/context'
+import type { WorkflowContext } from '@dotdo/do'
+import { createTestContext, createEventCapture } from './test-helpers'
 
 describe('Sandbox MCP Integration', () => {
   let server: MCPServer
   let registry: ToolRegistry
-  let mockContext: WorkflowContext
+  let context: WorkflowContext
   let capturedEvents: Array<{ type: string; payload?: unknown }>
 
   beforeEach(() => {
-    capturedEvents = []
-
-    // Create mock WorkflowContext
-    mockContext = {
-      send: vi.fn((event) => {
-        capturedEvents.push(event)
-      }),
-      try: vi.fn(async (action) => action()),
-      do: vi.fn(async (action) => action()),
-      on: new Proxy({} as any, {
-        get(_, noun: string) {
-          return new Proxy({}, {
-            get(_, verb: string) {
-              return vi.fn()
-            }
-          })
-        }
-      }),
-      every: new Proxy({} as any, {
-        get() {
-          return vi.fn()
-        }
-      }),
-      _events: {} as any,
-      _handlers: new Map(),
-      _schedules: new Map(),
-      _stubCache: new Map(),
-      _env: {}
-    }
+    // Create a real WorkflowContext using the test helper (NO MOCKS philosophy)
+    const baseContext = createTestContext('sandbox-integration-test')
+    const capture = createEventCapture(baseContext)
+    context = capture.wrappedContext
+    capturedEvents = capture.capturedEvents
 
     // Create MCP server with registry
     registry = new ToolRegistry()
@@ -51,7 +29,7 @@ describe('Sandbox MCP Integration', () => {
     })
 
     // Add sandbox tool
-    const sandboxTool = createSandboxTool({ context: mockContext })
+    const sandboxTool = createSandboxTool({ context: context })
     server.addTool(sandboxTool)
   })
 
@@ -65,7 +43,7 @@ describe('Sandbox MCP Integration', () => {
     it('should register sandbox tool in registry with correct category', () => {
       // Use a fresh registry for this test
       const freshRegistry = new ToolRegistry()
-      const sandboxTool = createSandboxTool({ context: mockContext })
+      const sandboxTool = createSandboxTool({ context: context })
       freshRegistry.register(sandboxTool, ToolCategory.COMPUTE, ['sandbox', 'isolation'])
 
       const tool = freshRegistry.get('sandbox')
@@ -79,7 +57,7 @@ describe('Sandbox MCP Integration', () => {
       registry.on('tool:registered', (name) => events.push(`registered:${name}`))
       registry.on('tool:unregistered', (name) => events.push(`unregistered:${name}`))
 
-      const tool = createSandboxTool({ context: mockContext })
+      const tool = createSandboxTool({ context: context })
       // First unregister if exists (from addTool earlier)
       if (registry.get('sandbox')) {
         registry.unregister('sandbox')
@@ -101,7 +79,7 @@ describe('Sandbox MCP Integration', () => {
       expect(response.status).toBe(200)
       const json = await response.json()
 
-      const sandboxTool = json.tools.find((t: any) => t.name === 'sandbox')
+      const sandboxTool = json.tools.find((t: unknown) => (t as { name: string }).name === 'sandbox')
       expect(sandboxTool).toBeDefined()
       expect(sandboxTool.inputSchema.properties.code).toBeDefined()
       expect(sandboxTool.inputSchema.properties.permissions).toBeDefined()
@@ -147,7 +125,8 @@ describe('Sandbox MCP Integration', () => {
 
       expect(result.success).toBe(true)
       expect(result.value).toBe('event sent')
-      expect(mockContext.send).toHaveBeenCalledWith({
+      // Using capturedEvents array instead of vi.fn() mock assertions (NO MOCKS philosophy)
+      expect(capturedEvents).toContainEqual({
         type: 'User.created',
         payload: { id: 1 }
       })
@@ -394,7 +373,7 @@ describe('Sandbox MCP Integration', () => {
     it('should be discoverable with proper metadata', () => {
       // Use fresh registry for isolation
       const freshRegistry = new ToolRegistry()
-      const sandboxTool = createSandboxTool({ context: mockContext })
+      const sandboxTool = createSandboxTool({ context: context })
       freshRegistry.register(sandboxTool, ToolCategory.COMPUTE, ['sandbox', 'workflow', 'isolation'])
 
       const metadata = freshRegistry.getMetadata('sandbox')
@@ -407,7 +386,7 @@ describe('Sandbox MCP Integration', () => {
     it('should be filterable by capability', () => {
       // Use fresh registry for isolation
       const freshRegistry = new ToolRegistry()
-      const sandboxTool = createSandboxTool({ context: mockContext })
+      const sandboxTool = createSandboxTool({ context: context })
       freshRegistry.register(sandboxTool, ToolCategory.COMPUTE, ['sandbox', 'isolation'])
 
       const isolationTools = freshRegistry.listByCapability('isolation')
@@ -420,7 +399,7 @@ describe('Sandbox MCP Integration', () => {
     it('should be listed in COMPUTE category', () => {
       // Use fresh registry for isolation
       const freshRegistry = new ToolRegistry()
-      const sandboxTool = createSandboxTool({ context: mockContext })
+      const sandboxTool = createSandboxTool({ context: context })
       freshRegistry.register(sandboxTool, ToolCategory.COMPUTE)
 
       const computeTools = freshRegistry.listByCategory(ToolCategory.COMPUTE)
@@ -430,7 +409,7 @@ describe('Sandbox MCP Integration', () => {
     it('should export tool definition correctly', () => {
       // Use fresh registry for isolation
       const freshRegistry = new ToolRegistry()
-      const sandboxTool = createSandboxTool({ context: mockContext })
+      const sandboxTool = createSandboxTool({ context: context })
       freshRegistry.register(sandboxTool, ToolCategory.COMPUTE, ['sandbox'])
 
       const exported = freshRegistry.export()
@@ -452,7 +431,7 @@ describe('Sandbox MCP Integration', () => {
           type: 'object',
           properties: { message: { type: 'string' } }
         },
-        execute: async (params: any) => params.message
+        execute: async (params: unknown) => (params as { message: string }).message
       })
 
       // List tools - should have both
@@ -461,8 +440,8 @@ describe('Sandbox MCP Integration', () => {
       const listJson = await listResponse.json()
 
       expect(listJson.tools.length).toBeGreaterThanOrEqual(2)
-      expect(listJson.tools.map((t: any) => t.name)).toContain('sandbox')
-      expect(listJson.tools.map((t: any) => t.name)).toContain('echo')
+      expect(listJson.tools.map((t: unknown) => (t as { name: string }).name)).toContain('sandbox')
+      expect(listJson.tools.map((t: unknown) => (t as { name: string }).name)).toContain('echo')
 
       // Execute both tools
       const sandboxRequest = new Request('http://localhost/mcp/tools/call', {

@@ -1,0 +1,176 @@
+// Fetch Transport - HTTP/fetch-based RPC transport
+// Used for client-to-worker communication over HTTP
+import { generateCorrelationId, CORRELATION_ID_HEADER } from '../headers';
+import { isSerializedError } from '../errors';
+import { validateRPCMessage } from '../validation';
+import { createTransportErrorFromCatch, createValidationErrorResponse, createServerErrorFromStatus, createErrorResponse, createErrorContext, applyErrorInterceptor, } from './error-utils';
+import { DEFAULT_RPC_TIMEOUT_MS } from '@dotdo/utils';
+/**
+ * Fetch Transport - sends RPC messages via HTTP POST
+ *
+ * This transport is ideal for:
+ * - Browser-to-server RPC
+ * - Server-to-server RPC
+ * - Any environment with HTTP connectivity
+ *
+ * Features:
+ * - Configurable timeout via AbortSignal
+ * - Correlation ID propagation
+ * - Structured error handling
+ *
+ * @example
+ * ```typescript
+ * const transport = new FetchTransport({
+ *   url: 'https://api.example.com',
+ *   timeout: 5000,
+ * })
+ *
+ * const response = await transport.send({
+ *   method: 'users.create',
+ *   args: [{ name: 'Alice' }],
+ * })
+ *
+ * if (response.error) {
+ *   throw deserializeError(response.error)
+ * }
+ * console.log(response.result)
+ * ```
+ */
+export class FetchTransport {
+    url;
+    timeout;
+    baseCorrelationId;
+    headers;
+    fetchImpl;
+    validateMessages;
+    onError;
+    constructor(options) {
+        this.url = options.url;
+        this.timeout = options.timeout ?? DEFAULT_RPC_TIMEOUT_MS;
+        if (options.correlationId !== undefined) {
+            this.baseCorrelationId = options.correlationId;
+        }
+        this.headers = options.headers ?? {};
+        this.fetchImpl = options.fetch ?? globalThis.fetch;
+        this.validateMessages = options.validateMessages ?? false;
+        this.onError = options.onError;
+    }
+    /**
+     * Send an RPC message via HTTP POST
+     */
+    async send(message) {
+        const correlationId = message.correlationId ?? this.baseCorrelationId ?? generateCorrelationId();
+        const startTime = Date.now();
+        // Validate message if validation is enabled
+        if (this.validateMessages) {
+            try {
+                validateRPCMessage(message);
+            }
+            catch (error) {
+                // Return validation error without making network request
+                const errorMessage = error instanceof Error ? error.message : 'Validation failed';
+                const validationError = createValidationErrorResponse(errorMessage, correlationId);
+                return createErrorResponse({
+                    error: validationError,
+                    correlationId,
+                    transportType: 'fetch',
+                    message,
+                    endpoint: this.url,
+                    startTime,
+                    onError: this.onError,
+                });
+            }
+        }
+        let response;
+        try {
+            response = await this.fetchImpl(`${this.url}/rpc`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    [CORRELATION_ID_HEADER]: correlationId,
+                    ...this.headers,
+                },
+                body: JSON.stringify({
+                    method: message.method,
+                    args: message.args,
+                }),
+                signal: AbortSignal.timeout(this.timeout),
+            });
+        }
+        catch (error) {
+            // Handle transport-level errors (network failures, timeouts, DNS resolution, etc.)
+            const transportError = createTransportErrorFromCatch(error, 'fetch', this.url);
+            return createErrorResponse({
+                error: transportError,
+                correlationId,
+                transportType: 'fetch',
+                message,
+                endpoint: this.url,
+                startTime,
+                onError: this.onError,
+            });
+        }
+        const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) ?? correlationId;
+        if (!response.ok) {
+            // Try to parse structured error response
+            try {
+                const errorBody = await response.json();
+                if (isSerializedError(errorBody)) {
+                    // Apply error interceptor even for server-returned errors
+                    const context = createErrorContext({
+                        transportType: 'fetch',
+                        message,
+                        correlationId: responseCorrelationId,
+                        error: errorBody,
+                        endpoint: this.url,
+                        startTime,
+                    });
+                    const finalError = applyErrorInterceptor(errorBody, context, this.onError);
+                    return {
+                        error: finalError,
+                        correlationId: responseCorrelationId,
+                    };
+                }
+            }
+            catch {
+                // Failed to parse as JSON
+            }
+            // Return generic error response
+            const serverError = createServerErrorFromStatus(response.status, 'fetch', response.statusText);
+            return createErrorResponse({
+                error: serverError,
+                correlationId: responseCorrelationId,
+                transportType: 'fetch',
+                message,
+                endpoint: this.url,
+                startTime,
+                onError: this.onError,
+            });
+        }
+        // Parse successful response
+        const result = await response.json();
+        return {
+            result,
+            correlationId: responseCorrelationId,
+        };
+    }
+    /**
+     * Fetch transport is stateless - no close needed
+     */
+    async close() {
+        // No-op for stateless HTTP transport
+    }
+    /**
+     * Fetch transport is always "connected"
+     */
+    getState() {
+        return 'CONNECTED';
+    }
+}
+/**
+ * Create a fetch transport (convenience function)
+ */
+export function createFetchTransport(options) {
+    return new FetchTransport(options);
+}
+//# sourceMappingURL=fetch.js.map
