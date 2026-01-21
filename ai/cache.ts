@@ -570,15 +570,15 @@ export class GenerationCache {
     }
 
     if (params.system !== undefined) {
-      keyParams.system = params.system
+      keyParams['system'] = params.system
     }
 
     if (params.temperature !== undefined) {
-      keyParams.temperature = params.temperature
+      keyParams['temperature'] = params.temperature
     }
 
     if (params.schemaVersion !== undefined) {
-      keyParams.schemaVersion = params.schemaVersion
+      keyParams['schemaVersion'] = params.schemaVersion
     }
 
     return createCacheKey('generation', keyParams)

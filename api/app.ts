@@ -6,6 +6,8 @@ import type { MiddlewareHandler } from 'hono'
 import { authMiddleware } from '@dotdo/auth'
 import { getErrorMessage } from '@dotdo/rpc'
 import { createLogger } from '../utils/logger'
+import { generateAPIRoot, generateErrorLinks } from './hateoas'
+import { getAllResources } from './resource'
 
 const logger = createLogger('[API]')
 

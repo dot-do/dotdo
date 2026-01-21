@@ -500,7 +500,7 @@ async function getAsyncLocalStorage(): Promise<AsyncLocalStorageInterface<Resour
       // but does NOT preserve context across async boundaries the way
       // real AsyncLocalStorage does. For proper async context tracking,
       // use an environment that supports AsyncLocalStorage natively.
-      if (process.env.NODE_ENV === 'development' && error instanceof Error) {
+      if (process.env['NODE_ENV'] === 'development' && error instanceof Error) {
         console.debug(`[resource] AsyncLocalStorage not available, using stack fallback: ${error.message}`)
       }
 

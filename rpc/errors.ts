@@ -1168,9 +1168,20 @@ export class RetryWithCircuitBreaker {
   private lastRetryDelayMs: number | null = null
 
   constructor(options: RetryWithCircuitBreakerOptions = {}) {
+    const maxRetries = options.retry?.maxRetries ?? 3
+
+    // Validate maxRetries to prevent infinite loop or unexpected behavior
+    if (maxRetries < 0) {
+      throw new ValidationError('maxRetries must be >= 0', {
+        field: 'maxRetries',
+        value: maxRetries,
+        constraint: 'non-negative integer',
+      })
+    }
+
     this.circuitBreaker = new CircuitBreaker(options.circuitBreaker)
     this.retryOptions = {
-      maxRetries: options.retry?.maxRetries ?? 3,
+      maxRetries,
       initialDelay: options.retry?.initialDelay ?? 1000,
       backoffFactor: options.retry?.backoffFactor ?? 2,
       maxDelay: options.retry?.maxDelay ?? 30000,

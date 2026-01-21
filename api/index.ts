@@ -86,8 +86,10 @@ export {
   type MCPServerConfig
 } from './codegen/mcp'
 
-// Rate limiting middleware
+// Middleware layer - cross-cutting concerns
+// See api/middleware/index.ts for architecture documentation
 export {
+  // Rate limiting
   RateLimiter,
   rateLimitMiddleware,
   createRateLimiter,
@@ -96,4 +98,8 @@ export {
   type RateLimitTier,
   type RateLimitResult,
   type RateLimitSqlStorage,
-} from './middleware/rate-limit'
+  // Rate limiter DO for distributed state
+  RateLimiterDO,
+  type RateLimitCheckParams,
+  type RateLimitCheckResult,
+} from './middleware'

@@ -55,7 +55,7 @@ export interface ${interfaceName} {`)
       }
 
       // Always include $id field
-      if (!resource.fields.$id) {
+      if (!resource.fields['$id']) {
         types.push(`  $id: string`)
       }
 

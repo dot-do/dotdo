@@ -15,7 +15,7 @@ describe('Hono App Setup', () => {
     })
   })
 
-  describe('Health Check Endpoint', () => {
+  describe('Health Check Endpoint (Liveness)', () => {
     it('should respond to /health with 200 OK', async () => {
       const app = createAPI()
       const res = await app.request('http://localhost/health')
@@ -34,6 +34,52 @@ describe('Hono App Setup', () => {
 
       const body = await res.json()
       expect(body.service).toBe('dotdo-api')
+    })
+  })
+
+  describe('Readiness Check Endpoint', () => {
+    it('should respond to /ready with 200 OK when ready', async () => {
+      const app = createAPI()
+      const res = await app.request('http://localhost/ready')
+
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body).toMatchObject({
+        status: 'ready',
+        service: 'dotdo-api',
+        timestamp: expect.any(String),
+        checks: expect.any(Object)
+      })
+    })
+
+    it('should include api check in readiness response', async () => {
+      const app = createAPI()
+      const res = await app.request('http://localhost/ready')
+
+      const body = await res.json()
+      expect(body.checks).toBeDefined()
+      expect(body.checks.api).toBe(true)
+    })
+
+    it('should skip auth for ready endpoint', async () => {
+      const app = createAPI({
+        auth: {
+          enabled: true,
+          secret: 'test-secret-for-auth-middleware-testing-12345'
+        }
+      })
+      const res = await app.request('http://localhost/ready')
+
+      expect(res.status).toBe(200)
+    })
+
+    it('should work with basePath', async () => {
+      const app = createAPI({ basePath: '/api/v1' })
+      const res = await app.request('http://localhost/api/v1/ready')
+
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.status).toBe('ready')
     })
   })
 

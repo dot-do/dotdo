@@ -253,7 +253,6 @@ export {
   createScopedResourceEnforcer,
   ToolRegistry,
   ToolCategory,
-  createDefaultRegistry,
   type MCPServerOptions,
   type MCPServer,
   type MCPTool as MCPToolType,
