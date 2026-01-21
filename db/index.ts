@@ -92,4 +92,28 @@ export * from './audit'
 export * from './schema'
 
 /** Input validation utilities */
-export * from './validation'
+export {
+  // Configuration
+  configureValidation,
+  getValidationConfig,
+  resetValidationConfig,
+  type ValidationConfig,
+  // Value validation
+  validateJsonValue,
+  // ID validation
+  validateId,
+  validateIds,
+  // Type validation
+  validateType,
+  // Thing validation
+  validateThingInput,
+  validateThingUpdate,
+  safeValidateThingInput,
+  safeValidateThingUpdate,
+  // List/Query options validation
+  validateListOptions,
+  // Bulk operation validation
+  validateBulkUpdateItems,
+  // Note: ValidationResult is not exported here to avoid conflict with schema.ts
+  // Use the ValidationResult from schema.ts instead, or import directly from validation.ts
+} from './validation'
