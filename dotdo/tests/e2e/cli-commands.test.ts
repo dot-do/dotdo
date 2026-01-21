@@ -575,7 +575,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'test-token',
+          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
         },
       })
 
@@ -592,7 +592,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'test-token',
+          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
         },
       })
 
@@ -613,7 +613,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'test-token',
+          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
         },
       })
 
@@ -632,7 +632,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'test-token',
+          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
         },
       })
 
@@ -656,7 +656,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'test-token',
+          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
         },
       })
 
@@ -676,7 +676,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'test-token',
+          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
         },
       })
 
@@ -694,7 +694,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'test-token',
+          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
         },
       })
 
@@ -713,7 +713,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'test-token',
+          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
         },
       })
 
@@ -730,7 +730,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'test-token',
+          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
         },
       })
 
@@ -749,7 +749,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'test-token',
+          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
         },
       })
 
@@ -768,7 +768,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'test-token',
+          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
         },
       })
 
@@ -784,7 +784,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'test-token',
+          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
         },
       })
 
