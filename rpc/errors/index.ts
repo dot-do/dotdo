@@ -53,6 +53,15 @@ export {
   getErrorMessage,
   isSerializedError,
   deserializeError,
+
+  // HTTP error handling helpers
+  type HTTPErrorOptions,
+  handleHTTPError,
+  handleResponseError,
+  type SerializeErrorResponseOptions,
+  type SerializedErrorResponse,
+  serializeErrorResponse,
+  createErrorResponse,
 } from './base'
 
 // Export retry utilities

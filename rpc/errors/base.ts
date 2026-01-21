@@ -738,3 +738,159 @@ export function deserializeError(serialized: SerializedError): Error | RPCError 
 }
 
 // Re-export getErrorMessage from @dotdo/db (already exported above)
+
+// ============================================================================
+// HTTP Error Handling Helpers
+// ============================================================================
+
+/**
+ * Options for handling HTTP errors
+ */
+export interface HTTPErrorOptions {
+  /** HTTP status code */
+  status: number
+  /** Fallback error message if no structured error is returned */
+  fallbackMessage?: string
+  /** Correlation ID for request tracing */
+  correlationId?: string
+}
+
+/**
+ * Handle an HTTP error response by deserializing structured errors
+ *
+ * @param jsonPromise - Promise that resolves to the JSON body (or rejects on parse error)
+ * @param options - HTTP error options
+ * @throws The deserialized RPCError or a generic InternalError
+ */
+export async function handleHTTPError(
+  jsonPromise: Promise<unknown>,
+  options: HTTPErrorOptions
+): Promise<never> {
+  const { status, fallbackMessage, correlationId } = options
+
+  try {
+    const json = await jsonPromise
+
+    // Check if it's a structured error
+    if (isSerializedError(json)) {
+      throw deserializeError(json)
+    }
+
+    // Not a structured error - create a generic one
+    const message = fallbackMessage
+      ? correlationId
+        ? `${fallbackMessage} [${correlationId}]`
+        : fallbackMessage
+      : `HTTP error: ${status}`
+    throw new InternalError(message)
+  } catch (error) {
+    // Re-throw RPC errors directly
+    if (error instanceof RPCError || error instanceof DotdoError) {
+      throw error
+    }
+
+    // JSON parsing or other error - create generic error
+    const message = fallbackMessage ?? `HTTP error: ${status}`
+    throw new InternalError(message)
+  }
+}
+
+/**
+ * Handle an HTTP Response error by parsing the body and deserializing structured errors
+ *
+ * @param response - The HTTP Response object
+ * @param options - HTTP error options
+ * @throws The deserialized RPCError or a generic InternalError
+ */
+export async function handleResponseError(
+  response: Response,
+  options: HTTPErrorOptions
+): Promise<never> {
+  try {
+    const json = await response.json()
+    return handleHTTPError(Promise.resolve(json), options)
+  } catch (error) {
+    // Re-throw RPC errors directly
+    if (error instanceof RPCError || error instanceof DotdoError) {
+      throw error
+    }
+
+    // JSON parsing failed - create generic error
+    const message = options.fallbackMessage ?? `HTTP error: ${options.status}`
+    throw new InternalError(message)
+  }
+}
+
+/**
+ * Options for serializing error responses
+ */
+export interface SerializeErrorResponseOptions {
+  /** Include stack trace in response */
+  includeStack?: boolean
+  /** Correlation ID for request tracing */
+  correlationId?: string | undefined
+}
+
+/**
+ * Result of serializing an error for HTTP response
+ */
+export interface SerializedErrorResponse {
+  /** Serialized error object */
+  serialized: SerializedError & { correlationId?: string }
+  /** HTTP status code to use for the response */
+  statusCode: number
+}
+
+/**
+ * Serialize an error for an HTTP error response
+ *
+ * @param error - The error to serialize
+ * @param options - Serialization options
+ * @returns Object with serialized error and HTTP status code
+ */
+export function serializeErrorResponse(
+  error: unknown,
+  options: SerializeErrorResponseOptions = {}
+): SerializedErrorResponse {
+  const { includeStack = false, correlationId } = options
+
+  // Wrap non-RPCError as InternalError
+  let rpcError: RPCError
+  if (error instanceof RPCError) {
+    rpcError = error
+  } else if (error instanceof DotdoError) {
+    rpcError = new RPCError(error.code, error.message, error.details)
+  } else if (error instanceof Error) {
+    rpcError = InternalError.wrap(error)
+  } else {
+    rpcError = InternalError.wrap(error)
+  }
+
+  const serialized = serializeError(rpcError, { includeStack })
+
+  if (correlationId) {
+    (serialized as SerializedError & { correlationId?: string }).correlationId = correlationId
+  }
+
+  return {
+    serialized: serialized as SerializedError & { correlationId?: string },
+    statusCode: rpcError.httpStatus,
+  }
+}
+
+/**
+ * Create a serialized error response object (simplified helper)
+ *
+ * @param error - The error to serialize
+ * @param correlationId - Optional correlation ID
+ * @param includeStack - Whether to include stack trace
+ * @returns Serialized error with optional correlation ID
+ */
+export function createErrorResponse(
+  error: unknown,
+  correlationId?: string,
+  includeStack = false
+): SerializedError & { correlationId?: string } {
+  const { serialized } = serializeErrorResponse(error, { includeStack, correlationId })
+  return serialized
+}
