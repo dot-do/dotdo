@@ -437,6 +437,133 @@ describe('CLI Commands', () => {
     })
   })
 
+  describe('config-get command', () => {
+    it('exports configGetCommand function', async () => {
+      const { configGetCommand, configGet } = await import('../commands/config-get')
+      expect(configGetCommand).toBeDefined()
+      expect(configGet).toBeDefined()
+      expect(typeof configGetCommand).toBe('function')
+    })
+
+    it('returns entire config when no key specified', async () => {
+      const { configGet } = await import('../commands/config-get')
+
+      // Create test config
+      const initialConfig = { apiUrl: 'https://test.api.dev', namespace: 'test' }
+      writeFileSync(join(testDir, '.dotdo.json'), JSON.stringify(initialConfig, null, 2))
+
+      const originalCwd = process.cwd()
+      process.chdir(testDir)
+
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+      try {
+        const result = await configGet({})
+
+        expect(result.success).toBe(true)
+        expect(result.found).toBe(true)
+        expect(result.value).toEqual(initialConfig)
+      } finally {
+        process.chdir(originalCwd)
+        consoleSpy.mockRestore()
+      }
+    })
+
+    it('gets a simple key value', async () => {
+      const { configGet } = await import('../commands/config-get')
+
+      // Create test config
+      const initialConfig = { apiUrl: 'https://test.api.dev', verbose: true }
+      writeFileSync(join(testDir, '.dotdo.json'), JSON.stringify(initialConfig, null, 2))
+
+      const originalCwd = process.cwd()
+      process.chdir(testDir)
+
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+      try {
+        const result = await configGet({ key: 'apiUrl' })
+
+        expect(result.success).toBe(true)
+        expect(result.found).toBe(true)
+        expect(result.value).toBe('https://test.api.dev')
+      } finally {
+        process.chdir(originalCwd)
+        consoleSpy.mockRestore()
+      }
+    })
+
+    it('gets a nested key using dot notation', async () => {
+      const { configGet } = await import('../commands/config-get')
+
+      // Create test config with nested values
+      const initialConfig = { env: { API_KEY: 'secret-123', DEBUG: true } }
+      writeFileSync(join(testDir, '.dotdo.json'), JSON.stringify(initialConfig, null, 2))
+
+      const originalCwd = process.cwd()
+      process.chdir(testDir)
+
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+      try {
+        const result = await configGet({ key: 'env.API_KEY' })
+
+        expect(result.success).toBe(true)
+        expect(result.found).toBe(true)
+        expect(result.value).toBe('secret-123')
+      } finally {
+        process.chdir(originalCwd)
+        consoleSpy.mockRestore()
+      }
+    })
+
+    it('returns found=false for non-existent key', async () => {
+      const { configGet } = await import('../commands/config-get')
+
+      // Create test config
+      const initialConfig = { apiUrl: 'https://test.api.dev' }
+      writeFileSync(join(testDir, '.dotdo.json'), JSON.stringify(initialConfig, null, 2))
+
+      const originalCwd = process.cwd()
+      process.chdir(testDir)
+
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      try {
+        const result = await configGet({ key: 'nonExistentKey' })
+
+        expect(result.success).toBe(false)
+        expect(result.found).toBe(false)
+        expect(result.value).toBeUndefined()
+      } finally {
+        process.chdir(originalCwd)
+        consoleSpy.mockRestore()
+        consoleErrorSpy.mockRestore()
+      }
+    })
+
+    it('returns empty config when file does not exist', async () => {
+      const { configGet } = await import('../commands/config-get')
+
+      const originalCwd = process.cwd()
+      process.chdir(testDir)
+
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+      try {
+        const result = await configGet({})
+
+        expect(result.success).toBe(true)
+        expect(result.found).toBe(true)
+        expect(result.value).toEqual({})
+      } finally {
+        process.chdir(originalCwd)
+        consoleSpy.mockRestore()
+      }
+    })
+  })
+
   describe('CLI integration', () => {
     it('program has build command with correct options', async () => {
       const { createProgram } = await import('../cli')
@@ -520,6 +647,19 @@ describe('CLI Commands', () => {
       expect(setCmd).toBeDefined()
 
       const optionFlags = setCmd?.options.map((opt) => opt.long) || []
+      expect(optionFlags).toContain('--global')
+    })
+
+    it('config command has get subcommand with correct options', async () => {
+      const { createProgram } = await import('../cli')
+      const program = createProgram()
+
+      const configCmd = program.commands.find((cmd) => cmd.name() === 'config')
+      const getCmd = configCmd?.commands.find((cmd) => cmd.name() === 'get')
+
+      expect(getCmd).toBeDefined()
+
+      const optionFlags = getCmd?.options.map((opt) => opt.long) || []
       expect(optionFlags).toContain('--global')
     })
   })

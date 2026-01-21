@@ -587,20 +587,63 @@ export function createProgram(): Command {
   configCommand
     .command('set <key> <value>')
     .description('Set a configuration value')
+    .option('-g, --global', 'Use global config (~/.dotdo/config.json)')
     .action(async (key, value, options, command) => {
-      console.log(`TODO: Set ${key} = ${value}`)
+      const config = (command.parent?.parent as any)?._dotdoConfig || {}
+      const verbose = config.verbose || options.verbose
+
+      if (verbose) {
+        console.log('[dotdo config set] Key:', key)
+        console.log('[dotdo config set] Value:', value)
+        console.log('[dotdo config set] Options:', options)
+      }
+
+      try {
+        // Import config set command
+        const { configSet } = await import('./commands/config-set')
+
+        // Run config set
+        await configSet({
+          key,
+          value,
+          global: options.global,
+          verbose,
+        })
+      } catch (error) {
+        console.error('Error:', error instanceof Error ? error.message : String(error))
+        process.exit(1)
+      }
     })
 
   configCommand
-    .command('get <key>')
+    .command('get [key]')
     .description('Get a configuration value')
+    .option('-g, --global', 'Use global config (~/.dotdo/config.json)')
     .action(async (key, options, command) => {
       const config = (command.parent?.parent as any)?._dotdoConfig || {}
-      const value = (config as any)[key]
-      if (value !== undefined) {
-        console.log(value)
-      } else {
-        console.error(`Configuration key not found: ${key}`)
+      const verbose = config.verbose || options.verbose
+
+      if (verbose) {
+        console.log('[dotdo config get] Key:', key)
+        console.log('[dotdo config get] Options:', options)
+      }
+
+      try {
+        // Import config get command
+        const { configGet } = await import('./commands/config-get')
+
+        // Run config get
+        const result = await configGet({
+          key,
+          global: options.global,
+          verbose,
+        })
+
+        if (!result.found && key) {
+          process.exit(1)
+        }
+      } catch (error) {
+        console.error('Error:', error instanceof Error ? error.message : String(error))
         process.exit(1)
       }
     })
