@@ -106,6 +106,8 @@ export default defineWorkersConfig({
       './utils/vitest.config.ts',
       // Integrations package
       './integrations/vitest.config.ts',
+      // Core types package
+      './core/vitest.config.ts',
     ],
 
     // CRITICAL: Limit concurrency to prevent resource exhaustion
