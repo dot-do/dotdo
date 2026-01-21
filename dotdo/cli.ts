@@ -733,7 +733,7 @@ export function createProgram(): Command {
   program
     .command('repl')
     .description('Start interactive REPL connected to an RPC endpoint or local sandbox')
-    .argument('[endpoint]', 'RPC endpoint URL (e.g., https://my-tenant.api.dotdo.dev). If omitted, starts local sandbox.')
+    .argument('[endpoint]', 'RPC endpoint URL (e.g., wss://my-tenant.api.dotdo.dev/ws or https://my-tenant.api.dotdo.dev). WebSocket URLs (ws://, wss://) use WebSocket transport directly. HTTP URLs auto-upgrade to WebSocket. If omitted, starts local sandbox.')
     .option('-t, --types <path>', 'Path to TypeScript types file (default: fetch from endpoint)')
     .option('-H, --history <path>', 'Path to history file (default: ~/.do/repl_history)')
     .option('-l, --local', 'Force local sandbox mode even if endpoint is provided')
@@ -839,8 +839,10 @@ if (isMain) {
   if (args.length === 0) {
     startDefaultRepl()
   }
-  // If first argument looks like a URL, start remote REPL
-  else if (args.length === 1 && (args[0].startsWith('http://') || args[0].startsWith('https://'))) {
+  // If first argument looks like a URL (http, https, ws, wss), start remote REPL
+  // WebSocket URLs (ws://, wss://) use WebSocket transport directly
+  // HTTP URLs (http://, https://) auto-upgrade to WebSocket
+  else if (args.length === 1 && (args[0].startsWith('http://') || args[0].startsWith('https://') || args[0].startsWith('ws://') || args[0].startsWith('wss://'))) {
     startDefaultRepl(args[0])
   }
   // Otherwise, parse normally

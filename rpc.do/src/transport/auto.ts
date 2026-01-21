@@ -153,10 +153,27 @@ export class AutoTransport implements Transport {
   }
 
   /**
-   * Build WebSocket URL from HTTP URL
+   * Build WebSocket URL from HTTP or WebSocket URL
+   *
+   * Handles:
+   * - https:// -> wss://
+   * - http:// -> ws://
+   * - wss:// -> wss:// (pass through)
+   * - ws:// -> ws:// (pass through)
    */
-  private buildWsUrl(httpUrl: string, wsPath: string): string {
-    const url = new URL(httpUrl)
+  private buildWsUrl(baseUrl: string, wsPath: string): string {
+    const url = new URL(baseUrl)
+
+    // If already a WebSocket URL, just update the path
+    if (url.protocol === 'wss:' || url.protocol === 'ws:') {
+      // Only update path if it's the root path (user didn't specify one)
+      if (url.pathname === '/' || url.pathname === '') {
+        url.pathname = wsPath.startsWith('/') ? wsPath : `/${wsPath}`
+      }
+      return url.toString()
+    }
+
+    // Convert HTTP(S) to WS(S)
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     url.pathname = wsPath.startsWith('/') ? wsPath : `/${wsPath}`
     return url.toString()

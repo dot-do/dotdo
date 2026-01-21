@@ -780,11 +780,18 @@ export class ReplService {
  * - Tries WebSocket connection first (wss://endpoint/ws)
  * - Falls back to HTTP if WebSocket unavailable
  * - Enables real-time event streaming and low-latency REPL commands
+ * - Accepts ws:// or wss:// URLs directly to explicitly use WebSocket
  *
- * @example
+ * @example Using HTTP URL (auto-converts to WebSocket)
  * ```typescript
  * await startRepl('https://api.do')
  * // -> Tries wss://api.do/ws first, falls back to https://api.do/rpc
+ * ```
+ *
+ * @example Using WebSocket URL directly
+ * ```typescript
+ * await startRepl('wss://api.do/ws')
+ * // -> Uses wss://api.do/ws directly
  * ```
  */
 export async function startRepl(endpoint: string, options?: {
@@ -806,6 +813,8 @@ export async function startRepl(endpoint: string, options?: {
   // Default to 'websocket-first' for optimal REPL experience
   const strategy = options?.strategy ?? 'websocket-first'
 
+  // AutoTransport now accepts ws:// and wss:// URLs directly,
+  // allowing users to explicitly request WebSocket transport via URL scheme
   const transport = new AutoTransport({
     url: endpoint,
     strategy,
@@ -819,7 +828,7 @@ export async function startRepl(endpoint: string, options?: {
     }
   })
 
-  // Try to fetch types if not provided
+  // Try to fetch types if not provided - this also triggers transport initialization
   let types = options?.types
   if (!types) {
     try {
@@ -831,6 +840,10 @@ export async function startRepl(endpoint: string, options?: {
       // Types not available, continue without autocomplete
     }
   }
+
+  // After send(), the transport should be initialized and we can check the actual transport type
+  // Use the tracked transportType from events, or fall back to checking the transport directly
+  const actualTransport = transportType !== 'fetch' ? transportType : (transport.isUsingWebSocket?.() ? 'websocket' : 'fetch')
 
   const repl = new ReplService({
     transport,
@@ -846,7 +859,7 @@ export async function startRepl(endpoint: string, options?: {
   })
 
   // Print welcome message with transport info
-  const transportInfo = transport.isUsingWebSocket?.() ? 'WebSocket' : 'HTTP'
+  const transportInfo = actualTransport === 'websocket' ? 'WebSocket' : 'HTTP'
   console.log(`Connected to ${endpoint} via ${transportInfo}`)
   console.log('Type .help for available commands')
   console.log('')
