@@ -251,11 +251,13 @@ export class EntityManager {
 /**
  * Mixin to add entity management to DO classes
  */
+// TypeScript mixin pattern requires `any` for constructor type parameters (TS2545)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function withEntities<T extends new (...args: any[]) => any>(Base: T) {
   return class extends Base {
     private entityManager: EntityManager
 
+    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)

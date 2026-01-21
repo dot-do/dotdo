@@ -38,7 +38,9 @@ import type {
 // =============================================================================
 
 /**
- * Constructor type for mixin pattern
+ * Constructor type for mixin pattern.
+ * The `any[]` is required by TypeScript's mixin pattern (TS2545) - more specific
+ * constructor signatures cannot be composed with arbitrary base classes.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Constructor<T = object> = new (...args: any[]) => T
@@ -122,6 +124,7 @@ export function WithStorage<TBase extends Constructor>(
   return class StorageMixin extends Base implements HasStorage {
     private _entityManager: EntityManager
 
+    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
@@ -281,7 +284,8 @@ export function WithStorage<TBase extends Constructor>(
 }
 
 /**
- * Type helper to extract the instance type of a mixin result
+ * Type helper to extract the instance type of a mixin result.
+ * The `any[]` is required by TypeScript's conditional type inference for constructor types.
  *
  * @example
  * ```typescript

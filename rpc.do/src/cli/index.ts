@@ -6,6 +6,7 @@ import { Command } from 'commander'
 import { pull } from './pull'
 import { evalCommand, runCommand } from './eval'
 import { startRepl } from './repl'
+import { loginCommand, logoutCommand, whoamiCommand, createDefaultLoginOptions } from './login'
 
 const program = new Command()
 
@@ -110,6 +111,72 @@ program
       types,
       historyPath: options.history,
     })
+  })
+
+// Default OAuth configuration
+const DEFAULT_CLIENT_ID = 'rpc-do-cli'
+const DEFAULT_OAUTH_URL = 'https://oauth.do'
+
+program
+  .command('login')
+  .description('Authenticate with OAuth device flow')
+  .option('--force', 'Force re-authentication even if already logged in')
+  .option('--client-id <id>', 'OAuth client ID', DEFAULT_CLIENT_ID)
+  .option('--oauth-url <url>', 'OAuth server URL', DEFAULT_OAUTH_URL)
+  .action(async (options: { force?: boolean; clientId: string; oauthUrl: string }) => {
+    const { deviceFlow, tokenStore } = createDefaultLoginOptions({
+      clientId: options.clientId,
+      oauthBaseUrl: options.oauthUrl,
+    })
+
+    const result = await loginCommand({
+      deviceFlow,
+      tokenStore,
+      force: options.force,
+      onOutput: (message) => console.log(message),
+    })
+
+    if (!result.success) {
+      process.exit(1)
+    }
+  })
+
+program
+  .command('logout')
+  .description('Clear stored authentication tokens')
+  .action(async () => {
+    const { tokenStore } = createDefaultLoginOptions({
+      clientId: DEFAULT_CLIENT_ID,
+      oauthBaseUrl: DEFAULT_OAUTH_URL,
+    })
+
+    const result = await logoutCommand({
+      tokenStore,
+      onOutput: (message) => console.log(message),
+    })
+
+    if (!result.success) {
+      process.exit(1)
+    }
+  })
+
+program
+  .command('whoami')
+  .description('Show current authentication status')
+  .action(async () => {
+    const { tokenStore } = createDefaultLoginOptions({
+      clientId: DEFAULT_CLIENT_ID,
+      oauthBaseUrl: DEFAULT_OAUTH_URL,
+    })
+
+    const result = await whoamiCommand({
+      tokenStore,
+      onOutput: (message) => console.log(message),
+    })
+
+    if (!result.success) {
+      process.exit(1)
+    }
   })
 
 program.parse()

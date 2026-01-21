@@ -124,6 +124,8 @@ export {
 
 /**
  * Type helper for inferring the composed class type from multiple mixins.
+ * The `any` parameters are required because mixin functions accept arbitrary
+ * base class constructors with varying signatures.
  *
  * @example
  * ```typescript
@@ -144,6 +146,7 @@ export type ComposedType<
 
 /**
  * Utility type to get the instance type of a composed mixin.
+ * The `any[]` is required by TypeScript's conditional type inference for constructor types.
  *
  * @example
  * ```typescript

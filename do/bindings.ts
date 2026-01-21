@@ -26,6 +26,8 @@
 /**
  * Generic DurableObjectNamespace type that works with any type parameter.
  * This ensures compatibility with both typed and untyped DO namespaces.
+ * The `any` type parameter is required because DurableObjectNamespace is generic
+ * and we need to match namespaces with arbitrary DO class types.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyDurableObjectNamespace = DurableObjectNamespace<any>

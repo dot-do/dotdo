@@ -175,6 +175,7 @@ function combineWithTime(baseCron: string, time: { hour: number; minute: number 
  * })
  * ```
  */
+// Dynamic proxy-based DSL requires `any` return type since the shape is determined at runtime
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createEveryProxy(
   schedules: Map<string, ScheduleRegistration>
@@ -189,10 +190,12 @@ export function createEveryProxy(
   }
 
   /**
-   * Create a chainable proxy builder
+   * Create a chainable proxy builder.
+   * Returns `any` because proxy-based DSL dynamically creates properties at runtime.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function createBuilder(state: BuilderState): any {
+    // Handler argument can be number, string, or function depending on DSL usage
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const builder = function(arg?: any) {
       // If called with a number: $.every(5).minutes(handler)
@@ -304,7 +307,8 @@ export function createEveryProxy(
   }
 
   /**
-   * Create a proxy for interval patterns: $.every(5).minutes(handler)
+   * Create a proxy for interval patterns: $.every(5).minutes(handler).
+   * Returns `any` because proxy-based DSL dynamically creates properties at runtime.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function createIntervalProxy(value: number, _state: BuilderState): any {

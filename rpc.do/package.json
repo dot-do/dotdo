@@ -16,17 +16,21 @@
     "./cli": "./src/cli/index.ts"
   },
   "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
     "test": "vitest",
     "test:run": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "commander": "^12.1.0",
-    "hono": "^4.7.0"
+    "hono": "^4.7.0",
+    "typescript": "^5.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.19.7",
-    "typescript": "^5.7.0",
+    "tsup": "^8.5.1",
     "vitest": "^3.0.0"
   }
 }

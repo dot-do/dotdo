@@ -159,6 +159,7 @@ export function WithRPC<TBase extends Constructor>(
     private _stubCache: Map<string, DOStubProxy>
     private _rpcConfig: CrossDORPCConfig | null = null
 
+    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
@@ -266,8 +267,9 @@ export function WithRPC<TBase extends Constructor>(
             logger.debug(`Calling ${method} with args:`, args)
           }
 
-          // Navigate to method using dot notation
+          // Navigate to method using dot notation (e.g., "math.add" -> this.math.add)
           const parts = method.split('.')
+          // Dynamic method lookup requires `any` for traversing arbitrary object properties
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let current: any = this
 
