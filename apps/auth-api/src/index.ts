@@ -28,16 +28,14 @@ interface Env {
 
 interface AuthUser {
   id: string
-  email: string
-  name: string
+  email?: string | undefined
+  name?: string | undefined
+  roles?: string[] | undefined
+  scopes?: string[] | undefined
 }
 
-declare module 'hono' {
-  interface ContextVariableMap {
-    user: AuthUser
-    token: string
-  }
-}
+// Note: Hono's ContextVariableMap is augmented in @dotdo/auth
+// We use the same 'user' and 'token' keys which are compatible with our local AuthUser type
 
 // ============================================================================
 // JWT Utilities
@@ -184,7 +182,7 @@ app.post('/auth/register', async (c) => {
 
   if (!response.ok) {
     const error = await response.json<{ error: string }>()
-    return c.json(error, response.status)
+    return c.json(error, response.status as 400 | 401 | 403 | 404 | 409 | 500)
   }
 
   const user = await response.json<AuthUser>()
@@ -227,7 +225,7 @@ app.post('/auth/login', async (c) => {
 
   if (!response.ok) {
     const error = await response.json<{ error: string }>()
-    return c.json(error, response.status)
+    return c.json(error, response.status as 400 | 401 | 403 | 404 | 409 | 500)
   }
 
   const user = await response.json<AuthUser>()
@@ -257,6 +255,9 @@ protected_.use('/*', async (c, next) => {
 // Get current user
 protected_.get('/me', async (c) => {
   const user = c.get('user')
+  if (!user.email) {
+    return c.json({ error: 'User email not found' }, 400)
+  }
   const stub = c.env.USER_DO.get(c.env.USER_DO.idFromName(user.email))
 
   const response = await stub.fetch(new Request('http://internal/profile'))
@@ -271,6 +272,9 @@ protected_.get('/me', async (c) => {
 // Update current user
 protected_.patch('/me', async (c) => {
   const user = c.get('user')
+  if (!user.email) {
+    return c.json({ error: 'User email not found' }, 400)
+  }
   const body = await c.req.json<{ name?: string; password?: string }>()
 
   const stub = c.env.USER_DO.get(c.env.USER_DO.idFromName(user.email))

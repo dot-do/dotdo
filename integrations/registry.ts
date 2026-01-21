@@ -318,9 +318,9 @@ export class IntegrationRegistry {
       if (entry?.integration.shutdown) {
         try {
           await entry.integration.shutdown()
-        } catch {
+        } catch (error) {
           // Log error but continue shutting down others
-          console.error(`Failed to shutdown integration "${name}":`)
+          console.error(`Failed to shutdown integration "${name}":`, error)
         }
       }
     }
@@ -360,27 +360,23 @@ export class IntegrationRegistry {
 }
 
 /**
- * Global integration registry instance
+ * Factory function to create a new IntegrationRegistry instance.
+ * Use this instead of a global singleton to ensure proper isolation.
+ *
+ * @returns A new IntegrationRegistry instance
+ *
+ * @example
+ * ```typescript
+ * // Per-context isolation (recommended)
+ * const registry = createIntegrationRegistry()
+ * registry.register(stripeIntegration)
+ *
+ * // Or pass to WorkflowContext
+ * const $ = createContext(state, env, { integrationRegistry: registry })
+ * ```
  */
-export const integrationRegistry = new IntegrationRegistry()
-
-/**
- * Convenience function to register an integration
- */
-export function registerIntegration<TConfig extends IntegrationConfig>(
-  integration: Integration<TConfig> | IntegrationFactory<TConfig>,
-  options?: RegisterIntegrationOptions
-): void {
-  integrationRegistry.register(integration, options)
-}
-
-/**
- * Convenience function to get an integration
- */
-export function getIntegration<TConfig extends IntegrationConfig = IntegrationConfig>(
-  name: string
-): Integration<TConfig> | undefined {
-  return integrationRegistry.get<TConfig>(name)
+export function createIntegrationRegistry(): IntegrationRegistry {
+  return new IntegrationRegistry()
 }
 
 /**

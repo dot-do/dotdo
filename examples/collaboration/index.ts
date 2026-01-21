@@ -19,7 +19,10 @@ export default {
 
     const workspaceMatch = url.pathname.match(/^\/workspace\/([^/]+)/)
     if (workspaceMatch) {
-      workspaceId = workspaceMatch[1]
+      const matchedId = workspaceMatch[1]
+      if (matchedId) {
+        workspaceId = matchedId
+      }
       // Rewrite URL to remove /workspace/{workspaceId} prefix
       url.pathname = url.pathname.replace(/^\/workspace\/[^/]+/, '') || '/'
     }

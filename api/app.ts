@@ -3,11 +3,27 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import type { MiddlewareHandler } from 'hono'
-import { authMiddleware } from '../auth/middleware'
-import { getErrorMessage } from '../rpc/errors'
+import { authMiddleware } from '@dotdo/auth'
+import { getErrorMessage } from '@dotdo/rpc'
+import { createLogger } from '../utils/logger'
+import { generateAPIRoot, generateErrorLinks } from './hateoas'
+import { getAllResources } from './resource'
+
+const logger = createLogger('[API]')
+
+export interface CORSOptions {
+  /**
+   * Allowed origins for CORS requests.
+   * - Provide an array of specific origins: ['https://app.example.com', 'https://dashboard.example.com']
+   * - Use ['*'] to allow all origins (not recommended for production)
+   * - Default: [] (no origins allowed - restrictive by default)
+   */
+  allowedOrigins?: string[]
+}
 
 export interface APIOptions {
   basePath?: string
+  cors?: CORSOptions
   auth?: {
     enabled?: boolean
     skipPaths?: string[]
@@ -55,22 +71,45 @@ function loggingMiddleware(): MiddlewareHandler {
     const status = c.res.status
     const requestId = c.get('requestId')
 
-    // Simple console logging (would be replaced with structured logging in production)
-    console.log(
-      JSON.stringify({
-        requestId,
-        method,
-        url,
-        status,
-        duration: `${duration}ms`,
-        timestamp: new Date().toISOString()
-      })
-    )
+    // Structured request logging
+    logger.info(`${method} ${url} ${status} ${duration}ms`, {
+      requestId,
+      method,
+      url,
+      status,
+      duration,
+      timestamp: new Date().toISOString()
+    })
+  }
+}
+
+/**
+ * Builds a CORS origin function that validates against allowed origins.
+ * Returns the origin if allowed, or null if not allowed.
+ */
+function buildCorsOrigin(allowedOrigins: string[]): string | ((origin: string) => string | null) {
+  // If wildcard is explicitly allowed, return '*'
+  if (allowedOrigins.includes('*')) {
+    return '*'
+  }
+
+  // If no origins specified, return a function that rejects all
+  if (allowedOrigins.length === 0) {
+    return () => null
+  }
+
+  // Return a function that validates against the allowed list
+  return (origin: string) => {
+    if (allowedOrigins.includes(origin)) {
+      return origin
+    }
+    return null
   }
 }
 
 export function createAPI(options?: APIOptions) {
-  const { basePath = '', auth } = options || {}
+  const { basePath = '', cors: corsOptions, auth } = options || {}
+  const allowedOrigins = corsOptions?.allowedOrigins ?? []
 
   // Create base app
   const baseApp = new Hono()
@@ -93,7 +132,7 @@ export function createAPI(options?: APIOptions) {
     }
 
     // Handle all other errors as 500
-    console.error('Unhandled error:', error)
+    logger.error('Unhandled error:', error)
     return c.json(
       {
         error: getErrorMessage(error),
@@ -108,11 +147,11 @@ export function createAPI(options?: APIOptions) {
   baseApp.use('*', requestIdMiddleware())
   baseApp.use('*', loggingMiddleware())
 
-  // CORS middleware
+  // CORS middleware with configurable origins
   baseApp.use(
     '*',
     cors({
-      origin: '*',
+      origin: buildCorsOrigin(allowedOrigins),
       allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-API-Key'],
       exposeHeaders: ['X-Request-ID'],
@@ -123,7 +162,7 @@ export function createAPI(options?: APIOptions) {
 
   // Auth middleware (optional)
   if (auth?.enabled) {
-    const defaultSkipPaths = ['/health', '/']
+    const defaultSkipPaths = ['/health', '/ready', '/']
     const skipPaths = [...defaultSkipPaths, ...(auth.skipPaths || [])]
 
     baseApp.use(
@@ -141,37 +180,88 @@ export function createAPI(options?: APIOptions) {
   // Create a route app (either with basePath or without)
   const routeApp = new Hono()
 
-  // Health check endpoint
+  // Health check endpoint (liveness probe)
+  // Used by load balancers/orchestrators to check if the process is alive
+  // Returns 200 if the process is running, regardless of downstream dependencies
   routeApp.get('/health', (c) => {
     return c.json({
       status: 'ok',
       service: 'dotdo-api',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      uptime: typeof process !== 'undefined' && process.uptime ? process.uptime() : undefined
     })
   })
 
+  // Readiness check endpoint (readiness probe)
+  // Used by load balancers to determine if the service can accept traffic
+  // Returns 200 when ready, 503 when not ready
+  routeApp.get('/ready', (c) => {
+    // In a worker/DO environment, if we can respond, we're ready
+    // This endpoint can be extended to check downstream dependencies
+    const checks: Record<string, boolean> = {
+      api: true
+      // Add more checks here as needed:
+      // database: await checkDatabase(),
+      // cache: await checkCache(),
+    }
+
+    const allReady = Object.values(checks).every(Boolean)
+    const status = allReady ? 'ready' : 'not_ready'
+
+    return c.json(
+      {
+        status,
+        service: 'dotdo-api',
+        timestamp: new Date().toISOString(),
+        checks
+      },
+      allReady ? 200 : 503
+    )
+  })
+
   // Root endpoint with API discovery (HATEOAS)
+  // This makes the entire API discoverable from a single entry point
   routeApp.get('/', (c) => {
     const baseUrl = new URL(c.req.url).origin + basePath
 
-    return c.json({
+    // Get all registered resources to make them discoverable
+    const registeredResources = getAllResources()
+    const resources: Record<string, { path: string; title: string; description?: string }> = {}
+
+    for (const [name, definition] of Object.entries(registeredResources)) {
+      resources[name.toLowerCase()] = {
+        path: definition.routes?.list?.path || `/${name.toLowerCase()}`,
+        title: `${name} collection`,
+        description: `CRUD operations for ${name}`
+      }
+    }
+
+    // Generate fully discoverable API root with HATEOAS links
+    const apiRoot = generateAPIRoot({
       name: 'dotdo API',
       version: '1.0.0',
       description: 'Self-describing HATEOAS API',
-      _links: {
-        self: {
-          href: `${baseUrl}/`,
-          rel: 'self',
-          method: 'GET'
-        },
-        health: {
-          href: `${baseUrl}/health`,
-          rel: 'health',
-          method: 'GET',
-          title: 'Health check endpoint'
-        }
-      }
+      baseUrl,
+      resources,
+      openapi: {
+        json: '/openapi.json',
+        yaml: '/openapi.yaml'
+      },
+      docsPath: '/docs',
+      healthPath: '/health'
     })
+
+    // Add readiness check link (not in standard generateAPIRoot)
+    apiRoot._links['ready'] = {
+      href: `${baseUrl}/ready`,
+      rel: 'related',
+      method: 'GET',
+      title: 'Readiness check endpoint',
+      type: 'application/json',
+      name: 'ready'
+    }
+
+    return c.json(apiRoot)
   })
 
   // Mount routes (either at root or under basePath)
@@ -182,14 +272,21 @@ export function createAPI(options?: APIOptions) {
   }
 
   // 404 handler for the base app (handles all not found routes)
+  // Includes HATEOAS links to help users discover the correct endpoints
   baseApp.notFound((c) => {
     const requestId = c.get('requestId') || 'unknown'
+    const baseUrl = new URL(c.req.url).origin + basePath
+
     return c.json(
       {
         error: 'Not Found',
         status: 404,
         path: c.req.path,
-        requestId
+        requestId,
+        _links: generateErrorLinks(baseUrl, {
+          docsPath: '/docs',
+          healthPath: '/health'
+        })
       },
       404
     )

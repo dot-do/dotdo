@@ -16,9 +16,9 @@ const DO_SOURCE_ID_HEADER = 'X-DO-Source-ID'
  */
 export interface CrossDORPCOptions {
   /** Optional correlation ID to use for request tracing */
-  correlationId?: string
+  correlationId?: string | undefined
   /** Source DO ID for trust chain (do-nuwe) */
-  sourceDoId?: string
+  sourceDoId?: string | undefined
 }
 
 /**
@@ -187,10 +187,16 @@ export function createCrossDOClient<T extends object>(
             }
 
             // Fallback: create an RPCError with the HTTP status
+            const errorMessage = (errorBody && typeof errorBody === 'object' && 'message' in errorBody && typeof errorBody.message === 'string')
+              ? errorBody.message
+              : `Cross-DO fetch error: ${response.status}`
+            const errorDetails = (errorBody && typeof errorBody === 'object')
+              ? { status: response.status, correlationId: responseCorrelationId, ...errorBody as Record<string, unknown> }
+              : { status: response.status, correlationId: responseCorrelationId }
             throw new RPCError(
               RPCErrorCode.INTERNAL_ERROR,
-              errorBody?.message || `Cross-DO fetch error: ${response.status}`,
-              { status: response.status, correlationId: responseCorrelationId, ...errorBody }
+              errorMessage,
+              errorDetails
             )
           }
           return response.json()
@@ -238,10 +244,16 @@ export function createCrossDOClient<T extends object>(
           }
 
           // Fallback: create an RPCError with the HTTP status
+          const errorMessage = (errorBody && typeof errorBody === 'object' && 'message' in errorBody && typeof errorBody.message === 'string')
+            ? errorBody.message
+            : `Cross-DO RPC error: ${response.status}`
+          const errorDetails = (errorBody && typeof errorBody === 'object')
+            ? { status: response.status, correlationId: responseCorrelationId, method: prop, ...errorBody as Record<string, unknown> }
+            : { status: response.status, correlationId: responseCorrelationId, method: prop }
           throw new RPCError(
             RPCErrorCode.INTERNAL_ERROR,
-            errorBody?.message || `Cross-DO RPC error: ${response.status}`,
-            { status: response.status, correlationId: responseCorrelationId, method: prop, ...errorBody }
+            errorMessage,
+            errorDetails
           )
         }
 
@@ -290,8 +302,8 @@ export interface CrossDOContextOptions {
 export class CrossDOContext {
   private cache: CrossDOStubCache
   private env: Record<string, DurableObjectNamespace>
-  private correlationId?: string
-  private sourceDoId?: string
+  private correlationId?: string | undefined
+  private sourceDoId?: string | undefined
 
   constructor(env: Record<string, DurableObjectNamespace>, options?: CrossDOContextOptions) {
     this.env = env

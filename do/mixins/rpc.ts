@@ -27,7 +27,10 @@
  */
 
 import { Hono } from 'hono'
-import { RPCError, NotFoundError, InternalError } from '../../rpc/errors'
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { RPCError, NotFoundError, InternalError } from '@dotdo/rpc'
+import { logRPCError } from '@dotdo/rpc'
+import { CORRELATION_ID_HEADER, generateCorrelationId } from '@dotdo/rpc'
 import {
   createDOAccessor,
   createDORPCProxy,
@@ -36,7 +39,7 @@ import {
   type CrossDORPCConfig
 } from '../workflow/rpc'
 import type { Constructor } from './storage'
-import { createLogger } from '../../utils/logger'
+import { createLogger } from '@dotdo/utils'
 
 const logger = createLogger('[WithRPC]')
 
@@ -159,6 +162,7 @@ export function WithRPC<TBase extends Constructor>(
     private _stubCache: Map<string, DOStubProxy>
     private _rpcConfig: CrossDORPCConfig | null = null
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
       this._stubCache = new Map()
@@ -199,7 +203,7 @@ export function WithRPC<TBase extends Constructor>(
      */
     getDOStub(bindingName: string, id: string | DurableObjectId): DOStubProxy {
       // Get env from instance if available
-      const env = (this as any).env ?? (this as any)._env
+      const env = (this as unknown as { env?: unknown; _env?: unknown }).env ?? (this as unknown as { _env?: unknown })._env
       if (!env) {
         throw new Error('Environment not available for RPC. Ensure env is passed to constructor.')
       }
@@ -240,7 +244,7 @@ export function WithRPC<TBase extends Constructor>(
     }
 
     /**
-     * Setup RPC routes on a Hono app.
+     * Setup RPC routes on a Hono app with enhanced error logging (do-grp5.5).
      * Call this in your routes() method or constructor.
      *
      * @param app - The Hono app to add routes to
@@ -258,8 +262,18 @@ export function WithRPC<TBase extends Constructor>(
      */
     protected setupRPCRoutes(app: Hono): void {
       app.post(rpcPath, async (c) => {
+        // Extract or generate correlation ID for request tracing
+        const incomingCorrelationId = c.req.header(CORRELATION_ID_HEADER)
+        const correlationId = incomingCorrelationId || generateCorrelationId()
+        c.header(CORRELATION_ID_HEADER, correlationId)
+
+        let method = ''
+        let args: unknown[] = []
+
         try {
-          const { method, args } = await c.req.json<RPCRequest>()
+          const body = await c.req.json<RPCRequest>()
+          method = body.method
+          args = body.args
 
           if (debug) {
             logger.debug(`Calling ${method} with args:`, args)
@@ -267,20 +281,21 @@ export function WithRPC<TBase extends Constructor>(
 
           // Navigate to method using dot notation
           const parts = method.split('.')
-          let current: any = this
+          let current: Record<string, unknown> = this as unknown as Record<string, unknown>
 
           for (let i = 0; i < parts.length - 1; i++) {
-            current = current[parts[i]]
+            const part = parts[i]!
+            current = current[part] as Record<string, unknown>
             if (!current) {
               const error = new NotFoundError(`Method not found: ${method}`)
-              return c.json(error.toJSON(), error.httpStatus)
+              return c.json({ ...error.toJSON(), correlationId }, error.httpStatus as ContentfulStatusCode)
             }
           }
 
-          const fn = current[parts[parts.length - 1]]
+          const fn = current[parts[parts.length - 1]!]
           if (typeof fn !== 'function') {
             const error = new NotFoundError(`Method not found: ${method}`)
-            return c.json(error.toJSON(), error.httpStatus)
+            return c.json({ ...error.toJSON(), correlationId }, error.httpStatus as ContentfulStatusCode)
           }
 
           const result = await fn.apply(current, args)
@@ -291,19 +306,21 @@ export function WithRPC<TBase extends Constructor>(
 
           return c.json(result)
         } catch (error) {
+          // Log RPC error with full context (sanitized args, correlation ID, timestamp, stack)
+          logRPCError(error, method || 'unknown', args, correlationId)
+
           if (debug) {
             logger.debug('Error:', error)
           }
 
           // Re-throw RPCErrors with proper formatting
           if (error instanceof RPCError) {
-            return c.json(error.toJSON(), error.httpStatus)
+            return c.json({ ...error.toJSON(), correlationId }, error.httpStatus as ContentfulStatusCode)
           }
 
           // Wrap unknown errors in InternalError
           const wrappedError = InternalError.wrap(error)
-          logger.error('RPC error:', error)
-          return c.json(wrappedError.toJSON(), wrappedError.httpStatus)
+          return c.json({ ...wrappedError.toJSON(), correlationId }, wrappedError.httpStatus as ContentfulStatusCode)
         }
       })
     }
@@ -322,4 +339,4 @@ export {
   type CrossDORPCConfig
 }
 
-export { RPCError, NotFoundError, InternalError } from '../../rpc/errors'
+export { RPCError, NotFoundError, InternalError } from '@dotdo/rpc'

@@ -35,9 +35,11 @@ export function getE2EConfig(): E2EConfig {
     )
   }
 
+  const apiKey = process.env.API_KEY || process.env.E2E_API_KEY
+
   return {
     workerUrl,
-    apiKey: process.env.API_KEY || process.env.E2E_API_KEY,
+    ...(apiKey && { apiKey }),
     tenant: process.env.TENANT || process.env.E2E_TENANT || 'e2e-test',
     skipDeploymentCheck: process.env.SKIP_DEPLOYMENT_CHECK === 'true'
   }

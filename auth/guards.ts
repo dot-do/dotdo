@@ -1,10 +1,44 @@
-// Permission guards - composable auth checks
-import type { MiddlewareHandler } from 'hono'
+/**
+ * Permission Guards - Composable Auth Checks
+ *
+ * Provides reusable middleware for enforcing authentication, authorization,
+ * and ownership checks. All guards fail closed - any authentication or
+ * authorization failure results in an HTTP exception.
+ *
+ * @module @dotdo/auth/guards
+ */
+import type { MiddlewareHandler, Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 // Side-effect import for module augmentation
 import './middleware'
 
-// Require authentication (user must be set)
+/**
+ * Require that a user is authenticated.
+ *
+ * This guard checks that a user is present in the request context.
+ * If no user is found, responds with 401 Unauthorized.
+ *
+ * @returns Hono middleware handler
+ *
+ * @example
+ * ```typescript
+ * import { Hono } from 'hono'
+ * import { authMiddleware, requireAuth } from '@dotdo/auth'
+ *
+ * const app = new Hono()
+ *
+ * // First apply authentication
+ * app.use('/*', authMiddleware({ secret: process.env.JWT_SECRET }))
+ *
+ * // Then require auth on specific routes
+ * app.use('/api/*', requireAuth())
+ *
+ * app.get('/api/me', (c) => {
+ *   const user = c.get('user')
+ *   return c.json({ userId: user.id })
+ * })
+ * ```
+ */
 export function requireAuth(): MiddlewareHandler {
   return async (c, next) => {
     const user = c.var.user
@@ -15,7 +49,32 @@ export function requireAuth(): MiddlewareHandler {
   }
 }
 
-// Require specific role(s)
+/**
+ * Require that a user has one or more specific roles.
+ *
+ * This guard checks that the authenticated user has at least one of the
+ * specified roles. Responds with 403 Forbidden if the user lacks all
+ * required roles. Also enforces authentication (401 Unauthorized).
+ *
+ * @param roles - One or more role names to check (e.g., 'admin', 'editor')
+ * @returns Hono middleware handler
+ *
+ * @example
+ * ```typescript
+ * // Require 'admin' role
+ * app.delete('/api/users/:id', requireRole('admin'), (c) => {
+ *   return c.json({ deleted: true })
+ * })
+ *
+ * // Accept multiple roles (OR logic)
+ * app.use('/api/admin/*', requireRole('admin', 'moderator'))
+ *
+ * app.get('/api/admin/logs', (c) => {
+ *   const user = c.get('user')
+ *   return c.json({ logs: [...] })
+ * })
+ * ```
+ */
 export function requireRole(...roles: string[]): MiddlewareHandler {
   return async (c, next) => {
     const user = c.var.user
@@ -34,7 +93,39 @@ export function requireRole(...roles: string[]): MiddlewareHandler {
   }
 }
 
-// Require specific scope(s)
+/**
+ * Require that a user has one or more specific OAuth scopes.
+ *
+ * This guard checks that the authenticated user has at least one of the
+ * specified scopes. Supports wildcard matching (e.g., 'users:*' matches
+ * 'users:read'). Responds with 403 Forbidden if the user lacks all
+ * required scopes.
+ *
+ * Scope matching rules:
+ * - Direct match: exact scope required (e.g., 'users:read')
+ * - Resource wildcard: 'resource:*' matches any 'resource:*' scope
+ * - Global wildcard: '*' matches any scope
+ *
+ * @param scopes - One or more scopes to check
+ * @returns Hono middleware handler
+ *
+ * @example
+ * ```typescript
+ * // Require 'users:read' scope
+ * app.get('/api/users', requireScope('users:read'), (c) => {
+ *   return c.json({ users: [...] })
+ * })
+ *
+ * // Accept multiple scopes (OR logic)
+ * app.post('/api/posts', requireScope('posts:write', 'admin'), (c) => {
+ *   return c.json({ created: true })
+ * })
+ *
+ * // Wildcard matching
+ * // A user with 'users:*' scope will pass requireScope('users:read')
+ * // A user with '*' scope will pass any scope check
+ * ```
+ */
 export function requireScope(...scopes: string[]): MiddlewareHandler {
   return async (c, next) => {
     const user = c.var.user
@@ -67,7 +158,35 @@ export function requireScope(...scopes: string[]): MiddlewareHandler {
   }
 }
 
-// Require ownership of resource
+/**
+ * Require that the authenticated user owns a specific resource.
+ *
+ * This guard calls a custom function to determine the resource owner's ID,
+ * then checks that the authenticated user matches. Also allows admins to
+ * bypass the ownership check.
+ *
+ * @param getResourceOwnerId - Function that extracts the owner ID from the request
+ * @returns Hono middleware handler
+ *
+ * @example
+ * ```typescript
+ * // Check that user is editing their own profile
+ * app.patch('/api/users/:id', requireOwner(async (c) => {
+ *   return c.req.param('id')
+ * }), (c) => {
+ *   return c.json({ updated: true })
+ * })
+ *
+ * // Check from database
+ * app.delete('/api/posts/:id', requireOwner(async (c) => {
+ *   const postId = c.req.param('id')
+ *   const post = await db.posts.get(postId)
+ *   return post?.userId
+ * }), (c) => {
+ *   return c.json({ deleted: true })
+ * })
+ * ```
+ */
 export function requireOwner(
   getResourceOwnerId: (c: Context) => string | Promise<string>
 ): MiddlewareHandler {
@@ -92,7 +211,26 @@ export function requireOwner(
   }
 }
 
-// Combine multiple guards (all must pass)
+/**
+ * Combine multiple guards where ALL must pass (AND logic).
+ *
+ * This guard chains multiple guards together and only proceeds if all of them
+ * succeed. If any guard fails, the request is rejected with that guard's error.
+ *
+ * @param guards - One or more middleware guards to check
+ * @returns Hono middleware handler
+ *
+ * @example
+ * ```typescript
+ * // Require both 'admin' role AND 'admin:*' scope
+ * app.delete('/api/critical', requireAll(
+ *   requireRole('admin'),
+ *   requireScope('admin:*')
+ * ), (c) => {
+ *   return c.json({ deleted: true })
+ * })
+ * ```
+ */
 export function requireAll(...guards: MiddlewareHandler[]): MiddlewareHandler {
   return async (c, next) => {
     for (const guard of guards) {
@@ -105,7 +243,26 @@ export function requireAll(...guards: MiddlewareHandler[]): MiddlewareHandler {
   }
 }
 
-// Combine multiple guards (any must pass)
+/**
+ * Combine multiple guards where ANY can pass (OR logic).
+ *
+ * This guard chains multiple guards together and proceeds if at least one of them
+ * succeeds. If all guards fail, the request is rejected with the first guard's error.
+ *
+ * @param guards - One or more middleware guards to check
+ * @returns Hono middleware handler
+ *
+ * @example
+ * ```typescript
+ * // Accept either 'admin' role OR 'api:*' scope
+ * app.get('/api/data', requireAny(
+ *   requireRole('admin'),
+ *   requireScope('api:*')
+ * ), (c) => {
+ *   return c.json({ data: [...] })
+ * })
+ * ```
+ */
 export function requireAny(...guards: MiddlewareHandler[]): MiddlewareHandler {
   return async (c, next) => {
     const errors: Error[] = []

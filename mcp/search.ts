@@ -1,8 +1,8 @@
 // Search tool - MCP tool that searches Things in a DO
 // Implements do-7rf.2.2
+// Decoupled from @dotdo/db (do-7jse)
 
-import type { ThingsStore, Thing } from '../db/things'
-import { query } from '../db/query'
+import type { ThingsStore, Thing, StorableData, QueryBuilder, QueryFactory } from './types'
 import type { MCPTool } from './server'
 
 export interface SearchParams {
@@ -10,7 +10,7 @@ export interface SearchParams {
   $type?: string
 
   // Field value filters
-  where?: Record<string, unknown>
+  where?: Partial<StorableData>
 
   // Full-text search across all string fields
   query?: string
@@ -36,9 +36,140 @@ export interface SearchResult {
 }
 
 /**
- * Create a search tool that operates on a ThingsStore
+ * Dependencies for creating a search tool
  */
-export function createSearchTool(store: ThingsStore): MCPTool {
+export interface SearchToolDeps {
+  /** The ThingsStore to search */
+  store: ThingsStore
+
+  /**
+   * Optional query factory for advanced query building.
+   * If not provided, uses simple list-based implementation.
+   * Compatible with @dotdo/db's query() function.
+   */
+  query?: QueryFactory
+}
+
+/**
+ * Create a simple query builder that works with the minimal ThingsStore interface.
+ * This is used when no external query factory is provided.
+ */
+function createSimpleQueryBuilder(store: ThingsStore): QueryBuilder {
+  const options: {
+    type?: string
+    where?: StorableData
+    orderBy?: string
+    order?: 'asc' | 'desc'
+    limit?: number
+    selectFields?: string[]
+  } = {}
+
+  const builder: QueryBuilder = {
+    type(typeName: string) {
+      options.type = typeName
+      return builder
+    },
+
+    where(conditions: StorableData) {
+      options.where = { ...(options.where || {}), ...conditions }
+      return builder
+    },
+
+    orderBy(field: string, direction: 'asc' | 'desc') {
+      options.orderBy = field
+      options.order = direction
+      return builder
+    },
+
+    select(...fields: string[]) {
+      options.selectFields = fields
+      return builder
+    },
+
+    limit(count: number) {
+      options.limit = count
+      return builder
+    },
+
+    async execute(): Promise<Thing[]> {
+      // Use the store's list method with type filter
+      const listOptions: { type?: string; limit?: number } = {}
+      if (options.type) listOptions.type = options.type
+      if (options.limit) listOptions.limit = options.limit
+
+      let results = await store.list(listOptions)
+
+      // Apply where filters
+      if (options.where && Object.keys(options.where).length > 0) {
+        results = results.filter(thing => {
+          for (const [key, value] of Object.entries(options.where!)) {
+            if (thing[key] !== value) return false
+          }
+          return true
+        })
+      }
+
+      // Apply ordering
+      if (options.orderBy) {
+        const field = options.orderBy
+        const multiplier = options.order === 'asc' ? 1 : -1
+        results.sort((a, b) => {
+          const aVal = a[field] as string | number | boolean | null | undefined
+          const bVal = b[field] as string | number | boolean | null | undefined
+          if (aVal == null && bVal == null) return 0
+          if (aVal == null) return 1 * multiplier
+          if (bVal == null) return -1 * multiplier
+          if (aVal < bVal) return -1 * multiplier
+          if (aVal > bVal) return 1 * multiplier
+          return 0
+        })
+      }
+
+      // Apply projection
+      if (options.selectFields && options.selectFields.length > 0) {
+        const fields = ['$id', '$type', ...options.selectFields]
+        results = results.map(thing => {
+          const projected: Record<string, unknown> = {}
+          for (const field of fields) {
+            if (field in thing) {
+              projected[field] = thing[field]
+            }
+          }
+          return projected as Thing
+        })
+      }
+
+      return results
+    }
+  }
+
+  return builder
+}
+
+/**
+ * Create a search tool that operates on a ThingsStore
+ *
+ * @param deps - Dependencies: store (required), query factory (optional)
+ *
+ * @example
+ * ```typescript
+ * // Simple usage with just a store
+ * const searchTool = createSearchTool({ store: myThingsStore })
+ *
+ * // With @dotdo/db query factory for advanced features
+ * import { query } from '@dotdo/db'
+ * const searchTool = createSearchTool({
+ *   store: myThingsStore,
+ *   query: (store) => query(store)
+ * })
+ * ```
+ */
+export function createSearchTool(deps: SearchToolDeps | ThingsStore): MCPTool {
+  // Support both old API (just store) and new API (deps object)
+  const { store, query: queryFactory } = 'store' in deps
+    ? deps
+    : { store: deps, query: undefined }
+
   return {
     name: 'search',
     description: 'Search for Things in the Digital Object store. Supports filtering by type, field values, full-text search, sorting, and pagination.',
@@ -111,8 +242,9 @@ export function createSearchTool(store: ThingsStore): MCPTool {
         throw new Error('order must be "asc" or "desc"')
       }
 
-      // Build query
-      let q = query(store)
+      // Create query builder - use injected factory or simple built-in
+      const createQueryBuilder = queryFactory || createSimpleQueryBuilder
+      let q = createQueryBuilder(store)
 
       // Apply type filter
       if ($type) {
@@ -134,8 +266,11 @@ export function createSearchTool(store: ThingsStore): MCPTool {
         q = q.select(...select)
       }
 
-      // Execute query to get all matching results (for total count)
-      const allResults = await q.execute()
+      // Execute query with a reasonable limit for counting
+      // We use a large limit (10000) to get accurate counts while respecting query limits
+      // For full-text search, we need all results to filter in-memory
+      const MAX_INTERNAL_LIMIT = 10000
+      const allResults = await q.limit(MAX_INTERNAL_LIMIT).execute()
 
       // Apply full-text search filter if query provided
       let filteredResults = allResults
@@ -172,11 +307,20 @@ export function createSearchTool(store: ThingsStore): MCPTool {
  * Default search tool (requires store injection via createSearchTool)
  * This export maintains backward compatibility with the existing import
  */
-export const searchTool = {
+export const searchTool: MCPTool = {
   name: 'search',
   description: 'Search for Things in the Digital Object store',
-  parameters: {} as const,
-  execute: async (params: SearchParams) => {
+  inputSchema: {
+    type: 'object',
+    properties: {
+      $type: { type: 'string', description: 'Filter by Thing type' },
+      where: { type: 'object', description: 'Filter by field values' },
+      query: { type: 'string', description: 'Full-text search' },
+      limit: { type: 'number', description: 'Maximum results (default: 20)' },
+      offset: { type: 'number', description: 'Results to skip' }
+    }
+  },
+  execute: async (_params: unknown) => {
     throw new Error('searchTool must be created with createSearchTool(store)')
   }
 }

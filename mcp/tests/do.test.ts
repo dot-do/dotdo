@@ -51,7 +51,7 @@ describe('do tool', () => {
       const json = await response.json()
       expect(json.isError).toBeUndefined()
 
-      const result = JSON.parse(json.content[0].text)
+      const result = json.content[0].data
       expect(result.success).toBe(true)
       expect(result.value).toBe(2)
     })
@@ -73,7 +73,7 @@ describe('do tool', () => {
 
       const response = await server.fetch(request)
       const json = await response.json()
-      const result = JSON.parse(json.content[0].text)
+      const result = json.content[0].data
 
       expect(result.success).toBe(true)
       expect(result.value).toBe(42)
@@ -97,7 +97,7 @@ describe('do tool', () => {
 
       const response = await server.fetch(request)
       const json = await response.json()
-      const result = JSON.parse(json.content[0].text)
+      const result = json.content[0].data
 
       expect(result.success).toBe(true)
       expect(result.value).toBe('async result')
@@ -119,7 +119,7 @@ describe('do tool', () => {
 
       const response = await server.fetch(request)
       const json = await response.json()
-      const result = JSON.parse(json.content[0].text)
+      const result = json.content[0].data
 
       expect(result.success).toBe(true)
       expect(result.value).toBe('undefined')
@@ -139,7 +139,7 @@ describe('do tool', () => {
 
       const response = await server.fetch(request)
       const json = await response.json()
-      const result = JSON.parse(json.content[0].text)
+      const result = json.content[0].data
 
       expect(result.success).toBe(true)
       expect(result.value).toBe('undefined')
@@ -168,7 +168,7 @@ describe('do tool', () => {
 
       const response = await server.fetch(request)
       const json = await response.json()
-      const result = JSON.parse(json.content[0].text)
+      const result = json.content[0].data
 
       // Either succeeds with a blocked/error message, or fails
       if (result.success) {
@@ -198,7 +198,7 @@ describe('do tool', () => {
 
       const response = await server.fetch(request)
       const json = await response.json()
-      const result = JSON.parse(json.content[0].text)
+      const result = json.content[0].data
 
       expect(result.success).toBe(true)
       expect(result.value).toBe('quick')
@@ -219,7 +219,7 @@ describe('do tool', () => {
 
       const response = await server.fetch(request)
       const json = await response.json()
-      const result = JSON.parse(json.content[0].text)
+      const result = json.content[0].data
 
       expect(result.success).toBe(true)
       expect(result.value).toBe('completed')
@@ -241,7 +241,7 @@ describe('do tool', () => {
 
       const response = await server.fetch(request)
       const json = await response.json()
-      const result = JSON.parse(json.content[0].text)
+      const result = json.content[0].data
 
       expect(result.success).toBe(false)
       expect(result.error).toContain('test error')
@@ -261,7 +261,7 @@ describe('do tool', () => {
 
       const response = await server.fetch(request)
       const json = await response.json()
-      const result = JSON.parse(json.content[0].text)
+      const result = json.content[0].data
 
       expect(result.success).toBe(false)
       expect(result.error).toBeDefined()
@@ -283,7 +283,7 @@ describe('do tool', () => {
 
       const response = await server.fetch(request)
       const json = await response.json()
-      const result = JSON.parse(json.content[0].text)
+      const result = json.content[0].data
 
       expect(result.duration).toBeDefined()
       expect(typeof result.duration).toBe('number')
@@ -306,7 +306,7 @@ describe('do tool', () => {
 
       const response = await server.fetch(request)
       const json = await response.json()
-      const result = JSON.parse(json.content[0].text)
+      const result = json.content[0].data
 
       expect(result.success).toBe(true)
       expect(result.value).toEqual({ foo: 'bar', num: 42 })
@@ -326,7 +326,7 @@ describe('do tool', () => {
 
       const response = await server.fetch(request)
       const json = await response.json()
-      const result = JSON.parse(json.content[0].text)
+      const result = json.content[0].data
 
       expect(result.success).toBe(true)
       expect(result.value).toEqual([1, 2, 3])

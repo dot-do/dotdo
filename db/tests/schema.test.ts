@@ -4,8 +4,16 @@ import {
   createSchemaRegistry,
   createValidatedStore,
   SchemaValidationError,
+  CommonIndexes,
+  generateIndexSql,
+  generateDropIndexSql,
+  generateSchemaIndexesSql,
+  generateSchemaDropIndexesSql,
+  createIndexMigration,
+  createIndex,
   type InferSchema,
-  type Schema
+  type Schema,
+  type IndexDefinition
 } from '../schema'
 import { createThingsStore, type ThingsStore } from '../things'
 
@@ -789,6 +797,294 @@ describe('Schema Validation', () => {
       })
       expect(invalidResult.valid).toBe(false)
       expect(invalidResult.errors.length).toBeGreaterThan(5)
+    })
+  })
+
+  // Index Definitions Tests (do-rljr.6)
+  describe('Index Definitions', () => {
+    describe('defineSchema with indexes', () => {
+      it('should create a schema with index definitions', () => {
+        const CustomerSchema = defineSchema({
+          $type: 'Customer',
+          fields: {
+            email: { type: 'string', format: 'email' },
+            name: { type: 'string' }
+          },
+          indexes: [
+            { name: 'email', fields: ['email'], unique: true },
+            { name: 'name', fields: ['name'] }
+          ]
+        })
+
+        expect(CustomerSchema.indexes).toHaveLength(2)
+        expect(CustomerSchema.indexes[0].name).toBe('email')
+        expect(CustomerSchema.indexes[0].unique).toBe(true)
+        expect(CustomerSchema.indexes[1].name).toBe('name')
+        expect(CustomerSchema.indexes[1].unique).toBeUndefined()
+      })
+
+      it('should default to empty indexes array', () => {
+        const SimpleSchema = defineSchema({
+          $type: 'Simple',
+          fields: {
+            value: { type: 'string' }
+          }
+        })
+
+        expect(SimpleSchema.indexes).toEqual([])
+      })
+
+      it('should support composite indexes', () => {
+        const OrderSchema = defineSchema({
+          $type: 'Order',
+          fields: {
+            customerId: { type: 'string' },
+            status: { type: 'string' }
+          },
+          indexes: [
+            { name: 'customer_status', fields: ['customerId', 'status'] }
+          ]
+        })
+
+        expect(OrderSchema.indexes[0].fields).toEqual(['customerId', 'status'])
+      })
+    })
+
+    describe('CommonIndexes', () => {
+      it('should provide TYPE index', () => {
+        expect(CommonIndexes.TYPE.name).toBe('type')
+        expect(CommonIndexes.TYPE.fields).toEqual(['$type'])
+        expect(CommonIndexes.TYPE.unique).toBe(false)
+      })
+
+      it('should provide CREATED_AT index', () => {
+        expect(CommonIndexes.CREATED_AT.name).toBe('created_at')
+        expect(CommonIndexes.CREATED_AT.fields).toEqual(['$createdAt'])
+      })
+
+      it('should provide UPDATED_AT index', () => {
+        expect(CommonIndexes.UPDATED_AT.name).toBe('updated_at')
+        expect(CommonIndexes.UPDATED_AT.fields).toEqual(['$updatedAt'])
+      })
+
+      it('should provide TYPE_CREATED composite index', () => {
+        expect(CommonIndexes.TYPE_CREATED.name).toBe('type_created')
+        expect(CommonIndexes.TYPE_CREATED.fields).toEqual(['$type', '$createdAt'])
+      })
+
+      it('should be usable in schema definitions', () => {
+        const Schema = defineSchema({
+          $type: 'Test',
+          fields: {},
+          indexes: [CommonIndexes.TYPE, CommonIndexes.CREATED_AT]
+        })
+
+        expect(Schema.indexes).toHaveLength(2)
+      })
+    })
+
+    describe('createIndex helper', () => {
+      it('should create a simple index', () => {
+        const index = createIndex('email', ['email'])
+        expect(index.name).toBe('email')
+        expect(index.fields).toEqual(['email'])
+        expect(index.unique).toBeUndefined()
+      })
+
+      it('should create a unique index', () => {
+        const index = createIndex('email', ['email'], { unique: true })
+        expect(index.unique).toBe(true)
+      })
+
+      it('should create a composite index', () => {
+        const index = createIndex('tenant_user', ['tenantId', 'userId'])
+        expect(index.fields).toEqual(['tenantId', 'userId'])
+      })
+    })
+
+    describe('generateIndexSql', () => {
+      it('should generate simple index SQL for custom fields', () => {
+        const sql = generateIndexSql('things', { name: 'email', fields: ['email'] })
+        expect(sql).toBe("CREATE INDEX IF NOT EXISTS idx_things_email ON things(json_extract(data, '$.email'))")
+      })
+
+      it('should generate unique index SQL', () => {
+        const sql = generateIndexSql('things', { name: 'email', fields: ['email'], unique: true })
+        expect(sql).toBe("CREATE UNIQUE INDEX IF NOT EXISTS idx_things_email ON things(json_extract(data, '$.email'))")
+      })
+
+      it('should generate composite index SQL', () => {
+        const sql = generateIndexSql('things', { name: 'tenant_email', fields: ['tenantId', 'email'] })
+        expect(sql).toBe("CREATE INDEX IF NOT EXISTS idx_things_tenant_email ON things(json_extract(data, '$.tenantId'), json_extract(data, '$.email'))")
+      })
+
+      it('should map $type to type column', () => {
+        const sql = generateIndexSql('things', { name: 'type', fields: ['$type'] })
+        expect(sql).toBe('CREATE INDEX IF NOT EXISTS idx_things_type ON things(type)')
+      })
+
+      it('should map $id to id column', () => {
+        const sql = generateIndexSql('things', { name: 'id', fields: ['$id'] })
+        expect(sql).toBe('CREATE INDEX IF NOT EXISTS idx_things_id ON things(id)')
+      })
+
+      it('should map $createdAt to created_at column', () => {
+        const sql = generateIndexSql('things', { name: 'created', fields: ['$createdAt'] })
+        expect(sql).toBe('CREATE INDEX IF NOT EXISTS idx_things_created ON things(created_at)')
+      })
+
+      it('should map $updatedAt to updated_at column', () => {
+        const sql = generateIndexSql('things', { name: 'updated', fields: ['$updatedAt'] })
+        expect(sql).toBe('CREATE INDEX IF NOT EXISTS idx_things_updated ON things(updated_at)')
+      })
+
+      it('should handle mixed system and custom fields', () => {
+        const sql = generateIndexSql('things', { name: 'type_status', fields: ['$type', 'status'] })
+        expect(sql).toBe("CREATE INDEX IF NOT EXISTS idx_things_type_status ON things(type, json_extract(data, '$.status'))")
+      })
+
+      it('should use provided table name', () => {
+        const sql = generateIndexSql('custom_table', { name: 'email', fields: ['email'] })
+        expect(sql).toBe("CREATE INDEX IF NOT EXISTS idx_custom_table_email ON custom_table(json_extract(data, '$.email'))")
+      })
+    })
+
+    describe('generateDropIndexSql', () => {
+      it('should generate DROP INDEX SQL', () => {
+        const sql = generateDropIndexSql('things', { name: 'email', fields: ['email'] })
+        expect(sql).toBe('DROP INDEX IF EXISTS idx_things_email')
+      })
+
+      it('should use provided table name', () => {
+        const sql = generateDropIndexSql('custom_table', { name: 'email', fields: ['email'] })
+        expect(sql).toBe('DROP INDEX IF EXISTS idx_custom_table_email')
+      })
+    })
+
+    describe('generateSchemaIndexesSql', () => {
+      it('should generate SQL for all schema indexes', () => {
+        const CustomerSchema = defineSchema({
+          $type: 'Customer',
+          fields: {
+            email: { type: 'string' },
+            status: { type: 'string' }
+          },
+          indexes: [
+            { name: 'email', fields: ['email'], unique: true },
+            { name: 'status', fields: ['status'] }
+          ]
+        })
+
+        const sqls = generateSchemaIndexesSql(CustomerSchema)
+        expect(sqls).toHaveLength(2)
+        expect(sqls[0]).toBe("CREATE UNIQUE INDEX IF NOT EXISTS idx_things_email ON things(json_extract(data, '$.email'))")
+        expect(sqls[1]).toBe("CREATE INDEX IF NOT EXISTS idx_things_status ON things(json_extract(data, '$.status'))")
+      })
+
+      it('should return empty array for schema without indexes', () => {
+        const Schema = defineSchema({
+          $type: 'NoIndexes',
+          fields: {}
+        })
+
+        expect(generateSchemaIndexesSql(Schema)).toEqual([])
+      })
+
+      it('should use custom table name', () => {
+        const Schema = defineSchema({
+          $type: 'Test',
+          fields: {},
+          indexes: [{ name: 'test', fields: ['field'] }]
+        })
+
+        const sqls = generateSchemaIndexesSql(Schema, 'custom_table')
+        expect(sqls[0]).toContain('idx_custom_table_test')
+        expect(sqls[0]).toContain('ON custom_table')
+      })
+    })
+
+    describe('generateSchemaDropIndexesSql', () => {
+      it('should generate DROP SQL for all schema indexes', () => {
+        const CustomerSchema = defineSchema({
+          $type: 'Customer',
+          fields: {},
+          indexes: [
+            { name: 'email', fields: ['email'] },
+            { name: 'status', fields: ['status'] }
+          ]
+        })
+
+        const sqls = generateSchemaDropIndexesSql(CustomerSchema)
+        expect(sqls).toHaveLength(2)
+        expect(sqls[0]).toBe('DROP INDEX IF EXISTS idx_things_email')
+        expect(sqls[1]).toBe('DROP INDEX IF EXISTS idx_things_status')
+      })
+    })
+
+    describe('createIndexMigration', () => {
+      it('should create a migration object for schema indexes', () => {
+        const CustomerSchema = defineSchema({
+          $type: 'Customer',
+          fields: {
+            email: { type: 'string' }
+          },
+          indexes: [
+            { name: 'email', fields: ['email'], unique: true }
+          ]
+        })
+
+        const migration = createIndexMigration(CustomerSchema, 10)
+
+        expect(migration.version).toBe(10)
+        expect(migration.name).toBe('create_customer_indexes')
+        expect(migration.up).toContain('CREATE UNIQUE INDEX')
+        expect(migration.up).toContain('idx_things_email')
+        expect(migration.down).toContain('DROP INDEX')
+        expect(migration.down).toContain('idx_things_email')
+      })
+
+      it('should handle multiple indexes', () => {
+        const Schema = defineSchema({
+          $type: 'Order',
+          fields: {},
+          indexes: [
+            { name: 'customer', fields: ['customerId'] },
+            { name: 'status', fields: ['status'] }
+          ]
+        })
+
+        const migration = createIndexMigration(Schema, 20)
+
+        expect(migration.up).toContain('idx_things_customer')
+        expect(migration.up).toContain('idx_things_status')
+        expect(migration.down).toContain('idx_things_customer')
+        expect(migration.down).toContain('idx_things_status')
+      })
+
+      it('should use custom table name', () => {
+        const Schema = defineSchema({
+          $type: 'Test',
+          fields: {},
+          indexes: [{ name: 'field', fields: ['field'] }]
+        })
+
+        const migration = createIndexMigration(Schema, 5, 'custom_table')
+
+        expect(migration.up).toContain('idx_custom_table_field')
+        expect(migration.up).toContain('ON custom_table')
+      })
+
+      it('should handle empty indexes', () => {
+        const Schema = defineSchema({
+          $type: 'Empty',
+          fields: {}
+        })
+
+        const migration = createIndexMigration(Schema, 1)
+
+        expect(migration.up).toBe('')
+        expect(migration.down).toBe('')
+      })
     })
   })
 })

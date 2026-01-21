@@ -1,20 +1,33 @@
-// RPC Server - exposes methods via HTTP/RPC
-// Includes Cap'n Proto-style promise pipelining support
+/**
+ * @dotdo/rpc - RPC Server
+ *
+ * Exposes methods via HTTP/RPC with support for method whitelisting, schema validation,
+ * and Cap'n Proto-style promise pipelining.
+ *
+ * @module @dotdo/rpc/server
+ */
 import { Hono } from 'hono'
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
 import {
   NotFoundError,
   ValidationError,
   InternalError,
   AuthorizationError,
-  serializeError,
+  serializeErrorResponse,
+  createErrorResponse,
   isRPCError,
 } from './errors'
 import {
   validateArgs,
+  validateZodArgs,
   getMethodSchema,
+  getZodMethodSchema,
   isValidRPCMethod,
+  isZodMethodSchema,
   type MethodSchemaRegistry,
+  type ZodMethodSchemaRegistry,
+  type AnySchemaRegistry,
 } from './validation'
 import {
   executePipeline,
@@ -25,12 +38,27 @@ import {
 // Re-export for convenience
 export { CORRELATION_ID_HEADER }
 
+/**
+ * Options for creating an RPC server.
+ *
+ * @example
+ * ```typescript
+ * const server = createServer({
+ *   target: myAPI,
+ *   whitelist: ['users.*', 'posts.get', 'posts.list'],
+ *   schemas: {
+ *     'users.create': { params: [{ type: 'object', required: true }] }
+ *   }
+ * })
+ * ```
+ */
 export interface RPCServerOptions {
+  /** The target object whose methods will be exposed via RPC */
   target: object
-  /** Optional whitelist of allowed method names or glob patterns */
+  /** Optional whitelist of allowed method names or glob patterns (e.g., 'users.*') */
   whitelist?: string[]
-  /** Optional schema registry for argument validation */
-  schemas?: MethodSchemaRegistry
+  /** Optional schema registry for argument validation (supports both custom ArgSchema and Zod schemas) */
+  schemas?: AnySchemaRegistry
   /** Options for pipeline execution */
   pipeline?: PipelineExecutorOptions
   /** Enable pipeline support (default: true) */
@@ -42,7 +70,7 @@ export interface RPCServerOptions {
  */
 export interface RPCServerApp extends ReturnType<typeof createHonoApp> {
   updateWhitelist(whitelist: string[]): void
-  updateSchemas(schemas: MethodSchemaRegistry): void
+  updateSchemas(schemas: AnySchemaRegistry): void
 }
 
 function createHonoApp() {
@@ -199,10 +227,48 @@ function createMethodNotAllowedError(): AuthorizationError {
   return new AuthorizationError('Method not allowed')
 }
 
+/**
+ * Create an RPC server that exposes an object's methods via HTTP.
+ *
+ * Creates a Hono app with `/rpc` and `/rpc/pipeline` endpoints that accept JSON-RPC requests.
+ * Supports:
+ * - Nested method paths (e.g., `users.create`)
+ * - Method whitelisting with glob patterns
+ * - Argument validation via schemas
+ * - Cap'n Proto-style promise pipelining
+ * - Automatic correlation ID tracking
+ * - Secure method path validation (prevents prototype pollution)
+ *
+ * @param options - Server configuration options
+ * @returns A Hono app that can be used as a Worker or middleware
+ *
+ * @example
+ * ```typescript
+ * import { createServer } from '@dotdo/rpc'
+ *
+ * const api = {
+ *   users: {
+ *     create(data: { name: string }) { return { id: '123', ...data } },
+ *     get(id: string) { return { id, name: 'Alice' } }
+ *   }
+ * }
+ *
+ * const server = createServer({
+ *   target: api,
+ *   whitelist: ['users.*']  // Only expose users methods
+ * })
+ *
+ * // Use as Cloudflare Worker
+ * export default { fetch: server.fetch.bind(server) }
+ *
+ * // Or as middleware
+ * app.route('/api', server)
+ * ```
+ */
 export function createServer(options: RPCServerOptions): RPCServerApp {
   const { target, enablePipeline = true, pipeline: pipelineOptions } = options
   let currentWhitelist: string[] | undefined = options.whitelist
-  let currentSchemas: MethodSchemaRegistry | undefined = options.schemas
+  let currentSchemas: AnySchemaRegistry | undefined = options.schemas
   const app = new Hono() as RPCServerApp
 
   // Add updateWhitelist method to the app
@@ -211,7 +277,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
   }
 
   // Add updateSchemas method to the app
-  app.updateSchemas = (newSchemas: MethodSchemaRegistry) => {
+  app.updateSchemas = (newSchemas: AnySchemaRegistry) => {
     currentSchemas = newSchemas
   }
 
@@ -229,20 +295,20 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
         const validation = validateMethodPath(request.method)
         if (!validation.valid) {
           const error = new ValidationError(validation.error, { method: request.method })
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+          return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
         }
 
         // Check for private methods in initial call
         if (hasPrivateSegment(request.method)) {
           const error = createMethodNotAllowedError()
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+          return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
         }
 
         // Check whitelist for initial method
         if (currentWhitelist !== undefined) {
           if (!matchesWhitelist(request.method, currentWhitelist)) {
             const error = createMethodNotAllowedError()
-            return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+            return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
           }
         }
 
@@ -254,23 +320,16 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
             `Pipeline step ${response.error.stepIndex} failed: ${response.error.message}`,
             { stepIndex: response.error.stepIndex, code: response.error.code }
           )
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId, ...response.error }, error.httpStatus)
+          return c.json({ ...createErrorResponse(error, correlationId), ...response.error }, error.httpStatus as ContentfulStatusCode)
         }
 
         return c.json(response)
       } catch (error) {
-        if (isRPCError(error)) {
-          return c.json(
-            { ...serializeError(error, { includeStack: false }), correlationId },
-            error.httpStatus
-          )
-        }
-
-        const wrappedError = InternalError.wrap(error)
-        return c.json(
-          { ...serializeError(wrappedError, { includeStack: false }), correlationId },
-          wrappedError.httpStatus
-        )
+        const { serialized, statusCode } = serializeErrorResponse(error, {
+          includeStack: false,
+          correlationId,
+        })
+        return c.json(serialized, statusCode as ContentfulStatusCode)
       }
     })
   }
@@ -292,7 +351,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       const validation = validateMethodPath(method)
       if (!validation.valid) {
         const error = new ValidationError(validation.error, { method })
-        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+        return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
       }
 
       const { parts } = validation
@@ -301,7 +360,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       // This must return the same error as whitelist rejection to avoid method enumeration
       if (hasPrivateSegment(method)) {
         const error = createMethodNotAllowedError()
-        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+        return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
       }
 
       // Check whitelist if specified
@@ -311,7 +370,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
         if (!matchesWhitelist(method, currentWhitelist)) {
           // Return generic error - don't reveal whether method exists
           const error = createMethodNotAllowedError()
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+          return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
         }
       }
 
@@ -320,30 +379,38 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       let current: Record<string, unknown> = target as Record<string, unknown>
 
       for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i]
+        // The loop bounds guarantee part exists, but TypeScript needs the check
+        if (part === undefined) continue
         // Only access own properties to prevent prototype chain traversal
-        if (!Object.prototype.hasOwnProperty.call(current, parts[i])) {
+        if (!Object.prototype.hasOwnProperty.call(current, part)) {
           // Return same error as whitelist rejection to prevent method enumeration
           if (currentWhitelist !== undefined) {
             const error = createMethodNotAllowedError()
-            return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+            return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
           }
           const error = NotFoundError.forResource('Method', method)
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+          return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
         }
-        const next = current[parts[i]]
+        const next = current[part]
         if (!next || typeof next !== 'object') {
           // Return same error as whitelist rejection to prevent method enumeration
           if (currentWhitelist !== undefined) {
             const error = createMethodNotAllowedError()
-            return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+            return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
           }
           const error = NotFoundError.forResource('Method', method)
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+          return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
         }
         current = next as Record<string, unknown>
       }
 
       const methodName = parts[parts.length - 1]
+      // The parts array is validated to have at least one element
+      if (methodName === undefined) {
+        const error = new ValidationError('Invalid method path: empty', { method })
+        return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
+      }
 
       // For the final method, we need to check both own properties AND prototype methods
       // (class instances have methods on the prototype). The forbidden names check above
@@ -354,18 +421,23 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
         // Return same error as whitelist rejection to prevent method enumeration
         if (currentWhitelist !== undefined) {
           const error = createMethodNotAllowedError()
-          return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+          return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
         }
         const error = NotFoundError.forResource('Method', method)
-        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+        return c.json(createErrorResponse(error, correlationId), error.httpStatus as ContentfulStatusCode)
       }
 
       // Validate arguments if schema is defined for this method
+      // Supports both custom ArgSchema and Zod schemas
       if (currentSchemas) {
-        const methodSchema = getMethodSchema(currentSchemas, method)
+        const methodSchema = currentSchemas[method]
         if (methodSchema) {
-          // validateArgs throws ValidationError if validation fails
-          validateArgs(args, methodSchema)
+          // Check if it's a Zod schema or custom schema and validate accordingly
+          if (isZodMethodSchema(methodSchema)) {
+            validateZodArgs(args, methodSchema)
+          } else {
+            validateArgs(args, methodSchema)
+          }
         }
       }
 
@@ -373,20 +445,11 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       const result = await (fn as (...args: unknown[]) => unknown).apply(current, args)
       return c.json(result)
     } catch (error) {
-      // If it's already an RPCError, serialize it with its proper status code
-      if (isRPCError(error)) {
-        return c.json(
-          { ...serializeError(error, { includeStack: false }), correlationId },
-          error.httpStatus
-        )
-      }
-
-      // Wrap unknown errors in InternalError
-      const wrappedError = InternalError.wrap(error)
-      return c.json(
-        { ...serializeError(wrappedError, { includeStack: false }), correlationId },
-        wrappedError.httpStatus
-      )
+      const { serialized, statusCode } = serializeErrorResponse(error, {
+        includeStack: false,
+        correlationId,
+      })
+      return c.json(serialized, statusCode as ContentfulStatusCode)
     }
   })
 
@@ -396,7 +459,25 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
   return app
 }
 
-// Cloudflare Worker export helper
+/**
+ * Create a Cloudflare Worker from a target object.
+ *
+ * Convenience function that wraps createServer for quick Worker setup.
+ *
+ * @param target - The object whose methods will be exposed via RPC
+ * @returns An object with a fetch handler suitable for Cloudflare Workers
+ *
+ * @example
+ * ```typescript
+ * import { createWorkerFromTarget } from '@dotdo/rpc'
+ *
+ * const api = {
+ *   greet(name: string) { return `Hello, ${name}!` }
+ * }
+ *
+ * export default createWorkerFromTarget(api)
+ * ```
+ */
 export function createWorkerFromTarget(target: object) {
   const app = createServer({ target })
 

@@ -348,6 +348,57 @@ registry.on('tool:registered', (name) => console.log(`Tool registered: ${name}`)
 registry.on('tool:unregistered', (name) => console.log(`Tool removed: ${name}`))
 ```
 
+## Resource Limits and Security
+
+The sandbox implements multiple layers of resource protection to ensure safe multi-tenant code execution. All limits are carefully chosen to balance usability with security.
+
+### Execution Limits
+
+| Limit | Default | Rationale |
+|-------|---------|-----------|
+| **Timeout** | 5000ms | Most legitimate operations complete in <1 second. 5 seconds prevents infinite loops while allowing complex computations. |
+| **Code Size** | 100KB | Sufficient for ~3000 lines of code. Larger payloads indicate code injection or embedded binary data. |
+| **Output Size** | 1MB | Allows substantial JSON responses while preventing memory exhaustion from exponential string growth. |
+| **Memory** | 128MB | Matches Cloudflare Worker limits. Prevents memory exhaustion attacks (exponential growth, zip bombs). |
+| **Network** | Disabled | Prevents SSRF, data exfiltration, and credential theft via internal service access. |
+
+### Rate Limiting
+
+| Limit | Default | Rationale |
+|-------|---------|-----------|
+| **Requests** | 100/minute | ~1.67 req/sec accommodates interactive use while preventing resource exhaustion. |
+| **Window** | 60 seconds | 1-minute sliding window allows burst patterns while limiting sustained abuse. |
+| **Concurrency** | 5 per client | Allows parallel workflows (Promise.all) while ensuring fair resource sharing. |
+
+### Security Considerations
+
+1. **CPU Time Protection**: Checkpoint injection in loops detects infinite loops and busy-wait patterns.
+
+2. **Memory Protection**: Array and String constructors are wrapped to track allocations and enforce limits before OOM.
+
+3. **Network Isolation**: `fetch` and `WebSocket` are blocked by default. Legitimate integrations should use the $ context's controlled methods.
+
+4. **Sandbox Escape Prevention**: Code runs in isolated evaluator with no access to:
+   - File system (no `fs`, `path`, etc.)
+   - Process control (no `process`, `child_process`)
+   - Native modules (no `require`, `import` of Node.js modules)
+
+### Customizing Limits
+
+```typescript
+const sandbox = createSandbox({
+  context,
+  resourceLimits: {
+    timeout: 10000,      // 10 seconds for long-running operations
+    maxCodeSize: 200 * 1024,  // 200KB for larger code
+    memoryLimitMB: 256,  // 256MB for memory-intensive work
+    allowNetwork: true   // Enable for trusted code only!
+  }
+})
+```
+
+**Warning**: Increasing limits or enabling network access should only be done for trusted code execution contexts.
+
 ## Status
 
 See beads issues do-7rf.2.* for implementation progress.
