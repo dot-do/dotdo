@@ -351,6 +351,9 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
       let results = [...deadLetterQueue]
       if (options?.type) results = results.filter(e => e.event.type === options.type)
       if (options?.since) results = results.filter(e => e.timestamp >= options.since!)
+      if (options?.until) results = results.filter(e => e.timestamp <= options.until!)
+      const order = options?.order ?? 'desc'
+      results.sort((a, b) => order === 'asc' ? a.timestamp - b.timestamp : b.timestamp - a.timestamp)
       if (options?.limit) results = results.slice(0, options.limit)
       return results
     },
@@ -380,6 +383,68 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
       }
 
       return replayedEvents
+    },
+
+    getDLQEntry(eventId: string): DLQEntry<P> | null {
+      const entry = deadLetterQueue.find(e => e.event.$id === eventId)
+      return entry ?? null
+    },
+
+    getDLQStats(): DLQStats {
+      if (deadLetterQueue.length === 0) {
+        return { total: 0, byEventType: {}, byErrorType: {}, averageAttempts: 0, uniqueEvents: 0 }
+      }
+      const byEventType: Record<string, number> = {}
+      const byErrorType: Record<string, number> = {}
+      const uniqueEventIds = new Set<string>()
+      let totalAttempts = 0
+      let oldestEntry: number | undefined
+      let newestEntry: number | undefined
+      for (const entry of deadLetterQueue) {
+        byEventType[entry.event.type] = (byEventType[entry.event.type] || 0) + 1
+        const errorMatch = entry.lastError.match(/^(\w+Error|Error):?/)
+        const errorType = errorMatch?.[1] ?? 'UnknownError'
+        byErrorType[errorType] = (byErrorType[errorType] || 0) + 1
+        uniqueEventIds.add(entry.event.$id)
+        totalAttempts += entry.attempts
+        if (oldestEntry === undefined || entry.timestamp < oldestEntry) oldestEntry = entry.timestamp
+        if (newestEntry === undefined || entry.timestamp > newestEntry) newestEntry = entry.timestamp
+      }
+      const stats: DLQStats = {
+        total: deadLetterQueue.length, byEventType, byErrorType,
+        averageAttempts: totalAttempts / deadLetterQueue.length, uniqueEvents: uniqueEventIds.size
+      }
+      if (oldestEntry !== undefined) stats.oldestEntry = oldestEntry
+      if (newestEntry !== undefined) stats.newestEntry = newestEntry
+      return stats
+    },
+
+    cleanupDeadLetterQueue(options: DLQCleanupOptions): DLQCleanupResult {
+      const result: DLQCleanupResult = { removed: 0, removedByType: {} }
+      let cutoffTimestamp: number | undefined
+      if (options.olderThan !== undefined) cutoffTimestamp = options.olderThan
+      else if (options.olderThanDays !== undefined) cutoffTimestamp = Date.now() - (options.olderThanDays * 24 * 60 * 60 * 1000)
+      const entriesToRemove: number[] = []
+      for (let i = 0; i < deadLetterQueue.length; i++) {
+        const entry = deadLetterQueue[i]
+        if (!entry) continue
+        if (cutoffTimestamp !== undefined && entry.timestamp >= cutoffTimestamp) continue
+        if (options.types?.length && !options.types.includes(entry.event.type)) continue
+        if (options.errorTypes?.length) {
+          const errorMatch = entry.lastError.match(/^(\w+Error|Error):?/)
+          const errorType = errorMatch?.[1] ?? 'UnknownError'
+          if (!options.errorTypes.includes(errorType)) continue
+        }
+        if (options.limit !== undefined && entriesToRemove.length >= options.limit) break
+        entriesToRemove.push(i)
+        result.removed++
+        result.removedByType[entry.event.type] = (result.removedByType[entry.event.type] || 0) + 1
+      }
+      for (let i = entriesToRemove.length - 1; i >= 0; i--) {
+        const idx = entriesToRemove[i]
+        if (idx !== undefined) deadLetterQueue.splice(idx, 1)
+      }
+      return result
     },
 
     // Validation failure tracking
@@ -602,6 +667,13 @@ export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStor
         results = results.filter(entry => entry.timestamp >= options.since!)
       }
 
+      if (options?.until) {
+        results = results.filter(entry => entry.timestamp <= options.until!)
+      }
+
+      const order = options?.order ?? 'desc'
+      results.sort((a, b) => order === 'asc' ? a.timestamp - b.timestamp : b.timestamp - a.timestamp)
+
       if (options?.limit) {
         results = results.slice(0, options.limit)
       }
@@ -637,6 +709,68 @@ export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStor
       }
 
       return replayedEvents
+    },
+
+    getDLQEntry(eventId: string): DLQEntry<P> | null {
+      const entry = deadLetterQueue.find(e => e.event.$id === eventId)
+      return entry ?? null
+    },
+
+    getDLQStats(): DLQStats {
+      if (deadLetterQueue.length === 0) {
+        return { total: 0, byEventType: {}, byErrorType: {}, averageAttempts: 0, uniqueEvents: 0 }
+      }
+      const byEventType: Record<string, number> = {}
+      const byErrorType: Record<string, number> = {}
+      const uniqueEventIds = new Set<string>()
+      let totalAttempts = 0
+      let oldestEntry: number | undefined
+      let newestEntry: number | undefined
+      for (const entry of deadLetterQueue) {
+        byEventType[entry.event.type] = (byEventType[entry.event.type] || 0) + 1
+        const errorMatch = entry.lastError.match(/^(\w+Error|Error):?/)
+        const errorType = errorMatch?.[1] ?? 'UnknownError'
+        byErrorType[errorType] = (byErrorType[errorType] || 0) + 1
+        uniqueEventIds.add(entry.event.$id)
+        totalAttempts += entry.attempts
+        if (oldestEntry === undefined || entry.timestamp < oldestEntry) oldestEntry = entry.timestamp
+        if (newestEntry === undefined || entry.timestamp > newestEntry) newestEntry = entry.timestamp
+      }
+      const stats: DLQStats = {
+        total: deadLetterQueue.length, byEventType, byErrorType,
+        averageAttempts: totalAttempts / deadLetterQueue.length, uniqueEvents: uniqueEventIds.size
+      }
+      if (oldestEntry !== undefined) stats.oldestEntry = oldestEntry
+      if (newestEntry !== undefined) stats.newestEntry = newestEntry
+      return stats
+    },
+
+    cleanupDeadLetterQueue(options: DLQCleanupOptions): DLQCleanupResult {
+      const result: DLQCleanupResult = { removed: 0, removedByType: {} }
+      let cutoffTimestamp: number | undefined
+      if (options.olderThan !== undefined) cutoffTimestamp = options.olderThan
+      else if (options.olderThanDays !== undefined) cutoffTimestamp = Date.now() - (options.olderThanDays * 24 * 60 * 60 * 1000)
+      const entriesToRemove: number[] = []
+      for (let i = 0; i < deadLetterQueue.length; i++) {
+        const entry = deadLetterQueue[i]
+        if (!entry) continue
+        if (cutoffTimestamp !== undefined && entry.timestamp >= cutoffTimestamp) continue
+        if (options.types?.length && !options.types.includes(entry.event.type)) continue
+        if (options.errorTypes?.length) {
+          const errorMatch = entry.lastError.match(/^(\w+Error|Error):?/)
+          const errorType = errorMatch?.[1] ?? 'UnknownError'
+          if (!options.errorTypes.includes(errorType)) continue
+        }
+        if (options.limit !== undefined && entriesToRemove.length >= options.limit) break
+        entriesToRemove.push(i)
+        result.removed++
+        result.removedByType[entry.event.type] = (result.removedByType[entry.event.type] || 0) + 1
+      }
+      for (let i = entriesToRemove.length - 1; i >= 0; i--) {
+        const idx = entriesToRemove[i]
+        if (idx !== undefined) deadLetterQueue.splice(idx, 1)
+      }
+      return result
     },
 
     // Validation failure tracking
