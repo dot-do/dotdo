@@ -5,6 +5,8 @@
  * the WorkflowContext from the new workflow/ module.
  *
  * @module do/context
+ * @stable
+ * @since 1.0.0
  */
 
 // Re-export everything from the workflow module
@@ -50,6 +52,9 @@ import { createContext } from './workflow'
  * @param state - The DurableObjectState
  * @param env - The environment containing DO namespace bindings
  * @param options - Optional configuration
+ *
+ * @stable
+ * @since 1.1.0
  *
  * @example
  * ```typescript

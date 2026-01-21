@@ -3,7 +3,10 @@
 import { createAIPromise, type AIPromise, type AIMeta } from './promise'
 
 /**
- * AI template literal function - provides ergonomic AI calls using template literals
+ * AI template literal function - provides ergonomic AI calls using template literals.
+ *
+ * @stable
+ * @since 1.0.0
  *
  * @example
  * ```ts

@@ -6,21 +6,10 @@
 import { deserializeError, isRPCError, TransportError, type SerializedError } from './errors'
 import type { Transport, RPCMessage, RPCResponse } from './transport/types'
 import { PipelineBuilder, type PipelineRequest, type PipelineResponse } from './pipeline'
+import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
 
-/**
- * Generate a unique correlation ID for request tracing
- * Uses crypto.randomUUID() when available, otherwise falls back to a timestamp-based ID
- */
-export function generateCorrelationId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  // Fallback for environments without crypto.randomUUID
-  return `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 11)}`
-}
-
-/** Header name for correlation ID */
-export const CORRELATION_ID_HEADER = 'X-Correlation-ID'
+// Re-export for backward compatibility
+export { generateCorrelationId, CORRELATION_ID_HEADER }
 
 /**
  * Handles error responses from RPC calls by parsing structured errors
@@ -57,7 +46,10 @@ async function handleErrorResponse(
 }
 
 /**
- * Options for creating an RPC client
+ * Options for creating an RPC client.
+ *
+ * @stable
+ * @since 1.0.0
  */
 export interface RPCClientOptions {
   /** Base URL of the RPC endpoint */

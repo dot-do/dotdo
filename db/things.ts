@@ -10,9 +10,12 @@ import { toThingId } from './branded-types'
 import { generateId } from './id'
 
 /**
- * Base Thing interface with system fields
+ * Base Thing interface with system fields.
  * T extends StorableData for user-defined properties
  * Uses branded ThingId for type safety - see do-e3my
+ *
+ * @stable
+ * @since 1.0.0
  */
 export interface BaseThing {
   $id: ThingId
@@ -22,8 +25,11 @@ export interface BaseThing {
 }
 
 /**
- * Thing type combining system fields with user data
+ * Thing type combining system fields with user data.
  * Use Thing<T> for typed entity storage
+ *
+ * @stable
+ * @since 1.0.0
  */
 export type Thing<T extends StorableData = StorableData> = BaseThing & T
 
@@ -67,8 +73,11 @@ export interface CursorOptions {
 }
 
 /**
- * ThingsStore interface with generic type parameter
+ * ThingsStore interface with generic type parameter.
  * T defaults to StorableData for backward compatibility
+ *
+ * @stable
+ * @since 1.0.0
  */
 export interface ThingsStore<T extends StorableData = StorableData> {
   create<D extends Partial<T> & { $type: string }>(data: D): Promise<Thing<T> & D>
@@ -91,8 +100,11 @@ export interface ThingsStore<T extends StorableData = StorableData> {
 const THINGS_PREFIX = 'thing:'
 
 /**
- * Create a ThingsStore backed by a StorageAdapter
+ * Create a ThingsStore backed by a StorageAdapter.
  * This allows using any storage backend (SQLite, memory, etc.)
+ *
+ * @stable
+ * @since 1.0.0
  */
 export function createThingsStoreWithAdapter<T extends StorableData = StorableData>(
   adapter: StorageAdapter
@@ -255,8 +267,15 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
   }
 }
 
-// In-memory implementation (SQLite in do-7rf.4.6)
-// Kept for backward compatibility - uses internal Map
+/**
+ * In-memory implementation of ThingsStore.
+ * Uses internal Map for storage.
+ *
+ * @deprecated Use createThingsStoreWithAdapter() with SQLiteAdapter instead.
+ *             This in-memory implementation will be removed in v4.0.0.
+ * @since 1.0.0
+ * @see {@link createThingsStoreWithAdapter} for the recommended alternative
+ */
 export function createThingsStore(): ThingsStore {
   const things = new Map<ThingId, Thing>()
 

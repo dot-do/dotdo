@@ -78,6 +78,12 @@ export interface EvalResult {
   duration: number
 }
 
+/**
+ * Environment interface for DO instances.
+ *
+ * @stable
+ * @since 1.0.0
+ */
 export interface DOEnv {
   [key: string]: unknown
   /** Worker loader binding for sandboxed code execution */
@@ -112,6 +118,12 @@ interface UnsafeEval {
   eval(code: string): unknown
 }
 
+/**
+ * Configuration options for DO instances.
+ *
+ * @stable
+ * @since 1.0.0
+ */
 export interface DOOptions {
   /** Whether to enable CORS middleware. Defaults to true. */
   cors?: boolean
@@ -125,6 +137,9 @@ export interface DOOptions {
  * DO = Durable Object = Digital Object
  *
  * Uses composition over inheritance by delegating to specialized handlers.
+ *
+ * @stable
+ * @since 1.0.0
  */
 export class DO implements DurableObject {
   protected app: Hono

@@ -10,6 +10,8 @@
  * - HALF_OPEN: Testing if service has recovered, limited requests pass through
  *
  * @module @dotdo/do/circuit-breaker
+ * @stable
+ * @since 1.0.0
  */
 
 /**
@@ -737,10 +739,12 @@ let globalRegistry: CircuitBreakerRegistry | null = null
  * Get the global circuit breaker registry singleton.
  *
  * @deprecated **DO NOT USE** - Use `runWithCircuitBreakerRegistry()` for request-scoped isolation.
+ *             Will be removed in v4.0.0.
  *
  * This function returns a shared global registry that persists across all requests,
  * causing tenant state leakage. See `globalRegistry` documentation for migration guide.
  *
+ * @since 1.0.0
  * @returns The global CircuitBreakerRegistry instance
  * @see {@link runWithCircuitBreakerRegistry} - The recommended alternative
  * @see {@link getCurrentCircuitBreakerRegistry} - Get registry within a scoped context
@@ -756,10 +760,12 @@ export function getGlobalCircuitBreakerRegistry(): CircuitBreakerRegistry {
  * Reset the global circuit breaker registry.
  *
  * @deprecated **DO NOT USE** - Use `runWithCircuitBreakerRegistry()` for request-scoped isolation.
+ *             Will be removed in v4.0.0.
  *
  * This function clears and resets the global registry. With request-scoped registries,
  * cleanup happens automatically when the request context ends.
  *
+ * @since 1.0.0
  * @see {@link runWithCircuitBreakerRegistry} - The recommended alternative
  */
 export function resetGlobalCircuitBreakerRegistry(): void {
