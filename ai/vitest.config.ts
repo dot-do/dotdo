@@ -19,12 +19,25 @@
  */
 
 import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
+import { resolve } from 'path'
 import { workspaceAliases } from '../vitest.config'
 
+// Directory for this package
+const aiDir = __dirname
+
 export default defineWorkersConfig({
-  // Inherit workspace aliases for package resolution
+  // Inherit workspace aliases and add stubs for optional AI dependencies
   resolve: {
-    alias: workspaceAliases,
+    alias: {
+      ...workspaceAliases,
+      // Map optional AI packages to stubs that throw MODULE_NOT_FOUND errors
+      // This triggers the mock fallback behavior in models.ts and providers/index.ts
+      'ai-providers': resolve(aiDir, 'stubs/ai-providers.ts'),
+      'ai': resolve(aiDir, 'stubs/ai.ts'),
+      '@ai-sdk/openai': resolve(aiDir, 'stubs/@ai-sdk/openai.ts'),
+      '@ai-sdk/anthropic': resolve(aiDir, 'stubs/@ai-sdk/anthropic.ts'),
+      '@ai-sdk/google': resolve(aiDir, 'stubs/@ai-sdk/google.ts'),
+    },
   },
   test: {
     name: 'ai',

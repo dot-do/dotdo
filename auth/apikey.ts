@@ -282,10 +282,10 @@ export class ApiKeyManager {
   }
 
   /**
-   * Generate a unique ID
+   * Generate a unique ID using cryptographically secure randomness
    */
   private generateId(): string {
-    return `key_${Math.random().toString(36).substring(2, 15)}_${Date.now()}`
+    return `key_${crypto.randomUUID()}`
   }
 }
 
