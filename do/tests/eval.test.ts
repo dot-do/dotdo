@@ -210,21 +210,63 @@ describe('DO._eval() RPC handler', () => {
   describe('$ context access', () => {
     // Note: These tests verify $ context is available. The simple interpreter
     // provides a $ context that delegates to the DO's actual stores.
-    // Complex typeof checks require full JS execution which needs worker_loaders.
 
-    it.skip('should have access to $ context with things store', async () => {
-      // Skipped: Complex typeof chain requires full JS eval
-      // The $ context IS available - see 'should provide caller info' test
+    it('should have access to $ context with things store', async () => {
+      const stub = getStub()
+
+      // Test that $ context exists and has expected structure
+      const response = await callEval(stub, {
+        script: `
+          if ($.things) {
+            return { hasThings: true };
+          }
+          return { hasThings: false };
+        `,
+      })
+
+      expect(response.status).toBe(200)
+      const result = (await response.json()) as EvalResult
+      expect(result.success).toBe(true)
+      expect(result.value).toHaveProperty('hasThings', true)
     })
 
-    it.skip('should be able to call $.things.list()', async () => {
-      // Skipped: Requires full async/await JS evaluation
-      // In production, use worker_loaders for full JS support
+    it('should be able to call $.things.list()', async () => {
+      const stub = getStub()
+
+      // Call $.things.list() and verify it returns an array
+      const response = await callEval(stub, {
+        script: `
+          const items = await $.things.list();
+          return { count: items.length, isArray: true };
+        `,
+      })
+
+      expect(response.status).toBe(200)
+      const result = (await response.json()) as EvalResult
+      expect(result.success).toBe(true)
+      expect(result.value).toHaveProperty('isArray', true)
+      expect(result.value).toHaveProperty('count')
     })
 
-    it.skip('should be able to create things via $.things.create()', async () => {
-      // Skipped: Requires full async/await JS evaluation
-      // In production, use worker_loaders for full JS support
+    it('should be able to create things via $.things.create()', async () => {
+      const stub = getStub()
+
+      // Create a thing and verify it was created by checking the returned thing
+      const response = await callEval(stub, {
+        script: `
+          const thing = await $.things.create({ $type: 'TestItem', name: 'eval-test' });
+          if (thing.$id) {
+            return { created: true, hasId: true };
+          }
+          return { created: true, hasId: false };
+        `,
+      })
+
+      expect(response.status).toBe(200)
+      const result = (await response.json()) as EvalResult
+      expect(result.success).toBe(true)
+      expect(result.value).toHaveProperty('created', true)
+      expect(result.value).toHaveProperty('hasId', true)
     })
   })
 
