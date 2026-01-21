@@ -1,11 +1,69 @@
 // RPC Client - creates typed proxy clients for remote method invocation
 // Supports pluggable transports for different communication backends
 
-import type { RPCClientOptions } from './types'
-import { generateCorrelationId, CORRELATION_ID_HEADER } from './transport/fetch'
+import type { RPCClientOptions, RPCResponse, SerializedError } from './types'
+import type { Transport } from './transport/types'
+import { FetchTransport, generateCorrelationId, CORRELATION_ID_HEADER } from './transport/fetch'
 
 /**
- * Internal helper to create a method invoker function
+ * Extended options for createClient with transport support
+ * When transport is provided, url becomes optional
+ */
+export interface CreateClientOptions {
+  /** Base URL of the RPC endpoint (optional when transport is provided) */
+  url?: string
+  /** Request timeout in milliseconds (default: 30000) */
+  timeout?: number
+  /** Optional correlation ID to use for all requests */
+  correlationId?: string
+  /** Custom transport for RPC communication */
+  transport?: Transport
+}
+
+/**
+ * Context for managing event handlers, schedules, and proxy caching
+ */
+interface ClientContext {
+  handlers: Map<string, ((...args: unknown[]) => unknown)[]>
+  schedules: Map<string, { cron: string; handler: (...args: unknown[]) => unknown }>
+  /** Cache for nested proxies keyed by path string */
+  proxyCache: Map<string, unknown>
+}
+
+/**
+ * Promise-like properties to exclude from proxy handling
+ */
+const PROMISE_PROPS = new Set(['then', 'catch', 'finally'])
+
+/**
+ * Internal helper to create a method invoker function using transport
+ */
+function createTransportInvoker(
+  transport: Transport,
+  methodPath: string[],
+  boundId?: string
+): (...args: unknown[]) => Promise<unknown> {
+  return async (...args: unknown[]) => {
+    const method = methodPath.join('.')
+    // If we have a bound ID, prepend it to params
+    const params = boundId !== undefined ? [boundId, ...args] : args
+
+    const response = await transport.send({
+      method,
+      args: params,
+    })
+
+    // Handle error responses
+    if (response.error) {
+      throw new Error(response.error.message)
+    }
+
+    return response.result
+  }
+}
+
+/**
+ * Internal helper to create a method invoker function (legacy fetch-based)
  */
 function createMethodInvoker(
   url: string,
@@ -36,7 +94,192 @@ function createMethodInvoker(
 }
 
 /**
- * Create a nested proxy that tracks the property path
+ * Generate cache key for proxy lookup
+ */
+function getCacheKey(path: string[], boundId?: string): string {
+  const pathKey = path.join('.')
+  return boundId !== undefined ? `${pathKey}:${boundId}` : pathKey
+}
+
+/**
+ * Create a nested proxy for event handlers ($.on.Entity.action)
+ * Uses caching to avoid creating duplicate proxies for the same path
+ */
+function createOnProxy(context: ClientContext, path: string[] = []): unknown {
+  const cacheKey = `on:${path.join('.')}`
+  const cached = context.proxyCache.get(cacheKey)
+  if (cached !== undefined) return cached
+
+  const proxy = new Proxy(() => {}, {
+    get(_, prop: string | symbol) {
+      if (typeof prop === 'symbol') return undefined
+      if (PROMISE_PROPS.has(prop as string)) return undefined
+      return createOnProxy(context, [...path, prop])
+    },
+    apply(_, __, args: unknown[]) {
+      // Register the handler
+      const eventPath = path.join('.')
+      const handler = args[0] as (...args: unknown[]) => unknown
+      const handlers = context.handlers.get(eventPath)
+      if (handlers) {
+        handlers.push(handler)
+      } else {
+        context.handlers.set(eventPath, [handler])
+      }
+      return undefined
+    },
+  })
+
+  context.proxyCache.set(cacheKey, proxy)
+  return proxy
+}
+
+/**
+ * Create a schedule builder for $.every DSL
+ * Supports fluent chaining like $.every.Monday.at('9am')(handler)
+ */
+function createScheduleBuilder(
+  context: ClientContext,
+  parts: string[] = []
+): unknown {
+  const cacheKey = `every:${parts.join('.')}`
+  const cached = context.proxyCache.get(cacheKey)
+  if (cached !== undefined) return cached
+
+  // The schedule builder is both a callable (for $.every.day(handler)) and
+  // has properties (for $.every.Monday.at('9am'))
+  const builder = function(handlerOrTime: unknown) {
+    if (typeof handlerOrTime === 'function') {
+      // Direct call like $.every.day(handler)
+      const cron = buildCron(parts)
+      const id = `schedule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      context.schedules.set(id, { cron, handler: handlerOrTime as (...args: unknown[]) => unknown })
+      return undefined
+    }
+    // Otherwise it's a time string for .at()
+    return undefined
+  }
+
+  const proxy = new Proxy(builder, {
+    get(target, prop: string | symbol) {
+      if (typeof prop === 'symbol') return undefined
+      if (PROMISE_PROPS.has(prop as string)) return undefined
+
+      if (prop === 'at') {
+        // Return a function that takes time and returns a callable
+        return (time: string) => {
+          const newParts = [...parts, `at:${time}`]
+          // Return a callable that registers the handler
+          return (handler: (...args: unknown[]) => unknown) => {
+            const cron = buildCron(newParts)
+            const id = `schedule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+            context.schedules.set(id, { cron, handler })
+            return undefined
+          }
+        }
+      }
+
+      // Continue building the schedule ($.every.Monday, $.every.day)
+      return createScheduleBuilder(context, [...parts, prop as string])
+    },
+    apply(target, thisArg, args) {
+      return target(args[0])
+    },
+  })
+
+  context.proxyCache.set(cacheKey, proxy)
+  return proxy
+}
+
+/**
+ * Build a cron expression from schedule parts (placeholder implementation)
+ */
+function buildCron(parts: string[]): string {
+  // This is a placeholder - real implementation would convert
+  // ['Monday', 'at:9am'] to '0 9 * * 1'
+  return parts.join(' ')
+}
+
+/**
+ * Create a nested proxy that tracks the property path and supports ID binding
+ * This supports:
+ * - Flat APIs (client.greet())
+ * - Nested APIs (client.users.create())
+ * - ID-based entity access ($.Customer('id').method())
+ *
+ * Uses caching to avoid creating duplicate proxies for the same path
+ */
+function createNestedProxyWithTransport(
+  transport: Transport,
+  context: ClientContext,
+  path: string[] = [],
+  boundId?: string
+): unknown {
+  // Generate cache key - but only cache proxies without bound IDs
+  // Entity-bound proxies ($.Customer('id')) should not be cached as IDs are dynamic
+  const cacheKey = boundId === undefined ? `proxy:${path.join('.')}` : null
+  if (cacheKey) {
+    const cached = context.proxyCache.get(cacheKey)
+    if (cached !== undefined) return cached
+  }
+
+  const proxy = new Proxy(() => {}, {
+    get(_, prop: string | symbol) {
+      // Don't intercept symbols or promise methods (client should not be thenable)
+      if (typeof prop === 'symbol') {
+        return undefined
+      }
+
+      if (PROMISE_PROPS.has(prop as string)) {
+        return undefined // Not a promise
+      }
+
+      // Special namespace: $.on for event handlers
+      if (path.length === 0 && prop === 'on') {
+        return createOnProxy(context)
+      }
+
+      // Special namespace: $.every for scheduling
+      if (path.length === 0 && prop === 'every') {
+        return createScheduleBuilder(context)
+      }
+
+      // Return a nested proxy for property access
+      return createNestedProxyWithTransport(transport, context, [...path, prop as string], boundId)
+    },
+
+    apply(_, __, args: unknown[]) {
+      // Check if this is an ID-binding call ($.EntityType('id'))
+      // This happens when path has one element (the entity type name) and
+      // the first arg looks like an ID (string)
+      const firstPathElement = path[0]
+      if (
+        path.length === 1 &&
+        args.length === 1 &&
+        typeof args[0] === 'string' &&
+        firstPathElement !== undefined &&
+        !firstPathElement.startsWith('$') // Not a special method
+      ) {
+        const entityId = args[0] as string
+        // Return a proxy bound to this entity ID (not cached - IDs are dynamic)
+        return createNestedProxyWithTransport(transport, context, [firstPathElement], entityId)
+      }
+
+      // When called as a function, invoke the RPC method using transport
+      return createTransportInvoker(transport, path, boundId)(...args)
+    },
+  })
+
+  // Cache the proxy if we have a cache key
+  if (cacheKey) {
+    context.proxyCache.set(cacheKey, proxy)
+  }
+
+  return proxy
+}
+
+/**
+ * Create a nested proxy that tracks the property path (legacy version)
  * This supports both flat APIs (client.greet()) and nested APIs (client.users.create())
  */
 function createNestedProxy(
@@ -52,12 +295,12 @@ function createNestedProxy(
         return undefined
       }
 
-      if (prop === 'then' || prop === 'catch' || prop === 'finally') {
+      if (PROMISE_PROPS.has(prop as string)) {
         return undefined // Not a promise
       }
 
       // Return a nested proxy for property access
-      return createNestedProxy(url, timeout, [...path, prop], correlationId)
+      return createNestedProxy(url, timeout, [...path, prop as string], correlationId)
     },
 
     apply(_, __, args: unknown[]) {
@@ -74,6 +317,9 @@ function createNestedProxy(
  * specified URL. It supports:
  * - Flat APIs: `client.greet('World')`
  * - Nested APIs: `client.users.create({ name: 'Alice' })`
+ * - ID-based entity access: `$.Customer('id').method()`
+ * - Event handlers: `$.on.Customer.signup(handler)`
+ * - Scheduling DSL: `$.every.Monday.at('9am')(handler)`
  * - Configurable timeout via AbortSignal
  *
  * @example
@@ -90,11 +336,38 @@ function createNestedProxy(
  * const user = await client.users.create({ name: 'Alice' })
  * ```
  *
- * @param options - Configuration options including URL and optional timeout
+ * @param urlOrOptions - URL string or configuration options
+ * @param options - Additional options when first arg is URL string
  * @returns A typed proxy that forwards method calls via RPC
  */
-export function createClient<T extends object>(options: RPCClientOptions): T {
-  const { url, timeout = 30000, correlationId } = options
+export function createClient<T extends object>(
+  urlOrOptions: string | RPCClientOptions,
+  options?: CreateClientOptions
+): T {
+  // Handle overloaded signatures
+  if (typeof urlOrOptions === 'string') {
+    // createClient('http://test', { transport: ... })
+    const url = urlOrOptions
+    const opts = options ?? {}
+    const transport = opts.transport
+
+    if (transport) {
+      const context: ClientContext = {
+        handlers: new Map(),
+        schedules: new Map(),
+        proxyCache: new Map(),
+      }
+      return createNestedProxyWithTransport(transport, context) as T
+    }
+
+    // Fall back to legacy fetch-based client
+    const timeout = opts.timeout ?? 30000
+    const correlationId = opts.correlationId
+    return createNestedProxy(url, timeout, [], correlationId) as T
+  }
+
+  // createClient({ url: 'http://test', ... })
+  const { url, timeout = 30000, correlationId } = urlOrOptions
   return createNestedProxy(url, timeout, [], correlationId) as T
 }
 
@@ -128,11 +401,11 @@ export function createProxy(
           return undefined
         }
 
-        if (prop === 'then' || prop === 'catch' || prop === 'finally') {
+        if (PROMISE_PROPS.has(prop as string)) {
           return undefined
         }
 
-        return createNestedHandler([...path, prop])
+        return createNestedHandler([...path, prop as string])
       },
 
       apply(_, __, args: unknown[]) {

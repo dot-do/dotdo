@@ -169,7 +169,8 @@ describe('FetchTransport', () => {
 
       await transport.send({ method: 'users.create', args: [{ name: 'Alice' }] })
 
-      const [[, options]] = mockFetch.mock.calls
+      const calls = mockFetch.mock.calls
+      const [[, options]] = calls as [[string, { body: string }]]
       const body = JSON.parse(options.body)
 
       expect(body.method).toBe('users.create')
@@ -261,7 +262,8 @@ describe('FetchTransport', () => {
 
       await transport.send({ method: 'test', args: [] })
 
-      const [[, options]] = mockFetch.mock.calls
+      const calls = mockFetch.mock.calls
+      const [[, options]] = calls as [[string, { headers: Record<string, string> }]]
       expect(options.headers[CORRELATION_ID_HEADER]).toBeDefined()
       expect(typeof options.headers[CORRELATION_ID_HEADER]).toBe('string')
     })
