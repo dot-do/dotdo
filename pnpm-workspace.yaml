@@ -14,3 +14,5 @@ packages:
   - utils
   - clickhouse
   - finance
+  - observability
+  - experiments
