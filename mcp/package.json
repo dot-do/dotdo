@@ -68,7 +68,7 @@
     "@dotdo/db": "workspace:*",
     "@dotdo/do": "workspace:*",
     "@dotdo/rpc": "workspace:*",
-    "hono": "^4.7.0"
+    "hono": "^4.11.4"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

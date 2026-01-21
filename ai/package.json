@@ -84,7 +84,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "hono": "^4.7.0",
+    "hono": "^4.11.4",
     "js-tiktoken": "^1.0.21"
   },
   "devDependencies": {

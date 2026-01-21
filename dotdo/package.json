@@ -108,7 +108,7 @@
     "@dotdo/rpc": "workspace:*",
     "rpc.do": "workspace:*",
     "commander": "^14.0.2",
-    "hono": "^4.7.0"
+    "hono": "^4.11.4"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

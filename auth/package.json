@@ -85,11 +85,11 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "hono": "^4.7.0",
+    "hono": "^4.11.4",
     "jose": "^6.0.0",
     "id.org.ai": "file:../primitives/packages/id.org.ai"
   },
   "devDependencies": {
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.3"
   }
 }

@@ -92,11 +92,11 @@
     "@dotdo/rpc": "workspace:*",
     "ai-evaluate": "workspace:../primitives/packages/ai-evaluate",
     "digital-workers": "workspace:../primitives/packages/digital-workers",
-    "hono": "^4.7.0",
+    "hono": "^4.11.4",
     "language-models": "workspace:../primitives/packages/language-models"
   },
   "devDependencies": {
     "@dotdo/test-utils": "workspace:*",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.3"
   }
 }

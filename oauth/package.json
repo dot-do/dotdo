@@ -75,10 +75,10 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "hono": "^4.7.0"
+    "hono": "^4.11.4"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
+    "typescript": "^5.7.3",
     "vitest": "^3.0.0"
   }
 }
