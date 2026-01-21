@@ -902,6 +902,166 @@ class AggregateBuilder {
 }
 
 // =============================================================================
+// Aggregation Helper Functions
+// =============================================================================
+
+/**
+ * Filter items by where clause conditions.
+ * Supports exact equality matching for all fields.
+ */
+function filterByWhere<T extends Record<string, unknown>>(
+  items: T[],
+  where: Record<string, unknown>
+): T[] {
+  return items.filter(item => {
+    for (const [key, value] of Object.entries(where)) {
+      if (item[key] !== value) {
+        return false
+      }
+    }
+    return true
+  })
+}
+
+/**
+ * Filter items by time range.
+ * Uses $createdAt field for time comparison.
+ */
+function filterByTimeRange<T extends Record<string, unknown>>(
+  items: T[],
+  timeRange: { value: number; unit: 'hours' | 'days' | 'weeks' | 'months' }
+): T[] {
+  const now = Date.now()
+  let msPerUnit: number
+
+  switch (timeRange.unit) {
+    case 'hours':
+      msPerUnit = 60 * 60 * 1000
+      break
+    case 'days':
+      msPerUnit = 24 * 60 * 60 * 1000
+      break
+    case 'weeks':
+      msPerUnit = 7 * 24 * 60 * 60 * 1000
+      break
+    case 'months':
+      msPerUnit = 30 * 24 * 60 * 60 * 1000
+      break
+  }
+
+  const cutoff = now - (timeRange.value * msPerUnit)
+
+  return items.filter(item => {
+    const createdAt = item['$createdAt'] as number | undefined
+    return createdAt !== undefined && createdAt >= cutoff
+  })
+}
+
+/**
+ * Execute a single (non-grouped) aggregation operation.
+ */
+function executeSingleAggregation(
+  items: Record<string, unknown>[],
+  query: ParsedQuery
+): AggregateResult {
+  const field = query.field
+
+  switch (query.operation) {
+    case 'count':
+      return { value: items.length }
+
+    case 'sum': {
+      if (!field) return { value: 0 }
+      const sum = items.reduce((acc, item) => {
+        const val = item[field]
+        return acc + (typeof val === 'number' ? val : 0)
+      }, 0)
+      return { value: sum }
+    }
+
+    case 'avg': {
+      if (!field || items.length === 0) return { value: 0 }
+      const sum = items.reduce((acc, item) => {
+        const val = item[field]
+        return acc + (typeof val === 'number' ? val : 0)
+      }, 0)
+      return { value: sum / items.length }
+    }
+
+    case 'min': {
+      if (!field || items.length === 0) return { value: 0 }
+      const values = items
+        .map(item => item[field])
+        .filter((v): v is number => typeof v === 'number')
+      if (values.length === 0) return { value: 0 }
+      return { value: Math.min(...values) }
+    }
+
+    case 'max': {
+      if (!field || items.length === 0) return { value: 0 }
+      const values = items
+        .map(item => item[field])
+        .filter((v): v is number => typeof v === 'number')
+      if (values.length === 0) return { value: 0 }
+      return { value: Math.max(...values) }
+    }
+
+    case 'distinct': {
+      if (!field) return { value: 0 }
+      const uniqueValues = new Set(items.map(item => item[field]))
+      return { value: uniqueValues.size }
+    }
+
+    default:
+      return { value: 0 }
+  }
+}
+
+/**
+ * Execute a grouped aggregation operation.
+ * Returns data array with {key, value} for each group plus total.
+ */
+function executeGroupedAggregation(
+  items: Record<string, unknown>[],
+  query: ParsedQuery
+): AggregateResult {
+  const groupBy = query.groupBy!
+  const field = query.field
+
+  // Group items by the groupBy field
+  const groups = new Map<string, Record<string, unknown>[]>()
+  for (const item of items) {
+    const key = String(item[groupBy] ?? 'undefined')
+    if (!groups.has(key)) {
+      groups.set(key, [])
+    }
+    groups.get(key)!.push(item)
+  }
+
+  // Calculate aggregate for each group
+  const data: Array<{ key: string; value: number }> = []
+  let total = 0
+
+  for (const [key, groupItems] of groups) {
+    // Create a query without groupBy for single aggregation
+    const singleQuery: ParsedQuery = {
+      operation: query.operation,
+      collection: query.collection
+    }
+    if (query.field !== undefined) singleQuery.field = query.field
+    if (query.where !== undefined) singleQuery.where = query.where
+    if (query.timeRange !== undefined) singleQuery.timeRange = query.timeRange
+
+    const result = executeSingleAggregation(groupItems, singleQuery)
+    const value = result.value ?? 0
+    data.push({ key, value })
+    total += value
+  }
+
+  return { data, total }
+}
+
+// =============================================================================
 // Metric References - Chainable Paths
 // =============================================================================
 
