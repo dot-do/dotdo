@@ -28,8 +28,12 @@ export type JsonObject = { [key: string]: JsonValue }
 /**
  * Constraint type for data that can be stored in the database
  * Use this to bound generic type parameters for entity data
+ *
+ * Includes `undefined` to support optional properties (T | undefined)
+ * which is how TypeScript represents optional interface members.
+ * During serialization, undefined values are stripped (JSON.stringify behavior).
  */
-export type StorableData = Record<string, JsonValue>
+export type StorableData = Record<string, JsonValue | undefined>
 
 /**
  * Generic condition type for WHERE clauses and filters

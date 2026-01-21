@@ -746,10 +746,15 @@ export class AgentDO extends DO {
   }
 
   private toolCalculate(expression: string): CalculatorResult {
-    // Safe math evaluation (basic operations only)
+    // SECURITY NOTE: new Function() is used for math expression evaluation.
+    // Input is sanitized to only allow: digits, +, -, *, /, (, ), ., %, and whitespace.
+    // This provides reasonable protection for a calculator tool.
+    //
+    // WARNING: This is example code. For production use, consider:
+    // 1. Using a proper math expression parser (e.g., mathjs)
+    // 2. Using worker_loaders (ai-evaluate) for full isolation
     const sanitized = expression.replace(/[^0-9+\-*/().%\s]/g, '')
     try {
-      // Using Function instead of eval for slightly better safety
       const result = new Function(`return ${sanitized}`)() as number
       return { expression, result }
     } catch (error) {

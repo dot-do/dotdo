@@ -17,6 +17,8 @@ import {
   LoggerConfig,
   createLogger,
   createScopedLogger,
+  setLogLevel,
+  getLogLevel,
   logger,
 } from '../logger'
 
@@ -137,7 +139,6 @@ describe('createLogger standardized function (do-fmux2)', () => {
 
   it('should prepend prefix to all log messages', () => {
     // Force DEBUG level to see all messages
-    const { setLogLevel } = require('../logger')
     setLogLevel(LogLevel.DEBUG)
 
     const log = createLogger('[API]')
@@ -157,7 +158,6 @@ describe('createLogger standardized function (do-fmux2)', () => {
   })
 
   it('should support additional arguments (structured logging)', () => {
-    const { setLogLevel } = require('../logger')
     setLogLevel(LogLevel.DEBUG)
 
     const log = createLogger('[Service]')
@@ -218,7 +218,6 @@ describe('createScopedLogger standardized function (do-fmux2)', () => {
   })
 
   it('should be fully isolated from global config', () => {
-    const { setLogLevel, getLogLevel } = require('../logger')
     const originalLevel = getLogLevel()
 
     // Create scoped logger with DEBUG

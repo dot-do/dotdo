@@ -8,8 +8,7 @@
  * Issue: do-2l8u4.4
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { MemoryStorageAdapter } from '../../db/adapters/memory'
-import type { StorageAdapter } from '../../db/storage'
+import { MemoryStorageAdapter, type StorageAdapter } from '@dotdo/db'
 import {
   ApiKeyManager,
   DurableApiKeyManager,

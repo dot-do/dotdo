@@ -41,7 +41,7 @@ import {
   API_KEY_SECRET_MIN_LENGTH,
   API_KEY_RANDOM_BYTES_LENGTH,
 } from '@dotdo/utils'
-import type { StorageAdapter } from '../db/storage'
+import type { StorageAdapter } from '@dotdo/db'
 
 export interface ApiKey {
   id: string

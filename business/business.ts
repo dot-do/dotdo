@@ -1553,7 +1553,7 @@ class FlagsAPI {
       thingData['metadata'] = JSON.stringify(data.metadata)
     }
 
-    const thing = await this.business.things.create(thingData as { $type: string } & Record<string, unknown>)
+    const thing = await this.business.things.create(thingData)
     return this.thingToFeatureFlag(thing)
   }
 
@@ -1637,7 +1637,7 @@ class FlagsAPI {
     if (data.overrides !== undefined) updateData['overrides'] = JSON.stringify(data.overrides)
     if (data.metadata !== undefined) updateData['metadata'] = JSON.stringify(data.metadata)
 
-    const updated = await this.business.things.update(flag.id, updateData as Record<string, unknown>)
+    const updated = await this.business.things.update(flag.id, updateData)
     return this.thingToFeatureFlag(updated)
   }
 
