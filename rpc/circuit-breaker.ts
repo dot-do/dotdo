@@ -21,13 +21,16 @@ import {
   getCircuitBreaker,
   runWithCircuitBreakerRegistry,
   type CircuitBreakerConfig,
-  type CircuitState,
+  type CircuitState as DOCircuitState,
   type CircuitStats,
 } from '../do/circuit-breaker'
 import { TransportError } from './errors'
 
-// Re-export circuit breaker types for convenience (with unique names to avoid conflicts)
-export type { CircuitBreakerConfig, CircuitState, CircuitStats }
+// Re-export circuit breaker types for convenience
+// Note: DOCircuitState from do/circuit-breaker uses lowercase values ('closed', 'open', 'half_open')
+// while CircuitState from rpc/errors/circuit-breaker uses uppercase enum values (CLOSED, OPEN, HALF_OPEN)
+export type { CircuitBreakerConfig, CircuitStats }
+export type { DOCircuitState }
 export { getCircuitBreaker, runWithCircuitBreakerRegistry }
 
 /**
@@ -332,7 +335,7 @@ export function createCrossDOClientWithCircuitBreaker<T extends object>(
  */
 export type WithCircuitBreaker<T> = T & {
   $circuit: {
-    getState(): CircuitState
+    getState(): DOCircuitState
     getStats(): CircuitStats
     forceOpen(): void
     forceClose(): void
