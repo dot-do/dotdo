@@ -92,3 +92,29 @@ export type {
   AuthorizeHandlerOptionsWithRegistry,
   TokenEndpointOptions,
 } from './middleware'
+
+// MCP OAuth 2.1 (RFC 9728) support
+export {
+  createMCPServerMetadataHandler,
+  createAuthServerMetadataHandler,
+  createProtectedResourceMetadataHandler,
+  createMCPAuthorizeHandler,
+  createMCPCallbackHandler,
+  createMCPTokenEndpoint,
+  validateMCPScopes,
+} from './mcp'
+
+export type {
+  MCPServerMetadata,
+  MCPServerMetadataOptions,
+  AuthServerMetadata,
+  AuthServerMetadataOptions,
+  ProtectedResourceMetadata,
+  ProtectedResourceMetadataOptions,
+  BearerMethod,
+  MCPOAuthProvider,
+  MCPAuthorizeHandlerOptions,
+  MCPCallbackHandlerOptions,
+  MCPTokenEndpointOptions,
+  MCPScopeValidationResult,
+} from './mcp'

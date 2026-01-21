@@ -29,6 +29,10 @@
     "./middleware": {
       "import": "./src/middleware/index.ts",
       "types": "./src/middleware/index.ts"
+    },
+    "./mcp": {
+      "import": "./src/mcp/index.ts",
+      "types": "./src/mcp/index.ts"
     }
   },
   "scripts": {

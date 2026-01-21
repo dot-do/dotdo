@@ -15,7 +15,11 @@
     "./auth": "./auth.ts",
     "./rpc": "./rpc.ts",
     "./mcp": "./mcp.ts",
-    "./api": "./api.ts"
+    "./api": "./api.ts",
+    "./sdk": "./sdk/index.ts",
+    "./sdk/client": "./sdk/client.ts",
+    "./sdk/testing": "./sdk/testing.ts",
+    "./sdk/deploy": "./sdk/deploy.ts"
   },
   "scripts": {
     "dev": "wrangler dev",
