@@ -15,6 +15,7 @@ export {
   type WorkflowContext,
   type $,
   type DoOptions,
+  type TryOptions,
   type DOStubFactory,
   type CreateContextOptions,
   type EventHandler,

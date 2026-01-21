@@ -16,6 +16,7 @@ export {
   type WorkflowContext,
   type $,
   type DoOptions,
+  type TryOptions,
   type DOStubFactory,
   type CreateContextOptions,
   // Primitive capability types (do-ibsi)

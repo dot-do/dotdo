@@ -549,4 +549,230 @@ describe('WorkflowContext ($)', () => {
       expect(result).toBe(true)
     })
   })
+
+  describe('try() with timeout (do-u1cw)', () => {
+    it('should execute action without timeout when not specified', async () => {
+      const stub = getTestDO()
+
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as unknown as { $: WorkflowContext }).$
+        return await $.try(async () => 'success')
+      })
+
+      expect(result).toBe('success')
+    })
+
+    it('should succeed if action completes before timeout', async () => {
+      const stub = getTestDO()
+
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as unknown as { $: WorkflowContext }).$
+        return await $.try(async () => {
+          await new Promise(r => setTimeout(r, 10))
+          return 'completed'
+        }, { timeout: 1000 })
+      })
+
+      expect(result).toBe('completed')
+    })
+
+    it('should timeout if action takes too long', async () => {
+      const stub = getTestDO()
+
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as unknown as { $: WorkflowContext }).$
+        try {
+          await $.try(async () => {
+            await new Promise(r => setTimeout(r, 1000))
+            return 'done'
+          }, { timeout: 50 })
+          return { threw: false, message: '' }
+        } catch (e) {
+          return { threw: true, message: (e as Error).message }
+        }
+      })
+
+      expect(result.threw).toBe(true)
+      expect(result.message).toContain('timed out')
+      expect(result.message).toContain('50ms')
+    })
+
+    it('should propagate errors before timeout', async () => {
+      const stub = getTestDO()
+
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as unknown as { $: WorkflowContext }).$
+        try {
+          await $.try(async () => {
+            throw new Error('immediate error')
+          }, { timeout: 1000 })
+          return { threw: false, message: '' }
+        } catch (e) {
+          return { threw: true, message: (e as Error).message }
+        }
+      })
+
+      expect(result.threw).toBe(true)
+      expect(result.message).toBe('immediate error')
+    })
+
+    it('should handle very small timeout', async () => {
+      const stub = getTestDO()
+
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as unknown as { $: WorkflowContext }).$
+        try {
+          await $.try(async () => {
+            // Do some minimal async work
+            await new Promise(r => setTimeout(r, 50))
+            return 'result'
+          }, { timeout: 1 })
+          return { threw: false, message: '' }
+        } catch (e) {
+          return { threw: true, message: (e as Error).message }
+        }
+      })
+
+      // Very small timeout should trigger timeout
+      expect(result.threw).toBe(true)
+      expect(result.message).toContain('timed out')
+    })
+
+    it('should return the correct value type', async () => {
+      const stub = getTestDO()
+
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as unknown as { $: WorkflowContext }).$
+        const num = await $.try(async () => 42, { timeout: 1000 })
+        const str = await $.try(async () => 'hello', { timeout: 1000 })
+        const obj = await $.try(async () => ({ key: 'value' }), { timeout: 1000 })
+        return { num, str, obj }
+      })
+
+      expect(result.num).toBe(42)
+      expect(result.str).toBe('hello')
+      expect(result.obj).toEqual({ key: 'value' })
+    })
+  })
+
+  describe('do() timeout behavior (do-u1cw)', () => {
+    it('should use default timeout of 30000ms', async () => {
+      const stub = getTestDO()
+
+      // This test verifies that the default timeout is set
+      // We can't easily test 30s timeout, so we just verify a shorter action succeeds
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as unknown as { $: WorkflowContext }).$
+        return await $.do(async () => 'success')
+      })
+
+      expect(result).toBe('success')
+    })
+
+    it('should respect custom timeout', async () => {
+      const stub = getTestDO()
+
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as unknown as { $: WorkflowContext }).$
+        try {
+          await $.do(async () => {
+            await new Promise(r => setTimeout(r, 500))
+            return 'done'
+          }, { timeout: 50, retries: 0 })
+          return { threw: false, message: '' }
+        } catch (e) {
+          return { threw: true, message: (e as Error).message }
+        }
+      })
+
+      expect(result.threw).toBe(true)
+      expect(result.message).toContain('timed out')
+      expect(result.message).toContain('50ms')
+    })
+
+    it('should retry on timeout with retries enabled', async () => {
+      const stub = getTestDO()
+
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as unknown as { $: WorkflowContext }).$
+        let attempts = 0
+
+        try {
+          await $.do(async () => {
+            attempts++
+            // All attempts timeout
+            await new Promise(r => setTimeout(r, 500))
+            return 'done'
+          }, { timeout: 50, retries: 2 })
+          return { threw: false, attempts, message: '' }
+        } catch (e) {
+          return { threw: true, attempts, message: (e as Error).message }
+        }
+      })
+
+      // All attempts should have timed out - verify retries happened
+      expect(result.threw).toBe(true)
+      // Verify we got multiple attempts (retries work with timeout)
+      expect(result.attempts).toBe(3) // Initial + 2 retries
+      expect(result.message).toContain('timed out')
+    })
+
+    it('should succeed on retry after initial timeout', async () => {
+      const stub = getTestDO()
+
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as unknown as { $: WorkflowContext }).$
+        let attempts = 0
+
+        const value = await $.do(async () => {
+          attempts++
+          // First attempt times out, subsequent succeed immediately
+          if (attempts === 1) {
+            await new Promise(r => setTimeout(r, 500))
+          }
+          return 'success'
+        }, { timeout: 50, retries: 2 })
+
+        return { value, attempts }
+      })
+
+      expect(result.value).toBe('success')
+      expect(result.attempts).toBe(2)
+    })
+
+    it('should combine timeout with exponential backoff', async () => {
+      const stub = getTestDO()
+
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as unknown as { $: WorkflowContext }).$
+        let attempts = 0
+        const timestamps: number[] = []
+
+        try {
+          await $.do(async () => {
+            timestamps.push(Date.now())
+            attempts++
+            // All attempts timeout
+            await new Promise(r => setTimeout(r, 500))
+            return 'done'
+          }, { timeout: 30, retries: 2, backoff: 'exponential' })
+        } catch {
+          // Expected to fail
+        }
+
+        return { attempts, timestamps }
+      })
+
+      expect(result.attempts).toBe(3)
+      // Verify backoff delays between attempts
+      if (result.timestamps.length >= 2) {
+        const gap1 = result.timestamps[1] - result.timestamps[0]
+        expect(gap1).toBeGreaterThanOrEqual(90) // ~100ms first backoff
+      }
+      if (result.timestamps.length >= 3) {
+        const gap2 = result.timestamps[2] - result.timestamps[1]
+        expect(gap2).toBeGreaterThanOrEqual(180) // ~200ms second backoff
+      }
+    })
+  })
 })

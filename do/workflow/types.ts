@@ -18,6 +18,14 @@ import type { IntegrationRegistry, IntegrationConfig } from '../../integrations'
 export type { CircuitBreakerRPCConfig }
 
 /**
+ * Options for $.try() single-attempt action execution
+ */
+export interface TryOptions {
+  /** Timeout in milliseconds (default: no timeout) */
+  timeout?: number
+}
+
+/**
  * Options for $.do() durable action execution
  */
 export interface DoOptions {
@@ -193,7 +201,7 @@ export interface WorkflowContext {
   /** Fire-and-forget event emission */
   send(event: { type: string; payload?: unknown }): void
   /** Single attempt (no retries) */
-  try<T>(action: () => Promise<T>): Promise<T>
+  try<T>(action: () => Promise<T>, options?: TryOptions): Promise<T>
   /** Durable with retries */
   do<T>(action: () => Promise<T>, options?: DoOptions): Promise<T>
 

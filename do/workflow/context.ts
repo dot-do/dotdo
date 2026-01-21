@@ -35,6 +35,7 @@ export type {
   WorkflowContext,
   $,
   DoOptions,
+  TryOptions,
   DOStubFactory,
   EveryProxy,
   FsCapability,
@@ -49,6 +50,7 @@ export type {
 import type {
   WorkflowContext,
   DoOptions,
+  TryOptions,
   CreateContextOptions,
 } from './types'
 import type { EventHandler } from './events'
@@ -249,9 +251,22 @@ export function createContext(
       })
     },
 
-    // Single attempt - no retries
-    async try<T>(action: () => Promise<T>): Promise<T> {
-      return action()
+    // Single attempt - no retries, optional timeout
+    async try<T>(action: () => Promise<T>, options: TryOptions = {}): Promise<T> {
+      const { timeout } = options
+
+      // If no timeout specified, just execute the action directly
+      if (timeout === undefined) {
+        return action()
+      }
+
+      // Wrap with timeout
+      return Promise.race([
+        action(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(TimeoutError.afterMs(timeout)), timeout)
+        )
+      ])
     },
 
     // Durable with retries
