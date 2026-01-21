@@ -16,6 +16,28 @@ import type { SqlStorage } from '../sqlite'
 const DEFAULT_TABLE_NAME = 'kv_store'
 
 /**
+ * Regex for validating table names to prevent SQL injection.
+ * Only allows alphanumeric characters and underscores, must start with letter or underscore.
+ */
+const VALID_TABLE_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/
+
+/**
+ * Validates a table name to prevent SQL injection.
+ * Throws an error if the table name is invalid.
+ */
+function validateTableName(tableName: string): void {
+  if (!VALID_TABLE_NAME.test(tableName)) {
+    throw new Error(
+      `Invalid table name: "${tableName}". Table names must be alphanumeric (with underscores) and start with a letter or underscore.`
+    )
+  }
+  // Additional protection: limit length to prevent buffer issues
+  if (tableName.length > 128) {
+    throw new Error(`Table name too long: "${tableName}". Maximum length is 128 characters.`)
+  }
+}
+
+/**
  * SQLite-backed storage adapter
  *
  * Uses a simple key-value table structure with JSON serialization for values.
@@ -31,6 +53,9 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     this.sql = sql
     this.tableName = options.tableName || DEFAULT_TABLE_NAME
     this.namespace = options.namespace || ''
+
+    // Validate table name to prevent SQL injection (do-xdq7)
+    validateTableName(this.tableName)
   }
 
   /**
@@ -251,9 +276,20 @@ export class SQLiteStorageAdapter implements StorageAdapter {
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    // SQLite in Cloudflare Workers doesn't expose explicit transaction API
-    // but each SqlStorage instance is already transactional within a DO
-    // All operations are atomic within a single DO request
+    // WARNING: Cloudflare Durable Objects DO NOT support explicit transaction APIs.
+    //
+    // This method is a NO-OP pass-through. Callers should NOT rely on this for
+    // ACID guarantees across multiple await statements.
+    //
+    // Cloudflare provides automatic atomicity: consecutive writes WITHOUT
+    // intervening await statements are automatically atomic.
+    //
+    // For true transactional behavior:
+    // 1. Use state.storage.transactionSync() for synchronous operations
+    // 2. Avoid await between SQL statements
+    // 3. Use blockConcurrencyWhile() for concurrency control
+    //
+    // See db/TRANSACTIONS.md for comprehensive documentation (do-6b5vx)
     try {
       return await fn()
     } catch (error) {
