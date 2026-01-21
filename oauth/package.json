@@ -1,0 +1,32 @@
+{
+  "name": "@dotdo/oauth",
+  "version": "0.0.1",
+  "description": "OAuth 2.1 + PKCE core for dotdo",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    },
+    "./pkce": {
+      "import": "./src/core/pkce.ts",
+      "types": "./src/core/pkce.ts"
+    },
+    "./state": {
+      "import": "./src/core/state.ts",
+      "types": "./src/core/state.ts"
+    }
+  },
+  "scripts": {
+    "test": "vitest",
+    "test:run": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

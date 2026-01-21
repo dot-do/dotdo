@@ -60,6 +60,7 @@ export default defineConfig({
     // Include Node-based tests that don't need Workers runtime
     include: [
       'auth/tests/**/*.test.ts',
+      'oauth/tests/**/*.test.ts',
       'ai/tests/**/*.test.ts',
       'rpc/tests/**/*.test.ts',
       'rpc.do/tests/**/*.test.ts',
@@ -86,6 +87,7 @@ export default defineConfig({
       reporter: ['text', 'json', 'html'],
       include: [
         'auth/src/**/*.ts',
+        'oauth/src/**/*.ts',
         'ai/src/**/*.ts',
         'rpc/src/**/*.ts',
         'rpc.do/src/**/*.ts',

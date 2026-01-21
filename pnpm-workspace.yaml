@@ -2,6 +2,7 @@ packages:
   - rpc
   - mcp
   - auth
+  - oauth
   - db
   - ai
   - do

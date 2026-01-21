@@ -114,6 +114,9 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+      undici:
+        specifier: ^7.18.2
+        version: 7.18.2
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/debug@4.1.12)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.46.0)(tsx@4.21.0)
@@ -194,6 +197,9 @@ importers:
 
   mcp:
     dependencies:
+      '@dotdo/db':
+        specifier: workspace:*
+        version: link:../db
       '@dotdo/do':
         specifier: workspace:*
         version: link:../do
@@ -204,6 +210,15 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+
+  oauth:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/debug@4.1.12)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.46.0)(tsx@4.21.0)
 
   rpc:
     dependencies:
