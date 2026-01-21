@@ -374,7 +374,7 @@ describe('Auth Integration Tests', () => {
         .sign(keySet.privateKey)
 
       // Verify initial token
-      const initialPayload = await verifyTokenWithJwks(initialToken, client)
+      const initialPayload = await verifyTokenWithJwks(token, client)
       expect(initialPayload.sub).toBe('user-123')
 
       // Simulate refresh: verify the old token is valid and issue new one

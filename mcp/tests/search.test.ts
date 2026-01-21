@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createThingsStore, type ThingsStore } from '@dotdo/db'
+import { createThingsStore, type ThingsStore } from '../../db/things'
 import { createSearchTool } from '../search'
 import type { MCPTool } from '../server'
 
@@ -42,13 +42,13 @@ describe('Search Tool', () => {
       const result = await searchTool.execute({ $type: 'User' })
       expect(result).toHaveProperty('results')
       expect(result.results).toHaveLength(3)
-      expect(result.results.every((r: unknown) => (r as { $type: string }).$type === 'User')).toBe(true)
+      expect(result.results.every((r: any) => r.$type === 'User')).toBe(true)
     })
 
     it('should search for Orders', async () => {
       const result = await searchTool.execute({ $type: 'Order' })
       expect(result.results).toHaveLength(2)
-      expect(result.results.every((r: unknown) => (r as { $type: string }).$type === 'Order')).toBe(true)
+      expect(result.results.every((r: any) => r.$type === 'Order')).toBe(true)
     })
 
     it('should return empty array for non-existent type', async () => {
@@ -275,7 +275,7 @@ describe('Search Tool', () => {
       })
 
       expect(result.results).toHaveLength(3)
-      expect(result.results.every((r: unknown) => (r as { $type: string }).$type === 'User')).toBe(true)
+      expect(result.results.every((r: any) => r.$type === 'User')).toBe(true)
     })
 
     it('should return all Things when no filters', async () => {
@@ -283,7 +283,7 @@ describe('Search Tool', () => {
 
       expect(result.results.length).toBeGreaterThan(0)
       // Should include Users, Orders, and Products
-      const types = new Set(result.results.map((r: unknown) => (r as { $type: string }).$type))
+      const types = new Set(result.results.map((r: any) => r.$type))
       expect(types.size).toBeGreaterThan(1)
     })
   })

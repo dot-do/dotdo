@@ -14,9 +14,9 @@ import { HTTPException } from 'hono/http-exception'
 import type { User, Session, Credential } from '../primitives/packages/id.org.ai/src/index'
 import { isSession, isUser } from '../primitives/packages/id.org.ai/src/index'
 import type { AuthUser } from './middleware'
-import { createScopedLogger, LogLevel } from '@dotdo/utils'
+import { createLogger } from '../utils/logger'
 
-const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[OrgAI]' })
+const logger = createLogger('[OrgAI]')
 
 // === Configuration ===
 
@@ -53,16 +53,10 @@ let globalConfig: OrgAiClientConfig = {
  *
  * @example
  * ```typescript
- * // Production configuration
  * configureOrgAiClient({
  *   baseUrl: 'https://staging.id.org.ai',
  *   cacheTtl: 600,
- *   apiKey: env.ORG_AI_API_KEY
- * })
- *
- * // Development/testing with mock mode
- * configureOrgAiClient({
- *   mockMode: true
+ *   apiKey: process.env.ORG_AI_API_KEY
  * })
  * ```
  */
@@ -114,11 +108,21 @@ function setCacheEntry<T>(cache: Map<string, CacheEntry<T>>, key: string, value:
 }
 
 /**
- * Check if mock mode is enabled via config
+ * Check if mock mode is enabled via config or environment variable
  * @internal
  */
 function isMockModeEnabled(): boolean {
-  return globalConfig.mockMode === true
+  if (globalConfig.mockMode === true) return true
+  // Check environment variables (for both Node.js and Vite/Vitest)
+  try {
+    if (typeof process !== 'undefined' && process.env) {
+      if (process.env.ORG_AI_MOCK === 'true') return true
+      if (process.env.NODE_ENV === 'development') return true
+    }
+  } catch {
+    // process.env may not be available in all environments
+  }
+  return false
 }
 
 // === Types ===
@@ -185,7 +189,7 @@ export interface SSOFlowOptions {
   /** Use PKCE for enhanced security */
   usePKCE?: boolean
   /** Event handler for telemetry */
-  onEvent?: (event: unknown) => void
+  onEvent?: (event: any) => void
 }
 
 /**
@@ -199,11 +203,11 @@ export interface SSOFlowResult {
   /** State parameter for validation */
   state: string
   /** PKCE code verifier (if usePKCE is true) */
-  codeVerifier?: string | undefined
+  codeVerifier?: string
   /** PKCE code challenge (if usePKCE is true) */
-  codeChallenge?: string | undefined
+  codeChallenge?: string
   /** PKCE code challenge method */
-  codeChallengeMethod?: 'S256' | 'plain' | undefined
+  codeChallengeMethod?: 'S256' | 'plain'
 }
 
 /**
@@ -258,13 +262,12 @@ export function orgAiAuthMiddleware(options: OrgAiAuthOptions = {}): MiddlewareH
     const authHeader = c.req.header('Authorization')
 
     if (!sessionHeader && !authHeader) {
-      throw new HTTPException(401, {
-        message: 'org.ai session required',
-        res: new Response(JSON.stringify({ error: 'org.ai session required' }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' }
-        })
+      const error = new HTTPException(401, { message: 'org.ai session required' })
+      error.res = new Response(JSON.stringify({ error: 'org.ai session required' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
       })
+      throw error
     }
 
     let session: Session | null = null
@@ -288,13 +291,12 @@ export function orgAiAuthMiddleware(options: OrgAiAuthOptions = {}): MiddlewareH
 
     // Check if session is expired
     if (isSessionExpired(session)) {
-      throw new HTTPException(401, {
-        message: 'org.ai session expired',
-        res: new Response(JSON.stringify({ error: 'org.ai session expired' }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' }
-        })
+      const error = new HTTPException(401, { message: 'org.ai session expired' })
+      error.res = new Response(JSON.stringify({ error: 'org.ai session expired' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
       })
+      throw error
     }
 
     // Custom session validation
@@ -318,15 +320,16 @@ export function orgAiAuthMiddleware(options: OrgAiAuthOptions = {}): MiddlewareH
     if (requireOrganization) {
       const isMember = organizations.some(org => org.$id === requireOrganization)
       if (!isMember) {
-        throw new HTTPException(403, {
-          message: `Organization membership required: ${requireOrganization}`,
-          res: new Response(JSON.stringify({
-            error: `Organization membership required: ${requireOrganization}`
-          }), {
-            status: 403,
-            headers: { 'Content-Type': 'application/json' }
-          })
+        const error = new HTTPException(403, {
+          message: `Organization membership required: ${requireOrganization}`
         })
+        error.res = new Response(JSON.stringify({
+          error: `Organization membership required: ${requireOrganization}`
+        }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' }
+        })
+        throw error
       }
     }
 
@@ -484,7 +487,7 @@ export async function lookupUserByOrgAiId(
 function extractIdFromUri(uri: string, expectedType: string): string | null {
   // Handle full URIs like https://schema.org.ai/users/user-123
   const match = uri.match(new RegExp(`https://schema\\.org\\.ai/${expectedType}/(.+)$`))
-  if (match && match[1] !== undefined) {
+  if (match) {
     return match[1]
   }
   // Handle short IDs (already extracted)
@@ -495,51 +498,11 @@ function extractIdFromUri(uri: string, expectedType: string): string | null {
 }
 
 /**
- * Raw user response shape from org.ai API
- * Covers various API response formats
- * @internal
- */
-interface RawUserResponse {
-  $id?: string
-  id?: string
-  email?: string
-  primaryEmail?: string
-  emails?: Array<{ value?: string }>
-  name?: string
-  displayName?: string
-  fullName?: string
-  firstName?: string
-  lastName?: string
-  profile?: Record<string, unknown>
-  metadata?: Record<string, unknown>
-  createdAt?: string
-  created?: string
-  updatedAt?: string
-  updated?: string
-}
-
-/**
- * Type guard to check if data has properties that look like a user response
- * @internal
- */
-function isRawUserResponse(data: unknown): data is RawUserResponse {
-  return data !== null && typeof data === 'object'
-}
-
-/**
- * Type guard to check if value is a valid profile object
- * @internal
- */
-function isProfileObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-/**
  * Normalize user response from org.ai API to standard User type
  * @internal
  */
-function normalizeUserResponse(data: unknown, originalId: string): User | null {
-  if (!isRawUserResponse(data)) return null
+function normalizeUserResponse(data: any, originalId: string): User | null {
+  if (!data || typeof data !== 'object') return null
 
   // Try to extract required fields from various API response formats
   const email = data.email || data.primaryEmail || data.emails?.[0]?.value
@@ -548,25 +511,15 @@ function normalizeUserResponse(data: unknown, originalId: string): User | null {
 
   if (!email || !name) return null
 
-  // Extract profile, ensuring it's a valid Record<string, unknown>
-  const rawProfile = data.profile || data.metadata
-  const profile = isProfileObject(rawProfile) ? rawProfile : undefined
-
-  const user: User = {
+  return {
     $id: data.$id || data.id || originalId,
     $type: 'https://schema.org.ai/User',
     email,
     name,
+    profile: data.profile || data.metadata,
     createdAt: data.createdAt || data.created || new Date().toISOString(),
     updatedAt: data.updatedAt || data.updated || new Date().toISOString(),
   }
-
-  // Only add profile if it exists (exactOptionalPropertyTypes compatibility)
-  if (profile !== undefined) {
-    user.profile = profile
-  }
-
-  return user
 }
 
 // === Organization Membership ===
@@ -693,70 +646,11 @@ export async function checkOrganizationMembership(
 }
 
 /**
- * Raw organization data shape from org.ai API
- * @internal
- */
-interface RawOrganizationData {
-  $id?: string
-  id?: string
-  name?: string
-  displayName?: string
-}
-
-/**
- * Raw membership response shape from org.ai API
- * Covers various API response formats
- * @internal
- */
-interface RawMembershipResponse {
-  isMember?: boolean
-  member?: boolean
-  active?: boolean
-  role?: string
-  memberRole?: string
-  permission?: string
-  joinedAt?: string
-  createdAt?: string
-  memberSince?: string
-  organization?: RawOrganizationData
-  organizationName?: string
-  orgName?: string
-}
-
-/**
- * Type guard to check if data has properties that look like a membership response
- * @internal
- */
-function isRawMembershipResponse(data: unknown): data is RawMembershipResponse {
-  return data !== null && typeof data === 'object'
-}
-
-/**
- * Build an OrgAiOrganization object, only including optional properties when defined
- * @internal
- */
-function buildOrgAiOrganization(
-  $id: string,
-  role: string,
-  name?: string,
-  joinedAt?: string
-): OrgAiOrganization {
-  const org: OrgAiOrganization = { $id, role }
-  if (name !== undefined) {
-    org.name = name
-  }
-  if (joinedAt !== undefined) {
-    org.joinedAt = joinedAt
-  }
-  return org
-}
-
-/**
  * Normalize membership response from org.ai API to standard OrganizationMembership type
  * @internal
  */
-function normalizeMembershipResponse(data: unknown, orgId: string): OrganizationMembership {
-  if (!isRawMembershipResponse(data)) {
+function normalizeMembershipResponse(data: any, orgId: string): OrganizationMembership {
+  if (!data || typeof data !== 'object') {
     return { isMember: false }
   }
 
@@ -765,31 +659,22 @@ function normalizeMembershipResponse(data: unknown, orgId: string): Organization
   const role = data.role || data.memberRole || data.permission || 'member'
   const joinedAt = data.joinedAt || data.createdAt || data.memberSince
 
-  const result: OrganizationMembership = { isMember }
-
-  // Only add optional properties if they have values
-  if (role !== undefined) {
-    result.role = role
-  }
-  if (joinedAt !== undefined) {
-    result.joinedAt = joinedAt
-  }
-
-  // Build organization object
-  if (data.organization) {
-    const orgName = data.organization.name || data.organization.displayName
-    result.organization = buildOrgAiOrganization(
-      data.organization.$id || data.organization.id || orgId,
+  return {
+    isMember,
+    role,
+    joinedAt,
+    organization: data.organization ? {
+      $id: data.organization.$id || data.organization.id || orgId,
+      name: data.organization.name || data.organization.displayName,
       role,
-      orgName,
-      joinedAt
-    )
-  } else {
-    const orgName = data.organizationName || data.orgName
-    result.organization = buildOrgAiOrganization(orgId, role, orgName, joinedAt)
+      joinedAt,
+    } : {
+      $id: orgId,
+      name: data.organizationName || data.orgName,
+      role,
+      joinedAt,
+    },
   }
-
-  return result
 }
 
 // === Permission Mapping ===
@@ -911,8 +796,8 @@ export async function initiateSSOFlow(options: SSOFlowOptions): Promise<SSOFlowR
     redirectUri,
     state,
     scopes,
-    ...(codeChallenge !== undefined && { codeChallenge }),
-    ...(codeChallengeMethod !== undefined && { codeChallengeMethod }),
+    codeChallenge,
+    codeChallengeMethod
   })
 
   // Emit event for telemetry
@@ -947,40 +832,20 @@ function isSessionExpired(session: Session): boolean {
 }
 
 /**
- * Raw organization entry shape from session metadata
- * @internal
- */
-interface RawSessionOrganization {
-  $id?: string
-  id?: string
-  name?: string
-  role?: string
-  joinedAt?: string
-}
-
-/**
- * Type guard to check if value is an array of organization-like objects
- * @internal
- */
-function isRawSessionOrganizationArray(value: unknown): value is RawSessionOrganization[] {
-  return Array.isArray(value) && value.every(item => item !== null && typeof item === 'object')
-}
-
-/**
  * Extract organizations from session metadata
  */
 function extractOrganizations(session: Session): OrgAiOrganization[] {
-  const orgsValue = session.metadata?.['organizations']
-  if (!orgsValue || !isRawSessionOrganizationArray(orgsValue)) {
+  if (!session.metadata?.organizations) {
     return []
   }
 
-  return orgsValue.map(org => buildOrgAiOrganization(
-    org.$id || org.id || '',
-    org.role || 'member',
-    org.name,
-    org.joinedAt
-  ))
+  const orgs = session.metadata.organizations as any[]
+  return orgs.map(org => ({
+    $id: org.$id || org.id,
+    name: org.name,
+    role: org.role || 'member',
+    joinedAt: org.joinedAt
+  }))
 }
 
 /**
@@ -1060,7 +925,7 @@ function buildAuthUrl(
     'microsoft': 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize'
   }
 
-  const baseUrl = providerUrls[provider] ?? providerUrls['org.ai']!
+  const baseUrl = providerUrls[provider] || providerUrls['org.ai']
   const url = new URL(baseUrl)
 
   // Standard OAuth parameters
@@ -1069,7 +934,7 @@ function buildAuthUrl(
   url.searchParams.set('state', params.state)
   url.searchParams.set('scope', params.scopes.join(' '))
 
-  // Client ID (hardcoded; make configurable via params if needed)
+  // Add client_id (TODO: make configurable)
   url.searchParams.set('client_id', 'dotdo-auth')
 
   // PKCE parameters
