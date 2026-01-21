@@ -95,10 +95,26 @@ export interface StorageAdapter {
   list<T = unknown>(options?: ListOptions): Promise<ListResult<T>>
 
   /**
-   * Execute a function within a transaction
-   * All operations within the function are atomic - they either all succeed
-   * or all fail. Not all backends may support true transactions; they should
-   * document their behavior.
+   * Execute a function within a transaction.
+   *
+   * ## Important: Cloudflare Durable Objects Limitation (do-tvu1h)
+   *
+   * In Cloudflare Durable Objects, explicit transaction APIs (BEGIN/COMMIT/ROLLBACK)
+   * are blocked by the runtime. The SQLiteStorageAdapter.transaction() method is
+   * therefore a **NO-OP pass-through** that simply executes the function.
+   *
+   * ### How to Achieve Atomicity in Cloudflare DOs:
+   *
+   * 1. **Automatic Atomicity**: Consecutive SQL operations WITHOUT intervening `await`
+   *    statements are automatically atomic. This is the recommended approach.
+   *
+   * 2. **transactionSync()**: Use `state.storage.transactionSync()` for synchronous
+   *    operations that need explicit transaction boundaries.
+   *
+   * 3. **blockConcurrencyWhile()**: Use for concurrency control (not database
+   *    transactions) to prevent interleaving of read-modify-write sequences.
+   *
+   * See db/TRANSACTIONS.md for comprehensive documentation on transaction patterns.
    *
    * @param fn The function to execute within the transaction
    * @param options Optional transaction options
