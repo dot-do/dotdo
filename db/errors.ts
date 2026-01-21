@@ -29,6 +29,7 @@ export const ErrorCode = {
   RATE_LIMIT: 'RATE_LIMIT',
   SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
   NOT_IMPLEMENTED: 'NOT_IMPLEMENTED',
+  PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
 
   // Authentication/Authorization errors
   AUTHENTICATION_ERROR: 'AUTHENTICATION_ERROR',
@@ -59,6 +60,7 @@ export const ERROR_CODE_TO_HTTP_STATUS: Record<ErrorCodeType, number> = {
   [ErrorCode.RATE_LIMIT]: 429,
   [ErrorCode.SERVICE_UNAVAILABLE]: 503,
   [ErrorCode.NOT_IMPLEMENTED]: 501,
+  [ErrorCode.PAYLOAD_TOO_LARGE]: 413,
   [ErrorCode.AUTHENTICATION_ERROR]: 401,
   [ErrorCode.AUTHORIZATION_ERROR]: 403,
   [ErrorCode.NETWORK_ERROR]: 503,
@@ -565,6 +567,9 @@ export function isSerializedDotdoError(value: unknown): value is SerializedDotdo
   if (obj['details'] !== undefined && typeof obj['details'] !== 'object') {
     return false
   }
+  if (obj['stack'] !== undefined && typeof obj['stack'] !== 'string') {
+    return false
+  }
 
   return true
 }
@@ -583,14 +588,22 @@ export function getErrorMessage(error: unknown): string {
  * Check if an error is retryable
  */
 export function isRetryableError(error: unknown): boolean {
-  // Check for explicit retryable property
-  if (error && typeof error === 'object' && 'retryable' in error) {
-    return (error as { retryable: boolean }).retryable
+  if (error && typeof error === 'object') {
+    // Check for explicit retriable property first (old rpc naming, takes precedence for backward compat)
+    // This must be checked BEFORE DotdoError.retryable getter
+    if ('retriable' in error) {
+      return (error as { retriable: boolean }).retriable
+    }
   }
 
-  // Check DotdoError-based errors
+  // Check DotdoError-based errors (uses code-based retryable getter)
   if (error instanceof DotdoError) {
     return error.retryable
+  }
+
+  // Check for explicit retryable property on non-DotdoError objects
+  if (error && typeof error === 'object' && 'retryable' in error) {
+    return (error as { retryable: boolean }).retryable
   }
 
   // Generic errors are NOT retryable by default
