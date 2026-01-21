@@ -156,6 +156,10 @@ export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Pr
     }, timeoutMs)
   })
 
+  // Prevent unhandled rejection if the main promise resolves before timeout
+  // (the rejection is still thrown if timeout wins the race)
+  timeoutPromise.catch(() => {})
+
   try {
     return await Promise.race([promise, timeoutPromise])
   } finally {

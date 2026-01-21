@@ -198,6 +198,9 @@ describe('retryWithBackoff', () => {
       initialDelay: 100,
     })
 
+    // Prevent unhandled rejection during timer advancement
+    promise.catch(() => {})
+
     await vi.runAllTimersAsync()
 
     await expect(promise).rejects.toThrow('Network failed')
@@ -652,6 +655,8 @@ describe('withTimeout', () => {
     const fn = vi.fn().mockImplementation(() => new Promise(() => {})) // Never resolves
 
     const promise = withTimeout(fn(), 1000)
+    // Prevent unhandled rejection during timer advancement
+    promise.catch(() => {})
     await vi.advanceTimersByTimeAsync(1000)
 
     await expect(promise).rejects.toThrow('Request timed out after 1000ms')
@@ -662,6 +667,8 @@ describe('withTimeout', () => {
     const fn = vi.fn().mockRejectedValue(error)
 
     const promise = withTimeout(fn(), 5000)
+    // Prevent unhandled rejection during timer advancement
+    promise.catch(() => {})
     await vi.runAllTimersAsync()
 
     await expect(promise).rejects.toThrow('Failed')
@@ -671,6 +678,8 @@ describe('withTimeout', () => {
     const fn = vi.fn().mockImplementation(() => new Promise(() => {}))
 
     const promise = withTimeout(fn(), 2000)
+    // Prevent unhandled rejection during timer advancement
+    promise.catch(() => {})
     await vi.advanceTimersByTimeAsync(2000)
 
     try {
