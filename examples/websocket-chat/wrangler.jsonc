@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "websocket-chat-example",
+  "main": "index.ts",
+  "compatibility_date": "2024-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Objects
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CHAT",
+        "class_name": "ChatDO"
+      }
+    ]
+  },
+
+  // Migrations for DO
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["ChatDO"]
+    }
+  ],
+
+  // Development settings
+  "dev": {
+    "port": 8791,
+    "local_protocol": "http"
+  }
+}
