@@ -45,6 +45,7 @@ export const workspaceAliases = {
 
   '@dotdo/utils/proxy': resolve(root, 'utils/proxy.ts'),
   '@dotdo/utils/logger': resolve(root, 'utils/logger.ts'),
+  '@dotdo/utils/cookies': resolve(root, 'utils/cookies.ts'),
   '@dotdo/utils/circuit-breaker': resolve(root, 'utils/circuit-breaker.ts'),
   '@dotdo/utils': resolve(root, 'utils/index.ts'),
 

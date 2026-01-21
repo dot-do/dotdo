@@ -1,11 +1,35 @@
 // Zod Schemas for Runtime Validation - see do-grp5.11
 // Provides type-safe runtime validation for Things, Events, and Relationships
+// Types imported from types.ts per do-stc2d.1 to break circular dependencies
 
 import { z } from 'zod'
-import type { Thing, ThingInput, ThingUpdate, BaseThing } from './things'
-import type { Event, EventInput, BaseEvent, RetentionPolicy, DLQEntry, EventQueryOptions, DurabilityConfig } from './events'
-import type { Relationship, RelationshipInput, BaseRelationship, RelationshipQuery } from './relationships'
-import type { StorableData, JsonValue, JsonPrimitive, JsonArray, JsonObject } from './types'
+// All types now imported from types.ts to avoid circular dependencies
+import type {
+  // Thing types
+  Thing,
+  ThingInput,
+  ThingUpdate,
+  BaseThing,
+  // Event types
+  Event,
+  EventInput,
+  BaseEvent,
+  RetentionPolicy,
+  DLQEntry,
+  EventQueryOptions,
+  DurabilityConfig,
+  // Relationship types
+  Relationship,
+  RelationshipInput,
+  BaseRelationship,
+  RelationshipQuery,
+  // Core types
+  StorableData,
+  JsonValue,
+  JsonPrimitive,
+  JsonArray,
+  JsonObject,
+} from './types'
 
 // =============================================================================
 // JSON Value Schemas - Core building blocks
