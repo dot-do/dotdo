@@ -656,10 +656,10 @@ This section documents the implementation status of extended primitives (fsx, gi
 
 | Primitive | Package | Status | `$` Context Wiring |
 |-----------|---------|--------|-------------------|
-| **fsx** | `fsx/` submodule | Implemented | Manual |
-| **gitx** | `gitx/` submodule | Implemented | Manual |
-| **bashx** | `bashx/` submodule | Implemented | Manual |
-| **npmx** | `npmx/` submodule | Implemented | Manual |
+| **fsx** | `fsx/` submodule | Implemented | **Automatic** (via mixin) or Manual |
+| **gitx** | `gitx/` submodule | Implemented | **Automatic** (via mixin) or Manual |
+| **bashx** | `bashx/` submodule | Implemented | **Automatic** (via mixin) or Manual |
+| **npmx** | `npmx/` submodule | Implemented | **Automatic** (via mixin) or Manual |
 
 ### Current Architecture
 
@@ -778,56 +778,78 @@ See [ADR-004](./docs/adr/ADR-004-workflow-context-modules.md) for the composable
 
 ## Storage Architecture
 
-### Tiered Storage
+### Tiered Storage (Implemented)
+
+The `@dotdo/db` package provides a working tiered storage system:
 
 ```
 +---------------------------------------------------------------------+
-|                    HOT: DO SQLite                                   |
-|  Active working set. 50ms reads. 10GB per shard.                    |
+|                    HOT: Cloudflare Cache API                        |
+|  Free, fastest, ephemeral, global edge. Auto-promotes on access.    |
++-----------------------------+---------------------------------------+
+                              | Promotion/Demotion
+                              v
++---------------------------------------------------------------------+
+|                  WARM: DO SQLite                                    |
+|  Active working set. 50ms reads. 10GB per shard. Source of truth.   |
++-----------------------------+---------------------------------------+
+                              | Archive on demand
+                              v
++---------------------------------------------------------------------+
+|                  COLD: R2 Object Storage                            |
+|  Durable, unlimited, $0 egress. For archival and large datasets.    |
++---------------------------------------------------------------------+
+```
+
+**Available now:**
+- `TieredStorageAdapter` - Unified interface across all three tiers
+- Auto-promotion based on access patterns (configurable threshold)
+- Manual promotion/demotion with event callbacks
+- Statistics tracking for all tiers
+- Write-through option for immediate cold tier durability
+
+```typescript
+import { createTieredStorageAdapter, createCacheLayer, R2StorageLayer } from '@dotdo/db'
+
+const tieredStorage = createTieredStorageAdapter({
+  cacheLayer: await createCacheLayer({ cacheName: 'dotdo', ttlSeconds: 300, baseUrl: 'https://cache.dotdo.dev' }),
+  doStorage: sqliteAdapter,  // Your DO's SQLite storage
+  r2Layer: new R2StorageLayer({ bucket: env.R2_BUCKET, prefix: 'dotdo/' }),
+  promotionThreshold: 3,     // Promote after 3 accesses
+  autoPromote: true,
+})
+
+// Data flows through tiers automatically
+const data = await tieredStorage.get('key')  // Checks hot → warm → cold
+await tieredStorage.put('key', value)        // Writes to warm by default
+```
+
+### Future: Analytics Pipeline (Roadmap)
+
+The following architecture is planned for cross-DO analytics:
+
+```
++---------------------------------------------------------------------+
+|                    HOT: DO SQLite (per-shard)                       |
 +-----------------------------+---------------------------------------+
                               | Cloudflare Pipelines (streaming)
                               v
 +---------------------------------------------------------------------+
 |                  WARM: R2 + Iceberg/Parquet                         |
-|  Cross-DO queries. 100-150ms. Partitioned by (ns, type, visibility) |
+|  Cross-DO queries. Partitioned by (ns, type, visibility)            |
 +-----------------------------+---------------------------------------+
-                              | R2 SQL / ClickHouse
+                              | R2 SQL / ClickHouse connector
                               v
 +---------------------------------------------------------------------+
 |                  COLD: ClickHouse + R2 Archive                      |
-|  Analytics, aggregations, time-series. Pennies per TB.              |
+|  Analytics, aggregations, time-series.                              |
 +---------------------------------------------------------------------+
 ```
 
-Data flows automatically:
-- Old versions archive to R2
-- Analytics stream to Iceberg
-- Query with SQL across all tiers
-
-**R2 has $0 egress.** Your analytics cost pennies, not thousands.
-
-### Pipeline-as-WAL
-
-The unified storage module implements **Pipeline-as-WAL** (Write-Ahead Log):
-
-```
-Write Path:
-  Client → PipelineEmitter → Pipeline (WAL) → ACK
-                ↓
-         InMemoryState
-                ↓
-         LazyCheckpointer → SQLite (batched)
-
-Read Path:
-  Client → InMemoryState (O(1)) → Response
-```
-
-**Key invariant:** Events are durable in Pipeline BEFORE local SQLite persistence.
-
-**Benefits:**
-- Zero data loss on DO eviction
-- Immediate ACK to clients
-- ~95% reduction in SQLite write operations
+**Planned features:**
+- Automatic archival to R2 with Iceberg table format
+- Cross-DO SQL queries via R2 SQL or ClickHouse
+- Pipeline-as-WAL for zero data loss on DO eviction
 
 ---
 
@@ -1057,8 +1079,8 @@ bd sync --from-main                   # Sync beads updates
 
 - **Runtime:** Cloudflare Workers (V8 isolates, 0ms cold starts)
 - **Storage:** Durable Objects (SQLite, single-threaded consistency)
-- **Object Storage:** R2 ($0 egress, Iceberg/Parquet)
-- **Analytics:** ClickHouse (time-series, aggregations)
+- **Object Storage:** R2 ($0 egress, tiered with Cache API)
+- **Analytics:** ClickHouse integration (roadmap)
 - **RPC:** Cap'n Web (promise pipelining)
 
 ---
