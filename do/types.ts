@@ -654,4 +654,5 @@ export interface CreateTypedContextOptions {
 // Re-export related types that users commonly need
 export type { EventHandler } from './on'
 export type { ScheduleRegistration, ScheduleHandler, ScheduleInterval } from './schedule'
-export type { Event } from '../db'
+// NOTE: Event type should be imported directly from @dotdo/db to avoid circular dependencies
+// See issue do-njqb: Event, EventsStore, and other db types belong in @dotdo/db
