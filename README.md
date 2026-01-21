@@ -663,24 +663,73 @@ This section documents the implementation status of extended primitives (fsx, gi
 
 ### Current Architecture
 
-The primitives are **implemented** in separate submodule directories (`fsx/`, `gitx/`, `bashx/`, `npmx/`) and are re-exported from `do/primitives/index.ts`. However, they are **not automatically wired** to the `$` context when you extend the base `DO` class.
+The primitives are **implemented** in separate submodule directories (`fsx/`, `gitx/`, `bashx/`, `npmx/`) and are re-exported from `do/primitives/index.ts`.
 
-The `WorkflowContext` (`$`) supports primitives via its `CreateContextOptions`:
+**Two wiring options:**
 
-```typescript
-// From do/workflow/types.ts
-interface CreateContextOptions {
-  fs?: FsCapability
-  git?: GitCapability
-  bash?: BashCapability
-  npm?: NpmCapability
-  // ... other options
-}
-```
+1. **Automatic** - Use the `DOWithPrimitives` mixin (recommended)
+2. **Manual** - Wire primitives yourself for full control
 
 ### How to Wire Primitives
 
-To use primitives in your DO, you need to create implementations of the capability interfaces and pass them to `createContext()`:
+#### Option 1: DOWithPrimitives Mixin (Recommended)
+
+The simplest way to add primitives is the `DOWithPrimitives` mixin - one line to enable all primitives:
+
+```typescript
+import { DO, DOWithPrimitives } from '@dotdo/do'
+
+// One-line integration - just extend DOWithPrimitives
+export class MyApp extends DOWithPrimitives(DO) {
+  async handleRequest() {
+    // All primitives available via $ context
+    await this.$.fs.writeFile('/config.json', JSON.stringify(config))
+    const files = await this.$.fs.readdir('/data')
+  }
+}
+
+// With explicit configuration
+export class DevEnv extends DOWithPrimitives(DO, {
+  fs: { basePath: '/workspace' },
+  bash: { executor: containerExecutor },
+  git: { repo: 'org/repo', branch: 'main' }
+}) {
+  async setupProject() {
+    await this.$.git.sync()
+    await this.$.bash.exec('npm', ['install'])
+  }
+}
+
+// Selective enablement
+export class FilesOnly extends DOWithPrimitives(DO, {
+  fs: true,      // Enable filesystem
+  git: false,    // Disable git
+  bash: false,   // Disable bash
+  npm: false     // Disable npm
+}) {
+  // Only $.fs is available
+}
+```
+
+**Features:**
+- **Lazy initialization** - Primitives are created on first access
+- **Auto-wiring** - Automatically wires to R2 bindings and SQLite storage
+- **Composable** - Works with other mixins: `DOWithPrimitives(WithAuth(DO))`
+- **Type-safe** - Full TypeScript support with capability checking
+
+```typescript
+// Check primitive availability at runtime
+if (this.hasPrimitive('git')) {
+  await this.$.git.commit('feat: new feature')
+}
+
+// Get list of available primitives
+const available = this.getAvailablePrimitives() // ['fs', 'git', 'bash']
+```
+
+#### Option 2: Manual Wiring
+
+For full control, wire primitives manually:
 
 ```typescript
 import { DO, createContext, type FsCapability, type GitCapability, type BashCapability } from '@dotdo/do'
@@ -763,14 +812,14 @@ Each primitive has a defined capability interface:
 - `search(query)` - Search npm registry
 - `info(name, version?)` - Get package info
 
-### Roadmap
+### Implementation Status
 
-The current manual wiring approach is intentional to keep the base `DO` class lightweight. Future enhancements may include:
+The `DOWithPrimitives` mixin provides:
 
-1. **Automatic wiring via env bindings** - Detect and wire primitives from Cloudflare bindings
-2. **Lazy initialization** - Initialize primitives on first access
-3. **Composable mixins** - Use `WithFs(DO)`, `WithGit(DO)` mixin patterns
-4. **Pre-built DO variants** - `DOWithPrimitives` class with all primitives wired
+- **Automatic wiring via env bindings** - Detects R2 bindings and SQLite storage automatically
+- **Lazy initialization** - Primitives are created on first access for efficiency
+- **Composable mixins** - Use `DOWithPrimitives(WithAuth(DO))` to combine capabilities
+- **Pre-built DO variant** - `DOWithPrimitives(DO)` provides all primitives with zero configuration
 
 See [ADR-004](./docs/adr/ADR-004-workflow-context-modules.md) for the composable modules design.
 
