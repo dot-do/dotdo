@@ -99,6 +99,17 @@ export {
   type EntityAccessor,
   type EntityProxy,
   type EntityProxyConfig,
+  // Typed entity accessor types with type narrowing (do-b1tuz)
+  type TypedEntityInstance,
+  type TypedEntityAccessor,
+  type TypedEntityProxy,
+  type EntityDefinitionsConstraint,
+  type EmptyEntityDefinitions,
+  type DefineEntities,
+  type EntitySchemaDefinition,
+  type EntityAccessors,
+  type TypedWorkflowContextWithEntities,
+  type CreateTypedEntityContext,
 } from './entity'
 
 // Saga pattern for cross-DO transactions (do-o9ix8)
