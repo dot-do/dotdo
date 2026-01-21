@@ -28,7 +28,7 @@ import {
   buildOrderByClause,
   buildPaginationClause
 } from './query'
-import { applyCursorPagination } from './pagination'
+import { applyCursorPagination, encodeCursor, decodeCursor } from './pagination'
 import { MigrationRunner, coreMigrations, type Migration } from './migrations'
 import { generateId, generateEventId } from './id'
 
@@ -855,11 +855,11 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
     },
 
     // Dead letter queue methods - SQLite-persisted (do-6dc7.6)
-    addToDeadLetterQueue(entry) {
+    async addToDeadLetterQueue(entry) {
       const id = generateId()
       const timestamp = Date.now()
 
-      sql
+      await sql
         .prepare(
           `INSERT INTO dead_letter_queue
            (id, event_id, event_type, event_payload, event_timestamp, event_source, event_correlation_id, attempts, last_error, handler_index, timestamp)
@@ -1226,11 +1226,11 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
     },
 
     // Validation failure tracking - SQLite-persisted (do-6dc7.6)
-    addValidationFailure(failure) {
+    async addValidationFailure(failure) {
       const id = generateId()
       const timestamp = Date.now()
 
-      sql
+      await sql
         .prepare(
           `INSERT INTO validation_failures (id, type, payload, error, details, timestamp)
            VALUES (?, ?, ?, ?, ?, ?)`
