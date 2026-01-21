@@ -245,10 +245,9 @@ export type TypedOnProxy<E extends EventSchemasConstraint> = {
   // Known nouns from event schema get typed noun proxies
   [N in EventNouns<E>]: TypedNounEventProxy<E, N>
 } & {
-  // Wildcard support
+  // Wildcard support - use '*' as a special case that returns the same proxy
+  // Note: Index signature removed to avoid type conflicts with '*' property
   '*': TypedNounEventProxy<E, '*'>
-  // Index signature for unknown nouns (fallback to untyped)
-  [noun: string]: TypedNounEventProxy<E, string>
 }
 
 /**

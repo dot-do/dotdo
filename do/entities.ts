@@ -231,15 +231,18 @@ export class EntityManager {
       // Add to dead letter queue for programmatic observability
       // Note: The emit() function now handles handler failures internally,
       // so this only catches cases where emit() itself fails (e.g., storage error)
+      // Build event object, only including defined properties (exactOptionalPropertyTypes)
+      const failedEvent: import('@dotdo/db').Event<JsonValue> = {
+        $id: `failed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` as ReturnType<typeof import('@dotdo/db').generateEventId>,
+        $timestamp: Date.now(),
+        type: eventInput.type,
+        payload: eventInput.payload
+      }
+      if (eventInput.source !== undefined) failedEvent.source = eventInput.source
+      if (eventInput.correlationId !== undefined) failedEvent.correlationId = eventInput.correlationId
+
       this._events.addToDeadLetterQueue({
-        event: {
-          $id: `failed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` as ReturnType<typeof import('@dotdo/db').generateEventId>,
-          $timestamp: Date.now(),
-          type: eventInput.type,
-          payload: eventInput.payload,
-          source: eventInput.source,
-          correlationId: eventInput.correlationId
-        },
+        event: failedEvent,
         lastError: errorMessage + (errorStack ? `\n${errorStack}` : ''),
         attempts: 1
       })

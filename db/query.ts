@@ -263,15 +263,15 @@ export interface JoinSpec<T extends StorableData = StorableData> {
 }
 
 export interface QueryOptions<T extends StorableData = StorableData> {
-  type?: string
-  where?: Partial<T>
-  whereConditions?: WhereCondition[]
-  orderBy?: string
-  order?: 'asc' | 'desc'
-  limit?: number
-  offset?: number
-  select?: string[]
-  joins?: JoinSpec[]
+  type?: string | undefined
+  where?: Partial<T> | undefined
+  whereConditions?: WhereCondition[] | undefined
+  orderBy?: string | undefined
+  order?: 'asc' | 'desc' | undefined
+  limit?: number | undefined
+  offset?: number | undefined
+  select?: string[] | undefined
+  joins?: JoinSpec[] | undefined
 }
 
 /**
@@ -286,7 +286,7 @@ export interface ThingWithJoins extends Thing {
  */
 export interface PaginatedQueryResult<T extends ThingWithJoins = ThingWithJoins> {
   results: T[]
-  cursor?: string
+  cursor?: string | undefined
   hasMore: boolean
 }
 
@@ -391,11 +391,11 @@ function matchesCondition(thing: Thing, condition: WhereCondition): boolean {
     case 'IN':
       if (!Array.isArray(value)) return false
       if (value.length === 0) return false
-      return value.includes(thingValue)
+      return value.includes(thingValue as JsonValue)
     case 'NOT IN':
       if (!Array.isArray(value)) return true
       if (value.length === 0) return true
-      return !value.includes(thingValue)
+      return !value.includes(thingValue as JsonValue)
     case 'IS NULL':
       return thingValue === null || thingValue === undefined
     case 'IS NOT NULL':
@@ -439,16 +439,18 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
     alias?: string,
     joinOptions?: JoinOptions
   ): void {
-    options.joins!.push({
+    // Build JoinSpec with only defined properties for exactOptionalPropertyTypes
+    const joinSpec: JoinSpec = {
       predicate,
       targetType,
-      conditions,
-      fromJoin,
-      alias,
-      options: joinOptions,
       joinType,
       direction
-    })
+    }
+    if (conditions !== undefined) joinSpec.conditions = conditions
+    if (fromJoin !== undefined) joinSpec.fromJoin = fromJoin
+    if (alias !== undefined) joinSpec.alias = alias
+    if (joinOptions !== undefined) joinSpec.options = joinOptions
+    options.joins!.push(joinSpec)
   }
 
   /**
@@ -607,7 +609,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
     where(fieldOrConditions: string | StorableData, value?: JsonValue) {
       if (typeof fieldOrConditions === 'string') {
         validateFieldName(fieldOrConditions)
-        options.where = { ...options.where, [fieldOrConditions]: value }
+        options.where = { ...(options.where || {}), [fieldOrConditions]: value } as Partial<T>
         options.whereConditions!.push({
           field: fieldOrConditions,
           operator: '=',
@@ -617,7 +619,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
         for (const field of Object.keys(fieldOrConditions)) {
           validateFieldName(field)
         }
-        options.where = { ...options.where, ...fieldOrConditions }
+        options.where = { ...(options.where || {}), ...fieldOrConditions } as Partial<T>
         for (const [field, val] of Object.entries(fieldOrConditions)) {
           options.whereConditions!.push({
             field,
@@ -947,6 +949,8 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
       }
 
       // Save original options and set pagination
+      const hadLimit = 'limit' in options && options.limit !== undefined
+      const hadOffset = 'offset' in options && options.offset !== undefined
       const originalLimit = options.limit
       const originalOffset = options.offset
       options.limit = effectiveLimit + 1 // Fetch one extra to check for more
@@ -955,8 +959,16 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
       const results = await builder.execute()
 
       // Restore original options
-      options.limit = originalLimit
-      options.offset = originalOffset
+      if (hadLimit) {
+        options.limit = originalLimit
+      } else {
+        delete options.limit
+      }
+      if (hadOffset) {
+        options.offset = originalOffset
+      } else {
+        delete options.offset
+      }
 
       // Check if there are more results
       const hasMore = results.length > effectiveLimit
@@ -985,7 +997,8 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
       }
 
       // Use bounded max limit for count fallback (do-bgr1)
-      const originalLimit = options.limit
+      const hadLimitForCount = 'limit' in options && options.limit !== undefined
+      const originalLimitForCount = options.limit
       const countLimit = clampAndWarnLimit(
         getQueryLimits().maxLimit,
         'count-fallback',
@@ -993,7 +1006,11 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
       )
       options.limit = countLimit
       const results = await builder.execute()
-      options.limit = originalLimit
+      if (hadLimitForCount) {
+        options.limit = originalLimitForCount
+      } else {
+        delete options.limit
+      }
       return results.length
     }
   }

@@ -285,7 +285,7 @@ export function createSQLiteRevocationStore(sql: SqlStorage): TokenRevocationSto
         return (result?.count as number) ?? 0
       }
 
-      const result = await sql.prepare(query).first()
+      const result = await sql.prepare(query).bind().first()
       return (result?.count as number) ?? 0
     },
   }

@@ -82,7 +82,7 @@ export interface DLQEntry<P extends JsonValue = JsonValue> {
   attempts: number
   lastError: string
   timestamp: number
-  handlerIndex?: number
+  handlerIndex?: number | undefined
 }
 
 /**
@@ -258,33 +258,33 @@ export interface EventsStore<P extends JsonValue = JsonValue> {
 
   // Dead letter queue methods
   /** Add a failed event to the dead letter queue. */
-  addToDeadLetterQueue(entry: Omit<DLQEntry<P>, 'timestamp'>): void
+  addToDeadLetterQueue(entry: Omit<DLQEntry<P>, 'timestamp'>): void | Promise<void>
   /** Get all events in the dead letter queue. */
-  getDeadLetterQueue(): DLQEntry<P>[]
+  getDeadLetterQueue(): DLQEntry<P>[] | Promise<DLQEntry<P>[]>
   /** Query the dead letter queue with filtering. */
-  queryDeadLetterQueue(options?: DLQQueryOptions): DLQEntry<P>[]
+  queryDeadLetterQueue(options?: DLQQueryOptions): DLQEntry<P>[] | Promise<DLQEntry<P>[]>
   /** Remove an event from the dead letter queue. */
-  removeFromDeadLetterQueue(eventId: string): boolean
+  removeFromDeadLetterQueue(eventId: string): boolean | Promise<boolean>
   /** Replay events from the dead letter queue. */
   replayDeadLetterQueue(options?: DLQQueryOptions): Promise<Event<P>[]>
 
   // Validation failure tracking
   /** Record a validation failure for diagnostics. */
-  addValidationFailure(failure: Omit<ValidationFailure<P>, 'timestamp'>): void
+  addValidationFailure(failure: Omit<ValidationFailure<P>, 'timestamp'>): void | Promise<void>
   /** Query validation failures. */
-  queryValidationFailures(options?: { type?: string }): ValidationFailure<P>[]
+  queryValidationFailures(options?: { type?: string }): ValidationFailure<P>[] | Promise<ValidationFailure<P>[]>
 
   // Retry status tracking
   /** Set the retry status for an event. */
-  setEventRetryStatus(eventId: string, status: EventRetryStatus): void
+  setEventRetryStatus(eventId: string, status: EventRetryStatus): void | Promise<void>
   /** Get the retry status for an event. */
-  getEventRetryStatus(eventId: string): EventRetryStatus | undefined
+  getEventRetryStatus(eventId: string): EventRetryStatus | undefined | Promise<EventRetryStatus | undefined>
 
   // Retry metrics
   /** Record a retry attempt for metrics. */
-  recordRetryAttempt(eventType: string, succeeded: boolean, retryCount: number): void
+  recordRetryAttempt(eventType: string, succeeded: boolean, retryCount: number): void | Promise<void>
   /** Get retry metrics per event type. */
-  getRetryMetrics(): Record<string, RetryMetrics>
+  getRetryMetrics(): Record<string, RetryMetrics> | Promise<Record<string, RetryMetrics>>
 
   // Durability configuration
   /** Set durability configuration per event type. */
@@ -467,7 +467,7 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
       let deleted = 0
       const result = await adapter.list<Event<P>>({ prefix: EVENTS_PREFIX, includeValues: true })
       let events = Array.from(result.entries.entries())
-        .filter(([_, e]): e is [string, Event<P>] => e !== undefined)
+        .filter((entry): entry is [string, Event<P>] => entry[1] !== undefined)
 
       // Delete by age
       if (retentionPolicy.maxAgeDays) {
@@ -531,7 +531,9 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
     },
 
     async replayDeadLetterQueue(options) {
-      const toReplay = this.queryDeadLetterQueue(options)
+      const toReplayResult = this.queryDeadLetterQueue(options)
+      // Handle both sync and async returns
+      const toReplay = Array.isArray(toReplayResult) ? toReplayResult : await toReplayResult
       const replayedEvents: Event<P>[] = []
 
       for (const entry of toReplay) {
@@ -690,9 +692,9 @@ export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStor
       let handlerIndex = 0
       for (const handler of subscribers) {
         try {
-          const result = handler(event)
+          const result = handler(event) as unknown
           // Handle async handlers - catch any promise rejections
-          if (result && typeof (result as Promise<unknown>).catch === 'function') {
+          if (result !== null && result !== undefined && typeof (result as Promise<unknown>).catch === 'function') {
             // Fire-and-forget but track failures
             const currentIndex = handlerIndex
             ;(result as Promise<unknown>).catch((asyncError: unknown) => {
@@ -872,7 +874,9 @@ export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStor
     },
 
     async replayDeadLetterQueue(options?: DLQQueryOptions): Promise<Event<P>[]> {
-      const toReplay = this.queryDeadLetterQueue(options)
+      const toReplayResult = this.queryDeadLetterQueue(options)
+      // Handle both sync and async returns
+      const toReplay = Array.isArray(toReplayResult) ? toReplayResult : await toReplayResult
       const replayedEvents: Event<P>[] = []
 
       for (const entry of toReplay) {

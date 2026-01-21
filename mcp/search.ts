@@ -5,12 +5,14 @@ import type { ThingsStore, Thing } from '@dotdo/db'
 import { query } from '@dotdo/db'
 import type { MCPTool } from './server'
 
+import type { StorableData } from '@dotdo/db'
+
 export interface SearchParams {
   // Type filter
   $type?: string
 
   // Field value filters
-  where?: Record<string, unknown>
+  where?: Partial<StorableData>
 
   // Full-text search across all string fields
   query?: string
@@ -172,11 +174,20 @@ export function createSearchTool(store: ThingsStore): MCPTool {
  * Default search tool (requires store injection via createSearchTool)
  * This export maintains backward compatibility with the existing import
  */
-export const searchTool = {
+export const searchTool: MCPTool = {
   name: 'search',
   description: 'Search for Things in the Digital Object store',
-  parameters: {} as const,
-  execute: async (params: SearchParams) => {
+  inputSchema: {
+    type: 'object',
+    properties: {
+      $type: { type: 'string', description: 'Filter by Thing type' },
+      where: { type: 'object', description: 'Filter by field values' },
+      query: { type: 'string', description: 'Full-text search' },
+      limit: { type: 'number', description: 'Maximum results (default: 20)' },
+      offset: { type: 'number', description: 'Results to skip' }
+    }
+  },
+  execute: async (_params: unknown) => {
     throw new Error('searchTool must be created with createSearchTool(store)')
   }
 }

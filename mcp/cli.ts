@@ -284,13 +284,16 @@ async function runHttpServer(port: number, verbose: boolean): Promise<void> {
       req.on('end', () => resolve(data))
     })
 
-    const request = new Request(url.toString(), {
-      method: req.method,
+    const requestInit: RequestInit = {
+      method: req.method || 'GET',
       headers: Object.fromEntries(
         Object.entries(req.headers).filter(([_, v]) => v !== undefined) as [string, string][]
       ),
-      body: body || undefined,
-    })
+    }
+    if (body) {
+      requestInit.body = body
+    }
+    const request = new Request(url.toString(), requestInit)
 
     // Handle request through MCP server
     const response = await server.fetch(request)

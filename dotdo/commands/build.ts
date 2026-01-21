@@ -6,7 +6,7 @@
  */
 
 import { spawn, type ChildProcess } from 'child_process'
-import { resolve, join } from 'path'
+import { resolve as pathResolve, join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 
 export const name = 'build'
@@ -30,20 +30,20 @@ export interface BuildOptions {
 export interface BuildResult {
   success: boolean
   exitCode: number
-  outputPath?: string
-  duration?: number
+  outputPath?: string | undefined
+  duration?: number | undefined
 }
 
 /**
  * Find wrangler binary
  */
 function findWrangler(): string {
-  const localWrangler = resolve(process.cwd(), 'node_modules', '.bin', 'wrangler')
+  const localWrangler = pathResolve(process.cwd(), 'node_modules', '.bin', 'wrangler')
   if (existsSync(localWrangler)) {
     return localWrangler
   }
 
-  const workspaceWrangler = resolve(process.cwd(), '..', '..', 'node_modules', '.bin', 'wrangler')
+  const workspaceWrangler = pathResolve(process.cwd(), '..', '..', 'node_modules', '.bin', 'wrangler')
   if (existsSync(workspaceWrangler)) {
     return workspaceWrangler
   }
@@ -106,7 +106,7 @@ export async function build(options: BuildOptions = {}): Promise<BuildResult> {
   // Add output directory if specified
   if (outdir) {
     // Ensure output directory exists
-    const fullOutdir = resolve(process.cwd(), outdir)
+    const fullOutdir = pathResolve(process.cwd(), outdir)
     if (!existsSync(fullOutdir)) {
       mkdirSync(fullOutdir, { recursive: true })
     }
@@ -200,7 +200,7 @@ export async function build(options: BuildOptions = {}): Promise<BuildResult> {
         console.log(`  \x1b[32mBuild completed in ${formatDuration(duration)}\x1b[0m`)
 
         if (outdir) {
-          console.log(`  \x1b[2mOutput: ${resolve(process.cwd(), outdir)}\x1b[0m`)
+          console.log(`  \x1b[2mOutput: ${pathResolve(process.cwd(), outdir)}\x1b[0m`)
         }
       } else {
         console.log(`  \x1b[31mBuild failed with exit code ${code}\x1b[0m`)
@@ -211,7 +211,7 @@ export async function build(options: BuildOptions = {}): Promise<BuildResult> {
       resolve({
         success,
         exitCode: code || 0,
-        outputPath: outdir ? resolve(process.cwd(), outdir) : undefined,
+        outputPath: outdir ? pathResolve(process.cwd(), outdir) : undefined,
         duration,
       })
     })

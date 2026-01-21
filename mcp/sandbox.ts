@@ -1,5 +1,5 @@
 // Secure sandbox environment for code execution with $ context injection
-import { evaluate } from '../primitives/packages/ai-evaluate/src/node.js'
+import { evaluate } from 'ai-evaluate/node'
 import type { WorkflowContext } from './types'
 import { getErrorMessage } from '@dotdo/rpc'
 
@@ -733,7 +733,7 @@ function injectResourceChecks(code: string): string {
     const afterParen = code.slice(closeParenIndex + 1)
     const braceMatch = afterParen.match(/^\s*\{/)
 
-    if (braceMatch) {
+    if (braceMatch && braceMatch.index !== undefined) {
       // Found a while loop with body
       const braceIndex = closeParenIndex + 1 + braceMatch.index + braceMatch[0].length
       // Copy everything up to and including the opening brace
@@ -759,7 +759,7 @@ function injectResourceChecks(code: string): string {
     const afterParen = code.slice(closeParenIndex + 1)
     const braceMatch = afterParen.match(/^\s*\{/)
 
-    if (braceMatch) {
+    if (braceMatch && braceMatch.index !== undefined) {
       const braceIndex = closeParenIndex + 1 + braceMatch.index + braceMatch[0].length
       result += code.slice(lastIndex, braceIndex)
       result += ' __resource__.checkCpuTime();'
@@ -1041,11 +1041,15 @@ export function createSandbox(options: SandboxOptions): Sandbox {
 
         // Execute code with $ context injected
         // Use Promise.race with a timeout to ensure we don't hang
-        const evaluatePromise = evaluate({
+        const evaluateOptions: Parameters<typeof evaluate>[0] = {
           script: fullCode,
           timeout: limits.timeout,
-          fetch: limits.allowNetwork ? undefined : null, // Block network access unless allowed
-        })
+        }
+        // Block network access unless allowed
+        if (!limits.allowNetwork) {
+          evaluateOptions.fetch = null
+        }
+        const evaluatePromise = evaluate(evaluateOptions)
 
         // Create our own timeout wrapper with better error message
         const timeoutPromise = new Promise<never>((_, reject) => {

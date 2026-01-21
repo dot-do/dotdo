@@ -27,6 +27,7 @@
  */
 
 import { Hono } from 'hono'
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { RPCError, NotFoundError, InternalError } from '@dotdo/rpc'
 import { logRPCError } from '@dotdo/rpc'
 import { CORRELATION_ID_HEADER, generateCorrelationId } from '@dotdo/rpc'
@@ -287,14 +288,14 @@ export function WithRPC<TBase extends Constructor>(
             current = current[part] as Record<string, unknown>
             if (!current) {
               const error = new NotFoundError(`Method not found: ${method}`)
-              return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
+              return c.json({ ...error.toJSON(), correlationId }, error.httpStatus as ContentfulStatusCode)
             }
           }
 
           const fn = current[parts[parts.length - 1]!]
           if (typeof fn !== 'function') {
             const error = new NotFoundError(`Method not found: ${method}`)
-            return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
+            return c.json({ ...error.toJSON(), correlationId }, error.httpStatus as ContentfulStatusCode)
           }
 
           const result = await fn.apply(current, args)
@@ -314,12 +315,12 @@ export function WithRPC<TBase extends Constructor>(
 
           // Re-throw RPCErrors with proper formatting
           if (error instanceof RPCError) {
-            return c.json({ ...error.toJSON(), correlationId }, error.httpStatus)
+            return c.json({ ...error.toJSON(), correlationId }, error.httpStatus as ContentfulStatusCode)
           }
 
           // Wrap unknown errors in InternalError
           const wrappedError = InternalError.wrap(error)
-          return c.json({ ...wrappedError.toJSON(), correlationId }, wrappedError.httpStatus)
+          return c.json({ ...wrappedError.toJSON(), correlationId }, wrappedError.httpStatus as ContentfulStatusCode)
         }
       })
     }

@@ -18,7 +18,7 @@ export interface MCPTool {
 
 export interface MCPServer {
   readonly tools: readonly MCPTool[]
-  registry?: ToolRegistry
+  registry?: ToolRegistry | undefined
   addTool(tool: MCPTool): void
   fetch: (request: Request) => Promise<Response>
 }
@@ -99,6 +99,6 @@ export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
         registry.register(tool)
       }
     },
-    fetch: app.fetch.bind(app)
+    fetch: async (request: Request) => app.fetch(request)
   }
 }

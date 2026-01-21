@@ -24,7 +24,7 @@ export interface CacheEntry<T> {
   /** Number of times this entry has been accessed */
   accessCount: number
   /** When the entry expires (if TTL is set) */
-  expiresAt?: number
+  expiresAt?: number | undefined
 }
 
 /**
@@ -32,9 +32,9 @@ export interface CacheEntry<T> {
  */
 export interface CacheOptions {
   /** Time-to-live in milliseconds */
-  ttl?: number
+  ttl?: number | undefined
   /** Whether to bypass cache and force fresh result */
-  bypass?: boolean
+  bypass?: boolean | undefined
 }
 
 /**
@@ -100,7 +100,7 @@ export class MemoryCache<T> implements CacheStorage<T> {
   private cache: Map<string, CacheEntry<T>> = new Map()
   private accessOrder: string[] = []
   private options: MemoryCacheOptions
-  private cleanupTimer?: ReturnType<typeof setInterval>
+  private cleanupTimer?: ReturnType<typeof setInterval> | undefined
 
   constructor(options: MemoryCacheOptions = {}) {
     this.options = options

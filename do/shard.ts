@@ -648,10 +648,14 @@ export class LoadBalancedRouter extends ShardRouter {
   constructor(config: Partial<LoadBalancedRouterConfig> & { defaultShardCount?: number } = {}) {
     super({ defaultShardCount: config.defaultShardCount ?? 1, ...config } as LoadBalancedRouterConfig)
     this.lbConfig = {
-      ...config,
+      defaultShardCount: config.defaultShardCount ?? 1,
       strategy: config.strategy ?? 'least-loaded',
       weights: config.weights ?? {},
-    }
+      metricsStore: config.metricsStore,
+      onTelemetry: config.onTelemetry,
+      separator: config.separator,
+      enabled: config.enabled,
+    } as LoadBalancedRouterConfig
     this.metricsStore = config.metricsStore ?? new LoadMetricsStore()
   }
 

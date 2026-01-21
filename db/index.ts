@@ -18,5 +18,30 @@ export * from './sqlite'
 export * from './migrations'
 export * from './audit'
 export * from './schema'
-export * from './schemas'
+export {
+  // Re-export from schemas.ts but exclude ValidationError to avoid conflict with schema.ts
+  ThingSchema,
+  ThingInputSchema,
+  BaseEventSchema,
+  EventSchema,
+  EventInputSchema,
+  BaseRelationshipSchema,
+  RelationshipSchema,
+  RelationshipInputSchema,
+  EventIdSchema,
+  ThingIdSchema,
+  RelationshipIdSchema,
+  DLQQueryOptionsSchema,
+  validateThing,
+  validateThingInput,
+  validateEvent,
+  validateEventInput,
+  validateRelationship,
+  validateRelationshipInput,
+  safeParseThing,
+  safeParseEvent,
+  safeParseRelationship,
+  formatValidationError,
+  type ValidationError as SchemaValidationErrorInfo
+} from './schemas'
 export * from './event-sourcing'

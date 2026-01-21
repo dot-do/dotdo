@@ -620,7 +620,7 @@ export const Factory = {
     const name = overrides.name ?? Fake.name()
     const email = overrides.email ?? Fake.email()
 
-    return {
+    const user: User = {
       id: overrides.id ?? `user-${seq}`,
       email,
       name,
@@ -628,8 +628,11 @@ export const Factory = {
       emailVerified: overrides.emailVerified ?? true,
       createdAt: overrides.createdAt ?? now,
       updatedAt: overrides.updatedAt ?? now,
-      metadata: overrides.metadata,
     }
+    if (overrides.metadata !== undefined) {
+      user.metadata = overrides.metadata
+    }
+    return user
   },
 
   /**
@@ -681,14 +684,19 @@ export const Factory = {
     const seq = Sequence.next('event')
     const now = Date.now()
 
-    return {
+    const event: Event = {
       $id: overrides.$id ?? `evt-${seq}`,
       type: overrides.type ?? Fake.eventType(),
       payload: overrides.payload ?? { action: Fake.verb(), target: Fake.uuid() },
       $timestamp: overrides.$timestamp ?? now,
-      source: overrides.source,
-      correlationId: overrides.correlationId,
     }
+    if (overrides.source !== undefined) {
+      event.source = overrides.source
+    }
+    if (overrides.correlationId !== undefined) {
+      event.correlationId = overrides.correlationId
+    }
+    return event
   },
 
   /**

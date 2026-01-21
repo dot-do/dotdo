@@ -3,6 +3,8 @@
 
 import { createLogger } from '../utils/logger'
 import type { Thing, ThingsStore } from './things'
+import type { StorableData } from './types'
+import type { EventId } from './branded-types'
 
 const logger = createLogger('[SQLite]')
 import type {
@@ -31,14 +33,32 @@ import { generateId, generateEventId } from './id'
  * SqlStorage interface from Cloudflare Workers
  * Uses Record<string, unknown> for SQL result rows since raw SQL queries
  * can return any column types. Callers should cast to appropriate types.
+ *
+ * Note: The actual CF SqlStorage API is synchronous. These methods return values directly,
+ * not Promises. Code that awaits these will still work (awaiting a non-promise returns the value).
+ */
+/**
+ * Result of a run operation, potentially including metadata about changes
+ */
+export interface SqlRunResult {
+  meta?: { changes?: number } | undefined
+}
+
+/**
+ * SqlStorage interface from Cloudflare Workers
+ * Uses Record<string, unknown> for SQL result rows since raw SQL queries
+ * can return any column types. Callers should cast to appropriate types.
+ *
+ * Note: Methods can return either sync or async results.
+ * The real CF API is sync, but test wrappers may return promises.
  */
 export interface SqlStorage {
   exec(sql: string): { results: Array<Record<string, unknown>> }
   prepare(sql: string): {
     bind(...values: unknown[]): {
-      first(): Promise<Record<string, unknown> | null>
-      all(): Promise<{ results: Array<Record<string, unknown>> }>
-      run(): Promise<void>
+      first(): (Record<string, unknown> | null) | Promise<Record<string, unknown> | null>
+      all(): { results: Array<Record<string, unknown>> } | Promise<{ results: Array<Record<string, unknown>> }>
+      run(): SqlRunResult | Promise<SqlRunResult>
     }
   }
 }
@@ -211,7 +231,7 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
   const sql = adapter.getSql()
 
   return {
-    async create(data) {
+    async create<D extends Partial<StorableData> & { $type: string }>(data: D): Promise<Thing & D> {
       if (!data.$type) {
         throw new Error('$type is required')
       }
@@ -222,13 +242,13 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
       // Separate metadata from data
       const { $type, ...customData } = data
 
-      const thing: Thing = {
+      const thing = {
         $id: id,
         $type,
         $createdAt: now,
         $updatedAt: now,
         ...customData
-      }
+      } as unknown as Thing & D
 
       // Store custom data as JSON
       const dataJson = JSON.stringify(customData)
@@ -399,7 +419,7 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
 
     // bulkCreate implementation for SQLite (do-8m4e)
     // Made atomic with explicit transaction (do-6dc7.5)
-    async bulkCreate(items: Array<{ $type: string } & Record<string, unknown>>) {
+    async bulkCreate<D extends Partial<StorableData> & { $type: string }>(items: D[]): Promise<(Thing & D)[]> {
       if (items.length === 0) {
         return []
       }
@@ -412,7 +432,7 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
       }
 
       const now = Date.now()
-      const created: Thing[] = []
+      const created: (Thing & D)[] = []
 
       // Wrap in transaction for atomicity - either all succeed or all rollback
       return adapter.transaction(async () => {
@@ -420,13 +440,13 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
           const id = generateId()
           const { $type, ...customData } = data
 
-          const thing: Thing = {
+          const thing = {
             $id: id,
             $type,
             $createdAt: now,
             $updatedAt: now,
             ...customData
-          }
+          } as unknown as Thing & D
 
           const dataJson = JSON.stringify(customData)
 
@@ -446,7 +466,7 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
 
     // bulkUpdate implementation for SQLite (do-8m4e)
     // Made atomic with explicit transaction (do-6dc7.5)
-    async bulkUpdate(items: Array<{ id: string; data: Record<string, unknown> }>) {
+    async bulkUpdate(items: Array<{ id: string; data: Record<string, unknown> }>): Promise<Thing[]> {
       if (items.length === 0) {
         return []
       }
@@ -456,7 +476,7 @@ export function createSQLiteThingsStore(adapter: SQLiteAdapter): SQLiteThingsSto
         const updated: Thing[] = []
 
         for (const { id, data } of items) {
-          const thing = await this.update(String(id), data)
+          const thing = await this.update(String(id), data as Partial<Omit<StorableData, '$id' | '$type'>>)
           updated.push(thing)
         }
 
@@ -569,13 +589,18 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
 
   return {
     async emit(data) {
+      // Build event with only defined properties for exactOptionalPropertyTypes
       const event: Event = {
         $id: generateEventId(),
         type: data.type,
         payload: data.payload,
         $timestamp: Date.now(),
-        source: data.source,
-        correlationId: data.correlationId
+      }
+      if (data.source !== undefined) {
+        event.source = data.source
+      }
+      if (data.correlationId !== undefined) {
+        event.correlationId = data.correlationId
       }
 
       // Store event in SQLite
@@ -607,7 +632,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
       return event
     },
 
-    async get(id: string) {
+    async get(id: string): Promise<Event | null> {
       const row = await sql
         .prepare(
           'SELECT id, type, payload, timestamp, source, correlation_id FROM events WHERE id = ?'
@@ -617,14 +642,20 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
 
       if (!row) return null
 
-      return {
-        $id: row.id as string,
+      // Build event with only defined properties for exactOptionalPropertyTypes
+      const event: Event = {
+        $id: row.id as EventId,
         type: row.type as string,
         payload: JSON.parse(row.payload as string),
         $timestamp: row.timestamp as number,
-        source: (row.source as string) || undefined,
-        correlationId: (row.correlation_id as string) || undefined
       }
+      if (row.source) {
+        event.source = row.source as string
+      }
+      if (row.correlation_id) {
+        event.correlationId = row.correlation_id as string
+      }
+      return event
     },
 
     async query(options = {}) {
@@ -676,14 +707,21 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
 
       const result = await sql.prepare(query).bind(...params).all()
 
-      return result.results.map((row) => ({
-        $id: row.id as string,
-        type: row.type as string,
-        payload: JSON.parse(row.payload as string),
-        $timestamp: row.timestamp as number,
-        source: (row.source as string) || undefined,
-        correlationId: (row.correlation_id as string) || undefined
-      }))
+      return result.results.map((row) => {
+        const event: Event = {
+          $id: row.id as EventId,
+          type: row.type as string,
+          payload: JSON.parse(row.payload as string),
+          $timestamp: row.timestamp as number,
+        }
+        if (row.source) {
+          event.source = row.source as string
+        }
+        if (row.correlation_id) {
+          event.correlationId = row.correlation_id as string
+        }
+        return event
+      })
     },
 
     // queryWithCursor implementation for SQLite (do-8m4e)
@@ -766,7 +804,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
 
       // Delete by count (keep the newest events)
       if (retentionPolicy.maxEvents) {
-        const countResult = await sql.prepare('SELECT COUNT(*) as count FROM events').first()
+        const countResult = await sql.prepare('SELECT COUNT(*) as count FROM events').bind().first()
         const total = (countResult?.count as number) ?? 0
 
         if (total > retentionPolicy.maxEvents) {
@@ -789,12 +827,13 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
 
     async getStorageUsage() {
       // Get count
-      const countResult = await sql.prepare('SELECT COUNT(*) as count FROM events').first()
+      const countResult = await sql.prepare('SELECT COUNT(*) as count FROM events').bind().first()
       const eventCount = (countResult?.count as number) ?? 0
 
       // Estimate bytes - get average payload size from sample
       const sampleResult = await sql
         .prepare('SELECT AVG(LENGTH(payload)) as avg_size FROM events')
+        .bind()
         .first()
       const avgPayloadSize = (sampleResult?.avg_size as number) ?? 100
 
@@ -835,8 +874,8 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
         .run()
     },
 
-    getDeadLetterQueue() {
-      const result = sql
+    async getDeadLetterQueue(): Promise<DLQEntry[]> {
+      const result = await sql
         .prepare(
           `SELECT id, event_id, event_type, event_payload, event_timestamp, event_source, event_correlation_id, attempts, last_error, handler_index, timestamp
            FROM dead_letter_queue
@@ -845,23 +884,30 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
         .bind()
         .all()
 
-      return result.results.map((row) => ({
-        event: {
-          $id: row.event_id as string,
+      return result.results.map((row: Record<string, unknown>): DLQEntry => {
+        const event: Event = {
+          $id: row.event_id as EventId,
           type: row.event_type as string,
           payload: JSON.parse(row.event_payload as string),
           $timestamp: row.event_timestamp as number,
-          source: (row.event_source as string) || undefined,
-          correlationId: (row.event_correlation_id as string) || undefined
-        },
-        attempts: row.attempts as number,
-        lastError: row.last_error as string,
-        handlerIndex: row.handler_index as number | undefined,
-        timestamp: row.timestamp as number
-      }))
+        }
+        if (row.event_source) {
+          event.source = row.event_source as string
+        }
+        if (row.event_correlation_id) {
+          event.correlationId = row.event_correlation_id as string
+        }
+        return {
+          event,
+          attempts: row.attempts as number,
+          lastError: row.last_error as string,
+          handlerIndex: row.handler_index as number | undefined,
+          timestamp: row.timestamp as number
+        }
+      })
     },
 
-    queryDeadLetterQueue(options) {
+    async queryDeadLetterQueue(options): Promise<DLQEntry[]> {
       let query = `SELECT id, event_id, event_type, event_payload, event_timestamp, event_source, event_correlation_id, attempts, last_error, handler_index, timestamp
                    FROM dead_letter_queue WHERE 1=1`
       const params: unknown[] = []
@@ -883,27 +929,34 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
         params.push(options.limit)
       }
 
-      const result = sql.prepare(query).bind(...params).all()
+      const result = await sql.prepare(query).bind(...params).all()
 
-      return result.results.map((row) => ({
-        event: {
-          $id: row.event_id as string,
+      return result.results.map((row: Record<string, unknown>): DLQEntry => {
+        const event: Event = {
+          $id: row.event_id as EventId,
           type: row.event_type as string,
           payload: JSON.parse(row.event_payload as string),
           $timestamp: row.event_timestamp as number,
-          source: (row.event_source as string) || undefined,
-          correlationId: (row.event_correlation_id as string) || undefined
-        },
-        attempts: row.attempts as number,
-        lastError: row.last_error as string,
-        handlerIndex: row.handler_index as number | undefined,
-        timestamp: row.timestamp as number
-      }))
+        }
+        if (row.event_source) {
+          event.source = row.event_source as string
+        }
+        if (row.event_correlation_id) {
+          event.correlationId = row.event_correlation_id as string
+        }
+        return {
+          event,
+          attempts: row.attempts as number,
+          lastError: row.last_error as string,
+          handlerIndex: row.handler_index as number | undefined,
+          timestamp: row.timestamp as number
+        }
+      })
     },
 
-    removeFromDeadLetterQueue(eventId) {
+    async removeFromDeadLetterQueue(eventId) {
       // Check if exists
-      const existing = sql
+      const existing = await sql
         .prepare('SELECT 1 FROM dead_letter_queue WHERE event_id = ?')
         .bind(eventId)
         .first()
@@ -912,7 +965,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
         return false
       }
 
-      sql
+      await sql
         .prepare('DELETE FROM dead_letter_queue WHERE event_id = ?')
         .bind(eventId)
         .run()
@@ -921,7 +974,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
     },
 
     async replayDeadLetterQueue(options) {
-      const toReplay = this.queryDeadLetterQueue(options)
+      const toReplay = await this.queryDeadLetterQueue(options)
       const replayedEvents: Event[] = []
 
       for (const entry of toReplay) {
@@ -932,7 +985,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
           correlationId: entry.event.$id
         })
         replayedEvents.push(newEvent)
-        this.removeFromDeadLetterQueue(entry.event.$id)
+        await this.removeFromDeadLetterQueue(entry.event.$id)
       }
 
       return replayedEvents
@@ -959,7 +1012,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
         .run()
     },
 
-    queryValidationFailures(options) {
+    async queryValidationFailures(options) {
       let query = `SELECT id, type, payload, error, details, timestamp FROM validation_failures`
       const params: unknown[] = []
 
@@ -970,9 +1023,9 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
 
       query += ' ORDER BY timestamp DESC'
 
-      const result = sql.prepare(query).bind(...params).all()
+      const result = await sql.prepare(query).bind(...params).all()
 
-      return result.results.map((row) => ({
+      return result.results.map((row: Record<string, unknown>) => ({
         type: row.type as string,
         payload: JSON.parse(row.payload as string),
         error: row.error as string,
@@ -982,9 +1035,9 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
     },
 
     // Retry status tracking - SQLite-persisted (do-6dc7.6)
-    setEventRetryStatus(eventId, status) {
+    async setEventRetryStatus(eventId, status) {
       // Use UPSERT (INSERT OR REPLACE) to handle both insert and update
-      sql
+      await sql
         .prepare(
           `INSERT OR REPLACE INTO event_retry_status (event_id, attempts, succeeded, last_attempt, errors)
            VALUES (?, ?, ?, ?, ?)`
@@ -999,8 +1052,8 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
         .run()
     },
 
-    getEventRetryStatus(eventId) {
-      const row = sql
+    async getEventRetryStatus(eventId) {
+      const row = await sql
         .prepare('SELECT event_id, attempts, succeeded, last_attempt, errors FROM event_retry_status WHERE event_id = ?')
         .bind(eventId)
         .first()
@@ -1016,16 +1069,16 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
     },
 
     // Retry metrics - SQLite-persisted (do-6dc7.6)
-    recordRetryAttempt(eventType, succeeded, retryCount) {
+    async recordRetryAttempt(eventType, succeeded, retryCount) {
       // First check if entry exists
-      const existing = sql
+      const existing = await sql
         .prepare('SELECT total_events, total_retries, successes FROM retry_metrics WHERE event_type = ?')
         .bind(eventType)
         .first()
 
       if (existing) {
         // Update existing entry
-        sql
+        await sql
           .prepare(
             `UPDATE retry_metrics
              SET total_events = total_events + 1,
@@ -1037,7 +1090,7 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
           .run()
       } else {
         // Insert new entry
-        sql
+        await sql
           .prepare(
             `INSERT INTO retry_metrics (event_type, total_events, total_retries, successes)
              VALUES (?, 1, ?, ?)`
@@ -1047,8 +1100,8 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
       }
     },
 
-    getRetryMetrics() {
-      const result = sql
+    async getRetryMetrics() {
+      const result = await sql
         .prepare('SELECT event_type, total_events, total_retries, successes FROM retry_metrics')
         .bind()
         .all()
@@ -1201,10 +1254,13 @@ export function createSQLiteRelationshipsStore(
 
       const getRelId = (rel: Relationship) => `${rel.subject}:${rel.predicate}:${rel.object}`
 
+      const lastRel = slicedRels[slicedRels.length - 1]
+      const firstRel = slicedRels[0]
+
       return {
         items: slicedRels,
-        nextCursor: hasMore && slicedRels.length > 0 ? getRelId(slicedRels[slicedRels.length - 1]) : undefined,
-        prevCursor: startIndex > 0 && slicedRels.length > 0 ? getRelId(slicedRels[0]) : undefined,
+        nextCursor: hasMore && lastRel !== undefined ? getRelId(lastRel) : undefined,
+        prevCursor: startIndex > 0 && firstRel !== undefined ? getRelId(firstRel) : undefined,
         hasMore
       }
     },

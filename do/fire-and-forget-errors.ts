@@ -151,7 +151,7 @@ function generateErrorId(): string {
  */
 export function extractErrorInfo(error: unknown): {
   message: string
-  stack?: string
+  stack?: string | undefined
   errorType: string
   retriable: boolean
 } {
@@ -161,12 +161,14 @@ export function extractErrorInfo(error: unknown): {
       ? Boolean((error as { retriable?: boolean }).retriable)
       : isRetriableByType(error)
 
-    return {
+    // Build result, only including stack if defined (exactOptionalPropertyTypes)
+    const result: { message: string; stack?: string | undefined; errorType: string; retriable: boolean } = {
       message: error.message,
-      stack: error.stack,
       errorType: error.name || 'Error',
       retriable
     }
+    if (error.stack !== undefined) result.stack = error.stack
+    return result
   }
 
   if (typeof error === 'string') {
@@ -421,15 +423,15 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
       query += ' LIMIT ? OFFSET ?'
       params.push(limit, offset)
 
-      const result = sql.prepare(query).bind(...params).all()
+      const result = sql.prepare(query).bind(...params).all() as { results: Record<string, unknown>[] }
 
       return result.results.map(mapRowToError)
     },
 
-    async get(id) {
-      const row = await sql.prepare('SELECT * FROM fire_and_forget_errors WHERE id = ?')
+    get(id) {
+      const row = sql.prepare('SELECT * FROM fire_and_forget_errors WHERE id = ?')
         .bind(id)
-        .first()
+        .first() as Record<string, unknown> | null
 
       return row ? mapRowToError(row) : null
     },
@@ -439,36 +441,36 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
         UPDATE fire_and_forget_errors
         SET recovered = 1, recovered_at = ?
         WHERE id = ? AND recovered = 0
-      `).bind(Date.now(), id).run()
+      `).bind(Date.now(), id).run() as { meta?: { changes?: number } }
 
       return (result.meta?.changes ?? 0) > 0
     },
 
     getStats() {
       // Total count
-      const totalRow = sql.prepare('SELECT COUNT(*) as count FROM fire_and_forget_errors').first()
+      const totalRow = sql.prepare('SELECT COUNT(*) as count FROM fire_and_forget_errors').bind().first() as Record<string, unknown> | null
       const total = (totalRow?.count as number) || 0
 
       // Recovered count
-      const recoveredRow = sql.prepare('SELECT COUNT(*) as count FROM fire_and_forget_errors WHERE recovered = 1').first()
+      const recoveredRow = sql.prepare('SELECT COUNT(*) as count FROM fire_and_forget_errors WHERE recovered = 1').bind().first() as Record<string, unknown> | null
       const recovered = (recoveredRow?.count as number) || 0
 
       // By operation
-      const opResults = sql.prepare('SELECT operation, COUNT(*) as count FROM fire_and_forget_errors GROUP BY operation').all()
+      const opResults = sql.prepare('SELECT operation, COUNT(*) as count FROM fire_and_forget_errors GROUP BY operation').bind().all() as { results: Record<string, unknown>[] }
       const byOperation: Record<string, number> = {}
       for (const row of opResults.results) {
         byOperation[row.operation as string] = row.count as number
       }
 
       // By event type
-      const etResults = sql.prepare('SELECT event_type, COUNT(*) as count FROM fire_and_forget_errors WHERE event_type IS NOT NULL GROUP BY event_type').all()
+      const etResults = sql.prepare('SELECT event_type, COUNT(*) as count FROM fire_and_forget_errors WHERE event_type IS NOT NULL GROUP BY event_type').bind().all() as { results: Record<string, unknown>[] }
       const byEventType: Record<string, number> = {}
       for (const row of etResults.results) {
         byEventType[row.event_type as string] = row.count as number
       }
 
       // By error type
-      const errResults = sql.prepare('SELECT error_type, COUNT(*) as count FROM fire_and_forget_errors GROUP BY error_type').all()
+      const errResults = sql.prepare('SELECT error_type, COUNT(*) as count FROM fire_and_forget_errors GROUP BY error_type').bind().all() as { results: Record<string, unknown>[] }
       const byErrorType: Record<string, number> = {}
       for (const row of errResults.results) {
         byErrorType[row.error_type as string] = row.count as number
@@ -486,7 +488,7 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
     },
 
     clear() {
-      sql.prepare('DELETE FROM fire_and_forget_errors').run()
+      sql.prepare('DELETE FROM fire_and_forget_errors').bind().run()
     },
 
     getRecent(count = 10) {
@@ -530,7 +532,7 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
         params.push(options.until)
       }
 
-      const result = sql.prepare(query).bind(...params).first()
+      const result = sql.prepare(query).bind(...params).first() as Record<string, unknown> | null
       return (result?.count as number) || 0
     }
   }
@@ -710,7 +712,7 @@ export interface RetryQueue {
   /**
    * Get a specific retry item
    */
-  get(id: string): RetryQueueItem | null | Promise<RetryQueueItem | null>
+  get(id: string): RetryQueueItem | null
 
   /**
    * Query items in the retry queue
@@ -1091,10 +1093,10 @@ export function createSQLiteRetryQueue(
       return id
     },
 
-    async get(id) {
-      const row = await sql.prepare('SELECT * FROM retry_queue WHERE id = ?')
+    get(id) {
+      const row = sql.prepare('SELECT * FROM retry_queue WHERE id = ?')
         .bind(id)
-        .first()
+        .first() as Record<string, unknown> | null
 
       return row ? mapRowToItem(row) : null
     },
@@ -1126,7 +1128,7 @@ export function createSQLiteRetryQueue(
         params.push(queryOptions.limit)
       }
 
-      const result = sql.prepare(sqlQuery).bind(...params).all()
+      const result = sql.prepare(sqlQuery).bind(...params).all() as { results: Record<string, unknown>[] }
       return result.results.map(mapRowToItem)
     },
 
@@ -1193,7 +1195,7 @@ export function createSQLiteRetryQueue(
       if (!item) return
 
       // Get current attempts from DB (already incremented during processItem)
-      const row = sql.prepare('SELECT attempts FROM retry_queue WHERE id = ?').bind(id).first()
+      const row = sql.prepare('SELECT attempts FROM retry_queue WHERE id = ?').bind(id).first() as Record<string, unknown> | null
       const attempts = (row?.attempts as number) || item.attempts
 
       if (attempts >= item.maxAttempts) {
@@ -1218,7 +1220,7 @@ export function createSQLiteRetryQueue(
     remove(id) {
       const result = sql.prepare('DELETE FROM retry_queue WHERE id = ?')
         .bind(id)
-        .run()
+        .run() as { meta?: { changes?: number } }
 
       handlerFns.delete(id)
       return (result.meta?.changes ?? 0) > 0
@@ -1236,12 +1238,12 @@ export function createSQLiteRetryQueue(
       }
 
       // Count by status
-      const totalRow = sql.prepare('SELECT COUNT(*) as count FROM retry_queue').first()
+      const totalRow = sql.prepare('SELECT COUNT(*) as count FROM retry_queue').bind().first() as Record<string, unknown> | null
       stats.total = (totalRow?.count as number) || 0
 
       const statusCounts = sql.prepare(
         'SELECT status, COUNT(*) as count FROM retry_queue GROUP BY status'
-      ).all()
+      ).bind().all() as { results: Record<string, unknown>[] }
 
       for (const row of statusCounts.results) {
         const status = row.status as string
@@ -1269,7 +1271,7 @@ export function createSQLiteRetryQueue(
       // Count by event type
       const typeCounts = sql.prepare(
         'SELECT event_type, COUNT(*) as count FROM retry_queue GROUP BY event_type'
-      ).all()
+      ).bind().all() as { results: Record<string, unknown>[] }
 
       for (const row of typeCounts.results) {
         stats.byEventType[row.event_type as string] = row.count as number
@@ -1279,7 +1281,7 @@ export function createSQLiteRetryQueue(
     },
 
     clear() {
-      sql.prepare('DELETE FROM retry_queue').run()
+      sql.prepare('DELETE FROM retry_queue').bind().run()
       handlerFns.clear()
     },
 
@@ -1370,12 +1372,14 @@ export function createEnhancedErrorStore(
       // Only add to retry queue if retriable
       let retryId: string | null = null
       if (errorData.retriable && trackedError) {
-        retryId = retryQueue.add({
+        // Build add options, only including defined properties (exactOptionalPropertyTypes)
+        const addOptions: { errorId: string; eventType: string; payload: unknown; handlerFn?: () => Promise<void> } = {
           errorId: trackedError.id,
           eventType: errorData.eventType || 'unknown',
-          payload: errorData.context,
-          handlerFn
-        })
+          payload: errorData.context
+        }
+        if (handlerFn !== undefined) addOptions.handlerFn = handlerFn
+        retryId = retryQueue.add(addOptions)
       }
 
       return {

@@ -127,11 +127,11 @@ export function createTypedContext<
   env: unknown,
   options?: CreateTypedContextOptions
 ): TypedWorkflowContext<B, E> {
-  // Single cast: WorkflowContext → TypedWorkflowContext<B, E>
+  // Cast via unknown: WorkflowContext → unknown → TypedWorkflowContext<B, E>
   //
   // Safe because createContext() returns WorkflowContext wrapped in a Proxy
   // (via createDORPCProxy) that provides dynamic DO binding accessors.
   // These accessors are type-safe at the boundary but look like generic
   // Record<string, DOStubFactory> to TypeScript.
-  return createContext(state, env, options) as TypedWorkflowContext<B, E>
+  return createContext(state, env, options) as unknown as TypedWorkflowContext<B, E>
 }

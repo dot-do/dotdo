@@ -16,13 +16,15 @@ import { validateSecretPresent } from './validation'
  */
 export interface AuthOptions {
   /** Expected JWT issuer claim (iss). If set, tokens from other issuers will be rejected. */
-  issuer?: string
+  issuer?: string | undefined
   /** Expected JWT audience claim (aud). If set, tokens for other audiences will be rejected. */
-  audience?: string
-  /** Secret key for HMAC signature verification. Required. */
-  secret?: string | Uint8Array
+  audience?: string | undefined
+  /** Secret key for HMAC signature verification. Either secret or publicKey is required. */
+  secret?: string | Uint8Array | undefined
+  /** Public key for asymmetric (RSA/EC) signature verification. Either secret or publicKey is required. */
+  publicKey?: string | undefined
   /** Paths to skip authentication (e.g., ['/health', '/public']). */
-  skipPaths?: string[]
+  skipPaths?: string[] | undefined
 }
 
 /**

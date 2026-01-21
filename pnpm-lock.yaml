@@ -241,6 +241,9 @@ importers:
       '@dotdo/rpc':
         specifier: workspace:*
         version: link:../rpc
+      ai-evaluate:
+        specifier: file:../primitives/packages/ai-evaluate
+        version: file:primitives/packages/ai-evaluate
       hono:
         specifier: ^4.7.0
         version: 4.11.4
@@ -4128,6 +4131,9 @@ packages:
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
+
+  ai-evaluate@file:primitives/packages/ai-evaluate:
+    resolution: {directory: primitives/packages/ai-evaluate, type: directory}
 
   ai-functions@file:primitives/packages/ai-functions:
     resolution: {directory: primitives/packages/ai-functions, type: directory}
@@ -11008,6 +11014,18 @@ snapshots:
   acorn@8.15.0: {}
 
   agent-base@7.1.4: {}
+
+  ai-evaluate@file:primitives/packages/ai-evaluate:
+    dependencies:
+      ai-functions: link:primitives/packages/ai-functions
+      ai-tests: link:primitives/packages/ai-tests
+      capnweb: 0.2.0
+    optionalDependencies:
+      esbuild: 0.24.2
+      miniflare: 3.20250718.3
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
 
   ai-functions@file:primitives/packages/ai-functions:
     dependencies:

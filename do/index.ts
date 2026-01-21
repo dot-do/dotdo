@@ -152,7 +152,8 @@ export type {
   EmptyEventSchemas,
   DefineEventSchemas,
   EventTypes,
-  EventPayload,
+  // Note: EventPayload type is exported from ./workflow for actual payload structure
+  EventPayload as TypedEventPayload,  // Renamed to avoid conflict
   EventPayloadType,
   ExtractNoun,
   ExtractVerb,
@@ -489,55 +490,18 @@ export {
 } from '@dotdo/integrations/sendgrid'
 
 /**
- * Extended primitives with AI assistance for file system, git, and bash operations.
+ * Extended primitives for file system, git, and bash operations.
  *
- * - FSX: File system operations with AI-powered analysis
- * - GitX: Git operations with AI commit messages and code review
- * - BashX: Shell execution with AI command generation and diagnostics
+ * Note: Primitives are exported from their respective packages:
+ * - @dotdo/fsx: File system operations
+ * - gitx: Git operations (separate package)
+ * - bashx: Bash execution (separate package)
+ *
+ * These are intentionally excluded from the main do/ package to keep
+ * the core DO functionality separate from extended tooling.
  */
-export {
-  // File System Extended
-  FSX,
-  createFSX,
-  fsx,
-  type FileInfo,
-  type ReadOptions,
-  type WriteOptions,
-  type ListOptions,
-  type CopyMoveOptions,
-  type AIFileResult,
-  type FSXAIOptions,
-
-  // Git Extended
-  GitX,
-  createGitX,
-  gitx,
-  type Commit,
-  type Branch,
-  type FileStatus,
-  type RepoStatus,
-  type DiffInfo,
-  type DiffHunk,
-  type DiffLine,
-  type CommitOptions,
-  type BranchOptions,
-  type MergeOptions,
-  type AIGitOptions,
-  type AICommitMessage,
-  type AIReviewResult,
-
-  // Bash Extended
-  BashX,
-  createBashX,
-  bashx,
-  type ExecResult,
-  type ExecOptions,
-  type Command,
-  type PipelineResult,
-  type AIBashOptions,
-  type AICommandResult,
-  type AIDiagnosisResult,
-} from './primitives'
+// Primitives exports are commented out - import directly from fsx/gitx/bashx packages
+// export { ... } from './primitives'
 
 /**
  * DO sharding support for horizontal scaling.

@@ -218,7 +218,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
   adapter: StorageAdapter
 ): ThingsStore<T> {
   return {
-    async create(data) {
+    async create<D extends Partial<T> & { $type: string }>(data: D): Promise<Thing<T> & D> {
       if (!data.$type) {
         throw DbValidationError.forField('$type', 'is required', undefined)
       }
@@ -239,10 +239,10 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
         $id: id,
         $createdAt: now,
         $updatedAt: now,
-      } as Thing<T>
+      } as unknown as Thing<T> & D
 
       await adapter.put(`${THINGS_PREFIX}${id}`, thing)
-      return thing as Thing<T> & typeof data
+      return thing
     },
 
     async get(id) {
@@ -457,7 +457,7 @@ export function createThingsStore(): ThingsStore {
   const things = new Map<ThingId, Thing>()
 
   return {
-    async create(data) {
+    async create<D extends Partial<StorableData> & { $type: string }>(data: D): Promise<Thing & D> {
       if (!data.$type) {
         throw DbValidationError.forField('$type', 'is required', undefined)
       }
@@ -471,12 +471,12 @@ export function createThingsStore(): ThingsStore {
       }
 
       const now = Date.now()
-      const thing: Thing = {
+      const thing = {
         ...data,
         $id: generateId(),
         $createdAt: now,
         $updatedAt: now,
-      }
+      } as unknown as Thing & D
 
       things.set(thing.$id, thing)
       return thing
@@ -568,7 +568,7 @@ export function createThingsStore(): ThingsStore {
       )
     },
 
-    async bulkCreate(items) {
+    async bulkCreate<D extends Partial<StorableData> & { $type: string }>(items: D[]): Promise<(Thing & D)[]> {
       if (items.length === 0) {
         return []
       }
@@ -588,15 +588,15 @@ export function createThingsStore(): ThingsStore {
 
       // All valid, now create them
       const now = Date.now()
-      const created: Thing[] = []
+      const created: (Thing & D)[] = []
 
       for (const data of items) {
-        const thing: Thing = {
+        const thing = {
           ...data,
           $id: generateId(),
           $createdAt: now,
           $updatedAt: now,
-        }
+        } as unknown as Thing & D
         things.set(thing.$id, thing)
         created.push(thing)
       }

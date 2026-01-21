@@ -78,6 +78,7 @@ function setNestedKey(obj: Record<string, unknown>, key: string, value: unknown)
 
   for (let i = 0; i < parts.length - 1; i++) {
     const part = parts[i]
+    if (!part) continue
 
     if (!(part in current) || typeof current[part] !== 'object' || current[part] === null) {
       current[part] = {}
@@ -86,7 +87,10 @@ function setNestedKey(obj: Record<string, unknown>, key: string, value: unknown)
     current = current[part] as Record<string, unknown>
   }
 
-  current[parts[parts.length - 1]] = value
+  const lastPart = parts[parts.length - 1]
+  if (lastPart) {
+    current[lastPart] = value
+  }
 }
 
 /**

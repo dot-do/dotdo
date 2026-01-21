@@ -27,7 +27,7 @@ export interface DurableObjectNamespace {
   id: string
   name: string
   className: string
-  scriptName?: string
+  scriptName?: string | undefined
 }
 
 export interface DurableObjectInfo {
@@ -77,12 +77,14 @@ function parseWranglerConfig(configPath?: string): DurableObjectNamespace[] {
         const namespaces: DurableObjectNamespace[] = []
         const doBindingRegex = /\[\[durable_objects\.bindings\]\]\s*name\s*=\s*"([^"]+)"\s*class_name\s*=\s*"([^"]+)"(?:\s*script_name\s*=\s*"([^"]+)")?/g
 
-        let match
+        let match: RegExpExecArray | null
         while ((match = doBindingRegex.exec(content)) !== null) {
+          const bindingName = match[1] ?? ''
+          const className = match[2] ?? ''
           namespaces.push({
-            id: `binding:${match[1]}`,
-            name: match[1],
-            className: match[2],
+            id: `binding:${bindingName}`,
+            name: bindingName,
+            className: className,
             scriptName: match[3],
           })
         }
@@ -90,12 +92,14 @@ function parseWranglerConfig(configPath?: string): DurableObjectNamespace[] {
         // Also check for new format
         const newFormatRegex = /name\s*=\s*"([^"]+)"[\s\S]*?class_name\s*=\s*"([^"]+)"/g
         while ((match = newFormatRegex.exec(content)) !== null) {
-          const existing = namespaces.find((n) => n.name === match[1])
+          const bindingName = match[1] ?? ''
+          const className = match[2] ?? ''
+          const existing = namespaces.find((n) => n.name === bindingName)
           if (!existing) {
             namespaces.push({
-              id: `binding:${match[1]}`,
-              name: match[1],
-              className: match[2],
+              id: `binding:${bindingName}`,
+              name: bindingName,
+              className: className,
             })
           }
         }

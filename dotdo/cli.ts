@@ -309,12 +309,13 @@ export function createProgram(): Command {
       const knownOptions = ['--env', '-e', '--dry-run', '--name', '--minify', '--config', '--rollback', '--skip-build', '-v', '--verbose', '-c']
       for (let i = 0; i < processedArgs.length; i++) {
         const arg = processedArgs[i]
-        if (!knownOptions.includes(arg) && !args.includes(arg)) {
+        if (arg && !knownOptions.includes(arg) && !args.includes(arg)) {
           args.push(arg)
           // If the arg takes a value and next arg doesn't start with --, include it
-          if (i + 1 < processedArgs.length && !processedArgs[i + 1].startsWith('-')) {
+          const nextArg = processedArgs[i + 1]
+          if (nextArg && !nextArg.startsWith('-')) {
             i++
-            args.push(processedArgs[i])
+            args.push(nextArg)
           }
         }
       }

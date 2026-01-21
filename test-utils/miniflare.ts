@@ -254,21 +254,21 @@ export async function createTestMiniflare(
   }
 
   const mf = new Miniflare({
+    ...options,
     modules: true,
     script,
     durableObjects: doConfig,
     durableObjectsPersist: persist,
-    ...options
-  })
+  } as MiniflareOptions)
 
   const getNamespace = async (name: string): Promise<DurableObjectNamespace> => {
-    return await mf.getDurableObjectNamespace(name)
+    return await mf.getDurableObjectNamespace(name) as unknown as DurableObjectNamespace
   }
 
   const getStub = async (namespace: string, name: string): Promise<DurableObjectStub> => {
     const ns = await getNamespace(namespace)
     const id = ns.idFromName(name)
-    return ns.get(id)
+    return ns.get(id) as unknown as DurableObjectStub
   }
 
   const cleanup = async () => {
@@ -294,9 +294,9 @@ export async function getDoStub(
   namespace: string,
   name: string
 ): Promise<DurableObjectStub> {
-  const ns = await mf.getDurableObjectNamespace(namespace)
+  const ns = await mf.getDurableObjectNamespace(namespace) as unknown as DurableObjectNamespace
   const id = ns.idFromName(name)
-  return ns.get(id)
+  return ns.get(id) as unknown as DurableObjectStub
 }
 
 /**

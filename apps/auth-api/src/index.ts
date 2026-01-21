@@ -34,12 +34,8 @@ interface AuthUser {
   scopes?: string[] | undefined
 }
 
-declare module 'hono' {
-  interface ContextVariableMap {
-    user: AuthUser
-    token: string
-  }
-}
+// Note: Hono's ContextVariableMap is augmented in @dotdo/auth
+// We use the same 'user' and 'token' keys which are compatible with our local AuthUser type
 
 // ============================================================================
 // JWT Utilities
@@ -186,7 +182,7 @@ app.post('/auth/register', async (c) => {
 
   if (!response.ok) {
     const error = await response.json<{ error: string }>()
-    return c.json(error, response.status)
+    return c.json(error, response.status as 400 | 401 | 403 | 404 | 409 | 500)
   }
 
   const user = await response.json<AuthUser>()
@@ -229,7 +225,7 @@ app.post('/auth/login', async (c) => {
 
   if (!response.ok) {
     const error = await response.json<{ error: string }>()
-    return c.json(error, response.status)
+    return c.json(error, response.status as 400 | 401 | 403 | 404 | 409 | 500)
   }
 
   const user = await response.json<AuthUser>()

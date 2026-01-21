@@ -98,7 +98,6 @@ export function createSandboxTool(deps: SandboxToolDeps): MCPTool {
 
       // Collect audit logs if enabled
       const auditLog: unknown[] = []
-      const onAudit = audit ? (log: unknown) => auditLog.push(log) : undefined
 
       // Merge permissions and resource limits with defaults
       const sandboxOptions: SandboxOptions = {
@@ -109,8 +108,12 @@ export function createSandboxTool(deps: SandboxToolDeps): MCPTool {
           ...resourceLimits,
           timeout: effectiveTimeout
         },
-        audit,
-        onAudit
+        audit
+      }
+
+      // Only set onAudit when audit is enabled (avoid undefined with exactOptionalPropertyTypes)
+      if (audit) {
+        sandboxOptions.onAudit = (log: unknown) => auditLog.push(log)
       }
 
       // Create and execute sandbox

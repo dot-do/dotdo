@@ -171,7 +171,7 @@ function createSqlStorageWrapper(stub: DurableObjectStub): SqlStorage {
               return data
             },
 
-            async run(): Promise<void> {
+            async run(): Promise<{ meta?: { changes?: number } | undefined }> {
               const response = await stub.fetch('http://internal/prepare', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -182,6 +182,7 @@ function createSqlStorageWrapper(stub: DurableObjectStub): SqlStorage {
                 const error = await response.json() as { error: string }
                 throw new Error(error.error)
               }
+              return {}
             }
           }
         }
@@ -253,7 +254,7 @@ export async function createRealSqlStorage(name?: string): Promise<RealSqlStorag
 
   const ns = await mf.getDurableObjectNamespace('SQL_DO')
   const id = ns.idFromName(testName)
-  const stub = ns.get(id)
+  const stub = ns.get(id) as unknown as DurableObjectStub
 
   const sql = createSqlStorageWrapper(stub)
 
@@ -309,7 +310,7 @@ export async function getSqlStorageFromShared(name: string): Promise<{
   const mf = await getSharedMiniflare()
   const ns = await mf.getDurableObjectNamespace('SQL_DO')
   const id = ns.idFromName(name)
-  const stub = ns.get(id)
+  const stub = ns.get(id) as unknown as DurableObjectStub
 
   return {
     sql: createSqlStorageWrapper(stub),

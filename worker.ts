@@ -27,7 +27,7 @@ export default {
     // Extract namespace from subdomain
     // tenant.api.dotdo.dev -> 'tenant'
     // api.dotdo.dev -> 'default'
-    const ns = hostParts.length > 2 ? hostParts[0] : 'default'
+    const ns = hostParts.length > 2 && hostParts[0] ? hostParts[0] : 'default'
 
     // Get or create DO instance by namespace
     const id = env.DO.idFromName(ns)

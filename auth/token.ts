@@ -144,8 +144,8 @@ export async function verifyTokenSignature(
   token: string,
   options: {
     secret: Uint8Array | string
-    issuer?: string
-    audience?: string
+    issuer?: string | undefined
+    audience?: string | undefined
   }
 ): Promise<TokenPayload> {
   const { secret, issuer, audience } = options
@@ -153,11 +153,13 @@ export async function verifyTokenSignature(
   // Convert string secret to Uint8Array if needed
   const secretKey = typeof secret === 'string' ? new TextEncoder().encode(secret) : secret
 
+  // Build verify options, only including defined values to satisfy exactOptionalPropertyTypes
+  const verifyOptions: { issuer?: string; audience?: string } = {}
+  if (issuer !== undefined) verifyOptions.issuer = issuer
+  if (audience !== undefined) verifyOptions.audience = audience
+
   try {
-    const { payload } = await jwtVerify(token, secretKey, {
-      issuer,
-      audience,
-    })
+    const { payload } = await jwtVerify(token, secretKey, verifyOptions)
 
     return payload as TokenPayload
   } catch (error) {

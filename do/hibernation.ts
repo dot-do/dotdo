@@ -286,11 +286,18 @@ export class HibernationManager {
         const attachment = raw as Partial<HibernationAttachment>
 
         // Handle backwards compatibility
+        // Note: Old code may have stored tags as Set, which serializes incorrectly
         let tags: string[]
         if (Array.isArray(attachment.tags)) {
           tags = attachment.tags
-        } else if (attachment.tags instanceof Set) {
-          tags = Array.from(attachment.tags as unknown as Set<string>)
+        } else if (attachment.tags && typeof attachment.tags === 'object') {
+          // Handle legacy Set serialization (will appear as object after JSON parse)
+          const tagsAsAny = attachment.tags as unknown
+          if (tagsAsAny instanceof Set) {
+            tags = Array.from(tagsAsAny as Set<string>)
+          } else {
+            tags = []
+          }
         } else {
           tags = []
         }

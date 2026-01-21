@@ -20,6 +20,7 @@
   "dependencies": {
     "@dotdo/db": "workspace:*",
     "@dotdo/rpc": "workspace:*",
+    "ai-evaluate": "file:../primitives/packages/ai-evaluate",
     "hono": "^4.7.0"
   },
   "devDependencies": {

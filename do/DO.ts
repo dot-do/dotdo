@@ -130,7 +130,7 @@ export class DO implements DurableObject {
     // Initialize WorkflowContext ($) for event handlers, scheduling, and cross-DO RPC
     // This provides the fluent API: $.send(), $.try(), $.do(), $.on.*, $.every.*
     // Use SQLite-backed error store and retry queue for persistence across DO restarts (do-f9xs)
-    const sql = state.storage.sql as SqlStorage
+    const sql = state.storage.sql as unknown as SqlStorage
     const errorStore = createSQLiteErrorStore(sql)
     const retryQueue = createSQLiteRetryQueue(sql, errorStore)
     const enhancedErrorStore = createEnhancedErrorStore(errorStore, retryQueue)

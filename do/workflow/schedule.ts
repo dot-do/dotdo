@@ -330,10 +330,11 @@ export function createEveryProxy(
         }
 
         // Handle known patterns
-        if (KNOWN_PATTERNS[prop]) {
+        const knownPatternKey = prop as keyof typeof KNOWN_PATTERNS
+        if (knownPatternKey in KNOWN_PATTERNS) {
           return createBuilder({
             path: [...state.path, prop],
-            baseCron: KNOWN_PATTERNS[prop],
+            baseCron: KNOWN_PATTERNS[knownPatternKey],
           })
         }
 
@@ -350,7 +351,7 @@ export function createEveryProxy(
    * Create a proxy for interval patterns: $.every(5).minutes(handler)
    */
   function createIntervalProxy(value: number, _state: BuilderState): IntervalBuilder {
-    return new Proxy({}, {
+    return new Proxy({} as IntervalBuilder, {
       get(_target, prop: string) {
         // Map plural forms to interval types
         const intervalMap: Record<string, ScheduleInterval['type']> = {

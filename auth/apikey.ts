@@ -127,7 +127,7 @@ export interface ApiKeyManagerOptions {
    * When provided, keys are stored in the ThingsStore (SQLite-backed in DO context).
    * When omitted, keys are stored in memory only.
    */
-  store?: ApiKeyStore
+  store?: ApiKeyStore | undefined
 }
 
 /**
@@ -170,9 +170,9 @@ export class ApiKeyManager {
   private keys: Map<string, ApiKey> = new Map()
   private keyHashes: Map<string, string> = new Map() // hashedKey -> id
   private rateLimits: Map<string, RateLimitWindow> = new Map() // id -> window
-  private store?: ApiKeyStore
+  private store?: ApiKeyStore | undefined
   private initialized = false
-  private initPromise?: Promise<void>
+  private initPromise?: Promise<void> | undefined
   /** Maps API key ID (key_xxx) to storage $id for updates */
   private keyIdToStoreId: Map<string, string> = new Map()
 
@@ -683,8 +683,7 @@ export function createApiKeyMiddleware(manager: ApiKeyManager, options: {
     c.set('user', {
       id: `apikey:${result.apiKey.id}`,
       roles: ['api'],
-      scopes: result.apiKey.scopes,
-      metadata: result.apiKey.metadata
+      scopes: result.apiKey.scopes
     })
 
     c.set('apiKey', result.apiKey)

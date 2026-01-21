@@ -29,20 +29,20 @@ export interface DoInspectOptions {
 
 export interface DoInspectResult {
   id: string
-  namespace?: string
+  namespace?: string | undefined
   exists: boolean
   storage?: {
     keys: string[]
     size: number
     entries?: Record<string, unknown>
-  }
+  } | undefined
   alarm?: {
     scheduled: string | null
-  }
+  } | undefined
   websockets?: {
     count: number
-  }
-  metadata?: Record<string, unknown>
+  } | undefined
+  metadata?: Record<string, unknown> | undefined
 }
 
 /**

@@ -203,11 +203,16 @@ export function withEventSourcing<T extends StorableData = StorableData>(
   const cfg: EventSourcingConfig = { ...defaultEventSourcingConfig, ...config }
 
   const emitEvent = async (type: CrudEventType, payload: CrudEventPayload) => {
+    // Build event input, only including defined properties for exactOptionalPropertyTypes
     const eventInput: EventInput<JsonValue> = {
       type,
       payload,
-      source: context.auditContext?.actor,
-      correlationId: context.auditContext?.correlationId
+    }
+    if (context.auditContext?.actor !== undefined) {
+      eventInput.source = context.auditContext.actor
+    }
+    if (context.auditContext?.correlationId !== undefined) {
+      eventInput.correlationId = context.auditContext.correlationId
     }
     await events.emit(eventInput)
   }
@@ -388,11 +393,16 @@ export function withRelationshipEventSourcing<M extends StorableData = StorableD
   const cfg: EventSourcingConfig = { ...defaultEventSourcingConfig, ...config }
 
   const emitEvent = async (type: CrudEventType, payload: CrudEventPayload) => {
+    // Build event input, only including defined properties for exactOptionalPropertyTypes
     const eventInput: EventInput<JsonValue> = {
       type,
       payload,
-      source: context.auditContext?.actor,
-      correlationId: context.auditContext?.correlationId
+    }
+    if (context.auditContext?.actor !== undefined) {
+      eventInput.source = context.auditContext.actor
+    }
+    if (context.auditContext?.correlationId !== undefined) {
+      eventInput.correlationId = context.auditContext.correlationId
     }
     await events.emit(eventInput)
   }
@@ -428,6 +438,10 @@ export function withRelationshipEventSourcing<M extends StorableData = StorableD
 
     async find(query) {
       return store.find(query)
+    },
+
+    async findWithCursor(options) {
+      return store.findWithCursor(options)
     },
 
     async getRelated(subjectId, predicate) {

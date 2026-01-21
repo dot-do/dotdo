@@ -16,7 +16,10 @@
  * - Chat API support
  */
 
-import type { LanguageModel, EmbeddingModel } from 'ai'
+// Type aliases for AI SDK models
+// These match the AI SDK's type definitions
+type LanguageModel = string | { provider: string; modelId: string; specificationVersion: string; doGenerate: Function; doStream: Function }
+type EmbeddingModel = string | { provider: string; modelId: string; specificationVersion: string; doEmbed: Function }
 import type { ZodTypeAny } from 'zod'
 
 // Core types (defined inline to avoid dependency on primitives submodule)
@@ -341,14 +344,16 @@ export async function generateText(
   if (options.toolChoice !== undefined) sdkOptions['toolChoice'] = options.toolChoice
   if (options.maxSteps !== undefined) sdkOptions['maxSteps'] = options.maxSteps
 
-  const result = await aiGenerateText(sdkOptions as Parameters<typeof aiGenerateText>[0])
+  const result = await aiGenerateText(sdkOptions as unknown as Parameters<typeof aiGenerateText>[0])
 
+  // AI SDK v4+ uses inputTokens/outputTokens in the usage object
+  const usage = result.usage as { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined
   return {
     text: result.text,
     usage: {
-      promptTokens: result.usage?.inputTokens ?? 0,
-      completionTokens: result.usage?.outputTokens ?? 0,
-      totalTokens: result.usage?.totalTokens ?? 0,
+      promptTokens: usage?.inputTokens ?? 0,
+      completionTokens: usage?.outputTokens ?? 0,
+      totalTokens: usage?.totalTokens ?? 0,
     },
     finishReason: result.finishReason,
   }
@@ -428,16 +433,21 @@ export async function generateObject<T>(
     output: 'object',
   } as any)
 
+  // AI SDK v4+ uses inputTokens/outputTokens in the usage object
+  const usage = result.usage as { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined
   return {
     object: result.object as T,
     usage: {
-      promptTokens: result.usage?.inputTokens ?? 0,
-      completionTokens: result.usage?.outputTokens ?? 0,
-      totalTokens: result.usage?.totalTokens ?? 0,
+      promptTokens: usage?.inputTokens ?? 0,
+      completionTokens: usage?.outputTokens ?? 0,
+      totalTokens: usage?.totalTokens ?? 0,
     },
     finishReason: result.finishReason,
   }
 }
+
+// Type alias for streamText result to handle version differences
+type AIStreamTextResult = ReturnType<typeof import('ai').streamText>
 
 // ============================================================================
 // Text Streaming
@@ -486,12 +496,14 @@ export async function streamText(
     }
   }
 
-  const result = aiStreamText(filteredOptions as Parameters<typeof aiStreamText>[0])
+  // AI SDK's streamText returns an object with textStream, fullStream, and usage properties
+  // Cast to any to avoid type conflicts between our StreamTextResult and the SDK's
+  const result = aiStreamText(filteredOptions as unknown as Parameters<typeof aiStreamText>[0]) as any
 
   return {
     textStream: result.textStream,
     fullStream: result.fullStream,
-    usage: Promise.resolve(result.usage).then((u: any) => ({
+    usage: Promise.resolve(result.usage).then((u: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined) => ({
       promptTokens: u?.inputTokens ?? 0,
       completionTokens: u?.outputTokens ?? 0,
       totalTokens: u?.totalTokens ?? 0,
@@ -566,7 +578,10 @@ export async function embedText(
   }
 
   // Use real AI SDK with the model
-  const { embed } = await import('ai')
+  // Cast to any to access the embed function from the 'ai' package
+  // This is needed because TypeScript resolves 'ai' to our local package
+  const aiSDK = await import('ai') as any
+  const embed = aiSDK.embed as (options: { model: unknown; value: string }) => Promise<{ embedding: number[] }>
 
   if (typeof text === 'string') {
     const result = await embed({

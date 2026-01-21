@@ -10,11 +10,89 @@
 
 import type { MiddlewareHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-// Import from primitives source (id.org.ai package)
-import type { User, Session, Credential } from '../primitives/packages/id.org.ai/src/index'
-import { isSession, isUser } from '../primitives/packages/id.org.ai/src/index'
 import type { AuthUser } from './middleware'
 import { createLogger } from '../utils/logger'
+
+// ============================================
+// Local type definitions for id.org.ai types
+// (Defined locally to avoid submodule import issues with tsconfig)
+// ============================================
+
+/**
+ * User - Human user identity from id.org.ai
+ */
+interface User {
+  $id: string
+  $type: 'https://schema.org.ai/User'
+  email: string
+  name: string
+  profile?: Record<string, unknown> | undefined
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * Credential types for authentication
+ */
+type CredentialType = 'password' | 'oauth' | 'api_key' | 'sso'
+
+/**
+ * Credential - Authentication credential from id.org.ai
+ */
+interface Credential {
+  $id: string
+  $type: 'https://schema.org.ai/Credential'
+  identityId: string
+  credentialType: CredentialType
+  provider?: string
+  expiresAt?: string
+}
+
+/**
+ * Session - Active authentication session from id.org.ai
+ */
+interface Session {
+  $id: string
+  $type: 'https://schema.org.ai/Session'
+  identityId: string
+  token: string
+  expiresAt: string
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * Type guard to check if an object is a valid Session
+ */
+function isSession(obj: unknown): obj is Session {
+  if (!obj || typeof obj !== 'object') return false
+  const s = obj as Record<string, unknown>
+  return (
+    typeof s.$id === 'string' &&
+    s.$type === 'https://schema.org.ai/Session' &&
+    typeof s.identityId === 'string' &&
+    typeof s.token === 'string' &&
+    typeof s.expiresAt === 'string'
+  )
+}
+
+/**
+ * Type guard to check if an object is a valid User
+ */
+function isUser(obj: unknown): obj is User {
+  if (!obj || typeof obj !== 'object') return false
+  const u = obj as Record<string, unknown>
+  return (
+    typeof u.$id === 'string' &&
+    u.$type === 'https://schema.org.ai/User' &&
+    typeof u.email === 'string' &&
+    typeof u.name === 'string' &&
+    typeof u.createdAt === 'string' &&
+    typeof u.updatedAt === 'string'
+  )
+}
+
+// Re-export types for external use (Session is not exported to avoid conflict with ./session module)
+export type { User, Credential }
 
 const logger = createLogger('[OrgAI]')
 
@@ -158,9 +236,9 @@ export interface OrgAiUser extends AuthUser {
  */
 export interface OrgAiOrganization {
   $id: string
-  name?: string
+  name?: string | undefined
   role: string
-  joinedAt?: string
+  joinedAt?: string | undefined
 }
 
 /**
@@ -227,9 +305,9 @@ export interface SSOFlowResult {
  */
 export interface OrganizationMembership {
   isMember: boolean
-  role?: string
-  joinedAt?: string
-  organization?: OrgAiOrganization
+  role?: string | undefined
+  joinedAt?: string | undefined
+  organization?: OrgAiOrganization | undefined
 }
 
 // === Augment Hono context ===
@@ -274,12 +352,13 @@ export function orgAiAuthMiddleware(options: OrgAiAuthOptions = {}): MiddlewareH
     const authHeader = c.req.header('Authorization')
 
     if (!sessionHeader && !authHeader) {
-      const error = new HTTPException(401, { message: 'org.ai session required' })
-      error.res = new Response(JSON.stringify({ error: 'org.ai session required' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
+      throw new HTTPException(401, {
+        message: 'org.ai session required',
+        res: new Response(JSON.stringify({ error: 'org.ai session required' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+        })
       })
-      throw error
     }
 
     let session: Session | null = null
@@ -303,12 +382,13 @@ export function orgAiAuthMiddleware(options: OrgAiAuthOptions = {}): MiddlewareH
 
     // Check if session is expired
     if (isSessionExpired(session)) {
-      const error = new HTTPException(401, { message: 'org.ai session expired' })
-      error.res = new Response(JSON.stringify({ error: 'org.ai session expired' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
+      throw new HTTPException(401, {
+        message: 'org.ai session expired',
+        res: new Response(JSON.stringify({ error: 'org.ai session expired' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+        })
       })
-      throw error
     }
 
     // Custom session validation
@@ -332,16 +412,15 @@ export function orgAiAuthMiddleware(options: OrgAiAuthOptions = {}): MiddlewareH
     if (requireOrganization) {
       const isMember = organizations.some(org => org.$id === requireOrganization)
       if (!isMember) {
-        const error = new HTTPException(403, {
-          message: `Organization membership required: ${requireOrganization}`
+        throw new HTTPException(403, {
+          message: `Organization membership required: ${requireOrganization}`,
+          res: new Response(JSON.stringify({
+            error: `Organization membership required: ${requireOrganization}`
+          }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json' }
+          })
         })
-        error.res = new Response(JSON.stringify({
-          error: `Organization membership required: ${requireOrganization}`
-        }), {
-          status: 403,
-          headers: { 'Content-Type': 'application/json' }
-        })
-        throw error
       }
     }
 

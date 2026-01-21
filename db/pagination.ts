@@ -177,20 +177,23 @@ export function applyCursorPagination<T>(
     const hasMore = startIndex > 0
     const hasNext = endIndex < items.length
 
+    const lastItem = pageItems[pageItems.length - 1]
+    const firstItem = pageItems[0]
+
     return {
       items: pageItems,
-      nextCursor: hasNext && pageItems.length > 0
+      nextCursor: hasNext && lastItem !== undefined
         ? encodeCursor({
-            sortValue: getSortValue(pageItems[pageItems.length - 1]),
-            id: getId(pageItems[pageItems.length - 1]),
+            sortValue: getSortValue(lastItem),
+            id: getId(lastItem),
             sortField,
             sortDirection
           })
         : undefined,
-      prevCursor: hasMore && pageItems.length > 0
+      prevCursor: hasMore && firstItem !== undefined
         ? encodeCursor({
-            sortValue: getSortValue(pageItems[0]),
-            id: getId(pageItems[0]),
+            sortValue: getSortValue(firstItem),
+            id: getId(firstItem),
             sortField,
             sortDirection
           })
@@ -204,20 +207,23 @@ export function applyCursorPagination<T>(
   const hasMore = startIndex + limit < items.length
   const hasPrev = startIndex > 0
 
+  const lastForwardItem = pageItems[pageItems.length - 1]
+  const firstForwardItem = pageItems[0]
+
   return {
     items: pageItems,
-    nextCursor: hasMore && pageItems.length > 0
+    nextCursor: hasMore && lastForwardItem !== undefined
       ? encodeCursor({
-          sortValue: getSortValue(pageItems[pageItems.length - 1]),
-          id: getId(pageItems[pageItems.length - 1]),
+          sortValue: getSortValue(lastForwardItem),
+          id: getId(lastForwardItem),
           sortField,
           sortDirection
         })
       : undefined,
-    prevCursor: hasPrev && pageItems.length > 0
+    prevCursor: hasPrev && firstForwardItem !== undefined
       ? encodeCursor({
-          sortValue: getSortValue(pageItems[0]),
-          id: getId(pageItems[0]),
+          sortValue: getSortValue(firstForwardItem),
+          id: getId(firstForwardItem),
           sortField,
           sortDirection
         })

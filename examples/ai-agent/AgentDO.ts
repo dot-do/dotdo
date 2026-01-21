@@ -3,7 +3,7 @@
 // Key patterns: $.on.Noun.verb event handlers, $.every scheduling, $.do durable actions
 
 import { Hono } from 'hono'
-import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
+import { DO, type DOEnv } from '../../do'
 import type {
   Conversation,
   Message,
@@ -97,23 +97,26 @@ interface AgentEnv extends DOEnv {
 }
 
 export class AgentDO extends DO {
-  private $: WorkflowContext
   private agentEnv: AgentEnv
 
   constructor(state: DurableObjectState, env: AgentEnv) {
     super(state, env)
     this.agentEnv = env
 
-    // Initialize WorkflowContext for event handling and scheduling
-    this.$ = createContext(state, env)
+    // $ is already initialized in the base DO class
 
     // ========================================================================
     // Event Handlers using $.on.Noun.verb pattern
     // ========================================================================
 
+    // Helper function to safely get event noun proxy with proper typing
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const on = this.$.on as any
+
     // Track messages for analytics
-    this.$.on.Message.sent(async (event) => {
-      const { conversationId, messageId, role } = event.payload as {
+    on.Message.sent(async (event: unknown) => {
+      const e = event as { type: string; payload: unknown }
+      const { conversationId, messageId, role } = e.payload as {
         conversationId: string
         messageId: string
         role: string
@@ -121,8 +124,9 @@ export class AgentDO extends DO {
       console.log(`[Event] Message sent in ${conversationId}: ${role} (${messageId})`)
     })
 
-    this.$.on.Message.received(async (event) => {
-      const { conversationId, messageId, role } = event.payload as {
+    on.Message.received(async (event: unknown) => {
+      const e = event as { type: string; payload: unknown }
+      const { conversationId, messageId, role } = e.payload as {
         conversationId: string
         messageId: string
         role: string
@@ -131,8 +135,9 @@ export class AgentDO extends DO {
     })
 
     // Track tool executions
-    this.$.on.Tool.executed(async (event) => {
-      const { toolName, args, success } = event.payload as {
+    on.Tool.executed(async (event: unknown) => {
+      const e = event as { type: string; payload: unknown }
+      const { toolName, args, success } = e.payload as {
         toolName: string
         args: Record<string, unknown>
         success: boolean
@@ -140,8 +145,9 @@ export class AgentDO extends DO {
       console.log(`[Event] Tool ${toolName} executed (success: ${success})`, args)
     })
 
-    this.$.on.Tool.failed(async (event) => {
-      const { toolName, error } = event.payload as {
+    on.Tool.failed(async (event: unknown) => {
+      const e = event as { type: string; payload: unknown }
+      const { toolName, error } = e.payload as {
         toolName: string
         args: Record<string, unknown>
         error: string
@@ -150,18 +156,21 @@ export class AgentDO extends DO {
     })
 
     // Track task lifecycle
-    this.$.on.Task.started(async (event) => {
-      const { taskId, name } = event.payload as { taskId: string; name: string }
+    on.Task.started(async (event: unknown) => {
+      const e = event as { type: string; payload: unknown }
+      const { taskId, name } = e.payload as { taskId: string; name: string }
       console.log(`[Event] Task started: ${name} (${taskId})`)
     })
 
-    this.$.on.Task.completed(async (event) => {
-      const { taskId, name } = event.payload as { taskId: string; name: string }
+    on.Task.completed(async (event: unknown) => {
+      const e = event as { type: string; payload: unknown }
+      const { taskId, name } = e.payload as { taskId: string; name: string }
       console.log(`[Event] Task completed: ${name} (${taskId})`)
     })
 
-    this.$.on.Task.failed(async (event) => {
-      const { taskId, name, error } = event.payload as {
+    on.Task.failed(async (event: unknown) => {
+      const e = event as { type: string; payload: unknown }
+      const { taskId, name, error } = e.payload as {
         taskId: string
         name: string
         error: string
@@ -170,8 +179,9 @@ export class AgentDO extends DO {
     })
 
     // Audit log - catch all agent events
-    this.$.on['*']['*'](async (event) => {
-      console.log(`[Audit] ${event.type}`, event.payload)
+    on['*']['*'](async (event: unknown) => {
+      const e = event as { type: string; payload: unknown }
+      console.log(`[Audit] ${e.type}`, e.payload)
     })
 
     // ========================================================================
@@ -179,13 +189,15 @@ export class AgentDO extends DO {
     // ========================================================================
 
     // Every day at 6pm - summarize day's conversations
-    this.$.every.day.at6pm(async () => {
+    const everyDay = this.$.every.day as unknown as { at6pm: (handler: () => Promise<void>) => void }
+    everyDay.at6pm(async () => {
       console.log('[Scheduled] Generating daily conversation summary...')
       // In production: generate summary of day's conversations
     })
 
     // Every week on Monday - clean up old conversations
-    this.$.every.Monday.at9am(async () => {
+    const everyMonday = this.$.every.Monday as unknown as { at9am: (handler: () => Promise<void>) => void }
+    everyMonday.at9am(async () => {
       console.log('[Scheduled] Cleaning up old conversations...')
       // In production: archive or delete old conversations
     })
@@ -290,7 +302,10 @@ export class AgentDO extends DO {
         if (!toolNames.has(builtIn.name)) {
           const tool = await this.things.create({
             $type: 'Tool',
-            ...builtIn,
+            name: builtIn.name,
+            description: builtIn.description,
+            parameters: builtIn.parameters as unknown as import('@dotdo/db').JsonValue,
+            enabled: builtIn.enabled,
           })
           allTools.push(tool)
         }
@@ -334,6 +349,7 @@ export class AgentDO extends DO {
     })
 
     // Get specific memory
+    // @ts-expect-error - Hono type instantiation too deep with many routes
     app.get('/memory/:key', async (c) => {
       const key = c.req.param('key')
       const memories = await this.things.list({ type: 'Memory' })
@@ -350,12 +366,13 @@ export class AgentDO extends DO {
 
     // Store memory manually
     app.post('/memory', async (c) => {
-      const { key, value, type = 'fact', conversationId } = await c.req.json<{
+      const body = await c.req.json<{
         key: string
         value: string
         type?: Memory['type']
         conversationId?: string
       }>()
+      const { key, value, type = 'fact', conversationId } = body
 
       const memory = await this.things.create({
         $type: 'Memory',
@@ -416,7 +433,7 @@ export class AgentDO extends DO {
 
       const taskSteps: TaskStep[] = steps.map((s) => ({
         name: s,
-        status: 'pending',
+        status: 'pending' as const,
       }))
 
       const task = await this.things.create({
@@ -426,7 +443,7 @@ export class AgentDO extends DO {
         description,
         status: 'pending',
         progress: 0,
-        steps: taskSteps,
+        steps: taskSteps as unknown as import('@dotdo/db').JsonValue,
         startedAt: new Date().toISOString(),
       })
 
@@ -481,7 +498,8 @@ export class AgentDO extends DO {
     // Get agent config
     app.get('/config', async (c) => {
       const configs = await this.things.list({ type: 'AgentConfig' })
-      if (configs.length === 0) {
+      const firstConfig = configs[0]
+      if (!firstConfig) {
         // Return default config
         return c.json({
           name: 'AI Assistant',
@@ -494,7 +512,7 @@ export class AgentDO extends DO {
           streaming: false,
         })
       }
-      return c.json(configs[0])
+      return c.json(firstConfig)
     })
 
     // Update agent config
@@ -502,8 +520,9 @@ export class AgentDO extends DO {
       const configData = await c.req.json<Omit<AgentConfig, '$type'>>()
 
       const configs = await this.things.list({ type: 'AgentConfig' })
-      if (configs.length > 0) {
-        const updated = await this.things.update(configs[0].$id, configData)
+      const existingConfig = configs[0]
+      if (existingConfig) {
+        const updated = await this.things.update(existingConfig.$id, configData)
         return c.json(updated)
       }
 
@@ -627,8 +646,8 @@ export class AgentDO extends DO {
           conversationId,
           role: 'tool',
           content: JSON.stringify(result),
-          toolCall,
-          toolResult: result,
+          toolCall: toolCall as unknown as import('@dotdo/db').JsonValue,
+          toolResult: result as unknown as import('@dotdo/db').JsonValue,
           createdAt: new Date().toISOString(),
         })
 
@@ -640,19 +659,20 @@ export class AgentDO extends DO {
     }
 
     // Store assistant message
+    const firstToolCall = toolCalls?.[0]
     const assistantMessage = await this.things.create({
       $type: 'Message',
       conversationId,
       role: 'assistant',
       content: assistantContent,
-      toolCall: toolCalls?.[0],
+      ...(firstToolCall ? { toolCall: firstToolCall as unknown as import('@dotdo/db').JsonValue } : {}),
       model,
       finishReason: 'stop',
       createdAt: new Date().toISOString(),
     })
 
     // Update conversation stats
-    await this.things.update(conversationId, {
+    await this.things.update(conversationId!, {
       messageCount: conversation.messageCount + 2,
       lastMessageAt: new Date().toISOString(),
     })
@@ -669,7 +689,7 @@ export class AgentDO extends DO {
     })
 
     return {
-      conversationId,
+      conversationId: conversationId!,
       messageId: assistantMessage.$id,
       content: assistantContent,
       toolCalls,
@@ -870,17 +890,21 @@ export class AgentDO extends DO {
     try {
       for (let i = 0; i < task.steps.length; i++) {
         const step = task.steps[i]
+        if (!step) continue
 
         // Update step status
-        const updatedSteps = [...task.steps]
+        const updatedSteps: TaskStep[] = [...task.steps]
         updatedSteps[i] = {
-          ...step,
-          status: 'running',
+          name: step.name,
+          status: 'running' as const,
           startedAt: new Date().toISOString(),
+          completedAt: step.completedAt,
+          result: step.result,
+          error: step.error,
         }
 
         await this.things.update(taskId, {
-          steps: updatedSteps,
+          steps: updatedSteps as unknown as import('@dotdo/db').JsonValue,
           progress: Math.round((i / task.steps.length) * 100),
         })
 
@@ -888,13 +912,19 @@ export class AgentDO extends DO {
         await new Promise((resolve) => setTimeout(resolve, 1000))
 
         // Mark step complete
-        updatedSteps[i] = {
-          ...updatedSteps[i],
-          status: 'completed',
-          completedAt: new Date().toISOString(),
+        const currentStep = updatedSteps[i]
+        if (currentStep) {
+          updatedSteps[i] = {
+            name: currentStep.name,
+            status: 'completed' as const,
+            startedAt: currentStep.startedAt,
+            completedAt: new Date().toISOString(),
+            result: currentStep.result,
+            error: currentStep.error,
+          }
         }
 
-        await this.things.update(taskId, { steps: updatedSteps })
+        await this.things.update(taskId, { steps: updatedSteps as unknown as import('@dotdo/db').JsonValue })
       }
 
       // Complete task

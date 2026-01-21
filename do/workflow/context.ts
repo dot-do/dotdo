@@ -301,12 +301,21 @@ export function createContext(
       })
 
       if (failure.error instanceof ValidationError) {
-        events.addValidationFailure({
+        // Build validation failure, only including details if defined (exactOptionalPropertyTypes)
+        const validationFailure: {
+          type: string;
+          payload: import('@dotdo/db').JsonValue;
+          error: string;
+          details?: Record<string, import('@dotdo/db').JsonValue>;
+        } = {
           type: eventType,
-          payload: payload,
-          error: `ValidationError: ${failure.error.message}`,
-          details: failure.error.details
-        })
+          payload: payload as import('@dotdo/db').JsonValue,
+          error: `ValidationError: ${failure.error.message}`
+        }
+        if (failure.error.details !== undefined) {
+          validationFailure.details = failure.error.details as Record<string, import('@dotdo/db').JsonValue>
+        }
+        events.addValidationFailure(validationFailure)
       } else {
         events.addToDeadLetterQueue({
           event: emitted,
