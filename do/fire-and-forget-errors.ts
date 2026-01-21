@@ -467,31 +467,31 @@ export function createSQLiteErrorStore(sql: SyncSqlStorage): FireAndForgetErrorS
     getStats() {
       // Total count
       const totalRow = sql.prepare('SELECT COUNT(*) as count FROM fire_and_forget_errors').first()
-      const total = (totalRow?.count as number) || 0
+      const total = (totalRow?.['count'] as number) || 0
 
       // Recovered count
       const recoveredRow = sql.prepare('SELECT COUNT(*) as count FROM fire_and_forget_errors WHERE recovered = 1').first()
-      const recovered = (recoveredRow?.count as number) || 0
+      const recovered = (recoveredRow?.['count'] as number) || 0
 
       // By operation
       const opResults = sql.prepare('SELECT operation, COUNT(*) as count FROM fire_and_forget_errors GROUP BY operation').all()
       const byOperation: Record<string, number> = {}
       for (const row of opResults.results) {
-        byOperation[row.operation as string] = row.count as number
+        byOperation[row['operation'] as string] = row['count'] as number
       }
 
       // By event type
       const etResults = sql.prepare('SELECT event_type, COUNT(*) as count FROM fire_and_forget_errors WHERE event_type IS NOT NULL GROUP BY event_type').all()
       const byEventType: Record<string, number> = {}
       for (const row of etResults.results) {
-        byEventType[row.event_type as string] = row.count as number
+        byEventType[row['event_type'] as string] = row['count'] as number
       }
 
       // By error type
       const errResults = sql.prepare('SELECT error_type, COUNT(*) as count FROM fire_and_forget_errors GROUP BY error_type').all()
       const byErrorType: Record<string, number> = {}
       for (const row of errResults.results) {
-        byErrorType[row.error_type as string] = row.count as number
+        byErrorType[row['error_type'] as string] = row['count'] as number
       }
 
       return {
@@ -551,7 +551,7 @@ export function createSQLiteErrorStore(sql: SyncSqlStorage): FireAndForgetErrorS
       }
 
       const result = sql.prepare(query).bind(...params).first()
-      return (result?.count as number) || 0
+      return (result?.['count'] as number) || 0
     }
   }
 }
@@ -1257,15 +1257,15 @@ export function createSQLiteRetryQueue(
 
       // Count by status
       const totalRow = sql.prepare('SELECT COUNT(*) as count FROM retry_queue').first()
-      stats.total = (totalRow?.count as number) || 0
+      stats.total = (totalRow?.['count'] as number) || 0
 
       const statusCounts = sql.prepare(
         'SELECT status, COUNT(*) as count FROM retry_queue GROUP BY status'
       ).all()
 
       for (const row of statusCounts.results) {
-        const status = row.status as string
-        const count = row.count as number
+        const status = row['status'] as string
+        const count = row['count'] as number
 
         switch (status) {
           case 'pending':
@@ -1292,7 +1292,7 @@ export function createSQLiteRetryQueue(
       ).all()
 
       for (const row of typeCounts.results) {
-        stats.byEventType[row.event_type as string] = row.count as number
+        stats.byEventType[row['event_type'] as string] = row['count'] as number
       }
 
       return stats

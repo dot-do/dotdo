@@ -37,6 +37,15 @@ import { generateTypes, type TypeGenOptions, type TypeGenResult } from './types-
 // Import auth utilities
 import { extractCallerInfoWithVerification, type CallerInfo } from './auth'
 
+// Import CORS utilities
+import {
+  buildHonoCorsOptions,
+  isProductionEnvironment,
+  DEFAULT_CORS_METHODS,
+  DEFAULT_CORS_HEADERS,
+  DEFAULT_EXPOSE_HEADERS
+} from './utils/cors'
+
 const logger = createLogger('[DO]')
 
 /**
@@ -119,14 +128,69 @@ interface UnsafeEval {
 }
 
 /**
+ * CORS configuration options for DO instances.
+ *
+ * @stable
+ * @since 1.0.0
+ */
+export interface CORSOptions {
+  /**
+   * Allowed origins for CORS requests.
+   * - String array: List of allowed origins (e.g., ['https://app.example.com'])
+   * - '*': Allow all origins (NOT recommended for production)
+   * - undefined: Default restrictive behavior (no cross-origin allowed)
+   *
+   * @security In production, always specify explicit origins rather than using '*'
+   */
+  allowedOrigins?: string[] | '*'
+
+  /**
+   * Allowed HTTP methods for CORS requests.
+   * Defaults to: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+   */
+  allowedMethods?: string[]
+
+  /**
+   * Allowed headers for CORS requests.
+   * Defaults to: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-API-Key']
+   */
+  allowedHeaders?: string[]
+
+  /**
+   * Headers to expose to the client.
+   * Defaults to: ['X-Request-ID', 'X-DO-Colo']
+   */
+  exposeHeaders?: string[]
+
+  /**
+   * Whether to allow credentials (cookies, authorization headers).
+   * Defaults to true when specific origins are set, false for wildcard.
+   */
+  credentials?: boolean
+
+  /**
+   * Max age in seconds for preflight cache.
+   * Defaults to 86400 (24 hours).
+   */
+  maxAge?: number
+}
+
+/**
  * Configuration options for DO instances.
  *
  * @stable
  * @since 1.0.0
  */
 export interface DOOptions {
-  /** Whether to enable CORS middleware. Defaults to true. */
-  cors?: boolean
+  /**
+   * CORS configuration.
+   * - false: Disable CORS entirely
+   * - true: Enable CORS with wildcard origin (development only - logs warning)
+   * - CORSOptions: Configure allowed origins, methods, headers
+   *
+   * @default true (for backward compatibility, but logs warning in production)
+   */
+  cors?: boolean | CORSOptions
   /** Enable debug logging for handlers */
   debug?: boolean
 }
@@ -185,13 +249,51 @@ export class DO implements DurableObject {
     // Initialize WorkflowContext ($) for event handlers, scheduling, and cross-DO RPC
     this.$ = createContext(state, env)
 
-    // Setup middleware
-    if (options.cors !== false) {
-      this.app.use('/*', cors())
-    }
+    // Setup CORS middleware with validation
+    this.setupCORS(options.cors)
 
     // Setup default routes
     this.setupRoutes()
+  }
+
+  /**
+   * Setup CORS middleware with validation and security warnings
+   *
+   * @param corsOption - CORS configuration from DOOptions
+   */
+  private setupCORS(corsOption: boolean | CORSOptions | undefined): void {
+    // CORS disabled
+    if (corsOption === false) {
+      return
+    }
+
+    const isProduction = isProductionEnvironment()
+
+    // CORS enabled with default wildcard (backward compatible, but warns in production)
+    if (corsOption === true || corsOption === undefined) {
+      if (isProduction) {
+        logger.warn(
+          'CORS is enabled with wildcard origin (*) in production. ' +
+          'This is a security risk. Configure explicit allowedOrigins: ' +
+          'new DO(state, env, { cors: { allowedOrigins: ["https://your-app.com"] } })'
+        )
+      }
+
+      this.app.use('/*', cors({
+        origin: '*',
+        allowMethods: [...DEFAULT_CORS_METHODS],
+        allowHeaders: [...DEFAULT_CORS_HEADERS],
+        exposeHeaders: [...DEFAULT_EXPOSE_HEADERS],
+        credentials: false, // Cannot use credentials with wildcard
+        maxAge: 86400
+      }))
+      return
+    }
+
+    // CORS with explicit configuration
+    const honoCorsOptions = buildHonoCorsOptions(corsOption, isProduction)
+
+    this.app.use('/*', cors(honoCorsOptions))
   }
 
   /**

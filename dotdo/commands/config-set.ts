@@ -35,7 +35,7 @@ export interface ConfigSetResult {
  */
 function getConfigPath(global: boolean = false): string {
   if (global) {
-    const homeDir = process.env.HOME || process.env.USERPROFILE || '~'
+    const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '~'
     return resolve(homeDir, '.dotdo', 'config.json')
   }
 

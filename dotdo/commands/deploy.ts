@@ -84,7 +84,7 @@ async function ensureLoggedIn(options: {
   }
 
   return {
-    token: process.env.DO_TOKEN || 'mock-token-for-development',
+    token: process.env['DO_TOKEN'] || 'mock-token-for-development',
     isNewLogin: false,
   }
 }
@@ -240,7 +240,7 @@ export async function run(args: string[], options: RunOptions = {}): Promise<Run
       throw new Error(`Authentication failed: ${message}`)
     }
   } else {
-    token = process.env.DO_TOKEN || 'mock-token'
+    token = process.env['DO_TOKEN'] || 'mock-token'
   }
 
   // Build environment with token
@@ -250,7 +250,7 @@ export async function run(args: string[], options: RunOptions = {}): Promise<Run
   }
 
   if (options.apiUrl) {
-    env.DO_API_URL = options.apiUrl
+    env['DO_API_URL'] = options.apiUrl
   }
 
   // Handle rollback

@@ -131,7 +131,7 @@ export class AgentDO extends DO {
     })
 
     // Track tool executions
-    this.$.on.Tool.executed(async (event) => {
+    this.$.on['Tool']['executed'](async (event) => {
       const { toolName, args, success } = event.payload as {
         toolName: string
         args: Record<string, unknown>
@@ -140,7 +140,7 @@ export class AgentDO extends DO {
       console.log(`[Event] Tool ${toolName} executed (success: ${success})`, args)
     })
 
-    this.$.on.Tool.failed(async (event) => {
+    this.$.on['Tool'].failed(async (event) => {
       const { toolName, error } = event.payload as {
         toolName: string
         args: Record<string, unknown>
@@ -150,7 +150,7 @@ export class AgentDO extends DO {
     })
 
     // Track task lifecycle
-    this.$.on.Task.started(async (event) => {
+    this.$.on.Task['started'](async (event) => {
       const { taskId, name } = event.payload as { taskId: string; name: string }
       console.log(`[Event] Task started: ${name} (${taskId})`)
     })
@@ -179,13 +179,13 @@ export class AgentDO extends DO {
     // ========================================================================
 
     // Every day at 6pm - summarize day's conversations
-    this.$.every.day.at6pm(async () => {
+    this.$.every['day']['at6pm'](async () => {
       console.log('[Scheduled] Generating daily conversation summary...')
       // In production: generate summary of day's conversations
     })
 
     // Every week on Monday - clean up old conversations
-    this.$.every.Monday.at9am(async () => {
+    this.$.every['Monday']['at9am'](async () => {
       console.log('[Scheduled] Cleaning up old conversations...')
       // In production: archive or delete old conversations
     })
@@ -692,22 +692,22 @@ export class AgentDO extends DO {
 
       switch (toolName) {
         case 'search':
-          result = await this.toolSearch(args.query as string, args.limit as number)
+          result = await this.toolSearch(args['query'] as string, args['limit'] as number)
           break
 
         case 'calculate':
-          result = this.toolCalculate(args.expression as string)
+          result = this.toolCalculate(args['expression'] as string)
           break
 
         case 'weather':
-          result = await this.toolWeather(args.location as string)
+          result = await this.toolWeather(args['location'] as string)
           break
 
         case 'remember':
           result = await this.toolRemember(
-            args.key as string,
-            args.value as string,
-            args.type as Memory['type']
+            args['key'] as string,
+            args['value'] as string,
+            args['type'] as Memory['type']
           )
           break
 

@@ -140,12 +140,12 @@ export class MockDotdoClient {
     }
     if (options.initialData?.events) {
       for (const event of options.initialData.events) {
-        this.store.events.set(event.$id, event)
+        this.store.events.set(event['$id'], event)
       }
     }
     if (options.initialData?.relationships) {
       for (const rel of options.initialData.relationships) {
-        this.store.relationships.set(rel.$id, rel)
+        this.store.relationships.set(rel['$id'], rel)
       }
     }
   }
@@ -362,7 +362,7 @@ export class MockDotdoClient {
         $timestamp: new Date().toISOString(),
       } as Event
 
-      this.store.events.set(event.$id, event)
+      this.store.events.set(event['$id'], event)
       return { ...event }
     },
   }
@@ -419,7 +419,7 @@ export class MockDotdoClient {
         $createdAt: new Date().toISOString(),
       } as Relationship
 
-      this.store.relationships.set(relationship.$id, relationship)
+      this.store.relationships.set(relationship['$id'], relationship)
       return { ...relationship }
     },
 
@@ -527,12 +527,12 @@ export class MockDotdoClient {
     }
     if (data.events) {
       for (const event of data.events) {
-        this.store.events.set(event.$id, event)
+        this.store.events.set(event['$id'], event)
       }
     }
     if (data.relationships) {
       for (const rel of data.relationships) {
-        this.store.relationships.set(rel.$id, rel)
+        this.store.relationships.set(rel['$id'], rel)
       }
     }
   }

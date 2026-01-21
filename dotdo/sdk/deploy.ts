@@ -386,47 +386,47 @@ export interface CIEnvironment {
  */
 export function detectCIEnvironment(): CIEnvironment {
   // GitHub Actions
-  if (process.env.GITHUB_ACTIONS === 'true') {
+  if (process.env['GITHUB_ACTIONS'] === 'true') {
     return {
       provider: 'github-actions',
-      branch: process.env.GITHUB_REF_NAME,
-      commitSha: process.env.GITHUB_SHA,
-      prNumber: process.env.GITHUB_PR_NUMBER,
-      isRelease: process.env.GITHUB_REF_TYPE === 'tag',
-      tagName: process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : undefined,
+      branch: process.env['GITHUB_REF_NAME'],
+      commitSha: process.env['GITHUB_SHA'],
+      prNumber: process.env['GITHUB_PR_NUMBER'],
+      isRelease: process.env['GITHUB_REF_TYPE'] === 'tag',
+      tagName: process.env['GITHUB_REF_TYPE'] === 'tag' ? process.env['GITHUB_REF_NAME'] : undefined,
     }
   }
 
   // GitLab CI
-  if (process.env.GITLAB_CI === 'true') {
+  if (process.env['GITLAB_CI'] === 'true') {
     return {
       provider: 'gitlab-ci',
-      branch: process.env.CI_COMMIT_REF_NAME,
-      commitSha: process.env.CI_COMMIT_SHA,
-      prNumber: process.env.CI_MERGE_REQUEST_IID,
-      isRelease: !!process.env.CI_COMMIT_TAG,
-      tagName: process.env.CI_COMMIT_TAG,
+      branch: process.env['CI_COMMIT_REF_NAME'],
+      commitSha: process.env['CI_COMMIT_SHA'],
+      prNumber: process.env['CI_MERGE_REQUEST_IID'],
+      isRelease: !!process.env['CI_COMMIT_TAG'],
+      tagName: process.env['CI_COMMIT_TAG'],
     }
   }
 
   // CircleCI
-  if (process.env.CIRCLECI === 'true') {
+  if (process.env['CIRCLECI'] === 'true') {
     return {
       provider: 'circleci',
-      branch: process.env.CIRCLE_BRANCH,
-      commitSha: process.env.CIRCLE_SHA1,
-      prNumber: process.env.CIRCLE_PULL_REQUEST?.split('/').pop(),
-      isRelease: !!process.env.CIRCLE_TAG,
-      tagName: process.env.CIRCLE_TAG,
+      branch: process.env['CIRCLE_BRANCH'],
+      commitSha: process.env['CIRCLE_SHA1'],
+      prNumber: process.env['CIRCLE_PULL_REQUEST']?.split('/').pop(),
+      isRelease: !!process.env['CIRCLE_TAG'],
+      tagName: process.env['CIRCLE_TAG'],
     }
   }
 
   // Jenkins
-  if (process.env.JENKINS_URL) {
+  if (process.env['JENKINS_URL']) {
     return {
       provider: 'jenkins',
-      branch: process.env.GIT_BRANCH,
-      commitSha: process.env.GIT_COMMIT,
+      branch: process.env['GIT_BRANCH'],
+      commitSha: process.env['GIT_COMMIT'],
       isRelease: false,
     }
   }
@@ -619,7 +619,7 @@ export async function validatePrerequisites(): Promise<{
   }
 
   // Check for Cloudflare auth
-  if (!process.env.CLOUDFLARE_API_TOKEN && !process.env.CLOUDFLARE_ACCOUNT_ID) {
+  if (!process.env['CLOUDFLARE_API_TOKEN'] && !process.env['CLOUDFLARE_ACCOUNT_ID']) {
     warnings.push('CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID not set - deployment may require interactive login')
   }
 

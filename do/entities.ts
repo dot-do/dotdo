@@ -124,7 +124,7 @@ export class EntityManager {
         })
 
         // Audit log
-        await logAudit('create', thing.$type, thing.$id, { name: (thing as Record<string, unknown>).name as string })
+        await logAudit('create', thing.$type, thing.$id, { name: (thing as Record<string, unknown>)['name'] as string })
 
         return thing
       },

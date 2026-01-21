@@ -93,8 +93,8 @@ function authMiddleware(env: Env) {
 
       const user: AuthUser = {
         id: payload.sub as string,
-        email: payload.email as string,
-        name: payload.name as string,
+        email: payload['email'] as string,
+        name: payload['name'] as string,
       }
 
       c.set('user', user)

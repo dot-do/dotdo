@@ -554,9 +554,9 @@ export class DotdoClient {
   private extractErrorMessage(body: unknown): string | undefined {
     if (body && typeof body === 'object') {
       const obj = body as Record<string, unknown>
-      if (typeof obj.error === 'string') return obj.error
-      if (typeof obj.message === 'string') return obj.message
-      if (typeof obj.detail === 'string') return obj.detail
+      if (typeof obj['error'] === 'string') return obj['error']
+      if (typeof obj['message'] === 'string') return obj['message']
+      if (typeof obj['detail'] === 'string') return obj['detail']
     }
     return undefined
   }
@@ -568,8 +568,8 @@ export class DotdoClient {
   private extractValidationErrors(body: unknown): Array<{ field: string; message: string }> | undefined {
     if (body && typeof body === 'object') {
       const obj = body as Record<string, unknown>
-      if (Array.isArray(obj.errors)) {
-        return obj.errors
+      if (Array.isArray(obj['errors'])) {
+        return obj['errors']
           .filter((e): e is { field: string; message: string } =>
             typeof e === 'object' && e !== null && 'field' in e && 'message' in e
           )
@@ -588,11 +588,11 @@ export class DotdoClient {
   readonly things: ThingsResource = {
     list: async (options?: ListOptions): Promise<PaginatedResponse<Thing>> => {
       const query: Record<string, string | number | boolean | undefined> = {}
-      if (options?.$type) query.$type = options.$type
-      if (options?.limit) query.limit = options.limit
-      if (options?.cursor) query.cursor = options.cursor
-      if (options?.orderBy) query.orderBy = options.orderBy
-      if (options?.order) query.order = options.order
+      if (options?.$type) query['$type'] = options.$type
+      if (options?.limit) query['limit'] = options.limit
+      if (options?.cursor) query['cursor'] = options.cursor
+      if (options?.orderBy) query['orderBy'] = options.orderBy
+      if (options?.order) query['order'] = options.order
 
       const result = await this.request<{ data: Thing[]; cursor?: string; hasMore?: boolean; total?: number } | Thing[]>('/things', { query })
 
@@ -649,10 +649,10 @@ export class DotdoClient {
   readonly events: EventsResource = {
     list: async (options?: { type?: string; source?: string; limit?: number; cursor?: string }): Promise<PaginatedResponse<Event>> => {
       const query: Record<string, string | number | undefined> = {}
-      if (options?.type) query.type = options.type
-      if (options?.source) query.source = options.source
-      if (options?.limit) query.limit = options.limit
-      if (options?.cursor) query.cursor = options.cursor
+      if (options?.type) query['type'] = options.type
+      if (options?.source) query['source'] = options.source
+      if (options?.limit) query['limit'] = options.limit
+      if (options?.cursor) query['cursor'] = options.cursor
 
       const result = await this.request<{ data: Event[]; cursor?: string; hasMore?: boolean } | Event[]>('/events', { query })
 
@@ -686,8 +686,8 @@ export class DotdoClient {
   readonly relationships: RelationshipsResource = {
     list: async (options?: ListOptions): Promise<PaginatedResponse<Relationship>> => {
       const query: Record<string, string | number | undefined> = {}
-      if (options?.limit) query.limit = options.limit
-      if (options?.cursor) query.cursor = options.cursor
+      if (options?.limit) query['limit'] = options.limit
+      if (options?.cursor) query['cursor'] = options.cursor
 
       const result = await this.request<{ data: Relationship[]; cursor?: string; hasMore?: boolean } | Relationship[]>('/relationships', { query })
 
@@ -704,9 +704,9 @@ export class DotdoClient {
 
     find: async (query: { subject?: string; predicate?: string; object?: string }): Promise<Relationship[]> => {
       const params: Record<string, string | undefined> = {}
-      if (query.subject) params.subject = query.subject
-      if (query.predicate) params.predicate = query.predicate
-      if (query.object) params.object = query.object
+      if (query.subject) params['subject'] = query.subject
+      if (query.predicate) params['predicate'] = query.predicate
+      if (query.object) params['object'] = query.object
 
       const result = await this.request<{ data: Relationship[] } | Relationship[]>('/relationships', { query: params })
 
@@ -821,8 +821,8 @@ export function createDotdoClient(options: DotdoClientOptions): DotdoClient {
  * ```
  */
 export function createDotdoClientFromEnv(): DotdoClient {
-  const baseUrl = process.env.DOTDO_BASE_URL || process.env.DOTDO_API_URL
-  const apiKey = process.env.DOTDO_API_KEY
+  const baseUrl = process.env['DOTDO_BASE_URL'] || process.env['DOTDO_API_URL']
+  const apiKey = process.env['DOTDO_API_KEY']
 
   if (!baseUrl) {
     throw new Error('DOTDO_BASE_URL or DOTDO_API_URL environment variable is required')
