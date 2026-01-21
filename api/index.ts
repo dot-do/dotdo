@@ -62,9 +62,16 @@ export {
   generateCollectionLinks,
   withLinks,
   withCollectionLinks,
+  // API root and discoverability
+  generateAPIRootLinks,
+  generateAPIRoot,
+  // Error responses with links
+  generateErrorLinks,
+  // Types
   type Link,
   type HATEOASResponse,
   type ResourceConfig,
+  type APIRootConfig,
 } from './hateoas'
 export {
   generateOpenAPI,

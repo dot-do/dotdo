@@ -3,7 +3,10 @@ import {
   generateLinks,
   generateCollectionLinks,
   withLinks,
-  withCollectionLinks
+  withCollectionLinks,
+  generateAPIRootLinks,
+  generateAPIRoot,
+  generateErrorLinks
 } from '../hateoas'
 import { expectValidLink } from '../../test-utils'
 
@@ -121,6 +124,59 @@ describe('HATEOAS Link Generation', () => {
       expect(result.data[0]._links.self.href).toContain('/1')
       expect(result.data[1]._links.self.href).toContain('/2')
       expect(result._links.create).toBeDefined()
+    })
+  })
+
+  describe('generateAPIRootLinks', () => {
+    it('should generate discoverable API root links', () => {
+      const links = generateAPIRootLinks({
+        baseUrl,
+        resources: {
+          users: { path: '/users', title: 'Users' },
+          orders: { path: '/orders', title: 'Orders' }
+        },
+        openapi: { json: '/openapi.json' },
+        docsPath: '/docs',
+        healthPath: '/health'
+      })
+
+      expect(links.self.href).toBe('https://api.example.com/')
+      expect(links.users.href).toBe('https://api.example.com/users')
+      expect(links.users.rel).toBe('collection')
+      expect(links.orders.href).toBe('https://api.example.com/orders')
+      expect(links.describedby.href).toBe('https://api.example.com/openapi.json')
+      expect(links.help.href).toBe('https://api.example.com/docs')
+      expect(links.health.href).toBe('https://api.example.com/health')
+    })
+  })
+
+  describe('generateAPIRoot', () => {
+    it('should generate complete API root response', () => {
+      const root = generateAPIRoot({
+        name: 'My API',
+        version: '2.0.0',
+        description: 'My awesome API',
+        baseUrl
+      })
+
+      expect(root.name).toBe('My API')
+      expect(root.version).toBe('2.0.0')
+      expect(root.description).toBe('My awesome API')
+      expect(root._links.self).toBeDefined()
+    })
+  })
+
+  describe('generateErrorLinks', () => {
+    it('should generate error response links', () => {
+      const links = generateErrorLinks(baseUrl, {
+        docsPath: '/docs',
+        healthPath: '/health'
+      })
+
+      expect(links.root.href).toBe('https://api.example.com/')
+      expect(links.root.rel).toBe('up')
+      expect(links.help.href).toBe('https://api.example.com/docs')
+      expect(links.health.href).toBe('https://api.example.com/health')
     })
   })
 })
