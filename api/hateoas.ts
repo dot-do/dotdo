@@ -159,3 +159,159 @@ export function withCollectionLinks<T>(
     _links: generateCollectionLinks(resource, baseUrl, options)
   }
 }
+
+/**
+ * Configuration for API root links
+ */
+export interface APIRootConfig {
+  /** API name */
+  name?: string
+  /** API version */
+  version?: string
+  /** API description */
+  description?: string
+  /** Base URL for the API */
+  baseUrl: string
+  /** Available resources with their paths */
+  resources?: Record<string, {
+    path: string
+    title?: string
+    description?: string
+  }>
+  /** OpenAPI specification paths */
+  openapi?: {
+    json?: string
+    yaml?: string
+  }
+  /** Documentation URL */
+  docsPath?: string
+  /** Health check endpoint */
+  healthPath?: string
+}
+
+/**
+ * Generate links for the API root endpoint.
+ * This makes the entire API discoverable from a single entry point.
+ */
+export function generateAPIRootLinks(config: APIRootConfig): Record<string, Link> {
+  const { baseUrl, resources = {}, openapi, docsPath, healthPath } = config
+
+  const links: Record<string, Link> = {
+    self: {
+      href: `${baseUrl}/`,
+      rel: 'self',
+      method: 'GET',
+      title: 'API Root'
+    }
+  }
+
+  // Add health check link
+  if (healthPath) {
+    links['health'] = {
+      href: `${baseUrl}${healthPath}`,
+      rel: 'health',
+      method: 'GET',
+      title: 'Health check endpoint'
+    }
+  }
+
+  // Add OpenAPI specification links
+  if (openapi?.json) {
+    links['describedby'] = {
+      href: `${baseUrl}${openapi.json}`,
+      rel: 'describedby',
+      method: 'GET',
+      title: 'OpenAPI specification (JSON)'
+    }
+  }
+
+  if (openapi?.yaml) {
+    links['describedby-yaml'] = {
+      href: `${baseUrl}${openapi.yaml}`,
+      rel: 'describedby',
+      method: 'GET',
+      title: 'OpenAPI specification (YAML)'
+    }
+  }
+
+  // Add documentation link
+  if (docsPath) {
+    links['help'] = {
+      href: `${baseUrl}${docsPath}`,
+      rel: 'help',
+      method: 'GET',
+      title: 'API documentation'
+    }
+  }
+
+  // Add resource collection links
+  for (const [name, resource] of Object.entries(resources)) {
+    links[name] = {
+      href: `${baseUrl}${resource.path}`,
+      rel: 'collection',
+      method: 'GET',
+      title: resource.title || `${name} collection`
+    }
+  }
+
+  return links
+}
+
+/**
+ * Generate a complete API root response with HATEOAS links.
+ * This is the entry point for a fully discoverable API.
+ */
+export function generateAPIRoot(config: APIRootConfig): {
+  name: string
+  version: string
+  description: string
+  _links: Record<string, Link>
+} {
+  return {
+    name: config.name || 'API',
+    version: config.version || '1.0.0',
+    description: config.description || 'Self-describing HATEOAS API',
+    _links: generateAPIRootLinks(config)
+  }
+}
+
+/**
+ * Generate error response with HATEOAS links for discoverability.
+ * Even error responses should help users find the right resources.
+ */
+export function generateErrorLinks(
+  baseUrl: string,
+  options?: {
+    docsPath?: string
+    healthPath?: string
+  }
+): Record<string, Link> {
+  const links: Record<string, Link> = {
+    root: {
+      href: `${baseUrl}/`,
+      rel: 'up',
+      method: 'GET',
+      title: 'API Root'
+    }
+  }
+
+  if (options?.docsPath) {
+    links['help'] = {
+      href: `${baseUrl}${options.docsPath}`,
+      rel: 'help',
+      method: 'GET',
+      title: 'API documentation'
+    }
+  }
+
+  if (options?.healthPath) {
+    links['health'] = {
+      href: `${baseUrl}${options.healthPath}`,
+      rel: 'health',
+      method: 'GET',
+      title: 'Health check endpoint'
+    }
+  }
+
+  return links
+}

@@ -168,10 +168,12 @@ export function createJwksClient(options: JwksClientOptions): JwksClient {
       if (!isCacheValid()) {
         await fetchAndCache()
 
-        // Try to find the key now
-        const jwk = cache!.jwks.keys.find((k) => k.kid === kid)
-        if (jwk) {
-          return importAndCacheKey(jwk)
+        // Try to find the key now (cache is guaranteed to exist after fetchAndCache)
+        if (cache) {
+          const jwk = cache.jwks.keys.find((k) => k.kid === kid)
+          if (jwk) {
+            return importAndCacheKey(jwk)
+          }
         }
       }
 
@@ -186,9 +188,12 @@ export function createJwksClient(options: JwksClientOptions): JwksClient {
           // Force refetch
           await fetchAndCache()
 
-          const jwk = cache!.jwks.keys.find((k) => k.kid === kid)
-          if (jwk) {
-            return importAndCacheKey(jwk)
+          // cache is guaranteed to exist after fetchAndCache
+          if (cache) {
+            const jwk = cache.jwks.keys.find((k) => k.kid === kid)
+            if (jwk) {
+              return importAndCacheKey(jwk)
+            }
           }
         }
       }

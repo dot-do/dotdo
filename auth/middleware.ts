@@ -13,6 +13,8 @@ import type { CryptoKey, KeyObject } from 'jose'
 
 /** Type alias for jose key types */
 type KeyLike = CryptoKey | KeyObject
+import { validateSecretPresent } from './validation'
+import { ApiKeyManager, ApiKeyAuth, type ApiKey } from './apikey'
 
 /**
  * Options for configuring JWT authentication middleware.
@@ -48,6 +50,7 @@ declare module 'hono' {
   interface ContextVariableMap {
     user: AuthUser
     token: string
+    apiKey?: ApiKey
   }
 }
 
@@ -64,7 +67,7 @@ declare module 'hono' {
  * @returns Hono middleware handler
  *
  * @example
- * ```typescript
+ * \`\`\`typescript
  * import { Hono } from 'hono'
  * import { authMiddleware } from '@dotdo/auth'
  *
@@ -90,7 +93,7 @@ declare module 'hono' {
  *   const user = c.get('user')
  *   return c.json({ userId: user.id, email: user.email })
  * })
- * ```
+ * \`\`\`
  */
 export function authMiddleware(options: AuthOptions = {}): MiddlewareHandler {
   const { skipPaths = [], secret, publicKey, issuer, audience } = options
@@ -100,17 +103,12 @@ export function authMiddleware(options: AuthOptions = {}): MiddlewareHandler {
     throw new Error('Either secret or publicKey is required for JWT validation in authMiddleware')
   }
 
-  // Validate that provided keys are not empty
-  if (secret !== undefined && secret !== null) {
-    if (typeof secret === 'string' && secret.length === 0) {
-      throw new Error('secret cannot be an empty string')
-    }
-    if (secret instanceof Uint8Array && secret.length === 0) {
-      throw new Error('secret cannot be an empty Uint8Array')
-    }
+  // Validate that at least one key is properly provided
+  if (secret) {
+    validateSecretPresent(secret, 'secret', 'JWT validation in authMiddleware')
   }
-  if (publicKey !== undefined && publicKey !== null && publicKey.length === 0) {
-    throw new Error('publicKey cannot be an empty string')
+  if (publicKey) {
+    validateSecretPresent(publicKey, 'publicKey', 'JWT validation in authMiddleware')
   }
 
   // Convert string secret to Uint8Array if needed (for HMAC)
@@ -208,49 +206,109 @@ export function authMiddleware(options: AuthOptions = {}): MiddlewareHandler {
 }
 
 /**
+ * Options for configuring API key authentication middleware.
+ */
+export interface ApiKeyMiddlewareOptions {
+  /** The ApiKeyManager instance for key validation */
+  manager: ApiKeyManager
+  /** Header name for API key (default: 'X-API-Key') */
+  header?: string
+  /** Scopes required to access the route (any of these grants access) */
+  requireScopes?: string[]
+  /** Whether to enforce rate limiting (default: true) */
+  enforceRateLimit?: boolean
+}
+
+/**
  * Create API key authentication middleware for Hono.
  *
- * This middleware extracts an API key from a configurable header and sets
- * a minimal user context. For full API key validation with scopes and rate
- * limiting, use createApiKeyMiddleware with an ApiKeyManager.
+ * This middleware validates API keys using an ApiKeyManager and supports
+ * scope-based authorization and rate limiting.
  *
- * @param options - Configuration options
- * @param options.header - Header name for API key (default: 'X-API-Key')
+ * **Security:** Fails closed - invalid/missing keys result in 401 responses.
+ * Unauthorized scopes result in 403 responses.
+ *
+ * @param options - Configuration options including the ApiKeyManager
  * @returns Hono middleware handler
  *
  * @example
- * ```typescript
+ * \`\`\`typescript
  * import { Hono } from 'hono'
- * import { apiKeyMiddleware } from '@dotdo/auth'
+ * import { apiKeyMiddleware, ApiKeyManager } from '@dotdo/auth'
  *
  * const app = new Hono()
+ * const manager = new ApiKeyManager()
  *
- * app.use('/api/*', apiKeyMiddleware({ header: 'X-API-Key' }))
+ * // Basic usage - validates key format and existence
+ * app.use('/api/*', apiKeyMiddleware({ manager }))
+ *
+ * // With required scopes
+ * app.use('/api/admin/*', apiKeyMiddleware({
+ *   manager,
+ *   requireScopes: ['admin:read', 'admin:write']
+ * }))
  *
  * app.get('/api/data', (c) => {
- *   const token = c.get('token')  // The API key
- *   return c.json({ data: 'sensitive' })
+ *   const apiKey = c.get('apiKey')  // The validated ApiKey object
+ *   return c.json({ data: 'sensitive', scopes: apiKey?.scopes })
  * })
- * ```
+ * \`\`\`
  */
-export function apiKeyMiddleware(options: { header?: string } = {}): MiddlewareHandler {
-  const { header = 'X-API-Key' } = options
+export function apiKeyMiddleware(options: ApiKeyMiddlewareOptions): MiddlewareHandler {
+  const { manager, header = 'X-API-Key', requireScopes = [], enforceRateLimit = true } = options
 
   return async (c, next) => {
-    const apiKey = c.req.header(header)
-    if (!apiKey) {
+    const key = c.req.header(header)
+
+    // FAIL CLOSED: Require API key header
+    if (!key) {
       throw new HTTPException(401, { message: `${header} header required` })
     }
 
-    // For now, just pass the key - validation happens elsewhere
-    // Real implementation would validate against stored keys
-    c.set('token', apiKey)
+    // Step 1: Verify key format before any expensive operations
+    if (!ApiKeyAuth.isValidFormat(key)) {
+      throw new HTTPException(401, { message: 'Invalid API key format' })
+    }
 
-    // Create minimal user from API key
+    // Step 2: Validate against stored keys (checks existence, active status, expiration)
+    const result = await manager.validate(key)
+
+    if (!result.valid || !result.apiKey) {
+      // FAIL CLOSED: Return generic error to avoid information leakage
+      throw new HTTPException(401, { message: result.error || 'Invalid API key' })
+    }
+
+    const apiKey = result.apiKey
+
+    // Step 3: Validate permissions/scopes
+    if (requireScopes.length > 0) {
+      const hasRequiredScope = requireScopes.some(scope =>
+        ApiKeyAuth.hasScope(apiKey, scope)
+      )
+
+      if (!hasRequiredScope) {
+        throw new HTTPException(403, {
+          message: \`Insufficient permissions. Required scope: \${requireScopes.join(' or ')}\`
+        })
+      }
+    }
+
+    // Step 4: Check rate limit
+    if (enforceRateLimit) {
+      const rateLimitOk = await manager.checkRateLimit(apiKey.id)
+
+      if (!rateLimitOk) {
+        throw new HTTPException(429, { message: 'Rate limit exceeded' })
+      }
+    }
+
+    // Set context variables for downstream handlers
+    c.set('apiKey', apiKey)
+    c.set('token', key)
     c.set('user', {
-      id: `apikey:${apiKey.slice(0, 8)}`,
+      id: \`apikey:\${apiKey.id}\`,
       roles: ['api'],
-      scopes: ['api:*']
+      scopes: apiKey.scopes
     })
 
     return next()
