@@ -367,6 +367,12 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       }
 
       const methodName = parts[parts.length - 1]
+      if (methodName === undefined) {
+        // This should never happen as validateMethodPath ensures non-empty method names,
+        // but TypeScript needs the explicit check for index safety
+        const error = new ValidationError('Invalid method path: empty method name', { method })
+        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+      }
 
       // For the final method, we need to check both own properties AND prototype methods
       // (class instances have methods on the prototype). The forbidden names check above
