@@ -58,6 +58,11 @@ interface ProviderHealth {
   consecutiveFailures: number
 }
 
+interface ProviderLoadInfo {
+  /** Number of in-flight requests for this provider */
+  inFlight: number
+}
+
 // Provider registry with model mappings
 export const providers = {
   openai: 'openai' as const,
@@ -379,6 +384,7 @@ export class Router {
   private providerConfigs: Map<Provider, ProviderConfig>
   private currentProviderIndex: number = 0
   private healthStatus: Map<Provider, ProviderHealth>
+  private loadInfo: Map<Provider, ProviderLoadInfo>
   private executor?: (prompt: string, options: ExecuteOptions) => Promise<ExecuteResult>
   private delayCallback?: (delay: number) => void
 
@@ -391,6 +397,7 @@ export class Router {
 
     this.providerConfigs = new Map()
     this.healthStatus = new Map()
+    this.loadInfo = new Map()
 
     // Initialize provider configs
     if (config.providers) {
@@ -401,6 +408,7 @@ export class Router {
           lastCheck: Date.now(),
           consecutiveFailures: 0
         })
+        this.loadInfo.set(pc.provider, { inFlight: 0 })
       })
     } else {
       // Initialize default providers
@@ -410,6 +418,7 @@ export class Router {
           lastCheck: Date.now(),
           consecutiveFailures: 0
         })
+        this.loadInfo.set(provider, { inFlight: 0 })
       })
     }
   }
@@ -477,41 +486,49 @@ export class Router {
       const maxRetries = this.config.maxRetries || 3
       let totalRetries = 0
 
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-          const result = await this._executeWithProvider(prompt, {
-            ...options,
-            provider
-          })
+      // Track load for least-loaded strategy
+      this._incrementLoad(provider)
 
-          this._markHealthy(provider)
+      try {
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            const result = await this._executeWithProvider(prompt, {
+              ...options,
+              provider
+            })
 
-          const executeResult: ExecuteResult = {
-            ...result,
-            provider
-          }
-          if (totalRetries > 0) {
-            executeResult.retries = totalRetries
-          }
-          return executeResult
-        } catch (error) {
-          totalRetries++
+            this._markHealthy(provider)
 
-          if (this._isRateLimitError(error as Error)) {
-            if (totalRetries >= maxRetries) {
-              throw new Error('Max retries exceeded')
+            const executeResult: ExecuteResult = {
+              ...result,
+              provider
+            }
+            if (totalRetries > 0) {
+              executeResult.retries = totalRetries
+            }
+            return executeResult
+          } catch (error) {
+            totalRetries++
+
+            if (this._isRateLimitError(error as Error)) {
+              if (totalRetries >= maxRetries) {
+                throw new Error('Max retries exceeded')
+              }
+
+              const delay = Math.pow(2, attempt) * 1000
+              if (this.delayCallback) {
+                this.delayCallback(delay)
+              }
+              await this._sleep(delay)
+              continue
             }
 
-            const delay = Math.pow(2, attempt) * 1000
-            if (this.delayCallback) {
-              this.delayCallback(delay)
-            }
-            await this._sleep(delay)
-            continue
+            throw error
           }
-
-          throw error
         }
+      } finally {
+        // Always decrement load when request completes (success or failure)
+        this._decrementLoad(provider)
       }
     }
 
@@ -641,8 +658,12 @@ export class Router {
         break
 
       case 'least-loaded':
-        // TODO: Implement least-loaded strategy
-        selectedProvider = healthyProviders[0]
+        // Select provider with minimum in-flight requests
+        selectedProvider = healthyProviders.reduce((least, current) => {
+          const leastLoad = this.loadInfo.get(least)?.inFlight ?? 0
+          const currentLoad = this.loadInfo.get(current)?.inFlight ?? 0
+          return currentLoad < leastLoad ? current : least
+        }, healthyProviders[0]!)
         break
 
       default:
@@ -678,6 +699,34 @@ export class Router {
 
   private async _sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms))
+  }
+
+  private _incrementLoad(provider: Provider): void {
+    const load = this.loadInfo.get(provider)
+    if (load) {
+      load.inFlight++
+    } else {
+      this.loadInfo.set(provider, { inFlight: 1 })
+    }
+  }
+
+  private _decrementLoad(provider: Provider): void {
+    const load = this.loadInfo.get(provider)
+    if (load && load.inFlight > 0) {
+      load.inFlight--
+    }
+  }
+
+  /**
+   * Get the current load (in-flight requests) for each provider.
+   * Useful for monitoring and debugging load balancing behavior.
+   */
+  getProviderLoad(): Record<Provider, number> {
+    const result: Record<string, number> = {}
+    for (const [provider] of this.providerConfigs) {
+      result[provider] = this.loadInfo.get(provider)?.inFlight ?? 0
+    }
+    return result as Record<Provider, number>
   }
 
   // Test helper methods (prefixed with _ to indicate internal/test use)

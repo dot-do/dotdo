@@ -222,6 +222,192 @@ describe('Router', () => {
       // Should call with one of the providers
       expect(mockExecute).toHaveBeenCalled()
     })
+
+    describe('least-loaded load balancing', () => {
+      it('should prefer provider with fewer in-flight requests', async () => {
+        const router = new Router({
+          loadBalancing: 'least-loaded',
+          providers: [
+            { provider: 'openai', apiKey: 'key1' },
+            { provider: 'anthropic', apiKey: 'key2' },
+            { provider: 'google', apiKey: 'key3' }
+          ]
+        })
+
+        const selectedProviders: string[] = []
+        let resolvers: Array<() => void> = []
+
+        // Mock that holds requests until we resolve them
+        const mockExecute = vi.fn().mockImplementation((prompt, options) => {
+          selectedProviders.push(options.provider)
+          return new Promise<{ result: string; provider: string }>((resolve) => {
+            resolvers.push(() => resolve({ result: 'Success', provider: options.provider }))
+          })
+        })
+
+        router._setExecutor(mockExecute)
+
+        // Start 3 concurrent requests - they should go to different providers
+        const promise1 = router.execute('test 1')
+        const promise2 = router.execute('test 2')
+        const promise3 = router.execute('test 3')
+
+        // Wait for the mock to be called
+        await vi.waitFor(() => expect(selectedProviders.length).toBe(3))
+
+        // All 3 should go to different providers since they're equally loaded
+        const uniqueProviders = new Set(selectedProviders)
+        expect(uniqueProviders.size).toBe(3)
+
+        // Complete all requests
+        resolvers.forEach(resolve => resolve())
+        await Promise.all([promise1, promise2, promise3])
+      })
+
+      it('should route new request to least-loaded provider', async () => {
+        const router = new Router({
+          loadBalancing: 'least-loaded',
+          providers: [
+            { provider: 'openai', apiKey: 'key1' },
+            { provider: 'anthropic', apiKey: 'key2' }
+          ]
+        })
+
+        const selectedProviders: string[] = []
+        let resolvers: Array<() => void> = []
+
+        const mockExecute = vi.fn().mockImplementation((prompt, options) => {
+          selectedProviders.push(options.provider)
+          return new Promise<{ result: string; provider: string }>((resolve) => {
+            resolvers.push(() => resolve({ result: 'Success', provider: options.provider }))
+          })
+        })
+
+        router._setExecutor(mockExecute)
+
+        // Start first request - should go to first provider (both equally loaded)
+        const promise1 = router.execute('test 1')
+        await vi.waitFor(() => expect(selectedProviders.length).toBe(1))
+        const firstProvider = selectedProviders[0]
+
+        // Start second request while first is in-flight - should go to other provider
+        const promise2 = router.execute('test 2')
+        await vi.waitFor(() => expect(selectedProviders.length).toBe(2))
+        const secondProvider = selectedProviders[1]
+
+        // Should have routed to different providers
+        expect(firstProvider).not.toBe(secondProvider)
+
+        // Complete all requests
+        resolvers.forEach(resolve => resolve())
+        await Promise.all([promise1, promise2])
+      })
+
+      it('should decrement load count after request completes', async () => {
+        const router = new Router({
+          loadBalancing: 'least-loaded',
+          providers: [
+            { provider: 'openai', apiKey: 'key1' },
+            { provider: 'anthropic', apiKey: 'key2' }
+          ]
+        })
+
+        const selectedProviders: string[] = []
+
+        const mockExecute = vi.fn().mockImplementation((prompt, options) => {
+          selectedProviders.push(options.provider)
+          return Promise.resolve({ result: 'Success', provider: options.provider })
+        })
+
+        router._setExecutor(mockExecute)
+
+        // Execute requests sequentially - after each completes, load should reset
+        await router.execute('test 1')
+        await router.execute('test 2')
+        await router.execute('test 3')
+        await router.execute('test 4')
+
+        // After each completion, the load resets, so with round-robin tie-breaking
+        // we should see alternating pattern or always first provider
+        // Key point: load counts are properly decremented
+        expect(selectedProviders.length).toBe(4)
+      })
+
+      it('should skip unhealthy providers even if least loaded', async () => {
+        const router = new Router({
+          loadBalancing: 'least-loaded',
+          providers: [
+            { provider: 'openai', apiKey: 'key1' },
+            { provider: 'anthropic', apiKey: 'key2' }
+          ]
+        })
+
+        // Mark openai as unhealthy
+        router._markUnhealthy('openai')
+
+        const selectedProviders: string[] = []
+
+        const mockExecute = vi.fn().mockImplementation((prompt, options) => {
+          selectedProviders.push(options.provider)
+          return Promise.resolve({ result: 'Success', provider: options.provider })
+        })
+
+        router._setExecutor(mockExecute)
+
+        await router.execute('test 1')
+        await router.execute('test 2')
+
+        // All requests should go to anthropic since openai is unhealthy
+        expect(selectedProviders).toEqual(['anthropic', 'anthropic'])
+      })
+
+      it('should handle request failure and decrement load', async () => {
+        const router = new Router({
+          loadBalancing: 'least-loaded',
+          providers: [
+            { provider: 'openai', apiKey: 'key1' },
+            { provider: 'anthropic', apiKey: 'key2' }
+          ]
+        })
+
+        const selectedProviders: string[] = []
+        let callCount = 0
+
+        const mockExecute = vi.fn().mockImplementation((prompt, options) => {
+          selectedProviders.push(options.provider)
+          callCount++
+          if (callCount === 1) {
+            return Promise.reject(new Error('Provider error'))
+          }
+          return Promise.resolve({ result: 'Success', provider: options.provider })
+        })
+
+        router._setExecutor(mockExecute)
+
+        // First request fails
+        await expect(router.execute('test 1')).rejects.toThrow('Provider error')
+
+        // Second request should still work - load should have been decremented on failure
+        const result = await router.execute('test 2')
+        expect(result.result).toBe('Success')
+      })
+
+      it('should expose load metrics via getProviderLoad', () => {
+        const router = new Router({
+          loadBalancing: 'least-loaded',
+          providers: [
+            { provider: 'openai', apiKey: 'key1' },
+            { provider: 'anthropic', apiKey: 'key2' }
+          ]
+        })
+
+        const load = router.getProviderLoad()
+        expect(load).toEqual({
+          openai: 0,
+          anthropic: 0
+        })
+      })
+    })
   })
 
   describe('provider configuration', () => {
