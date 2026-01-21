@@ -124,6 +124,32 @@ export {
 } from './auth'
 
 // =============================================================================
+// Primitives Mixin
+// =============================================================================
+
+export {
+  DOWithPrimitives,
+  hasFs,
+  hasGit,
+  hasBash,
+  type HasPrimitives,
+  type WithPrimitivesOptions,
+  type WithPrimitivesContext,
+  type FsConfig,
+  type GitConfig,
+  type BashConfig,
+  type NpmConfig,
+  // Re-exports for convenience
+  type FsModule,
+  type FsModuleConfig,
+  type GitModule,
+  type GitModuleOptions,
+  type BashModule,
+  type BashExecutor,
+  type BashModuleOptions,
+} from './primitives'
+
+// =============================================================================
 // Composition Helpers
 // =============================================================================
 
