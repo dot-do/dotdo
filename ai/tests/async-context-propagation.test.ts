@@ -106,7 +106,8 @@ describe('Async Context Propagation Issues', () => {
         contextAtEachStep.push(storage.getStore()) // Step 1: Context LOST
 
         // Step 2: Second async operation
-        await fetch('data:,').catch(() => {}) // Simple fetch
+        // Intentionally ignoring fetch result - testing async context propagation, not fetch success
+        await fetch('data:,').catch(() => {})
         contextAtEachStep.push(storage.getStore()) // Step 2: Context LOST
 
         // Step 3: Another await
