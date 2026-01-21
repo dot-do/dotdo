@@ -16,13 +16,13 @@
  * @module do/workflow/rpc
  */
 
-import { createDOStub } from '../../rpc/client'
 import {
+  createDOStub,
   createDOStubWithCircuitBreaker,
   type CircuitBreakerRPCConfig,
   DEFAULT_CIRCUIT_BREAKER_CONFIG,
-} from '../../rpc/circuit-breaker'
-import { NotFoundError } from '../../rpc/errors'
+  NotFoundError,
+} from '@dotdo/rpc'
 
 /**
  * A proxy type representing a DO stub that intercepts method calls

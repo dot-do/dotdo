@@ -27,7 +27,7 @@
  */
 
 import { Hono } from 'hono'
-import { RPCError, NotFoundError, InternalError } from '../../rpc/errors'
+import { RPCError, NotFoundError, InternalError } from '@dotdo/rpc'
 import {
   createDOAccessor,
   createDORPCProxy,
@@ -326,4 +326,4 @@ export {
   type CrossDORPCConfig
 }
 
-export { RPCError, NotFoundError, InternalError } from '../../rpc/errors'
+export { RPCError, NotFoundError, InternalError } from '@dotdo/rpc'

@@ -149,7 +149,7 @@ import {
   serializeUnknownError,
   deserializeError,
   isSerializedError
-} from '@dotdo/rpc/errors'
+} from '@dotdo/rpc'
 
 // Serialize known errors
 const serialized = serializeError(new NotFoundError('User not found'))
@@ -404,7 +404,7 @@ The following should NOT be retried:
 ### Checking Retryability
 
 ```typescript
-import { isRetryableError } from '@dotdo/rpc/errors'
+import { isRetryableError } from '@dotdo/rpc'
 
 if (isRetryableError(error)) {
   // Safe to retry with backoff
@@ -503,7 +503,7 @@ try {
 Use circuit breakers for external service calls:
 
 ```typescript
-import { CircuitOpenError } from '@dotdo/rpc/errors'
+import { CircuitOpenError } from '@dotdo/rpc'
 
 const circuit = createCircuitBreaker({
   failureThreshold: 5,

@@ -14,7 +14,7 @@ import { createEventsStore, type Event, type JsonValue } from '../../db'
 import { createEveryProxy } from './schedule'
 import { createOnProxy, matchHandlers, invokeHandlers, type RetryOptions } from './events'
 import { createDORPCProxy } from './rpc'
-import { RPCError, TimeoutError, InternalError, ValidationError } from '../../rpc/errors'
+import { RPCError, TimeoutError, InternalError, ValidationError } from '@dotdo/rpc'
 import {
   createInMemoryErrorStore,
   extractErrorInfo,

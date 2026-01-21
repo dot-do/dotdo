@@ -143,18 +143,10 @@ function checkCrossPackageImport(
     let suggestion: string
 
     // Special cases for subpath exports
+    // Note: prefer main package import (@dotdo/rpc) over subpath imports
     if (targetPackage === 'rpc') {
-      if (remainingPath.includes('errors')) {
-        suggestion = '@dotdo/rpc/errors'
-      } else if (remainingPath.includes('client')) {
-        suggestion = '@dotdo/rpc/client'
-      } else if (remainingPath.includes('batch')) {
-        suggestion = '@dotdo/rpc/batch'
-      } else if (remainingPath.includes('logging')) {
-        suggestion = '@dotdo/rpc' // logging should be exported from main
-      } else {
-        suggestion = `@dotdo/${targetPackage}`
-      }
+      // All RPC exports (errors, client, batch, etc.) are available from @dotdo/rpc
+      suggestion = '@dotdo/rpc'
     } else if (targetPackage === 'integrations') {
       if (remainingPath.includes('stripe')) {
         suggestion = '@dotdo/integrations/stripe'

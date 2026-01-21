@@ -11,7 +11,7 @@
  */
 
 import type { Hono } from 'hono'
-import { RPCError, NotFoundError, InternalError, AuthenticationError } from '../../rpc/errors'
+import { RPCError, NotFoundError, InternalError, AuthenticationError } from '@dotdo/rpc'
 import { createLogger } from '../../utils/logger'
 import type { DOHandler } from './registry'
 import { extractCallerInfoWithVerification } from '../auth'
