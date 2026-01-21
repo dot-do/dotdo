@@ -288,7 +288,7 @@ export function apiKeyMiddleware(options: ApiKeyMiddlewareOptions): MiddlewareHa
 
       if (!hasRequiredScope) {
         throw new HTTPException(403, {
-          message: \`Insufficient permissions. Required scope: \${requireScopes.join(' or ')}\`
+          message: `Insufficient permissions. Required scope: ${requireScopes.join(' or ')}`
         })
       }
     }

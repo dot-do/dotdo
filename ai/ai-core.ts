@@ -73,7 +73,11 @@ export interface AIGenerateResult {
   }
 }
 
-export type SimpleSchema = Record<string, string | string[] | SimpleSchema>
+// SimpleSchema is a recursive type for simple schema definitions
+// Use interface to avoid circular reference errors with Record<>
+export interface SimpleSchema {
+  [key: string]: string | string[] | SimpleSchema
+}
 
 // ============================================================================
 // Provider Configuration
@@ -288,7 +292,7 @@ export interface GenerateTextResult {
     completionTokens: number
     totalTokens: number
   }
-  finishReason?: string
+  finishReason?: string | undefined
   toolCalls?: Array<{
     name: string
     arguments: unknown
@@ -466,11 +470,14 @@ export interface StreamTextResult {
 export async function streamText(
   options: StreamTextOptions
 ): Promise<StreamTextResult> {
-  const { streamText: aiStreamText } = await import('ai')
+  // Import from ai package (not the local ai folder)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const aiModule = await import('ai') as any
 
   const model = await resolveModel(options.model)
 
-  const result = aiStreamText({
+  // streamText returns an object with async properties, not a Promise
+  const result = aiModule.streamText({
     ...options,
     model,
   })
@@ -478,7 +485,7 @@ export async function streamText(
   return {
     textStream: result.textStream,
     fullStream: result.fullStream,
-    usage: result.usage.then((u: any) => ({
+    usage: result.usage.then((u: { promptTokens?: number; completionTokens?: number; totalTokens?: number }) => ({
       promptTokens: u?.promptTokens || 0,
       completionTokens: u?.completionTokens || 0,
       totalTokens: u?.totalTokens || 0,
@@ -553,7 +560,10 @@ export async function embedText(
   }
 
   // Use real AI SDK with the model
-  const { embed } = await import('ai')
+  // Import embed from ai package (not the local ai folder)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const aiModule = await import('ai') as any
+  const embed = aiModule.embed as (options: { model: unknown; value: string }) => Promise<{ embedding: number[] }>
 
   if (typeof text === 'string') {
     const result = await embed({
@@ -571,7 +581,7 @@ export async function embedText(
     }))
   )
 
-  return results.map(r => r.embedding)
+  return results.map((r: { embedding: number[] }) => r.embedding)
 }
 
 // ============================================================================
@@ -639,13 +649,16 @@ export interface CompletionOptions {
  * @deprecated Use generateText instead
  */
 export async function complete(options: CompletionOptions): Promise<string> {
-  const result = await generateText({
+  // Build options with only defined values to satisfy exactOptionalPropertyTypes
+  const genOptions: GenerateTextOptions = {
     model: options.model,
     prompt: options.prompt,
-    system: options.system,
-    maxTokens: options.maxTokens,
-    temperature: options.temperature,
-  })
+  }
+  if (options.system !== undefined) genOptions.system = options.system
+  if (options.maxTokens !== undefined) genOptions.maxTokens = options.maxTokens
+  if (options.temperature !== undefined) genOptions.temperature = options.temperature
+
+  const result = await generateText(genOptions)
 
   return result.text
 }
@@ -681,12 +694,15 @@ export interface ChatOptions {
  * ```
  */
 export async function chat(options: ChatOptions): Promise<string> {
-  const result = await generateText({
+  // Build options with only defined values to satisfy exactOptionalPropertyTypes
+  const genOptions: GenerateTextOptions = {
     model: options.model,
     messages: options.messages,
-    maxTokens: options.maxTokens,
-    temperature: options.temperature,
-  })
+  }
+  if (options.maxTokens !== undefined) genOptions.maxTokens = options.maxTokens
+  if (options.temperature !== undefined) genOptions.temperature = options.temperature
+
+  const result = await generateText(genOptions)
 
   return result.text
 }
