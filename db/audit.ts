@@ -186,12 +186,117 @@ export interface AuditLogConfig {
 
 /**
  * Default audit log configuration
+ *
+ * maskFields patterns use case-insensitive substring matching.
+ * A field like "userPassword" will match "password", "accessToken" will match "token", etc.
  */
 export const defaultAuditConfig: AuditLogConfig = {
   enabled: true,
   minLevel: 'info',
   retentionDays: 90,
-  maskFields: ['password', 'token', 'secret', 'apiKey', 'ssn', 'creditCard']
+  maskFields: [
+    // Authentication & Authorization
+    'password',
+    'passwd',
+    'pwd',
+    'token',
+    'accesstoken',
+    'refreshtoken',
+    'bearer',
+    'jwt',
+    'session',
+    'cookie',
+    'auth',
+    'credential',
+    'secret',
+    'apikey',
+    'api_key',
+    'privatekey',
+    'private_key',
+    'publickey', // Sometimes sensitive in context
+    'signingkey',
+    'encryptionkey',
+    'masterkey',
+
+    // Personal Identifiable Information (PII)
+    'ssn',
+    'socialsecurity',
+    'social_security',
+    'nationalid',
+    'national_id',
+    'taxid',
+    'tax_id',
+    'driverslicense',
+    'drivers_license',
+    'passport',
+    'dob',
+    'dateofbirth',
+    'date_of_birth',
+    'birthdate',
+
+    // Financial Data
+    'creditcard',
+    'credit_card',
+    'cardnumber',
+    'card_number',
+    'cvv',
+    'cvc',
+    'securitycode',
+    'security_code',
+    'expiry',
+    'expiration',
+    'bankaccount',
+    'bank_account',
+    'accountnumber',
+    'account_number',
+    'routingnumber',
+    'routing_number',
+    'iban',
+    'swift',
+    'bic',
+    'pin',
+
+    // Contact Information (optionally sensitive)
+    'phone',
+    'mobile',
+    'cellphone',
+    'email', // Often logged but consider masking in some contexts
+
+    // Healthcare (HIPAA)
+    'healthrecord',
+    'health_record',
+    'medicalrecord',
+    'medical_record',
+    'diagnosis',
+    'prescription',
+    'patientid',
+    'patient_id',
+
+    // OAuth & Third-party
+    'clientsecret',
+    'client_secret',
+    'appsecret',
+    'app_secret',
+    'consumerkey',
+    'consumer_key',
+    'consumersecret',
+    'consumer_secret',
+    'oauthtoken',
+    'oauth_token',
+
+    // Encryption & Security
+    'salt',
+    'hash',
+    'cipher',
+    'nonce',
+    'iv', // Initialization vector
+
+    // Database & Infrastructure
+    'connectionstring',
+    'connection_string',
+    'dbpassword',
+    'db_password'
+  ]
 }
 
 /**
@@ -277,7 +382,7 @@ export function createSQLiteAuditLogStore(adapter: SQLiteAdapter): AuditLogStore
       return log
     },
 
-    async get(id: string) {
+    async get(id: string): Promise<AuditLog | null> {
       const row = await sql
         .prepare(
           `SELECT id, timestamp, actor, action, resource, resource_id, level, details, correlation_id
@@ -288,20 +393,21 @@ export function createSQLiteAuditLogStore(adapter: SQLiteAdapter): AuditLogStore
 
       if (!row) return null
 
-      return {
-        $id: row.id as string,
-        $timestamp: row.timestamp as number,
-        actor: row.actor as string,
-        action: row.action as AuditAction,
-        resource: row.resource as string,
-        resourceId: (row.resource_id as string) || undefined,
-        level: row.level as AuditLogLevel,
-        details: row.details ? JSON.parse(row.details as string) : undefined,
-        correlationId: (row.correlation_id as string) || undefined
+      const log: AuditLog = {
+        $id: row['id'] as string,
+        $timestamp: row['timestamp'] as number,
+        actor: row['actor'] as string,
+        action: row['action'] as AuditAction,
+        resource: row['resource'] as string,
+        level: row['level'] as AuditLogLevel,
       }
+      if (row['resource_id']) log.resourceId = row['resource_id'] as string
+      if (row['details']) log.details = JSON.parse(row['details'] as string)
+      if (row['correlation_id']) log.correlationId = row['correlation_id'] as string
+      return log
     },
 
-    async query(options = {}) {
+    async query(options: AuditLogQueryOptions = {}): Promise<AuditLog[]> {
       const { actor, action, resource, resourceId, level, since, until, limit = 100, offset = 0 } = options
 
       let query = `
@@ -351,17 +457,20 @@ export function createSQLiteAuditLogStore(adapter: SQLiteAdapter): AuditLogStore
 
       const result = await sql.prepare(query).bind(...params).all()
 
-      return result.results.map((row) => ({
-        $id: row.id as string,
-        $timestamp: row.timestamp as number,
-        actor: row.actor as string,
-        action: row.action as AuditAction,
-        resource: row.resource as string,
-        resourceId: (row.resource_id as string) || undefined,
-        level: row.level as AuditLogLevel,
-        details: row.details ? JSON.parse(row.details as string) : undefined,
-        correlationId: (row.correlation_id as string) || undefined
-      }))
+      return result.results.map((row): AuditLog => {
+        const log: AuditLog = {
+          $id: row['id'] as string,
+          $timestamp: row['timestamp'] as number,
+          actor: row['actor'] as string,
+          action: row['action'] as AuditAction,
+          resource: row['resource'] as string,
+          level: row['level'] as AuditLogLevel,
+        }
+        if (row['resource_id']) log.resourceId = row['resource_id'] as string
+        if (row['details']) log.details = JSON.parse(row['details'] as string)
+        if (row['correlation_id']) log.correlationId = row['correlation_id'] as string
+        return log
+      })
     },
 
     async count(options = {}) {
@@ -406,7 +515,7 @@ export function createSQLiteAuditLogStore(adapter: SQLiteAdapter): AuditLogStore
       }
 
       const row = await sql.prepare(query).bind(...params).first()
-      return (row?.count as number) || 0
+      return (row?.['count'] as number) || 0
     },
 
     async deleteOlderThan(timestamp: number) {
@@ -415,7 +524,7 @@ export function createSQLiteAuditLogStore(adapter: SQLiteAdapter): AuditLogStore
         .prepare('SELECT COUNT(*) as count FROM audit_logs WHERE timestamp < ?')
         .bind(timestamp)
         .first()
-      const count = (countRow?.count as number) || 0
+      const count = (countRow?.['count'] as number) || 0
 
       // Then delete
       await sql
@@ -432,7 +541,7 @@ export function createSQLiteAuditLogStore(adapter: SQLiteAdapter): AuditLogStore
         .prepare('SELECT COUNT(*) as count FROM audit_logs')
         .bind()
         .first()
-      const count = (countRow?.count as number) || 0
+      const count = (countRow?.['count'] as number) || 0
 
       // Then delete
       await sql.prepare('DELETE FROM audit_logs').bind().run()

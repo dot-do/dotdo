@@ -83,7 +83,7 @@ export async function fetchJwks(jwksUri: string): Promise<Jwks> {
     throw new Error(`Failed to fetch JWKS: ${response.status} ${response.statusText}`)
   }
 
-  const jwks = await response.json()
+  const jwks = await response.json() as { keys?: unknown }
 
   if (!jwks || !Array.isArray(jwks.keys)) {
     throw new Error('Invalid JWKS: missing keys array')
@@ -168,10 +168,12 @@ export function createJwksClient(options: JwksClientOptions): JwksClient {
       if (!isCacheValid()) {
         await fetchAndCache()
 
-        // Try to find the key now
-        const jwk = cache!.jwks.keys.find((k) => k.kid === kid)
-        if (jwk) {
-          return importAndCacheKey(jwk)
+        // Try to find the key now (cache is guaranteed to exist after fetchAndCache)
+        if (cache) {
+          const jwk = cache.jwks.keys.find((k) => k.kid === kid)
+          if (jwk) {
+            return importAndCacheKey(jwk)
+          }
         }
       }
 
@@ -186,9 +188,12 @@ export function createJwksClient(options: JwksClientOptions): JwksClient {
           // Force refetch
           await fetchAndCache()
 
-          const jwk = cache!.jwks.keys.find((k) => k.kid === kid)
-          if (jwk) {
-            return importAndCacheKey(jwk)
+          // cache is guaranteed to exist after fetchAndCache
+          if (cache) {
+            const jwk = cache.jwks.keys.find((k) => k.kid === kid)
+            if (jwk) {
+              return importAndCacheKey(jwk)
+            }
           }
         }
       }
@@ -238,12 +243,13 @@ export async function verifyTokenWithJwks(
   // Get the public key
   const key = await client.getKey(header.kid)
 
+  // Build verify options, only including defined values
+  const verifyOptions: Parameters<typeof jwtVerify>[2] = { algorithms }
+  if (issuer !== undefined) verifyOptions.issuer = issuer
+  if (audience !== undefined) verifyOptions.audience = audience
+
   // Verify the token
-  const { payload } = await jwtVerify(token, key, {
-    issuer,
-    audience,
-    algorithms,
-  })
+  const { payload } = await jwtVerify(token, key, verifyOptions)
 
   return payload as TokenPayload
 }
@@ -281,7 +287,9 @@ export function validateTokenWithJwks(options: JwksValidationOptions): Middlewar
     }
 
     // Extract token
-    const token = extractToken(c.req.raw, { cookieName })
+    const token = extractToken(c.req.raw, {
+      ...(cookieName !== undefined && { cookieName }),
+    })
 
     if (!token) {
       c.header('WWW-Authenticate', 'Bearer realm="dotdo", error="invalid_token"')
@@ -291,9 +299,9 @@ export function validateTokenWithJwks(options: JwksValidationOptions): Middlewar
     try {
       // Verify token with JWKS
       const payload = await verifyTokenWithJwks(token, jwksClient, {
-        issuer,
-        audience,
-        algorithms,
+        ...(issuer !== undefined && { issuer }),
+        ...(audience !== undefined && { audience }),
+        ...(algorithms !== undefined && { algorithms }),
       })
 
       // Check expiration
