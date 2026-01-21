@@ -12,6 +12,12 @@ import type {
   TransportEvent,
   TransportEventListener,
 } from './types'
+import {
+  DEFAULT_RPC_TIMEOUT_MS,
+  DEFAULT_RECONNECT_DELAY_MS,
+  DEFAULT_MAX_RECONNECT_DELAY_MS,
+  DEFAULT_MAX_RECONNECT_ATTEMPTS,
+} from '@dotdo/utils'
 
 /**
  * Options for the WebSocket transport
@@ -21,11 +27,11 @@ export interface WebSocketTransportOptions extends TransportOptions {
   url: string
   /** Auto-reconnect on disconnect (default: true) */
   autoReconnect?: boolean
-  /** Maximum reconnection attempts (default: 5) */
+  /** Maximum reconnection attempts (default: DEFAULT_MAX_RECONNECT_ATTEMPTS = 5) */
   maxReconnectAttempts?: number
-  /** Initial reconnection delay in ms (default: 1000) */
+  /** Initial reconnection delay in ms (default: DEFAULT_RECONNECT_DELAY_MS = 1000) */
   reconnectDelay?: number
-  /** Maximum reconnection delay in ms (default: 30000) */
+  /** Maximum reconnection delay in ms (default: DEFAULT_MAX_RECONNECT_DELAY_MS = 30000) */
   maxReconnectDelay?: number
   /** Custom WebSocket implementation (for testing) */
   WebSocket?: typeof WebSocket
@@ -119,14 +125,14 @@ export class WebSocketTransport implements Transport {
 
   constructor(options: WebSocketTransportOptions) {
     this.url = options.url
-    this.timeout = options.timeout ?? 30000
+    this.timeout = options.timeout ?? DEFAULT_RPC_TIMEOUT_MS
     if (options.correlationId !== undefined) {
       this.baseCorrelationId = options.correlationId
     }
     this.autoReconnect = options.autoReconnect ?? true
-    this.maxReconnectAttempts = options.maxReconnectAttempts ?? 5
-    this.reconnectDelay = options.reconnectDelay ?? 1000
-    this.maxReconnectDelay = options.maxReconnectDelay ?? 30000
+    this.maxReconnectAttempts = options.maxReconnectAttempts ?? DEFAULT_MAX_RECONNECT_ATTEMPTS
+    this.reconnectDelay = options.reconnectDelay ?? DEFAULT_RECONNECT_DELAY_MS
+    this.maxReconnectDelay = options.maxReconnectDelay ?? DEFAULT_MAX_RECONNECT_DELAY_MS
     this.WebSocketImpl = options.WebSocket ?? globalThis.WebSocket
     this.heartbeatInterval = options.heartbeatInterval ?? 0
     this.heartbeatTimeout = options.heartbeatTimeout ?? (this.heartbeatInterval * 2)

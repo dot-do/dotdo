@@ -159,8 +159,10 @@ export function parseLogLevel(level: string | undefined): LogLevel {
  */
 export function initLoggerFromEnv(): void {
   // Check for environment variable (works in Node.js)
-  if (typeof process !== 'undefined' && process.env?.DOTDO_LOG_LEVEL) {
-    setLogLevel(parseLogLevel(process.env.DOTDO_LOG_LEVEL))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const processEnv = (globalThis as any).process?.env
+  if (processEnv?.DOTDO_LOG_LEVEL) {
+    setLogLevel(parseLogLevel(processEnv.DOTDO_LOG_LEVEL))
   }
 }
 

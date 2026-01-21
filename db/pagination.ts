@@ -2,6 +2,7 @@
 // Added per do-rljr.8
 
 import type { JsonValue } from './types'
+import { DEFAULT_PAGINATION_LIMIT } from '@dotdo/utils'
 
 /**
  * Cursor-based pagination options
@@ -50,11 +51,14 @@ interface CursorData {
 export function encodeCursor(data: CursorData): string {
   const json = JSON.stringify(data)
   // Use base64 encoding for opacity
-  // In browser/worker environments, use btoa; in Node, use Buffer
+  // In browser/worker environments, use btoa; in Node, use globalThis.Buffer
   if (typeof btoa !== 'undefined') {
     return btoa(json)
   }
-  return Buffer.from(json).toString('base64')
+  // Node.js fallback - access Buffer via globalThis to avoid TypeScript errors
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const NodeBuffer = (globalThis as any).Buffer
+  return NodeBuffer.from(json).toString('base64')
 }
 
 /**
@@ -67,7 +71,10 @@ export function decodeCursor(cursor: string): CursorData | null {
     if (typeof atob !== 'undefined') {
       json = atob(cursor)
     } else {
-      json = Buffer.from(cursor, 'base64').toString('utf-8')
+      // Node.js fallback - access Buffer via globalThis to avoid TypeScript errors
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const NodeBuffer = (globalThis as any).Buffer
+      json = NodeBuffer.from(cursor, 'base64').toString('utf-8')
     }
     const data = JSON.parse(json) as CursorData
 
@@ -128,7 +135,7 @@ export function applyCursorPagination<T>(
   getId: (item: T) => string,
   getSortValue: (item: T) => JsonValue
 ): CursorPaginatedResult<T> {
-  const { cursor, limit = 100, direction = 'forward' } = options
+  const { cursor, limit = DEFAULT_PAGINATION_LIMIT, direction = 'forward' } = options
 
   let startIndex = 0
 

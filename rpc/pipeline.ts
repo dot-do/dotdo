@@ -15,6 +15,7 @@
 import type { Transport, RPCMessage, RPCResponse } from './transport/types'
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
 import { deserializeError } from './errors'
+import { DEFAULT_RPC_TIMEOUT_MS, DEFAULT_MAX_PIPELINE_DEPTH } from '@dotdo/utils'
 
 // ============================================================================
 // Pipeline Types
@@ -184,7 +185,7 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
     if (options?.correlationId !== undefined) {
       this.correlationId = options.correlationId
     }
-    this.timeout = options?.timeout ?? 30000
+    this.timeout = options?.timeout ?? DEFAULT_RPC_TIMEOUT_MS
   }
 
   /**
@@ -390,7 +391,7 @@ export function createPipelineClient<T extends object>(options: PipelineClientOp
    */
   pipelineFrom<R>(methodPath: string, ...args: unknown[]): PipelineBuilder<R>
 } {
-  const { url, transport, timeout = 30000, correlationId } = options
+  const { url, transport, timeout = DEFAULT_RPC_TIMEOUT_MS, correlationId } = options
 
   const proxy = new Proxy({} as T, {
     get(_, prop: string | symbol) {
@@ -464,9 +465,9 @@ export function createPipelineClient<T extends object>(options: PipelineClientOp
  * Options for pipeline execution
  */
 export interface PipelineExecutorOptions {
-  /** Maximum pipeline depth (default: 10) */
+  /** Maximum pipeline depth (default: DEFAULT_MAX_PIPELINE_DEPTH = 10) */
   maxDepth?: number
-  /** Timeout for entire pipeline execution in ms (default: 30000) */
+  /** Timeout for entire pipeline execution in ms (default: DEFAULT_RPC_TIMEOUT_MS = 30000) */
   timeout?: number
 }
 
@@ -496,7 +497,7 @@ export async function executePipeline<T>(
   request: PipelineRequest,
   options: PipelineExecutorOptions = {}
 ): Promise<PipelineResponse<T>> {
-  const { maxDepth = 10, timeout = 30000 } = options
+  const { maxDepth = DEFAULT_MAX_PIPELINE_DEPTH, timeout = DEFAULT_RPC_TIMEOUT_MS } = options
   const { method, args, pipeline, correlationId } = request
 
   // Validate pipeline depth

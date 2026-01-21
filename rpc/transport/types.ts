@@ -121,7 +121,7 @@ export interface Transport {
  * Options common to all transports
  */
 export interface TransportOptions {
-  /** Request timeout in milliseconds (default: 30000) */
+  /** Request timeout in milliseconds (default: DEFAULT_RPC_TIMEOUT_MS = 30000 from @dotdo/utils) */
   timeout?: number
   /** Optional correlation ID to use for all requests */
   correlationId?: string

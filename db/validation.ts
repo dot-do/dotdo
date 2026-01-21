@@ -13,6 +13,15 @@ import {
   JsonValueSchema,
   AnyIdSchema
 } from './schemas'
+import {
+  DEFAULT_MAX_STRING_LENGTH,
+  DEFAULT_MAX_OBJECT_DEPTH,
+  DEFAULT_MAX_OBJECT_KEYS,
+  DEFAULT_MAX_ARRAY_LENGTH,
+  MAX_ID_LENGTH,
+  MAX_TYPE_NAME_LENGTH,
+  MAX_PAGINATION_LIMIT,
+} from '@dotdo/utils'
 
 // =============================================================================
 // Validation Configuration
@@ -35,10 +44,10 @@ export interface ValidationConfig {
 }
 
 const DEFAULT_CONFIG: Required<ValidationConfig> = {
-  maxStringLength: 10000,
-  maxObjectDepth: 10,
-  maxObjectKeys: 100,
-  maxArrayLength: 1000,
+  maxStringLength: DEFAULT_MAX_STRING_LENGTH,
+  maxObjectDepth: DEFAULT_MAX_OBJECT_DEPTH,
+  maxObjectKeys: DEFAULT_MAX_OBJECT_KEYS,
+  maxArrayLength: DEFAULT_MAX_ARRAY_LENGTH,
   strictIdValidation: false
 }
 
@@ -164,8 +173,8 @@ export function validateId(id: unknown, fieldName: string = 'id'): string {
   }
 
   // Max ID length to prevent abuse
-  if (id.length > 256) {
-    throw DbValidationError.forField(fieldName, 'exceeds maximum length of 256 characters')
+  if (id.length > MAX_ID_LENGTH) {
+    throw DbValidationError.forField(fieldName, `exceeds maximum length of ${MAX_ID_LENGTH} characters`)
   }
 
   const config = getValidationConfig()
@@ -210,8 +219,8 @@ export function validateType(type: unknown): string {
     throw DbValidationError.forField('$type', 'is required')
   }
 
-  if (type.length > 100) {
-    throw DbValidationError.forField('$type', 'exceeds maximum length of 100 characters')
+  if (type.length > MAX_TYPE_NAME_LENGTH) {
+    throw DbValidationError.forField('$type', `exceeds maximum length of ${MAX_TYPE_NAME_LENGTH} characters`)
   }
 
   // Type should be alphanumeric with optional underscores/hyphens
@@ -398,8 +407,8 @@ export function validateListOptions(options: unknown): { type?: string; limit?: 
     if (!Number.isInteger(obj['limit']) || obj['limit'] < 1) {
       throw DbValidationError.forField('limit', 'must be a positive integer', obj['limit'])
     }
-    if (obj['limit'] > 10000) {
-      throw DbValidationError.forField('limit', 'exceeds maximum of 10000', obj['limit'])
+    if (obj['limit'] > MAX_PAGINATION_LIMIT) {
+      throw DbValidationError.forField('limit', `exceeds maximum of ${MAX_PAGINATION_LIMIT}`, obj['limit'])
     }
     validated.limit = obj['limit']
   }

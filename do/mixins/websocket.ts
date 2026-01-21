@@ -40,6 +40,7 @@ import {
 } from '../websocket'
 import type { Constructor } from './storage'
 import { createLogger } from '../../utils/logger'
+import { DEFAULT_HEARTBEAT_INTERVAL_MS, DEFAULT_CONNECTION_TIMEOUT_MS } from '@dotdo/utils'
 
 const logger = createLogger('[WithWebSocket]')
 
@@ -61,9 +62,9 @@ export interface HasWebSocket {
 export interface WithWebSocketOptions {
   /** Enable heartbeat monitoring */
   enableHeartbeat?: boolean
-  /** Heartbeat interval in milliseconds (default: 30000) */
+  /** Heartbeat interval in milliseconds (default: DEFAULT_HEARTBEAT_INTERVAL_MS = 30000) */
   heartbeatInterval?: number
-  /** Connection timeout in milliseconds (default: 60000) */
+  /** Connection timeout in milliseconds (default: DEFAULT_CONNECTION_TIMEOUT_MS = 60000) */
   connectionTimeout?: number
 }
 
@@ -134,8 +135,8 @@ export function WithWebSocket<TBase extends Constructor>(
 ): TBase & Constructor<HasWebSocket> {
   const {
     enableHeartbeat = false,
-    heartbeatInterval = 30000,
-    connectionTimeout = 60000
+    heartbeatInterval = DEFAULT_HEARTBEAT_INTERVAL_MS,
+    connectionTimeout = DEFAULT_CONNECTION_TIMEOUT_MS
   } = options
 
   return class WebSocketMixin extends Base implements HasWebSocket {

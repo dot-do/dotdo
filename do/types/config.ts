@@ -8,6 +8,9 @@
  * @module @dotdo/do/types/config
  */
 
+// Time constants are imported for documentation purposes (actual values in comments)
+// See @dotdo/utils for DEFAULT_EVAL_TIMEOUT_MS (5000) and DEFAULT_CORS_MAX_AGE_SECONDS (86400)
+
 /**
  * Options for _eval() RPC handler
  */
@@ -18,7 +21,7 @@ export interface EvalOptions {
   module?: string
   /** Test code using vitest (describe, expect, it in global scope) */
   tests?: string
-  /** Timeout in milliseconds (default: 5000) */
+  /** Timeout in milliseconds (default: 5000ms = DEFAULT_EVAL_TIMEOUT_MS from @dotdo/utils) */
   timeout?: number
 }
 
@@ -139,7 +142,7 @@ export interface CORSOptions {
 
   /**
    * Max age in seconds for preflight cache.
-   * Defaults to 86400 (24 hours).
+   * Defaults to 86400 (24 hours) = DEFAULT_CORS_MAX_AGE_SECONDS from @dotdo/utils.
    */
   maxAge?: number
 }

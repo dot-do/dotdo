@@ -36,6 +36,11 @@
 // ```
 
 import type { Context, Next, MiddlewareHandler } from 'hono'
+import {
+  API_KEY_PREFIX_LENGTH,
+  API_KEY_SECRET_MIN_LENGTH,
+  API_KEY_RANDOM_BYTES_LENGTH,
+} from '@dotdo/utils'
 
 export interface ApiKey {
   id: string
@@ -105,7 +110,7 @@ export class ApiKeyManager {
       id: this.generateId(),
       name,
       hashedKey,
-      prefix: key.slice(0, 12), // First 12 chars for display/identification
+      prefix: key.slice(0, API_KEY_PREFIX_LENGTH), // First N chars for display/identification
       scopes,
       active: true,
       createdAt: new Date(),
@@ -292,7 +297,7 @@ export class ApiKeyAuth {
    * Generate a new API key
    */
   static generateKey(prefix = 'dotdo'): string {
-    const randomBytes = new Uint8Array(32)
+    const randomBytes = new Uint8Array(API_KEY_RANDOM_BYTES_LENGTH)
     crypto.getRandomValues(randomBytes)
 
     // Convert to base62 (alphanumeric)
@@ -378,8 +383,9 @@ export class ApiKeyAuth {
       return false
     }
 
-    // Secret should be alphanumeric and at least 16 chars
-    if (!/^[a-zA-Z0-9]{16,}$/.test(secret)) {
+    // Secret should be alphanumeric and at least API_KEY_SECRET_MIN_LENGTH chars
+    const minLengthPattern = new RegExp(`^[a-zA-Z0-9]{${API_KEY_SECRET_MIN_LENGTH},}$`)
+    if (!minLengthPattern.test(secret)) {
       return false
     }
 
