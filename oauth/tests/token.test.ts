@@ -303,9 +303,8 @@ describe('@dotdo/oauth token endpoint', () => {
         provider: 'mock',
       })
 
-      const provider = createRefreshableProvider()
-      // Remove refreshToken method
-      delete (provider as Record<string, unknown>).refreshToken
+      // Create a provider without the refreshToken method
+      const provider = createMinimalProvider({ name: 'mock', noRefreshToken: true })
 
       const handler = createTokenEndpoint({
         provider,
