@@ -1,0 +1,24 @@
+{
+  "name": "rpc-do-test",
+  "main": "test-entry.ts",
+  "compatibility_date": "2025-01-15",
+
+  // Compatibility flags for test functionality
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Object bindings for E2E tests
+  "durable_objects": {
+    "bindings": [
+      { "name": "DO", "class_name": "DO" }
+    ]
+  },
+
+  // Migrations for DO classes with SQL storage
+  // Use new_sqlite_classes to enable state.storage.sql
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DO"]
+    }
+  ]
+}
