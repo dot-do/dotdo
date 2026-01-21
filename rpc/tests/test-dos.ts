@@ -121,7 +121,7 @@ export class TestDO implements DurableObject {
     if (!response.ok) {
       const errorBody = await response.json() as { code?: string; message?: string; details?: Record<string, unknown> }
       throw new RPCError(
-        (errorBody.code as typeof RPCErrorCode[keyof typeof RPCErrorCode]) || RPCErrorCode.INTERNAL_ERROR,
+        (errorBody.code as RPCErrorCode) || RPCErrorCode.INTERNAL_ERROR,
         errorBody.message || 'Cross-DO call failed',
         errorBody.details
       )
@@ -210,7 +210,7 @@ export class SourceDO implements DurableObject {
   }
 
   async broadcastToTargets(targetIds: string[], _message: string): Promise<string[]> {
-    const $ = new CrossDOContext(this.env as unknown as Record<string, DurableObjectNamespace>) as unknown as { TARGET_DO: <D extends object>(id?: string | DurableObjectId) => D & { broadcast: <M extends keyof D>(ids: string[], method: M, ...args: unknown[]) => Promise<unknown[]> } }
+    const $ = new CrossDOContext(this.env as unknown as Record<string, DurableObjectNamespace>)
     const results = await $.TARGET_DO<TargetDOInterface>().broadcast(
       targetIds,
       'getId'
@@ -222,6 +222,3 @@ export class SourceDO implements DurableObject {
     return this.app.fetch(request)
   }
 }
-
-// Re-export context test DOs for remote context tests
-export { ContextDO, EntityDO } from './context-test-dos'

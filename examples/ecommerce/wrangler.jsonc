@@ -15,11 +15,11 @@
     ]
   },
 
-  // Migrations for DO with SQLite storage
+  // Migrations for DO
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["EcommerceDO"]
+      "new_classes": ["EcommerceDO"]
     }
   ],
 

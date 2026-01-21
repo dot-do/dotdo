@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { ToolRegistry, ToolCategory } from '../discovery'
 import { createSearchTool } from '../search'
-import { createThingsStore } from '@dotdo/db'
+import { createThingsStore } from '../../db/things'
 import type { MCPTool } from '../server'
 
 describe('Tool Discovery', () => {

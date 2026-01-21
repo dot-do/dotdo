@@ -27,7 +27,7 @@
  */
 
 import { Hono } from 'hono'
-import { RPCError, NotFoundError, InternalError } from '@dotdo/rpc'
+import { RPCError, NotFoundError, InternalError } from '../../rpc/errors'
 import {
   createDOAccessor,
   createDORPCProxy,
@@ -35,10 +35,10 @@ import {
   type DOStubFactory,
   type CrossDORPCConfig
 } from '../workflow/rpc'
-import type { Constructor, HasEnv } from './storage'
-import { createScopedLogger, LogLevel } from '@dotdo/utils'
+import type { Constructor } from './storage'
+import { createLogger } from '../../utils/logger'
 
-const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[WithRPC]' })
+const logger = createLogger('[WithRPC]')
 
 // =============================================================================
 // Types
@@ -152,20 +152,13 @@ export interface RPCResponse<T = unknown> {
 export function WithRPC<TBase extends Constructor>(
   Base: TBase,
   options: WithRPCOptions = {}
-): Constructor<HasRPC> & TBase {
+) {
   const { rpcPath = '/rpc', debug = false } = options
 
   return class RPCMixin extends Base implements HasRPC {
     private _stubCache: Map<string, DOStubProxy>
     private _rpcConfig: CrossDORPCConfig | null = null
 
-    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545).
-    // This is a TypeScript language limitation, not a design flaw. Type safety is preserved via:
-    // - Interface constraints (HasRPC) on the return type
-    // - Generic constraints (TBase extends Constructor) on the input
-    // - Instance type inference via MixinInstance<T>
-    // See @dotdo/utils/mixin-types.ts for full documentation (do-1sbr9).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
       this._stubCache = new Map()
@@ -206,9 +199,7 @@ export function WithRPC<TBase extends Constructor>(
      */
     getDOStub(bindingName: string, id: string | DurableObjectId): DOStubProxy {
       // Get env from instance if available
-      // Using HasEnv type assertion for type-safe property access
-      const instance = this as unknown as HasEnv
-      const env = instance.env
+      const env = (this as any).env ?? (this as any)._env
       if (!env) {
         throw new Error('Environment not available for RPC. Ensure env is passed to constructor.')
       }
@@ -274,10 +265,8 @@ export function WithRPC<TBase extends Constructor>(
             logger.debug(`Calling ${method} with args:`, args)
           }
 
-          // Navigate to method using dot notation (e.g., "math.add" -> this.math.add)
+          // Navigate to method using dot notation
           const parts = method.split('.')
-          // Dynamic method lookup requires `any` for traversing arbitrary object properties
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let current: any = this
 
           for (let i = 0; i < parts.length - 1; i++) {
@@ -318,7 +307,7 @@ export function WithRPC<TBase extends Constructor>(
         }
       })
     }
-  } as Constructor<HasRPC> & TBase
+  }
 }
 
 // =============================================================================
@@ -333,4 +322,4 @@ export {
   type CrossDORPCConfig
 }
 
-export { RPCError, NotFoundError, InternalError } from '@dotdo/rpc'
+export { RPCError, NotFoundError, InternalError } from '../../rpc/errors'

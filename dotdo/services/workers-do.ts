@@ -180,8 +180,6 @@ export interface WorkersDoClientOptions {
   maxRetries?: number
   /** Base delay for exponential backoff in ms (default: 1000) */
   retryBaseDelay?: number
-  /** Injected API client for testing (bypasses RPC client creation) */
-  api?: WorkersDoAPI
 }
 
 const DEFAULT_URL = 'https://workers.do'
@@ -240,7 +238,6 @@ export class WorkersDoClient {
       timeout = DEFAULT_TIMEOUT,
       maxRetries = DEFAULT_MAX_RETRIES,
       retryBaseDelay = DEFAULT_RETRY_BASE_DELAY,
-      api,
     } = options
 
     this.token = token
@@ -248,15 +245,11 @@ export class WorkersDoClient {
     this.maxRetries = maxRetries
     this.retryBaseDelay = retryBaseDelay
 
-    // Use injected API or create RPC client
-    if (api) {
-      this.api = api
-    } else {
-      this.api = createClient<WorkersDoAPI>({
-        url,
-        timeout,
-      })
-    }
+    // Create RPC client
+    this.api = createClient<WorkersDoAPI>({
+      url,
+      timeout,
+    })
   }
 
   /**

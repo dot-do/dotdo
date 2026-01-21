@@ -6,8 +6,7 @@
 import type { Thing, ThingsStore } from './things'
 import type { RelationshipsStore } from './relationships'
 import type { JsonValue, StorableData } from './types'
-import { toThingId } from './branded-types'
-import { DbValidationError } from './errors'
+import { ValidationError } from '../rpc/errors'
 
 // ============================================================
 // Query Limits Configuration (do-bgr1)
@@ -39,31 +38,8 @@ export interface QueryLimitsConfig {
   defaultJoinLimit?: number
   maxLimit?: number
   warningThreshold?: number
-  /** Mode: 'warn' emits warnings, 'strict' throws errors for limit violations */
-  mode?: 'warn' | 'strict'
   /** Optional callback for warnings */
   onWarning?: (message: string, context: { operation: string; requested: number; actual: number }) => void
-}
-
-/**
- * Error thrown when query limits are exceeded in strict mode
- */
-export class QueryLimitError extends Error {
-  public readonly maxAllowed: number
-  public readonly requested: number
-  public readonly operation: string
-
-  constructor(operation: string, requested: number, maxAllowed: number) {
-    super(
-      `Query limit exceeded in ${operation}: requested ${requested} but max allowed is ${maxAllowed}. ` +
-      `Use configureQueryLimits() to adjust limits or use pagination.`
-    )
-    this.name = 'QueryLimitError'
-    this.operation = operation
-    this.requested = requested
-    this.maxAllowed = maxAllowed
-    Object.setPrototypeOf(this, new.target.prototype)
-  }
 }
 
 // Global limits configuration (can be updated via configureQueryLimits)
@@ -79,29 +55,22 @@ export function configureQueryLimits(config: QueryLimitsConfig): void {
 /**
  * Get current query limits
  */
-export function getQueryLimits(): Required<Omit<QueryLimitsConfig, 'onWarning' | 'mode'>> & { onWarning?: QueryLimitsConfig['onWarning']; mode: 'warn' | 'strict' } {
+export function getQueryLimits(): Required<Omit<QueryLimitsConfig, 'onWarning'>> & { onWarning?: QueryLimitsConfig['onWarning'] } {
   return {
     defaultLimit: queryLimitsConfig.defaultLimit ?? DEFAULT_QUERY_LIMITS.DEFAULT_LIMIT,
     defaultJoinLimit: queryLimitsConfig.defaultJoinLimit ?? DEFAULT_QUERY_LIMITS.DEFAULT_JOIN_LIMIT,
     maxLimit: queryLimitsConfig.maxLimit ?? DEFAULT_QUERY_LIMITS.MAX_LIMIT,
     warningThreshold: queryLimitsConfig.warningThreshold ?? DEFAULT_QUERY_LIMITS.WARNING_THRESHOLD,
-    mode: queryLimitsConfig.mode ?? 'strict',
     onWarning: queryLimitsConfig.onWarning,
   }
 }
 
 /**
  * Clamp a limit to the configured max and warn if approaching threshold
- * In strict mode, throws QueryLimitError if limit exceeds max
  */
 function clampAndWarnLimit(requested: number | undefined, operation: string, defaultLimit: number): number {
   const limits = getQueryLimits()
   const effectiveLimit = requested ?? defaultLimit
-
-  // In strict mode, throw if limit exceeds max
-  if (limits.mode === 'strict' && effectiveLimit > limits.maxLimit) {
-    throw new QueryLimitError(operation, effectiveLimit, limits.maxLimit)
-  }
 
   // Clamp to max
   const clampedLimit = Math.min(effectiveLimit, limits.maxLimit)
@@ -135,7 +104,7 @@ export type WhereOperator =
 export interface WhereCondition {
   field: string
   operator: WhereOperator
-  value: JsonValue | JsonValue[] | undefined
+  value: JsonValue | JsonValue[]
 }
 
 /**
@@ -186,9 +155,8 @@ export interface QueryOptions<T extends StorableData = StorableData> {
 
 /**
  * Extended Thing type with joined data
- * Note: _joined is omitted from index signature compatibility via intersection
  */
-export type ThingWithJoins = Thing & {
+export interface ThingWithJoins extends Thing {
   _joined?: Record<string, Thing[]>
 }
 
@@ -197,7 +165,7 @@ export type ThingWithJoins = Thing & {
  */
 export interface PaginatedQueryResult<T extends ThingWithJoins = ThingWithJoins> {
   results: T[]
-  cursor?: string | undefined
+  cursor?: string
   hasMore: boolean
 }
 
@@ -245,12 +213,12 @@ export interface QueryBuilder<T extends StorableData = StorableData> {
 const VALID_FIELD_NAME = /^[$a-zA-Z_][a-zA-Z0-9_$]*$/
 
 /**
- * Validates a field name to prevent SQL injection (do-xdq7)
- * Throws a DbValidationError if the field name is invalid
+ * Validates a field name to prevent SQL injection
+ * Throws a ValidationError if the field name is invalid
  */
-export function validateFieldName(field: string): void {
+function validateFieldName(field: string): void {
   if (!VALID_FIELD_NAME.test(field)) {
-    throw DbValidationError.forField(
+    throw ValidationError.forField(
       field,
       'must be alphanumeric (with underscores) and start with a letter, underscore, or $',
       field
@@ -290,12 +258,10 @@ function matchesCondition(thing: Thing, condition: WhereCondition): boolean {
     case 'IN':
       if (!Array.isArray(value)) return false
       if (value.length === 0) return false
-      if (thingValue === undefined) return false
       return value.includes(thingValue)
     case 'NOT IN':
       if (!Array.isArray(value)) return true
       if (value.length === 0) return true
-      if (thingValue === undefined) return true
       return !value.includes(thingValue)
     case 'IS NULL':
       return thingValue === null || thingValue === undefined
@@ -340,18 +306,16 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
     alias?: string,
     joinOptions?: JoinOptions
   ): void {
-    if (options.joins) {
-      options.joins.push({
-        predicate,
-        targetType,
-        ...(conditions !== undefined && { conditions }),
-        ...(fromJoin !== undefined && { fromJoin }),
-        ...(alias !== undefined && { alias }),
-        ...(joinOptions !== undefined && { options: joinOptions }),
-        joinType,
-        direction,
-      })
-    }
+    options.joins!.push({
+      predicate,
+      targetType,
+      conditions,
+      fromJoin,
+      alias,
+      options: joinOptions,
+      joinType,
+      direction
+    })
   }
 
   /**
@@ -493,27 +457,23 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
     where(fieldOrConditions: string | StorableData, value?: JsonValue) {
       if (typeof fieldOrConditions === 'string') {
         validateFieldName(fieldOrConditions)
-        options.where = { ...options.where, [fieldOrConditions]: value } as unknown as Partial<T>
-        if (options.whereConditions) {
-          options.whereConditions.push({
-            field: fieldOrConditions,
-            operator: '=',
-            value: value ?? null
-          })
-        }
+        options.where = { ...options.where, [fieldOrConditions]: value }
+        options.whereConditions!.push({
+          field: fieldOrConditions,
+          operator: '=',
+          value: value ?? null
+        })
       } else {
         for (const field of Object.keys(fieldOrConditions)) {
           validateFieldName(field)
         }
-        options.where = { ...options.where, ...fieldOrConditions } as unknown as Partial<T>
+        options.where = { ...options.where, ...fieldOrConditions }
         for (const [field, val] of Object.entries(fieldOrConditions)) {
-          if (options.whereConditions) {
-            options.whereConditions.push({
-              field,
-              operator: '=',
-              value: val
-            })
-          }
+          options.whereConditions!.push({
+            field,
+            operator: '=',
+            value: val
+          })
         }
       }
       return builder
@@ -521,9 +481,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
 
     whereOp(field: string, operator: WhereOperator, value: JsonValue | JsonValue[]) {
       validateFieldName(field)
-      if (options.whereConditions) {
-        options.whereConditions.push({ field, operator, value })
-      }
+      options.whereConditions!.push({ field, operator, value })
       return builder
     },
 
@@ -606,44 +564,24 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
 
       let results: Thing[]
 
-      // Validate user-requested limit and handle warnings
-      const limits = getQueryLimits()
-      const userRequestedLimit = options.limit ?? limits.defaultLimit
-
-      // In strict mode, throw if limit exceeds max
-      if (limits.mode === 'strict' && userRequestedLimit > limits.maxLimit) {
-        throw new QueryLimitError('query.execute', userRequestedLimit, limits.maxLimit)
-      }
-
-      // In warn mode, emit warning if limit exceeds threshold
-      const effectiveLimit = Math.min(userRequestedLimit, limits.maxLimit)
-      if (effectiveLimit >= limits.warningThreshold && limits.onWarning) {
-        limits.onWarning(
-          `Large query detected: query.execute requesting ${effectiveLimit} results (threshold: ${limits.warningThreshold})`,
-          { operation: 'query.execute', requested: userRequestedLimit, actual: effectiveLimit }
-        )
-      }
-
       if (sqlStore.queryWithConditions) {
         results = await sqlStore.queryWithConditions(options)
       } else {
-        // Fallback: In-memory filtering
-        // Use a large internal limit for fetching, but don't subject it to strict mode
-        // The user's limit is already validated above
-        const internalFetchLimit = Math.max(
+        // Fallback: In-memory filtering with bounded limit (do-bgr1)
+        const fallbackLimit = clampAndWarnLimit(
           DEFAULT_QUERY_LIMITS.FALLBACK_QUERY_LIMIT,
-          limits.maxLimit
+          'fallback-query',
+          DEFAULT_QUERY_LIMITS.FALLBACK_QUERY_LIMIT
         )
         results = await store.list({
-          ...(options.type !== undefined && { type: options.type }),
-          limit: internalFetchLimit,
+          type: options.type,
+          limit: fallbackLimit
         })
 
         // Apply whereConditions
         if (options.whereConditions && options.whereConditions.length > 0) {
-          const whereConditions = options.whereConditions
           results = results.filter(thing => {
-            return whereConditions.every(condition =>
+            return options.whereConditions!.every(condition =>
               matchesCondition(thing, condition)
             )
           })
@@ -665,9 +603,9 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
           })
         }
 
-        // Apply pagination with the validated limit
+        // Apply pagination with bounded limits (do-bgr1)
         const offset = options.offset || 0
-        const limit = Math.min(userRequestedLimit, limits.maxLimit)
+        const limit = clampAndWarnLimit(options.limit, 'execute-pagination', getQueryLimits().defaultLimit)
         results = results.slice(offset, offset + limit)
 
         // Apply projection
@@ -755,15 +693,15 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
                 if (matchesJoinConditions(targetThing, rightJoin.conditions)) {
                   // Create a "null" source entry with the unmatched target
                   const joinKey = rightJoin.alias || (rightJoin.direction === 'forward' ? rightJoin.predicate : `${rightJoin.predicate}By`)
-                  const nullEntry = {
-                    $id: toThingId(''),
+                  const nullEntry: ThingWithJoins = {
+                    $id: '',
                     $type: options.type || '',
                     $createdAt: 0,
                     $updatedAt: 0,
                     _joined: {
                       [joinKey]: [targetThing]
                     }
-                  } as ThingWithJoins
+                  }
                   finalResults.push(nullEntry)
                 }
               }
@@ -797,15 +735,15 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
               if (!matchedTargetIds.has(targetThing.$id)) {
                 if (matchesJoinConditions(targetThing, fullJoin.conditions)) {
                   const joinKey = fullJoin.alias || (fullJoin.direction === 'forward' ? fullJoin.predicate : `${fullJoin.predicate}By`)
-                  const nullEntry = {
-                    $id: toThingId(''),
+                  const nullEntry: ThingWithJoins = {
+                    $id: '',
                     $type: options.type || '',
                     $createdAt: 0,
                     $updatedAt: 0,
                     _joined: {
                       [joinKey]: [targetThing]
                     }
-                  } as ThingWithJoins
+                  }
                   finalResults.push(nullEntry)
                 }
               }
@@ -842,8 +780,6 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
       }
 
       // Save original options and set pagination
-      const hadLimit = 'limit' in options && options.limit !== undefined
-      const hadOffset = 'offset' in options && options.offset !== undefined
       const originalLimit = options.limit
       const originalOffset = options.offset
       options.limit = effectiveLimit + 1 // Fetch one extra to check for more
@@ -852,16 +788,8 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
       const results = await builder.execute()
 
       // Restore original options
-      if (hadLimit && originalLimit !== undefined) {
-        options.limit = originalLimit
-      } else {
-        delete options.limit
-      }
-      if (hadOffset && originalOffset !== undefined) {
-        options.offset = originalOffset
-      } else {
-        delete options.offset
-      }
+      options.limit = originalLimit
+      options.offset = originalOffset
 
       // Check if there are more results
       const hasMore = results.length > effectiveLimit
@@ -889,21 +817,16 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
         return sqlStore.countWithConditions(options)
       }
 
-      // For count fallback, use the user's explicit limit or maxLimit
-      // Don't trigger strict mode check for internal counting - the user's limit is already validated
-      const hadLimit = 'limit' in options && options.limit !== undefined
+      // Use bounded max limit for count fallback (do-bgr1)
       const originalLimit = options.limit
-      const limits = getQueryLimits()
-      // Use the explicit limit if provided, otherwise use maxLimit for counting
-      options.limit = hadLimit && originalLimit !== undefined
-        ? Math.min(originalLimit, limits.maxLimit)
-        : limits.maxLimit
+      const countLimit = clampAndWarnLimit(
+        getQueryLimits().maxLimit,
+        'count-fallback',
+        getQueryLimits().maxLimit
+      )
+      options.limit = countLimit
       const results = await builder.execute()
-      if (hadLimit && originalLimit !== undefined) {
-        options.limit = originalLimit
-      } else {
-        delete options.limit
-      }
+      options.limit = originalLimit
       return results.length
     }
   }
@@ -928,7 +851,7 @@ export function query<T extends StorableData = StorableData>(store: ThingsStore,
  * Returns { clause: string, params: JsonValue[] }
  *
  * IMPORTANT: This uses parameterized queries to prevent SQL injection.
- * Field names are validated with VALID_FIELD_NAME regex (do-xdq7).
+ * Field names are validated with VALID_FIELD_NAME regex.
  * Values are bound as parameters, never interpolated into SQL.
  */
 export function buildWhereClause<T extends StorableData = StorableData>(options: QueryOptions<T>): {
@@ -949,9 +872,6 @@ export function buildWhereClause<T extends StorableData = StorableData>(options:
     for (const condition of options.whereConditions) {
       const { field, operator, value } = condition
 
-      // Validate field name to prevent SQL injection (do-xdq7)
-      validateFieldName(field)
-
       // Map field names - $type, $id etc. map to columns
       const sqlField = mapFieldToColumn(field)
 
@@ -968,10 +888,7 @@ export function buildWhereClause<T extends StorableData = StorableData>(options:
           } else {
             clauses.push(`${sqlField} ${operator} ?`)
           }
-          // value should be a single JsonValue at this point (not array, not undefined)
-          if (value !== undefined && !Array.isArray(value)) {
-            params.push(value)
-          }
+          params.push(value)
           break
 
         case 'LIKE':
@@ -980,10 +897,7 @@ export function buildWhereClause<T extends StorableData = StorableData>(options:
           } else {
             clauses.push(`${sqlField} LIKE ?`)
           }
-          // value should be a single JsonValue at this point (not array, not undefined)
-          if (value !== undefined && !Array.isArray(value)) {
-            params.push(value)
-          }
+          params.push(value)
           break
 
         case 'IN':
@@ -1067,15 +981,11 @@ function isJsonField(field: string): boolean {
 
 /**
  * Builds the ORDER BY clause
- * Validates field names to prevent SQL injection (do-xdq7)
  */
 export function buildOrderByClause<T extends StorableData = StorableData>(options: QueryOptions<T>): string {
   if (!options.orderBy) {
     return 'ORDER BY created_at DESC'
   }
-
-  // Validate field name to prevent SQL injection (do-xdq7)
-  validateFieldName(options.orderBy)
 
   const sqlField = isJsonField(options.orderBy)
     ? `json_extract(data, '$.${options.orderBy}')`

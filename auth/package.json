@@ -1,95 +1,21 @@
 {
   "name": "@dotdo/auth",
   "version": "0.0.1",
-  "description": "JWT-based authentication for dotdo using jose",
   "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./jwt": {
-      "types": "./dist/jwt.d.ts",
-      "import": "./dist/jwt.js"
-    },
-    "./jwks": {
-      "types": "./dist/jwks.d.ts",
-      "import": "./dist/jwks.js"
-    },
-    "./middleware": {
-      "types": "./dist/middleware.d.ts",
-      "import": "./dist/middleware.js"
-    },
-    "./apikey": {
-      "types": "./dist/apikey.d.ts",
-      "import": "./dist/apikey.js"
-    },
-    "./token": {
-      "types": "./dist/token.d.ts",
-      "import": "./dist/token.js"
-    },
-    "./validation": {
-      "types": "./dist/validation.d.ts",
-      "import": "./dist/validation.js"
-    },
-    "./errors": {
-      "types": "./dist/errors.d.ts",
-      "import": "./dist/errors.js"
-    },
-    "./rbac": {
-      "types": "./dist/rbac.d.ts",
-      "import": "./dist/rbac.js"
-    }
-  },
-  "files": [
-    "dist",
-    "README.md"
-  ],
-  "keywords": [
-    "dotdo",
-    "auth",
-    "jwt",
-    "jose",
-    "authentication",
-    "cloudflare",
-    "workers"
-  ],
-  "author": "dot-do",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/dot-do/dotdo",
-    "directory": "auth"
-  },
-  "homepage": "https://dotdo.dev",
-  "bugs": {
-    "url": "https://github.com/dot-do/dotdo/issues"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  },
+  "main": "index.ts",
+  "types": "index.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest",
-    "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build",
-    "clean": "rm -rf dist"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "hono": "^4.11.4",
+    "hono": "^4.7.0",
     "jose": "^6.0.0",
-    "id.org.ai": "^0.1.0"
+    "id.org.ai": "file:../primitives/packages/id.org.ai"
   },
   "devDependencies": {
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.0"
   }
 }
