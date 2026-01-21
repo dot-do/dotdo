@@ -22,9 +22,6 @@ import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
 
 export default defineWorkersConfig({
   test: {
-    // Root directory for this config (relative to project root)
-    root: './ai',
-
     // Only include DO integration tests - others run in Node
     include: [
       'tests/do-integration.test.ts',

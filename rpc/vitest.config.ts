@@ -22,9 +22,10 @@ import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
 
 export default defineWorkersConfig({
   test: {
-    // Only include miniflare integration tests
+    // Include tests that use cloudflare:test imports (require workers pool)
     include: [
       'tests/miniflare-integration.test.ts',
+      'tests/cross-do.test.ts',
     ],
 
     // Exclude only non-test files

@@ -44,6 +44,10 @@ const defaultExcludes = [
   '**/primitives/**',
   '**/dist/**',
   '**/build/**',
+  // Exclude tests that use cloudflare:test imports - they have workers configs
+  'ai/tests/do-integration.test.ts',
+  'rpc/tests/miniflare-integration.test.ts',
+  'rpc/tests/cross-do.test.ts',
 ]
 
 export default defineConfig({
@@ -58,15 +62,28 @@ export default defineConfig({
     fileParallelism: false,
 
     // Include Node-based tests that don't need Workers runtime
+    // IMPORTANT: Packages with cloudflare:test imports have their own workers configs:
+    //   - do/vitest.config.ts
+    //   - db/vitest.config.ts
+    //   - api/vitest.config.ts
+    //   - business/vitest.config.ts
+    //   - mcp/vitest.config.ts
+    //   - rpc/vitest.config.ts (for miniflare-integration.test.ts, cross-do.test.ts)
+    //   - ai/vitest.workers.config.ts (for do-integration.test.ts)
+    //   - fsx/vitest.config.ts
+    //   - tests/chaos/vitest.config.ts
     include: [
       'auth/tests/**/*.test.ts',
       'oauth/tests/**/*.test.ts',
+      // AI tests except do-integration.test.ts (uses workers config)
       'ai/tests/**/*.test.ts',
+      // RPC tests except miniflare-integration and cross-do (use workers config)
       'rpc/tests/**/*.test.ts',
       'rpc.do/tests/**/*.test.ts',
       'dotdo/tests/**/*.test.ts',
       'dotdo/sdk/tests/**/*.test.ts',
-      'business/tests/**/*.test.ts',
+      // business tests use workers pool (have cloudflare:test imports) - EXCLUDED
+      // 'business/tests/**/*.test.ts',
       'app/tests/**/*.test.ts',
       'e2e/tests/**/*.test.ts',
       'apps/**/tests/**/*.test.ts',
@@ -76,6 +93,9 @@ export default defineConfig({
       'utils/tests/**/*.test.ts',
       'integrations/tests/**/*.test.ts',
     ],
+
+    // Exclude tests that use cloudflare:test imports (they use workers configs)
+    // Also exclude worktrees, primitives, dist, etc.
 
     exclude: defaultExcludes,
 
