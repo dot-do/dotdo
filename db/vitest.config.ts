@@ -31,12 +31,9 @@ export default defineWorkersConfig({
       'tests/**/*.test.ts',
     ],
 
-    // Exclude non-test files and tests incompatible with vitest-pool-workers
+    // Exclude only non-test files
     exclude: [
       '**/node_modules/**',
-      // transactions.test.ts uses Miniflare directly with Node.js modules (os, fs, path)
-      // which are incompatible with vitest-pool-workers
-      'tests/transactions.test.ts',
     ],
 
     // CRITICAL: Limit concurrency to prevent resource exhaustion
