@@ -706,6 +706,70 @@ describe('JWKS Support', () => {
     })
   })
 
+  describe('JWKS URI HTTPS validation', () => {
+    it('should reject HTTP JWKS URIs for security', async () => {
+      expect(() =>
+        createJwksClient({
+          jwksUri: 'http://id.org.ai/.well-known/jwks.json',
+        })
+      ).toThrow('JWKS URI must use HTTPS')
+    })
+
+    it('should reject HTTP URIs even with explicit port', async () => {
+      expect(() =>
+        createJwksClient({
+          jwksUri: 'http://id.org.ai:80/.well-known/jwks.json',
+        })
+      ).toThrow('JWKS URI must use HTTPS')
+    })
+
+    it('should accept HTTPS JWKS URIs', async () => {
+      const client = createJwksClient({
+        jwksUri: 'https://id.org.ai/.well-known/jwks.json',
+      })
+      expect(client).toBeDefined()
+    })
+
+    it('should accept HTTPS URIs with explicit port', async () => {
+      const client = createJwksClient({
+        jwksUri: 'https://id.org.ai:443/.well-known/jwks.json',
+      })
+      expect(client).toBeDefined()
+    })
+
+    it('should allow localhost HTTP in development mode for testing', async () => {
+      // localhost/127.0.0.1 is often allowed for local development
+      const client = createJwksClient({
+        jwksUri: 'http://localhost:8080/.well-known/jwks.json',
+        allowInsecureLocalhost: true,
+      })
+      expect(client).toBeDefined()
+    })
+
+    it('should reject localhost HTTP when allowInsecureLocalhost is false', async () => {
+      expect(() =>
+        createJwksClient({
+          jwksUri: 'http://localhost:8080/.well-known/jwks.json',
+          allowInsecureLocalhost: false,
+        })
+      ).toThrow('JWKS URI must use HTTPS')
+    })
+
+    it('should reject localhost HTTP by default', async () => {
+      expect(() =>
+        createJwksClient({
+          jwksUri: 'http://localhost:8080/.well-known/jwks.json',
+        })
+      ).toThrow('JWKS URI must use HTTPS')
+    })
+
+    it('should also validate HTTPS in fetchJwks directly', async () => {
+      await expect(fetchJwks('http://id.org.ai/.well-known/jwks.json')).rejects.toThrow(
+        'JWKS URI must use HTTPS'
+      )
+    })
+  })
+
   describe('Error handling', () => {
     it('should provide meaningful error for network failures', async () => {
       const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'))

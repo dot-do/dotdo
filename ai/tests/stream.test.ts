@@ -406,7 +406,7 @@ describe('Stream', () => {
     })
 
     it('should support reduce without initial value', async () => {
-      async function* gen() {
+      async function* gen(): AsyncGenerator<number> {
         yield 1
         yield 2
         yield 3
@@ -419,7 +419,7 @@ describe('Stream', () => {
     })
 
     it('should throw on reduce without initial value on empty stream', async () => {
-      async function* gen() {
+      async function* gen(): AsyncGenerator<number> {
         // empty
       }
 
@@ -459,7 +459,7 @@ describe('Stream', () => {
       const peeked: number[] = []
 
       const result = await stream
-        .peek((n) => peeked.push(n))
+        .peek((n) => { peeked.push(n) })
         .map((n) => n * 2)
         .collect()
 

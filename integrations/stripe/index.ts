@@ -1,5 +1,6 @@
 // Stripe Integration Stub
 // Example integration for the dotdo integration registry (do-laux)
+// Hooks pattern standardized in do-07dn
 
 import type {
   Integration,
@@ -9,8 +10,11 @@ import type {
   IntegrationResult,
   IntegrationWebhookHandler,
   IntegrationEvent,
+  IntegrationHooks,
+  MethodCallContext,
 } from '../types'
 import { successResult, errorResult } from '../registry'
+import { verifyStripeSignature } from '../webhook-verify'
 
 /**
  * Stripe-specific configuration
@@ -300,14 +304,28 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
       const body = await request.text()
       const signature = request.headers.get('stripe-signature')
 
-      if (!signature && this.config.webhookSecret) {
-        return new Response('Missing signature', { status: 400 })
-      }
+      // Verify webhook signature if secret is configured
+      if (this.config.webhookSecret) {
+        if (!signature) {
+          return new Response(JSON.stringify({ error: 'Missing Stripe-Signature header' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
 
-      // In a real implementation, you would:
-      // 1. Verify the webhook signature
-      // 2. Parse the event
-      // 3. Call registered handlers
+        const verification = await verifyStripeSignature(body, signature, this.config.webhookSecret)
+
+        if (!verification.valid) {
+          console.error('Stripe webhook signature verification failed:', verification.error)
+          return new Response(
+            JSON.stringify({ error: 'Signature verification failed', details: verification.error }),
+            {
+              status: 401,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          )
+        }
+      }
 
       const event = JSON.parse(body) as { type: string; data: { object: unknown } }
 
@@ -345,9 +363,10 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
 
 /**
  * Generate a random ID for stub responses
+ * Uses crypto.randomUUID() for cryptographically secure random generation
  */
 function generateId(): string {
-  return Math.random().toString(36).substring(2, 15)
+  return crypto.randomUUID().replace(/-/g, '').substring(0, 13)
 }
 
 /**

@@ -1,9 +1,62 @@
-// @dotdo/do - THE Durable Object for Digital Objects
-// DO = Durable Object = Digital Object
+/**
+ * @dotdo/do - THE Durable Object for Digital Objects
+ *
+ * DO = Durable Object = Digital Object
+ *
+ * This package provides the core DO class and associated utilities for building
+ * Durable Objects with built-in storage, events, relationships, and workflows.
+ *
+ * @example
+ * ```typescript
+ * import { DO, createTypedContext, type WorkflowContext } from '@dotdo/do'
+ *
+ * class MyDO extends DO {
+ *   constructor(state: DurableObjectState, env: DOEnv) {
+ *     super(state, env)
+ *
+ *     // Register event handlers
+ *     this.$.on.Customer.signup(async (event) => {
+ *       await this.$.send({ type: 'welcome-email', payload: event.payload })
+ *     })
+ *
+ *     // Schedule recurring work
+ *     this.$.every.day.at('9am')(async () => {
+ *       await this.generateDailyReport()
+ *     })
+ *   }
+ * }
+ * ```
+ *
+ * @module @dotdo/do
+ */
 
+/**
+ * The main DO class - THE Durable Object for Digital Objects.
+ *
+ * Provides built-in entity stores (things, events, relationships),
+ * WebSocket management, integration registry, and the WorkflowContext ($).
+ *
+ * @see {@link WorkflowContext} for the $ API
+ * @see {@link EntityManager} for storage operations
+ */
 export { DO, type DOEnv, type DOOptions } from './DO'
 
-// Composable mixins for building DOs (do-6epx)
+/**
+ * Composable mixins for building DOs with specific capabilities.
+ *
+ * Use TypeScript mixin pattern to compose features:
+ * - WithStorage: Entity stores (things, events, relationships)
+ * - WithWebSocket: WebSocket connection handling
+ * - WithRPC: Cross-DO RPC support
+ * - WithAuth: Authentication and authorization
+ *
+ * @example
+ * ```typescript
+ * class MyDO extends WithAuth(WithRPC(WithStorage(BaseDO))) {
+ *   // Has storage, RPC, and auth capabilities
+ * }
+ * ```
+ */
 export {
   // Storage mixin
   WithStorage,
@@ -29,11 +82,53 @@ export {
   type ComposedType,
   type InstanceOf
 } from './mixins'
+/**
+ * Creates a WorkflowContext ($) for event handling, scheduling, and cross-DO RPC.
+ *
+ * @see {@link createTypedContext} for type-safe DO bindings and event schemas
+ */
 export { createContext, createTypedContext } from './context'
+
+/**
+ * WorkflowContext ($) provides the fluent API for:
+ * - Event handlers: $.on.Customer.signup(handler)
+ * - Scheduling: $.every.Monday.at('9am')(handler)
+ * - Cross-DO RPC: $.Customer(id).method()
+ * - Durability levels: $.send(), $.try(), $.do()
+ */
 export type { WorkflowContext, $ } from './context'
+/**
+ * EntityManager provides wrapped access to Things, Events, and Relationships stores
+ * with automatic event emission and audit logging on entity changes.
+ *
+ * @see {@link ThingsStore} for entity CRUD operations
+ * @see {@link EventsStore} for event emission and querying
+ * @see {@link RelationshipsStore} for entity relationships
+ */
 export { EntityManager, withEntities, type EntityManagerOptions } from './entities'
 
-// Type-safe WorkflowContext types (do-ebio)
+/**
+ * Type-safe WorkflowContext types for compile-time type checking.
+ *
+ * Use these types to get full type inference for:
+ * - Cross-DO RPC calls with typed return values
+ * - Event handlers with typed event payloads
+ * - DO binding accessors with proper method signatures
+ *
+ * @example
+ * ```typescript
+ * interface DOBindings {
+ *   Customer: CustomerDO
+ *   Order: OrderDO
+ * }
+ *
+ * interface EventSchemas {
+ *   'Customer.signup': { email: string; plan: string }
+ * }
+ *
+ * const $ = createTypedContext<DOBindings, EventSchemas>(state, env)
+ * ```
+ */
 export type {
   // Core typed context
   TypedWorkflowContext,
@@ -57,7 +152,8 @@ export type {
   EmptyEventSchemas,
   DefineEventSchemas,
   EventTypes,
-  EventPayload,
+  // Note: EventPayload type is exported from ./workflow for actual payload structure
+  EventPayload as TypedEventPayload,  // Renamed to avoid conflict
   EventPayloadType,
   ExtractNoun,
   ExtractVerb,
@@ -88,7 +184,14 @@ export type {
   CreateTypedContextOptions,
 } from './types'
 
-// Type-safe DO binding registry (do-hsfo)
+/**
+ * Type-safe DO binding registry for accessing DurableObjectNamespace bindings.
+ *
+ * Provides utilities for:
+ * - Type-safe binding access from environment
+ * - Stub creation with proper typing
+ * - Runtime detection of DO namespace bindings
+ */
 export {
   // Core types
   type AnyDurableObjectNamespace,
@@ -112,7 +215,10 @@ export {
   asBindingRegistry,
 } from './bindings'
 
-// Re-export audit types from db for convenience
+/**
+ * Audit logging types for tracking entity changes and user actions.
+ * Re-exported from @dotdo/db for convenience.
+ */
 export type {
   AuditLog,
   AuditLogStore,
@@ -121,18 +227,53 @@ export type {
   AuditContext,
   AuditLogLevel,
   AuditAction
-} from '../db'
+} from '@dotdo/db'
 
-// WebSocket management
+/**
+ * Dead Letter Queue (DLQ) types for monitoring failed event processing.
+ * Re-exported from @dotdo/db for convenience.
+ *
+ * Use EventsStore.getDLQStats() to monitor DLQ health:
+ * - Total failed events
+ * - Breakdown by event type and error type
+ * - Age of entries (oldest/newest timestamps)
+ * - Average retry attempts before failure
+ */
+export type {
+  DLQEntry,
+  DLQStats,
+  DLQQueryOptions,
+  DurabilityConfig,
+  EventRetryStatus,
+  RetryMetrics,
+  ValidationFailure
+} from '@dotdo/db'
+
+/**
+ * WebSocket management for real-time communication in Durable Objects.
+ *
+ * Provides:
+ * - Connection handling and upgrade
+ * - Message routing to handlers
+ * - Broadcast to tagged connections
+ * - Heartbeat/ping-pong support
+ * - Reconnection tracking
+ */
 export {
   WebSocketManager,
   type WebSocketMessage,
   type WebSocketHandler,
-  type BroadcastResult
+  type BroadcastResult,
+  type ConnectionMetadata,
+  type ConnectionHandler
 } from './websocket'
 
-// Workflow module - standalone WorkflowContext DSL (do-b3pv)
-// Re-export additional utilities from the workflow module
+/**
+ * Workflow module utilities for cross-DO RPC and scheduling.
+ *
+ * Cross-DO RPC: Call methods on other Durable Objects via $.Customer(id).method()
+ * Scheduling: Register handlers for recurring execution via $.every DSL
+ */
 export {
   // Cross-DO RPC utilities
   createDOAccessor,
@@ -152,7 +293,31 @@ export {
   type InvokeHandlersResult,
 } from './workflow'
 
-// Event handler system ($.on.Noun.verb) - backward compatible re-exports
+/**
+ * EventSystem - Standalone event handling with typed events and listeners.
+ * Decoupled from WorkflowContext for use in other contexts.
+ */
+export {
+  EventSystem,
+  createEventSystem,
+  type EventPayload,
+  type EventEmitListener,
+  type EventSystemOptions,
+} from './workflow'
+
+/**
+ * Event handler system for $.on.Noun.verb pattern.
+ *
+ * Register handlers that respond to events matching Noun.verb patterns.
+ * Supports wildcards: $.on.Customer['*'] for all Customer events.
+ *
+ * @example
+ * ```typescript
+ * $.on.Customer.signup(async (event) => {
+ *   console.log('Customer signed up:', event.payload)
+ * })
+ * ```
+ */
 export {
   createOnProxy,
   matchHandlers,
@@ -166,7 +331,22 @@ export {
   type NounEventProxy
 } from './on'
 
-// Scheduling DSL ($.every.Monday.at9am) - backward compatible re-exports
+/**
+ * Scheduling DSL for recurring task execution.
+ *
+ * Register handlers that run on schedules using fluent API:
+ * - $.every.Monday.at('9am')(handler)
+ * - $.every.day.at('6pm')(handler)
+ * - $.every.hour(handler)
+ * - $.every(5).minutes(handler)
+ *
+ * @example
+ * ```typescript
+ * $.every.Monday.at('9am')(async () => {
+ *   await generateWeeklyReport()
+ * })
+ * ```
+ */
 export {
   createEveryProxy,
   type ScheduleHandler,
@@ -174,7 +354,12 @@ export {
   type ScheduleRegistration
 } from './schedule'
 
-// Fire-and-forget error tracking (do-9bmr)
+/**
+ * Fire-and-forget error tracking for $.send() operations.
+ *
+ * Tracks errors from fire-and-forget operations that would otherwise be lost.
+ * Supports both in-memory and SQLite-backed stores for persistence.
+ */
 export {
   createInMemoryErrorStore,
   createSQLiteErrorStore,
@@ -186,7 +371,12 @@ export {
   type ErrorStats
 } from './fire-and-forget-errors'
 
-// Admin interface hooks
+/**
+ * Admin interface for DO inspection and management.
+ *
+ * Provides hooks for listing entities, emitting events, and inspecting state.
+ * Useful for debugging and administrative tooling.
+ */
 export {
   AdminDO,
   createAdminHooks,
@@ -202,7 +392,21 @@ export {
   type HealthCheck
 } from './admin'
 
-// DO-level authentication guards (do-nuwe)
+/**
+ * DO-level authentication guards for securing Durable Object access.
+ *
+ * Provides:
+ * - Caller type detection (Worker, DO, User, Internal)
+ * - HMAC signature verification for DO-to-DO calls
+ * - Hono middleware for request authentication
+ * - Specialized guards for different caller types
+ *
+ * @example
+ * ```typescript
+ * const guard = createDOAuthGuard({ secret: env.DO_INTERNAL_SECRET })
+ * const caller = await guard.validateRequest(request)
+ * ```
+ */
 export {
   // Core guard
   createDOAuthGuard,
@@ -246,13 +450,16 @@ export {
   addWorkerHeaders,
 } from './auth'
 
-// Third-party integration registry (do-laux)
+/**
+ * Third-party integration registry for connecting external services.
+ *
+ * Manage integrations with services like Stripe, SendGrid, etc.
+ * Supports webhook handling and connection state management.
+ */
 export {
   IntegrationRegistry,
   IntegrationRegistryError,
-  integrationRegistry,
-  registerIntegration,
-  getIntegration,
+  createIntegrationRegistry,
   successResult,
   errorResult,
   type Integration,
@@ -269,9 +476,11 @@ export {
   type RegisteredIntegration,
   type ListIntegrationsOptions,
   type IntegrationSummary,
-} from '../integrations'
+} from '@dotdo/integrations'
 
-// Example integrations
+/**
+ * Stripe integration for payment processing.
+ */
 export {
   StripeIntegration,
   createStripeIntegration,
@@ -280,8 +489,11 @@ export {
   type StripePaymentIntent,
   type StripeSubscription,
   type StripeMethods,
-} from '../integrations/stripe'
+} from '@dotdo/integrations/stripe'
 
+/**
+ * SendGrid integration for email delivery.
+ */
 export {
   SendGridIntegration,
   createSendGridIntegration,
@@ -293,49 +505,72 @@ export {
   type SendGridContact,
   type EmailStats,
   type SendGridMethods,
-} from '../integrations/sendgrid'
+} from '@dotdo/integrations/sendgrid'
 
-// Extended primitives with AI assistance (fsx, gitx, bashx)
+/**
+ * Extended primitives for file system, git, and bash operations.
+ *
+ * Note: Primitives are exported from their respective packages:
+ * - @dotdo/fsx: File system operations
+ * - gitx: Git operations (separate package)
+ * - bashx: Bash execution (separate package)
+ *
+ * These are intentionally excluded from the main do/ package to keep
+ * the core DO functionality separate from extended tooling.
+ */
+// Primitives exports are commented out - import directly from fsx/gitx/bashx packages
+// export { ... } from './primitives'
+
+/**
+ * DO sharding support for horizontal scaling.
+ *
+ * Distributes requests across multiple DO instances based on shard keys.
+ * Supports consistent hashing and configurable shard counts.
+ *
+ * @example
+ * ```typescript
+ * const router = createShardRouter({ shardCount: 16 })
+ * const shardId = router.getShardId(userId)
+ * ```
+ */
 export {
-  // File System Extended
-  FSX,
-  createFSX,
-  fsx,
-  type FileInfo,
-  type ReadOptions,
-  type WriteOptions,
-  type ListOptions,
-  type CopyMoveOptions,
-  type AIFileResult,
-  type FSXAIOptions,
-
-  // Git Extended
-  GitX,
-  createGitX,
-  gitx,
-  type Commit,
-  type Branch,
-  type FileStatus,
-  type RepoStatus,
-  type DiffInfo,
-  type DiffHunk,
-  type DiffLine,
-  type CommitOptions,
-  type BranchOptions,
-  type MergeOptions,
-  type AIGitOptions,
-  type AICommitMessage,
-  type AIReviewResult,
-
-  // Bash Extended
-  BashX,
-  createBashX,
-  bashx,
-  type ExecResult,
-  type ExecOptions,
-  type Command,
-  type PipelineResult,
-  type AIBashOptions,
-  type AICommandResult,
-  type AIDiagnosisResult,
-} from './primitives'
+  // Basic sharding
+  ShardRouter,
+  createShardRouter,
+  fnv1aHash,
+  getShardIndex,
+  shardMiddleware,
+  extractUserIdFromHeader,
+  extractShardFromQuery,
+  type ShardKeyConfig,
+  type ShardContext,
+  type ShardResult,
+  type ShardRouterConfig,
+  // Load balancing
+  LoadMetricsStore,
+  LoadBalancedRouter,
+  createLoadBalancedRouter,
+  type LoadMetricsStoreConfig,
+  type LeastLoadedResult,
+  type LoadBalanceTelemetryEvent,
+  type LoadBalancedShardResult,
+  type LoadBalancedRouterConfig,
+  // Health monitoring (do-8x8l)
+  ShardHealthMonitor,
+  createShardHealthMonitor,
+  type ShardHealthStatus,
+  type ShardHealthMetrics,
+  type ShardHealthConfig,
+  // Dynamic rebalancing (do-8x8l)
+  ShardRebalancer,
+  createShardRebalancer,
+  type RebalanceAction,
+  type RebalanceDecision,
+  type ShardRebalancerConfig,
+  type ShardRegistryEntry,
+  type MigrationTask,
+  // Health-aware routing (do-8x8l)
+  HealthAwareRouter,
+  createHealthAwareRouter,
+  type HealthAwareRouterConfig,
+} from './shard'
