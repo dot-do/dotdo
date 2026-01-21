@@ -6,8 +6,10 @@ import type {
   StorageAdapterOptions,
   SqlStorageAdapterOptions,
   ListOptions,
-  ListResult
+  ListResult,
+  TransactionOptions
 } from '../storage'
+import { TransactionError, NestedTransactionError } from '../errors'
 import type { SqlStorage } from '../sqlite'
 
 /**
@@ -20,12 +22,19 @@ const DEFAULT_TABLE_NAME = 'kv_store'
  *
  * Uses a simple key-value table structure with JSON serialization for values.
  * Compatible with Cloudflare Durable Objects SqlStorage API.
+ *
+ * Transaction Semantics:
+ * - Uses SQLite BEGIN/COMMIT/ROLLBACK for atomicity
+ * - Supports nested transactions via SAVEPOINT
+ * - Automatic rollback on error
  */
 export class SQLiteStorageAdapter implements StorageAdapter {
   private sql: SqlStorage
   private tableName: string
   private namespace: string
   private initialized = false
+  private transactionDepth = 0
+  private savepointCounter = 0
 
   constructor(sql: SqlStorage, options: SqlStorageAdapterOptions = {}) {
     this.sql = sql
@@ -250,15 +259,91 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     return resultObj
   }
 
-  async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    // SQLite in Cloudflare Workers doesn't expose explicit transaction API
-    // but each SqlStorage instance is already transactional within a DO
-    // All operations are atomic within a single DO request
+  async transaction<T>(fn: () => Promise<T>, options?: TransactionOptions): Promise<T> {
+    const isNested = this.transactionDepth > 0
+
+    if (isNested) {
+      // Use savepoint for nested transactions
+      const savepointName = options?.savepoint || `sp_${++this.savepointCounter}`
+      return this.executeNestedTransaction(fn, savepointName)
+    }
+
+    // Top-level transaction with BEGIN/COMMIT/ROLLBACK
+    return this.executeTopLevelTransaction(fn)
+  }
+
+  /**
+   * Execute a top-level transaction with BEGIN/COMMIT/ROLLBACK
+   */
+  private async executeTopLevelTransaction<T>(fn: () => Promise<T>): Promise<T> {
+    this.sql.exec('BEGIN')
+    this.transactionDepth++
+
     try {
-      return await fn()
+      const result = await fn()
+      this.sql.exec('COMMIT')
+      this.transactionDepth--
+      return result
     } catch (error) {
+      try {
+        this.sql.exec('ROLLBACK')
+      } catch (rollbackError) {
+        this.transactionDepth--
+        throw TransactionError.rollbackFailed(
+          error instanceof Error ? error : new Error(String(error)),
+          rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError))
+        )
+      }
+      this.transactionDepth--
       throw error
     }
+  }
+
+  /**
+   * Execute a nested transaction using SAVEPOINT
+   */
+  private async executeNestedTransaction<T>(fn: () => Promise<T>, savepointName: string): Promise<T> {
+    // Sanitize savepoint name to prevent SQL injection
+    const safeName = savepointName.replace(/[^a-zA-Z0-9_]/g, '_')
+
+    this.sql.exec(`SAVEPOINT ${safeName}`)
+    this.transactionDepth++
+
+    try {
+      const result = await fn()
+      this.sql.exec(`RELEASE SAVEPOINT ${safeName}`)
+      this.transactionDepth--
+      return result
+    } catch (error) {
+      try {
+        this.sql.exec(`ROLLBACK TO SAVEPOINT ${safeName}`)
+        // Release the savepoint after rollback to clean up
+        this.sql.exec(`RELEASE SAVEPOINT ${safeName}`)
+      } catch (rollbackError) {
+        this.transactionDepth--
+        throw TransactionError.nestedFailed(
+          savepointName,
+          rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError))
+        )
+      }
+      this.transactionDepth--
+      throw error
+    }
+  }
+
+  /**
+   * Check if currently inside a transaction
+   */
+  inTransaction(): boolean {
+    return this.transactionDepth > 0
+  }
+
+  /**
+   * Check if the adapter supports nested transactions
+   * SQLite supports nested transactions via SAVEPOINT
+   */
+  supportsNestedTransactions(): boolean {
+    return true
   }
 
   async has(key: string): Promise<boolean> {

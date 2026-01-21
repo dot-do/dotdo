@@ -21,7 +21,10 @@ export default {
     // Check for agent ID in path
     const agentMatch = url.pathname.match(/^\/(agent|user)\/([^/]+)/)
     if (agentMatch) {
-      agentId = agentMatch[2]
+      const matchedId = agentMatch[2]
+      if (matchedId) {
+        agentId = matchedId
+      }
       // Rewrite URL to remove /(agent|user)/{id} prefix
       url.pathname = url.pathname.replace(/^\/(agent|user)\/[^/]+/, '') || '/'
     }

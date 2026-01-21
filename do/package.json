@@ -1,18 +1,35 @@
 {
   "name": "@dotdo/do",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
-  "main": "index.ts",
-  "types": "index.ts",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@dotdo/auth": "workspace:*",
     "@dotdo/db": "workspace:*",
+    "@dotdo/integrations": "workspace:*",
     "@dotdo/rpc": "workspace:*",
+    "@dotdo/utils": "workspace:*",
     "hono": "^4.7.0"
   },
   "devDependencies": {

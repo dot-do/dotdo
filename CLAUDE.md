@@ -314,6 +314,17 @@ AI routing uses template literals: `` await ai`Summarize: ${text}` ``
 
 Full TypeScript support across all packages with strict type checking.
 
+### TypeScript Configuration Notes
+
+The `tsconfig.base.json` enables strict TypeScript with `noUncheckedIndexedAccess: true` and `exactOptionalPropertyTypes: true`.
+
+**`noPropertyAccessFromIndexSignature` is intentionally disabled** at the base level because:
+- Enabling it causes ~600 TS4111 errors across the codebase
+- Most errors are in SQLite row mapping code (db/sqlite.ts, db/audit.ts) where we read typed rows from queries
+- The pattern `row.column_name` is more readable than `row['column_name']` for known-schema database rows
+- Some sub-projects (app/, gitx/, primitives/) enable this flag independently where it fits their patterns
+- Future work could add explicit interfaces for SQL row types to enable this flag globally
+
 ## Git Submodules
 
 The `primitives/` directory is a **git submodule** pointing to [primitives.org.ai](https://primitives.org.ai).
@@ -372,6 +383,133 @@ git commit -m "chore: update primitives submodule"
 
 ```bash
 git submodule status
+```
+
+## Package Dependency Policy
+
+### Dependency Layers
+
+The monorepo uses a **strict layered architecture**. Dependencies flow DOWN only - never up or sideways within the same layer.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    LAYER 4: AGGREGATOR                       │
+│                         dotdo                                │
+│              (re-exports everything, CLI)                    │
+└─────────────────────────────────────────────────────────────┘
+                              ▲
+┌─────────────────────────────────────────────────────────────┐
+│                    LAYER 3: CONSUMERS                        │
+│           @dotdo/api     @dotdo/app     @dotdo/mcp          │
+│      (workers, frontend, tooling - can use any lower layer) │
+└─────────────────────────────────────────────────────────────┘
+                              ▲
+┌─────────────────────────────────────────────────────────────┐
+│                    LAYER 2: COMPOSITION                      │
+│                        @dotdo/do                             │
+│          (combines foundation packages into DO class)        │
+└─────────────────────────────────────────────────────────────┘
+                              ▲
+┌─────────────────────────────────────────────────────────────┐
+│                    LAYER 1: FOUNDATION                       │
+│  @dotdo/db  @dotdo/rpc  @dotdo/auth  @dotdo/ai  @dotdo/utils│
+│  @dotdo/integrations  @dotdo/observability                   │
+│           (standalone, no workspace dependencies)            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Allowed Dependencies Matrix
+
+| Package | Can Depend On | CANNOT Depend On |
+|---------|--------------|------------------|
+| **@dotdo/db** | External only | Any @dotdo/* |
+| **@dotdo/rpc** | External only | Any @dotdo/* |
+| **@dotdo/auth** | External only | Any @dotdo/* |
+| **@dotdo/ai** | External only | Any @dotdo/* |
+| **@dotdo/utils** | External only | Any @dotdo/* |
+| **@dotdo/integrations** | External only | Any @dotdo/* |
+| **@dotdo/observability** | External only | Any @dotdo/* |
+| **@dotdo/do** | Layer 1 packages | api, app, mcp, dotdo |
+| **@dotdo/mcp** | Layer 1 + do | api, app, dotdo |
+| **@dotdo/api** | Layer 1 + do | app, mcp, dotdo |
+| **@dotdo/app** | Layer 1 + do | api, mcp, dotdo |
+| **dotdo** | All packages | None (aggregator) |
+
+### Circular Dependency Prevention Rules
+
+1. **Foundation packages are LEAF nodes** - They have zero workspace dependencies
+2. **Layer 2 depends on Layer 1 only** - @dotdo/do cannot import from api, app, or mcp
+3. **Layer 3 packages are SIBLINGS** - api, app, and mcp cannot depend on each other
+4. **Only dotdo (aggregator) imports everything** - It's the only package that can depend on all others
+
+### Detecting Violations
+
+Before adding a new workspace dependency, verify it doesn't violate the layer rules:
+
+```bash
+# Check a package's dependencies
+cat <package>/package.json | grep "@dotdo/"
+
+# Verify no circular dependencies exist
+npx madge --circular --extensions ts .
+```
+
+### Handling Shared Types
+
+When types need to be shared across packages:
+
+1. **Foundation types** - Define in the lowest-layer package that uses them
+   - Storage types → `@dotdo/db`
+   - RPC types → `@dotdo/rpc`
+   - Auth types → `@dotdo/auth`
+
+2. **Cross-cutting types** - Use `@dotdo/utils` for truly generic types
+   - Utility types (DeepPartial, etc.)
+   - Common interfaces not tied to any domain
+
+3. **DO-specific types** - Define in `@dotdo/do`
+   - Entity types (Thing, Relationship, Event)
+   - WorkflowContext ($) types
+   - DO state and storage interfaces
+
+4. **NEVER create a separate types package** - Types belong with their implementation
+
+### Type Re-export Pattern
+
+Higher layers can re-export types from lower layers:
+
+```typescript
+// @dotdo/do/types.ts
+export type { ThingStore, EventStore } from '@dotdo/db'
+export type { RpcClient, RpcServer } from '@dotdo/rpc'
+
+// dotdo/index.ts (aggregator)
+export * from '@dotdo/db'
+export * from '@dotdo/rpc'
+export * from '@dotdo/do'
+// ... etc
+```
+
+### Adding New Packages
+
+When adding a new workspace package:
+
+1. **Determine its layer** based on what it needs to depend on
+2. **Foundation (Layer 1)**: No workspace deps allowed
+3. **Composition (Layer 2)**: Only Layer 1 deps
+4. **Consumer (Layer 3)**: Layer 1 and Layer 2 deps
+5. **Update this section** with the new package's allowed dependencies
+
+### Test Utilities Exception
+
+`@dotdo/test-utils` is special - it can be a **devDependency** of any package but never a runtime dependency:
+
+```json
+{
+  "devDependencies": {
+    "@dotdo/test-utils": "workspace:*"
+  }
+}
 ```
 
 ## Related Repos

@@ -1,9 +1,16 @@
 {
   "name": "@dotdo/mcp",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "main": "index.ts",
   "types": "index.ts",
+  "bin": {
+    "dotdo-mcp": "./cli.ts"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
@@ -11,10 +18,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dotdo/do": "workspace:*",
+    "@dotdo/db": "workspace:*",
+    "@dotdo/rpc": "workspace:*",
+    "ai-evaluate": "file:../primitives/packages/ai-evaluate",
     "hono": "^4.7.0"
   },
   "devDependencies": {
+    "@dotdo/test-utils": "workspace:*",
     "typescript": "^5.7.0"
   }
 }

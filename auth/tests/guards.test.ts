@@ -1,6 +1,17 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Hono, type Context, type Next } from 'hono'
-import { requireAuth, requireRole, requireScope, requireOwner, requireAll, requireAny } from '../guards'
+import {
+  requireAuth,
+  requireRole,
+  requireScope,
+  requireOwner,
+  requireAll,
+  requireAny,
+  requireRoleLevel,
+  requireSuperAdmin,
+  requireAdmin,
+  requireEditor
+} from '../guards'
 
 // User type for testing
 interface TestUser {
@@ -296,6 +307,153 @@ describe('Permission Guards', () => {
 
       const res = await app.request('/')
       expect(res.status).toBe(401)
+    })
+  })
+
+  describe('requireRoleLevel', () => {
+    it('should pass when user has exact role', async () => {
+      const app = new Hono()
+      app.use('/*', setUser({ id: '1', roles: ['editor'] }))
+      app.use('/*', requireRoleLevel('editor'))
+      app.get('/', (c) => c.json({ ok: true }))
+
+      const res = await app.request('/')
+      expect(res.status).toBe(200)
+    })
+
+    it('should pass when user has higher role', async () => {
+      const app = new Hono()
+      app.use('/*', setUser({ id: '1', roles: ['admin'] }))
+      app.use('/*', requireRoleLevel('editor'))
+      app.get('/', (c) => c.json({ ok: true }))
+
+      const res = await app.request('/')
+      expect(res.status).toBe(200)
+    })
+
+    it('should pass when user has super_admin for any role', async () => {
+      const app = new Hono()
+      app.use('/*', setUser({ id: '1', roles: ['super_admin'] }))
+      app.use('/*', requireRoleLevel('admin'))
+      app.get('/', (c) => c.json({ ok: true }))
+
+      const res = await app.request('/')
+      expect(res.status).toBe(200)
+    })
+
+    it('should reject when user has lower role', async () => {
+      const app = new Hono()
+      app.use('/*', setUser({ id: '1', roles: ['viewer'] }))
+      app.use('/*', requireRoleLevel('editor'))
+      app.get('/', (c) => c.json({ ok: true }))
+
+      const res = await app.request('/')
+      expect(res.status).toBe(403)
+    })
+
+    it('should use highest role when user has multiple roles', async () => {
+      const app = new Hono()
+      app.use('/*', setUser({ id: '1', roles: ['guest', 'viewer', 'editor'] }))
+      app.use('/*', requireRoleLevel('editor'))
+      app.get('/', (c) => c.json({ ok: true }))
+
+      const res = await app.request('/')
+      expect(res.status).toBe(200)
+    })
+
+    it('should reject when not authenticated', async () => {
+      const app = new Hono()
+      app.use('/*', requireRoleLevel('editor'))
+      app.get('/', (c) => c.json({ ok: true }))
+
+      const res = await app.request('/')
+      expect(res.status).toBe(401)
+    })
+  })
+
+  describe('requireSuperAdmin', () => {
+    it('should pass for super_admin', async () => {
+      const app = new Hono()
+      app.use('/*', setUser({ id: '1', roles: ['super_admin'] }))
+      app.use('/*', requireSuperAdmin())
+      app.get('/', (c) => c.json({ ok: true }))
+
+      const res = await app.request('/')
+      expect(res.status).toBe(200)
+    })
+
+    it('should reject for admin', async () => {
+      const app = new Hono()
+      app.use('/*', setUser({ id: '1', roles: ['admin'] }))
+      app.use('/*', requireSuperAdmin())
+      app.get('/', (c) => c.json({ ok: true }))
+
+      const res = await app.request('/')
+      expect(res.status).toBe(403)
+    })
+  })
+
+  describe('requireAdmin', () => {
+    it('should pass for admin', async () => {
+      const app = new Hono()
+      app.use('/*', setUser({ id: '1', roles: ['admin'] }))
+      app.use('/*', requireAdmin())
+      app.get('/', (c) => c.json({ ok: true }))
+
+      const res = await app.request('/')
+      expect(res.status).toBe(200)
+    })
+
+    it('should pass for super_admin', async () => {
+      const app = new Hono()
+      app.use('/*', setUser({ id: '1', roles: ['super_admin'] }))
+      app.use('/*', requireAdmin())
+      app.get('/', (c) => c.json({ ok: true }))
+
+      const res = await app.request('/')
+      expect(res.status).toBe(200)
+    })
+
+    it('should reject for editor', async () => {
+      const app = new Hono()
+      app.use('/*', setUser({ id: '1', roles: ['editor'] }))
+      app.use('/*', requireAdmin())
+      app.get('/', (c) => c.json({ ok: true }))
+
+      const res = await app.request('/')
+      expect(res.status).toBe(403)
+    })
+  })
+
+  describe('requireEditor', () => {
+    it('should pass for editor', async () => {
+      const app = new Hono()
+      app.use('/*', setUser({ id: '1', roles: ['editor'] }))
+      app.use('/*', requireEditor())
+      app.get('/', (c) => c.json({ ok: true }))
+
+      const res = await app.request('/')
+      expect(res.status).toBe(200)
+    })
+
+    it('should pass for admin', async () => {
+      const app = new Hono()
+      app.use('/*', setUser({ id: '1', roles: ['admin'] }))
+      app.use('/*', requireEditor())
+      app.get('/', (c) => c.json({ ok: true }))
+
+      const res = await app.request('/')
+      expect(res.status).toBe(200)
+    })
+
+    it('should reject for viewer', async () => {
+      const app = new Hono()
+      app.use('/*', setUser({ id: '1', roles: ['viewer'] }))
+      app.use('/*', requireEditor())
+      app.get('/', (c) => c.json({ ok: true }))
+
+      const res = await app.request('/')
+      expect(res.status).toBe(403)
     })
   })
 })

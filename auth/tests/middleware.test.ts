@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Hono } from 'hono'
-import { SignJWT } from 'jose'
+import { SignJWT, generateKeyPair, exportSPKI, type KeyLike } from 'jose'
 import { authMiddleware, apiKeyMiddleware } from '../middleware'
 
 describe('Auth Middleware', () => {
@@ -166,11 +166,10 @@ describe('Auth Middleware', () => {
       expect(res2.status).toBe(200)
     })
 
-    it('should throw error if secret is not provided', () => {
+    it('should throw error if neither secret nor publicKey is provided', () => {
       expect(() => {
-        // @ts-expect-error - testing runtime validation
         authMiddleware({})
-      }).toThrow('authMiddleware requires a secret')
+      }).toThrow('Either secret or publicKey is required for JWT validation in authMiddleware')
     })
 
     it('should accept string secret', async () => {
@@ -213,6 +212,228 @@ describe('Auth Middleware', () => {
       expect(res.status).toBe(200)
       const json = await res.json()
       expect(json.user.scopes).toEqual([]) // Should default to empty array for non-array
+    })
+  })
+
+  describe('authMiddleware with publicKey', () => {
+    let rsaPrivateKey: KeyLike
+    let rsaPublicKeyPem: string
+    let ecPrivateKey: KeyLike
+    let ecPublicKeyPem: string
+
+    beforeEach(async () => {
+      // Generate RSA key pair
+      const rsaKeys = await generateKeyPair('RS256')
+      rsaPrivateKey = rsaKeys.privateKey
+      rsaPublicKeyPem = await exportSPKI(rsaKeys.publicKey)
+
+      // Generate EC key pair
+      const ecKeys = await generateKeyPair('ES256')
+      ecPrivateKey = ecKeys.privateKey
+      ecPublicKeyPem = await exportSPKI(ecKeys.publicKey)
+    })
+
+    // Helper to create RSA-signed JWT
+    async function createRsaJWT(
+      payload: Record<string, unknown>,
+      options?: { exp?: number; iss?: string; aud?: string }
+    ): Promise<string> {
+      const jwt = new SignJWT(payload)
+        .setProtectedHeader({ alg: 'RS256' })
+        .setIssuedAt()
+        .setIssuer(options?.iss ?? issuer)
+        .setAudience(options?.aud ?? audience)
+
+      if (options?.exp !== undefined) {
+        jwt.setExpirationTime(options.exp)
+      } else {
+        jwt.setExpirationTime('1h')
+      }
+
+      return jwt.sign(rsaPrivateKey)
+    }
+
+    // Helper to create EC-signed JWT
+    async function createEcJWT(
+      payload: Record<string, unknown>,
+      options?: { exp?: number; iss?: string; aud?: string }
+    ): Promise<string> {
+      const jwt = new SignJWT(payload)
+        .setProtectedHeader({ alg: 'ES256' })
+        .setIssuedAt()
+        .setIssuer(options?.iss ?? issuer)
+        .setAudience(options?.aud ?? audience)
+
+      if (options?.exp !== undefined) {
+        jwt.setExpirationTime(options.exp)
+      } else {
+        jwt.setExpirationTime('1h')
+      }
+
+      return jwt.sign(ecPrivateKey)
+    }
+
+    it('should accept valid RSA-signed JWT with publicKey', async () => {
+      const publicKeyApp = new Hono()
+      publicKeyApp.use('/*', authMiddleware({
+        publicKey: rsaPublicKeyPem,
+        issuer,
+        audience
+      }))
+      publicKeyApp.get('/protected', (c) => c.json({ user: c.get('user') }))
+
+      const token = await createRsaJWT({ sub: 'user-123', email: 'test@example.com', roles: ['admin'] })
+
+      const res = await publicKeyApp.request('/protected', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+
+      expect(res.status).toBe(200)
+      const json = await res.json()
+      expect(json.user.id).toBe('user-123')
+      expect(json.user.email).toBe('test@example.com')
+      expect(json.user.roles).toContain('admin')
+    })
+
+    it('should accept valid EC-signed JWT with publicKey', async () => {
+      const publicKeyApp = new Hono()
+      publicKeyApp.use('/*', authMiddleware({
+        publicKey: ecPublicKeyPem,
+        issuer,
+        audience
+      }))
+      publicKeyApp.get('/protected', (c) => c.json({ user: c.get('user') }))
+
+      const token = await createEcJWT({ sub: 'user-456', email: 'ec@example.com', roles: ['user'] })
+
+      const res = await publicKeyApp.request('/protected', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+
+      expect(res.status).toBe(200)
+      const json = await res.json()
+      expect(json.user.id).toBe('user-456')
+      expect(json.user.email).toBe('ec@example.com')
+      expect(json.user.roles).toContain('user')
+    })
+
+    it('should reject JWT signed with wrong private key', async () => {
+      const publicKeyApp = new Hono()
+      publicKeyApp.use('/*', authMiddleware({
+        publicKey: rsaPublicKeyPem,  // RSA public key
+        issuer,
+        audience
+      }))
+      publicKeyApp.get('/protected', (c) => c.json({ user: c.get('user') }))
+
+      // Generate a different RSA key pair and sign with it
+      const differentKeys = await generateKeyPair('RS256')
+      const wrongToken = await new SignJWT({ sub: 'attacker' })
+        .setProtectedHeader({ alg: 'RS256' })
+        .setIssuedAt()
+        .setIssuer(issuer)
+        .setAudience(audience)
+        .setExpirationTime('1h')
+        .sign(differentKeys.privateKey)
+
+      const res = await publicKeyApp.request('/protected', {
+        headers: { Authorization: `Bearer ${wrongToken}` }
+      })
+
+      expect(res.status).toBe(401)
+    })
+
+    it('should reject HMAC-signed JWT when publicKey is configured', async () => {
+      const publicKeyApp = new Hono()
+      publicKeyApp.use('/*', authMiddleware({
+        publicKey: rsaPublicKeyPem,
+        issuer,
+        audience
+      }))
+      publicKeyApp.get('/protected', (c) => c.json({ user: c.get('user') }))
+
+      // Create HMAC-signed JWT (using the original createJWT helper)
+      const hmacToken = await createJWT({ sub: 'user-123' })
+
+      const res = await publicKeyApp.request('/protected', {
+        headers: { Authorization: `Bearer ${hmacToken}` }
+      })
+
+      expect(res.status).toBe(401)
+    })
+
+    it('should reject expired RSA-signed JWT', async () => {
+      const publicKeyApp = new Hono()
+      publicKeyApp.use('/*', authMiddleware({
+        publicKey: rsaPublicKeyPem,
+        issuer,
+        audience
+      }))
+      publicKeyApp.get('/protected', (c) => c.json({ user: c.get('user') }))
+
+      const token = await createRsaJWT(
+        { sub: 'user-123' },
+        { exp: Math.floor(Date.now() / 1000) - 60 } // Expired 1 minute ago
+      )
+
+      const res = await publicKeyApp.request('/protected', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+
+      expect(res.status).toBe(401)
+    })
+
+    it('should cache the imported public key for subsequent requests', async () => {
+      const publicKeyApp = new Hono()
+      publicKeyApp.use('/*', authMiddleware({
+        publicKey: rsaPublicKeyPem,
+        issuer,
+        audience
+      }))
+      publicKeyApp.get('/protected', (c) => c.json({ user: c.get('user') }))
+
+      const token = await createRsaJWT({ sub: 'user-123' })
+
+      // Make multiple requests to ensure caching works
+      const res1 = await publicKeyApp.request('/protected', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const res2 = await publicKeyApp.request('/protected', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const res3 = await publicKeyApp.request('/protected', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+
+      expect(res1.status).toBe(200)
+      expect(res2.status).toBe(200)
+      expect(res3.status).toBe(200)
+    })
+
+    it('should prefer publicKey over secret when both are provided', async () => {
+      // When both are provided, publicKey should take precedence
+      const publicKeyApp = new Hono()
+      publicKeyApp.use('/*', authMiddleware({
+        publicKey: rsaPublicKeyPem,
+        secret: 'test-secret-key-minimum-256-bits-long-for-hs256',
+        issuer,
+        audience
+      }))
+      publicKeyApp.get('/protected', (c) => c.json({ user: c.get('user') }))
+
+      // RSA-signed token should work
+      const rsaToken = await createRsaJWT({ sub: 'user-123' })
+      const res1 = await publicKeyApp.request('/protected', {
+        headers: { Authorization: `Bearer ${rsaToken}` }
+      })
+      expect(res1.status).toBe(200)
+
+      // HMAC-signed token should NOT work (because publicKey is used)
+      const hmacToken = await createJWT({ sub: 'user-123' })
+      const res2 = await publicKeyApp.request('/protected', {
+        headers: { Authorization: `Bearer ${hmacToken}` }
+      })
+      expect(res2.status).toBe(401)
     })
   })
 

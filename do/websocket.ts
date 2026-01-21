@@ -11,7 +11,7 @@
  * - Reconnection handling with connection IDs
  */
 
-import { createLogger } from '../utils/logger'
+import { createLogger } from '@dotdo/utils'
 
 const logger = createLogger('[WebSocketManager]')
 
@@ -368,7 +368,10 @@ export class WebSocketManager {
     if (!this.handlers.has(type)) {
       this.handlers.set(type, new Set())
     }
-    this.handlers.get(type)!.add(handler)
+    const handlers = this.handlers.get(type)
+    if (handlers) {
+      handlers.add(handler)
+    }
   }
 
   /**

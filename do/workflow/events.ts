@@ -19,8 +19,8 @@
  */
 
 import { createNestedProxy } from '../utils/proxy'
-import { isRetryableError, ValidationError } from '../../rpc/errors'
-import { createLogger } from '../../utils/logger'
+import { isRetryableError, ValidationError } from '@dotdo/rpc'
+import { createLogger } from '@dotdo/utils'
 
 const logger = createLogger('[EventHandlers]')
 

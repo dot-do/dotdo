@@ -19,11 +19,13 @@ export interface Migration {
 
 /**
  * State of a migration that has been applied
+ * Note: SQL column is 'applied_at', TypeScript uses camelCase 'appliedAt'
  */
 export interface MigrationState {
   version: number
   name: string
-  applied_at: number
+  /** Timestamp when the migration was applied (Unix epoch ms) */
+  appliedAt: number
 }
 
 /**
@@ -114,7 +116,12 @@ export class MigrationRunner {
       .bind()
       .all()
 
-    return result.results as MigrationState[]
+    // Transform SQL column names (snake_case) to TypeScript property names (camelCase)
+    return result.results.map((row) => ({
+      version: row.version as number,
+      name: row.name as string,
+      appliedAt: row.applied_at as number,
+    }))
   }
 
   /**
@@ -441,6 +448,90 @@ export const coreMigrations: Migration[] = [
       DROP INDEX IF EXISTS idx_retry_queue_next_retry;
       DROP INDEX IF EXISTS idx_retry_queue_status;
       DROP TABLE IF EXISTS retry_queue;
+    `,
+  }),
+  // Dead letter queue persistence (do-6dc7.6)
+  createMigration({
+    version: 7,
+    name: 'create_dead_letter_queue_table',
+    up: `
+      CREATE TABLE IF NOT EXISTS dead_letter_queue (
+        id TEXT PRIMARY KEY,
+        event_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        event_payload TEXT NOT NULL,
+        event_timestamp INTEGER NOT NULL,
+        event_source TEXT,
+        event_correlation_id TEXT,
+        attempts INTEGER NOT NULL,
+        last_error TEXT NOT NULL,
+        handler_index INTEGER,
+        timestamp INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_dlq_event_type ON dead_letter_queue(event_type);
+      CREATE INDEX IF NOT EXISTS idx_dlq_timestamp ON dead_letter_queue(timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_dlq_event_id ON dead_letter_queue(event_id);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_dlq_event_id;
+      DROP INDEX IF EXISTS idx_dlq_timestamp;
+      DROP INDEX IF EXISTS idx_dlq_event_type;
+      DROP TABLE IF EXISTS dead_letter_queue;
+    `,
+  }),
+  // Validation failures persistence (do-6dc7.6)
+  createMigration({
+    version: 8,
+    name: 'create_validation_failures_table',
+    up: `
+      CREATE TABLE IF NOT EXISTS validation_failures (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        error TEXT NOT NULL,
+        details TEXT,
+        timestamp INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_vf_type ON validation_failures(type);
+      CREATE INDEX IF NOT EXISTS idx_vf_timestamp ON validation_failures(timestamp DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_vf_timestamp;
+      DROP INDEX IF EXISTS idx_vf_type;
+      DROP TABLE IF EXISTS validation_failures;
+    `,
+  }),
+  // Event retry status persistence (do-6dc7.6)
+  createMigration({
+    version: 9,
+    name: 'create_event_retry_status_table',
+    up: `
+      CREATE TABLE IF NOT EXISTS event_retry_status (
+        event_id TEXT PRIMARY KEY,
+        attempts INTEGER NOT NULL,
+        succeeded INTEGER NOT NULL,
+        last_attempt INTEGER NOT NULL,
+        errors TEXT
+      );
+    `,
+    down: `
+      DROP TABLE IF EXISTS event_retry_status;
+    `,
+  }),
+  // Retry metrics persistence (do-6dc7.6)
+  createMigration({
+    version: 10,
+    name: 'create_retry_metrics_table',
+    up: `
+      CREATE TABLE IF NOT EXISTS retry_metrics (
+        event_type TEXT PRIMARY KEY,
+        total_events INTEGER NOT NULL DEFAULT 0,
+        total_retries INTEGER NOT NULL DEFAULT 0,
+        successes INTEGER NOT NULL DEFAULT 0
+      );
+    `,
+    down: `
+      DROP TABLE IF EXISTS retry_metrics;
     `,
   }),
 ]

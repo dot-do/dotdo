@@ -10,23 +10,130 @@
  * @module do/workflow/context
  */
 
-import { createEventsStore, type EventsStore, type Event } from '../../db'
+import { createEventsStore, type EventsStore, type Event, type JsonValue } from '@dotdo/db'
 import { createEveryProxy, type ScheduleRegistration } from './schedule'
 import { createOnProxy, matchHandlers, invokeHandlers, type OnProxy, type EventHandler, type RetryOptions } from './events'
 import { createDORPCProxy, type DOStubProxy } from './rpc'
-import { RPCError, TimeoutError, InternalError, ValidationError } from '../../rpc/errors'
+import { RPCError, TimeoutError, InternalError, ValidationError } from '@dotdo/rpc'
 import {
   type FireAndForgetErrorStore,
   createInMemoryErrorStore,
   extractErrorInfo,
 } from '../fire-and-forget-errors'
-import { IntegrationRegistry, type Integration, type IntegrationConfig } from '../../integrations'
-import { createLogger } from '../../utils/logger'
+import { IntegrationRegistry, type Integration, type IntegrationConfig } from '@dotdo/integrations'
+import { createLogger } from '@dotdo/utils'
+import {
+  runWithWorkflowContextSync,
+  getCurrentWorkflowContext,
+  getCurrentRequestContext,
+  getContextMetadata,
+  setContextMetadata,
+  getRequestId,
+  hasWorkflowContext,
+  initializeAsyncContext,
+  type RequestScopedContext,
+} from './async-context'
 
 const logger = createLogger('[WorkflowContext]')
 
+// =============================================================================
+// PRIMITIVE CAPABILITY INTERFACES (do-5ljl)
+// =============================================================================
+
 /**
- * WorkflowContext interface defining the $ API
+ * FsCapability interface for $.fs operations.
+ * Matches the FsModule API from gitx.do.
+ */
+export interface FsCapability {
+  readonly name: 'fs'
+  initialize?(): Promise<void>
+  dispose?(): Promise<void>
+  readFile(path: string, options?: { encoding?: string }): Promise<string | Uint8Array>
+  writeFile(path: string, data: string | Uint8Array): Promise<void>
+  exists(path: string): Promise<boolean>
+  mkdir(path: string, options?: { recursive?: boolean }): Promise<void>
+  readdir(path: string): Promise<string[]>
+  stat(path: string): Promise<{
+    isFile(): boolean
+    isDirectory(): boolean
+    isSymbolicLink(): boolean
+    size: number
+    mode: number
+    mtime: Date
+    atime: Date
+    ctime: Date
+    birthtime: Date
+  }>
+  unlink(path: string): Promise<void>
+  rmdir(path: string, options?: { recursive?: boolean }): Promise<void>
+  rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void>
+}
+
+/**
+ * GitCapability interface for $.git operations.
+ * Matches the GitModule API from gitx.do.
+ */
+export interface GitCapability {
+  readonly name: 'git'
+  readonly binding: {
+    repo: string
+    branch: string
+    path?: string
+    commit?: string
+    lastSync?: Date
+  }
+  initialize?(): Promise<void>
+  dispose?(): Promise<void>
+  sync(): Promise<{ success: boolean; objectsFetched: number; filesWritten: number; commit?: string; error?: string }>
+  push(): Promise<{ success: boolean; objectsPushed: number; commit?: string; error?: string }>
+  status(): Promise<{ branch: string; head?: string; staged: string[]; unstaged: string[]; clean: boolean }>
+  add(files: string | string[]): Promise<void>
+  commit(message: string): Promise<string | { hash: string }>
+  diff(ref?: string): Promise<string>
+  log(options?: { limit?: number }): Promise<Array<{ hash: string; message: string }>>
+  pull(remote?: string, branch?: string): Promise<void>
+}
+
+/**
+ * BashCapability interface for $.bash operations.
+ * Matches the BashModule API from bashx.do.
+ */
+export interface BashCapability {
+  readonly name: 'bash'
+  initialize?(): Promise<void>
+  dispose?(): Promise<void>
+  exec(command: string, args?: string[], options?: {
+    timeout?: number
+    cwd?: string
+    env?: Record<string, string>
+    confirm?: boolean
+    dryRun?: boolean
+  }): Promise<{
+    command: string
+    stdout: string
+    stderr: string
+    exitCode: number
+    blocked?: boolean
+    blockReason?: string
+  }>
+  run(script: string, options?: { timeout?: number; cwd?: string }): Promise<{
+    command: string
+    stdout: string
+    stderr: string
+    exitCode: number
+  }>
+  parse(input: string): unknown
+  analyze(input: string): {
+    classification: { type: string; impact: string; reversible: boolean; reason?: string }
+    intent: { commands: string[]; reads: string[]; writes: string[]; deletes: string[]; network: boolean; elevated: boolean }
+  }
+  isDangerous(input: string): { dangerous: boolean; reason?: string }
+}
+
+/**
+ * WorkflowContext interface defining the $ API.
+ * Cross-DO RPC is accessed dynamically via $.Customer(id), $.Worker(id), etc.
+ * using JavaScript Proxy. For dynamic access, cast to WorkflowContextWithDynamic.
  */
 export interface WorkflowContext {
   // Durability levels
@@ -46,9 +153,39 @@ export interface WorkflowContext {
   // Integration registry for third-party services
   integrations: IntegrationRegistry
 
-  // Cross-DO RPC (Proxy-based)
-  // Accessed dynamically via $.Customer(id), $.Worker(id), etc.
-  [doName: string]: DOStubFactory | unknown
+  // Primitives (optional, wired via CreateContextOptions) (do-5ljl)
+  /** File system operations (from fsx/gitx) */
+  fs?: FsCapability
+  /** Git operations (from gitx) */
+  git?: GitCapability
+  /** Bash/shell execution (from bashx) */
+  bash?: BashCapability
+
+  // Context propagation methods (do-nexi)
+  /**
+   * Run a function with the WorkflowContext propagated across async boundaries.
+   * This ensures context is available in all nested async operations.
+   *
+   * @param fn - The function to run with context propagation
+   * @returns The result of the function
+   */
+  run<T>(fn: () => T): T
+  /**
+   * Get the current request ID (if running within a context)
+   */
+  getRequestId(): string | undefined
+  /**
+   * Get request-scoped metadata
+   */
+  getMetadata<T = unknown>(key: string): T | undefined
+  /**
+   * Set request-scoped metadata
+   */
+  setMetadata(key: string, value: unknown): void
+  /**
+   * Check if running within a propagated context
+   */
+  hasContext(): boolean
 
   // Internal state (prefixed with _ to indicate private)
   _events: EventsStore
@@ -58,6 +195,12 @@ export interface WorkflowContext {
   _env: unknown
   _fireAndForgetErrors: FireAndForgetErrorStore
 }
+
+/**
+ * WorkflowContext with dynamic property access for DO RPC proxies.
+ * Use this type when you need dynamic access to DO bindings.
+ */
+export type WorkflowContextWithDynamic = WorkflowContext & Record<string, DOStubFactory | unknown>
 
 /**
  * Short alias for WorkflowContext
@@ -82,13 +225,29 @@ export interface DoOptions {
 export type DOStubFactory = (id: string | DurableObjectId) => DOStubProxy
 
 /**
- * EveryProxy type for the scheduling DSL
+ * EveryProxy interface for the scheduling DSL.
+ * Uses interface with index signature for recursive Proxy pattern.
+ * This is an intentional use of index signature for runtime Proxy behavior.
  */
-type EveryProxy = {
+interface EveryProxy {
   [key: string]: EveryProxy
-} & {
   (handler: () => Promise<void>): void
 }
+
+/**
+ * Result of integration initialization errors
+ */
+export interface IntegrationInitError {
+  /** Integration name that failed */
+  integrationName: string
+  /** The error that occurred */
+  error: Error
+}
+
+/**
+ * Callback for integration initialization errors
+ */
+export type IntegrationErrorCallback = (errors: IntegrationInitError[]) => void
 
 /**
  * Options for creating a WorkflowContext
@@ -100,6 +259,14 @@ export interface CreateContextOptions {
   integrationRegistry?: IntegrationRegistry
   /** Initial integration configurations to auto-initialize */
   integrationConfigs?: Record<string, IntegrationConfig>
+  /** Callback invoked when integration initialization fails */
+  onIntegrationError?: IntegrationErrorCallback
+  /** File system capability instance (from fsx/gitx) for $.fs (do-5ljl) */
+  fs?: FsCapability
+  /** Git capability instance (from gitx) for $.git (do-5ljl) */
+  git?: GitCapability
+  /** Bash capability instance (from bashx) for $.bash (do-5ljl) */
+  bash?: BashCapability
 }
 
 /**
@@ -148,15 +315,82 @@ export function createContext(
   const fireAndForgetErrors = options?.errorStore ?? createInMemoryErrorStore()
   const integrations = options?.integrationRegistry ?? new IntegrationRegistry()
 
+  // Initialize async context system (do-nexi)
+  // This is non-blocking - the async context will be available once initialized
+  initializeAsyncContext().catch((err) => {
+    logger.error('Failed to initialize async context:', err)
+  })
+
   // Initialize integrations if configs provided
   if (options?.integrationConfigs) {
-    integrations.initAll(options.integrationConfigs).catch((err) => {
-      logger.error('Failed to initialize integrations:', err)
+    integrations.initAll(options.integrationConfigs).then((results) => {
+      // Collect all initialization errors
+      const errors: IntegrationInitError[] = []
+
+      for (const [name, error] of results) {
+        if (error !== null) {
+          // Log error with integration context
+          logger.error(`Failed to initialize integration "${name}":`, error.message, {
+            integrationName: name,
+            errorType: error.name,
+            stack: error.stack,
+          })
+
+          // Track in fire-and-forget error store
+          fireAndForgetErrors.track({
+            operation: 'integration.init',
+            message: error.message,
+            stack: error.stack,
+            errorType: error.name,
+            retriable: true,
+            context: {
+              integrationName: name,
+            },
+          })
+
+          errors.push({ integrationName: name, error })
+        }
+      }
+
+      // Invoke error callback if provided and there were errors
+      if (errors.length > 0 && options?.onIntegrationError) {
+        try {
+          options.onIntegrationError(errors)
+        } catch (callbackErr) {
+          logger.error('Error in onIntegrationError callback:', callbackErr)
+        }
+      }
+    }).catch((err) => {
+      // Handle unexpected errors from initAll itself (should be rare)
+      logger.error('Unexpected error during integrations.initAll:', err)
+      fireAndForgetErrors.track({
+        operation: 'integration.initAll',
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        errorType: err instanceof Error ? err.name : 'UnknownError',
+        retriable: false,
+      })
     })
   }
 
+  /**
+   * Result of processing an event through handlers.
+   * Used to surface failures instead of silently continuing.
+   */
+  interface ProcessEventResult {
+    /** Whether all handlers succeeded */
+    success: boolean
+    /** Number of handlers that succeeded */
+    succeededCount: number
+    /** Number of handlers that failed */
+    failedCount: number
+    /** Errors from failed handlers (for surfacing to callers) */
+    errors: Array<{ handlerIndex: number; error: Error; attempts: number }>
+  }
+
   // Helper function to process an event (invoke handlers with retry logic)
-  async function processEvent(emitted: Event, eventType: string, payload: unknown): Promise<void> {
+  // Returns result with failure information instead of silently continuing (do-snrw)
+  async function processEvent(emitted: Event, eventType: string, payload: unknown): Promise<ProcessEventResult> {
     // Get durability config for this event type (supports per-type configuration)
     const config = events.getDurabilityConfig(eventType)
     const retryOptions: RetryOptions = {
@@ -168,10 +402,19 @@ export function createContext(
     // Use invokeHandlers which includes retry logic
     const result = await invokeHandlers(eventType, emitted, handlers, retryOptions)
 
+    // Collect errors for surfacing to caller (do-snrw: surface errors instead of silently continuing)
+    const collectedErrors: Array<{ handlerIndex: number; error: Error; attempts: number }> = []
+
     // Handle failed handlers - add to DLQ, track validation failures, and track in error store
-    for (let i = 0; i < result.failed.length; i++) {
-      const failure = result.failed[i]
+    for (const [i, failure] of result.failed.entries()) {
       const errorInfo = extractErrorInfo(failure.error)
+
+      // Collect error for return value (do-snrw)
+      collectedErrors.push({
+        handlerIndex: i,
+        error: failure.error ?? new Error('Unknown error'),
+        attempts: failure.attempts
+      })
 
       // Track in fire-and-forget error store
       fireAndForgetErrors.track({
@@ -189,12 +432,21 @@ export function createContext(
       })
 
       if (failure.error instanceof ValidationError) {
-        events.addValidationFailure({
+        // Build validation failure, only including details if defined (exactOptionalPropertyTypes)
+        const validationFailure: {
+          type: string;
+          payload: import('@dotdo/db').JsonValue;
+          error: string;
+          details?: Record<string, import('@dotdo/db').JsonValue>;
+        } = {
           type: eventType,
-          payload: payload,
-          error: `ValidationError: ${failure.error.message}`,
-          details: failure.error.details
-        })
+          payload: payload as import('@dotdo/db').JsonValue,
+          error: `ValidationError: ${failure.error.message}`
+        }
+        if (failure.error.details !== undefined) {
+          validationFailure.details = failure.error.details as Record<string, import('@dotdo/db').JsonValue>
+        }
+        events.addValidationFailure(validationFailure)
       } else {
         events.addToDeadLetterQueue({
           event: emitted,
@@ -253,6 +505,14 @@ export function createContext(
         }
       }
     }
+
+    // Return result with failure information - callers can decide how to handle (do-snrw)
+    return {
+      success: result.failed.length === 0,
+      succeededCount: result.succeeded.length,
+      failedCount: result.failed.length,
+      errors: collectedErrors
+    }
   }
 
   // Subscribe to events from the store to handle replayed events only
@@ -263,10 +523,23 @@ export function createContext(
       return
     }
 
-    // Process replayed events with retry logic
-    processEvent(event, event.type, event.payload).catch((err) => {
-      logger.error(`Error processing replayed event "${event.type}":`, err)
-    })
+    // Process replayed events with retry logic (do-snrw: surface failures)
+    processEvent(event, event.type, event.payload)
+      .then((result) => {
+        if (!result.success) {
+          // Log each failed handler with its error (do-snrw: don't silently continue)
+          for (const failure of result.errors) {
+            logger.error(
+              `Handler ${failure.handlerIndex} for replayed event "${event.type}" failed after ${failure.attempts} attempt(s):`,
+              failure.error.message,
+              { eventType: event.type, handlerIndex: failure.handlerIndex, attempts: failure.attempts }
+            )
+          }
+        }
+      })
+      .catch((err) => {
+        logger.error(`Error processing replayed event "${event.type}":`, err)
+      })
   })
 
   // Create the base context object
@@ -275,7 +548,7 @@ export function createContext(
     send(event: { type: string; payload?: unknown }) {
       events.emit({
         type: event.type,
-        payload: event.payload,
+        payload: event.payload as JsonValue,
         source: 'workflow'
       }).then(async (emitted) => {
         // Process handlers with retry logic
@@ -340,6 +613,52 @@ export function createContext(
     // Integration registry for third-party services
     integrations,
 
+    // Primitives - wired from options (do-5ljl)
+    fs: options?.fs,
+    git: options?.git,
+    bash: options?.bash,
+
+    // Context propagation methods (do-nexi)
+    // These methods provide access to async context propagation
+
+    /**
+     * Run a function with the WorkflowContext propagated across async boundaries.
+     * This ensures context is available in all nested async operations.
+     */
+    run<T>(fn: () => T): T {
+      // The 'this' here refers to the proxy-wrapped context, not baseContext
+      // We use a closure to capture the correct reference
+      return runWithWorkflowContextSync(baseContext as unknown as WorkflowContext, fn)
+    },
+
+    /**
+     * Get the current request ID (if running within a context)
+     */
+    getRequestId(): string | undefined {
+      return getRequestId()
+    },
+
+    /**
+     * Get request-scoped metadata
+     */
+    getMetadata<T = unknown>(key: string): T | undefined {
+      return getContextMetadata<T>(key)
+    },
+
+    /**
+     * Set request-scoped metadata
+     */
+    setMetadata(key: string, value: unknown): void {
+      setContextMetadata(key, value)
+    },
+
+    /**
+     * Check if running within a propagated context
+     */
+    hasContext(): boolean {
+      return hasWorkflowContext()
+    },
+
     // Internal state
     _events: events,
     _handlers: handlers,
@@ -350,7 +669,8 @@ export function createContext(
   }
 
   // Wrap context in Proxy to support cross-DO RPC: $.Customer(id)
-  return createDORPCProxy(baseContext, { env, stubCache }) as WorkflowContext
+  // Uses _env and _stubCache from baseContext directly - no duplicate reference needed
+  return createDORPCProxy(baseContext) as WorkflowContext
 }
 
 // Re-export types for convenience
