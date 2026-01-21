@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Hono } from 'hono'
-import { createTestProvider, createTestSessionStore } from './test-utils'
+import { createTestProvider, createTestSessionStore, createMinimalProvider } from './test-utils'
 import type { TokenResponse } from '../src/core/types'
 
 describe('@dotdo/oauth middleware', () => {
@@ -539,9 +539,8 @@ describe('@dotdo/oauth middleware', () => {
     it('returns error when provider does not support refresh', async () => {
       const { createTokenEndpoint } = await import('../src/middleware/token')
 
-      const provider = createTestProvider()
-      // Remove refreshToken method to simulate unsupported
-      delete (provider as Record<string, unknown>).refreshToken
+      // Create a provider without the refreshToken method
+      const provider = createMinimalProvider({ noRefreshToken: true })
 
       const store = createTestSessionStore()
       await store.set('session-123', {
