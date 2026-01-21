@@ -14,9 +14,6 @@ import { Hono } from 'hono'
 import type { DurableObjectState } from '@cloudflare/workers-types'
 import type {
   BusinessConfig,
-  Product,
-  Service,
-  ServicePricing,
   Experiment,
   Variant,
   FeatureFlag,
@@ -24,7 +21,6 @@ import type {
   KeyResult,
   OKRPeriod,
   BusinessMetrics,
-  DateRange
 } from './types'
 import type { FinancialClient, SaaSMetrics } from '@dotdo/business-finance'
 import { createStripeClient } from '@dotdo/business-finance'
@@ -347,22 +343,6 @@ export class Business extends DO {
   // Alias for convenience
   get $(): MetricRef {
     return this.metrics
-  }
-
-  // ===========================================================================
-  // Products
-  // ===========================================================================
-
-  get products(): ProductsAPI {
-    return new ProductsAPI(this)
-  }
-
-  // ===========================================================================
-  // Services
-  // ===========================================================================
-
-  get services(): ServicesAPI {
-    return new ServicesAPI(this)
   }
 
   // ===========================================================================
@@ -1205,235 +1185,6 @@ export function parseWhereClause(clause: string): Record<string, unknown> {
   }
 
   return conditions
-}
-
-// =============================================================================
-// Stub APIs (to be implemented)
-// =============================================================================
-
-class ProductsAPI {
-  constructor(private business: Business) {}
-
-  /**
-   * Create a new product
-   */
-  async create(data: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>): Promise<Product> {
-    const now = new Date()
-    // Extract metadata and spread rest to handle type compatibility
-    const { metadata, ...rest } = data
-    const thing = await this.business.things.create({
-      $type: 'Product',
-      ...rest,
-      // Cast metadata to JsonValue type for storage compatibility
-      ...(metadata && { metadata: metadata as Record<string, string | number | boolean | null> }),
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-    })
-
-    return this.thingToProduct(thing)
-  }
-
-  /**
-   * Get a product by ID
-   */
-  async get(id: string): Promise<Product | null> {
-    const thing = await this.business.things.get(id)
-    if (!thing || thing.$type !== 'Product') {
-      return null
-    }
-    return this.thingToProduct(thing)
-  }
-
-  /**
-   * List all products
-   */
-  async list(): Promise<Product[]> {
-    const things = await this.business.things.list({ type: 'Product' })
-    return things.map(t => this.thingToProduct(t))
-  }
-
-  /**
-   * Update a product
-   */
-  async update(id: string, data: Partial<Product>): Promise<Product> {
-    const existing = await this.business.things.get(id)
-    if (!existing || existing.$type !== 'Product') {
-      throw new Error(`Product not found: ${id}`)
-    }
-
-    const now = new Date()
-    // Extract metadata and id (which shouldn't be updated via things.update)
-    const { metadata, id: _id, createdAt: _createdAt, ...rest } = data
-    const updated = await this.business.things.update(id, {
-      ...rest,
-      // Cast metadata to JsonValue type for storage compatibility
-      ...(metadata && { metadata: metadata as Record<string, string | number | boolean | null> }),
-      updatedAt: now.toISOString(),
-    })
-
-    return this.thingToProduct(updated)
-  }
-
-  /**
-   * Delete a product
-   */
-  async delete(id: string): Promise<boolean> {
-    const existing = await this.business.things.get(id)
-    if (!existing || existing.$type !== 'Product') {
-      return false
-    }
-
-    await this.business.things.delete(id)
-    return true
-  }
-
-  /**
-   * Get analytics for a product
-   */
-  async analytics(id: string, period: DateRange): Promise<{
-    views: number
-    purchases: number
-    revenue: number
-    conversionRate: number
-  }> {
-    throw new Error('Not implemented - requires @dotdo/clickhouse integration')
-  }
-
-  /**
-   * Convert a Thing to a Product
-   * Uses spread to conditionally include optional properties
-   */
-  private thingToProduct(thing: Record<string, unknown>): Product {
-    const result: Product = {
-      id: thing['$id'] as string,
-      name: thing['name'] as string,
-      active: thing['active'] as boolean,
-      createdAt: new Date(thing['createdAt'] as string),
-      updatedAt: new Date(thing['updatedAt'] as string),
-    }
-
-    // Conditionally add optional properties only if they exist
-    if (thing['description'] !== undefined) {
-      result.description = thing['description'] as string
-    }
-    if (thing['price'] !== undefined) {
-      result.price = thing['price'] as number
-    }
-    if (thing['currency'] !== undefined) {
-      result.currency = thing['currency'] as string
-    }
-    if (thing['metadata'] !== undefined) {
-      result.metadata = thing['metadata'] as Record<string, unknown>
-    }
-
-    return result
-  }
-}
-
-class ServicesAPI {
-  constructor(private business: Business) {}
-
-  /**
-   * Create a new service
-   */
-  async create(data: Omit<Service, 'id' | 'createdAt' | 'updatedAt'>): Promise<Service> {
-    const now = new Date()
-    // Extract metadata and pricing to handle type compatibility
-    const { metadata, pricing, ...rest } = data
-    const thing = await this.business.things.create({
-      $type: 'Service',
-      ...rest,
-      // Cast pricing and metadata to JsonValue type for storage compatibility
-      ...(pricing && { pricing: pricing as unknown as Record<string, string | number | boolean | null> }),
-      ...(metadata && { metadata: metadata as Record<string, string | number | boolean | null> }),
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-    })
-
-    return this.thingToService(thing)
-  }
-
-  /**
-   * Get a service by ID
-   */
-  async get(id: string): Promise<Service | null> {
-    const thing = await this.business.things.get(id)
-    if (!thing || thing.$type !== 'Service') {
-      return null
-    }
-    return this.thingToService(thing)
-  }
-
-  /**
-   * List all services
-   */
-  async list(): Promise<Service[]> {
-    const things = await this.business.things.list({ type: 'Service' })
-    return things.map(t => this.thingToService(t))
-  }
-
-  /**
-   * Update a service
-   */
-  async update(id: string, data: Partial<Service>): Promise<Service> {
-    const existing = await this.business.things.get(id)
-    if (!existing || existing.$type !== 'Service') {
-      throw new Error(`Service not found: ${id}`)
-    }
-
-    const now = new Date()
-    // Extract metadata, pricing, and id (which shouldn't be updated via things.update)
-    const { metadata, pricing, id: _id, createdAt: _createdAt, ...rest } = data
-    const updated = await this.business.things.update(id, {
-      ...rest,
-      // Cast pricing and metadata to JsonValue type for storage compatibility
-      ...(pricing && { pricing: pricing as unknown as Record<string, string | number | boolean | null> }),
-      ...(metadata && { metadata: metadata as Record<string, string | number | boolean | null> }),
-      updatedAt: now.toISOString(),
-    })
-
-    return this.thingToService(updated)
-  }
-
-  /**
-   * Delete a service
-   */
-  async delete(id: string): Promise<boolean> {
-    const existing = await this.business.things.get(id)
-    if (!existing || existing.$type !== 'Service') {
-      return false
-    }
-
-    await this.business.things.delete(id)
-    return true
-  }
-
-  /**
-   * Convert a Thing to a Service
-   * Uses spread to conditionally include optional properties
-   */
-  private thingToService(thing: Record<string, unknown>): Service {
-    const result: Service = {
-      id: thing['$id'] as string,
-      name: thing['name'] as string,
-      active: thing['active'] as boolean,
-      createdAt: new Date(thing['createdAt'] as string),
-      updatedAt: new Date(thing['updatedAt'] as string),
-    }
-
-    // Conditionally add optional properties only if they exist
-    if (thing['description'] !== undefined) {
-      result.description = thing['description'] as string
-    }
-    if (thing['pricing'] !== undefined) {
-      result.pricing = thing['pricing'] as ServicePricing
-    }
-    if (thing['metadata'] !== undefined) {
-      result.metadata = thing['metadata'] as Record<string, unknown>
-    }
-
-    return result
-  }
 }
 
 // =============================================================================
