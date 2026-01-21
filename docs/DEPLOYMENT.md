@@ -1382,6 +1382,8 @@ timeout 60 npx wrangler tail --format json | grep -q "deployment:ready" && echo 
 
 ### 6.4 Health Checks
 
+> **Note**: For comprehensive health check documentation including Kubernetes probes, container configurations, and advanced monitoring, see [HEALTH_CHECKS.md](./HEALTH_CHECKS.md).
+
 Implement health check endpoints:
 
 ```typescript
@@ -2053,6 +2055,8 @@ Use this checklist before deploying to production.
 - [ ] Log retention policy defined
 
 #### Health Checks
+
+See [HEALTH_CHECKS.md](./HEALTH_CHECKS.md) for detailed implementation guides.
 
 - [ ] `/health` endpoint implemented
 - [ ] `/livez` endpoint for liveness probes
