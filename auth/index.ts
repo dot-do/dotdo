@@ -23,6 +23,9 @@ export * from './guards'
 // Token - JWT token validation and utilities
 export * from './token'
 
+// JWT - Lightweight JWT verification (jose only)
+export * from './jwt'
+
 // JWKS - JSON Web Key Set support
 export * from './jwks'
 

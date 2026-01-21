@@ -29,6 +29,7 @@ export default defineConfig({
       'tests/sqlite-events.test.ts',
       'tests/sqlite-relationships.test.ts',
       'tests/migrations.test.ts',
+      'tests/migration-rollback.test.ts',
       'tests/transactions.test.ts',
       'tests/bulk-atomicity.test.ts',
     ],
