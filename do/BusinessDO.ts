@@ -40,6 +40,38 @@
 import { DO, type DOEnv, type DOOptions } from './DO'
 
 // =============================================================================
+// Dynamic Import Module Types
+// =============================================================================
+
+/**
+ * Type declaration for the dynamically imported clickhouse client module.
+ * This enables proper typing for dynamic imports without bundling the module.
+ */
+interface ClickHouseClientModule {
+  createClickHouseClient(
+    storage: DurableObjectStorage,
+    config?: {
+      profile?: 'minimal' | 'standard' | 'full'
+      namespace?: string
+    }
+  ): Promise<AnalyticsClient>
+}
+
+/**
+ * Type declaration for the dynamically imported finance client module.
+ * This enables proper typing for dynamic imports without bundling the module.
+ */
+interface FinanceClientModule {
+  createStripeClient(config: {
+    stripeApiKey: string
+    webhookSecret?: string
+    defaultCurrency?: string
+    namespace?: string
+    storage: DurableObjectStorage
+  }): FinancialClient
+}
+
+// =============================================================================
 // Analytics & Finance Types (lazy imports for tree-shaking)
 // =============================================================================
 
@@ -521,16 +553,15 @@ export class BusinessDO extends DO {
 
     if (!this._analytics) {
       // Dynamic import to avoid bundling when not used
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const clickhouse = await import('../clickhouse/src/client') as any
+      const clickhouse = await import('../clickhouse/src/client') as unknown as ClickHouseClientModule
       const client = await clickhouse.createClickHouseClient(this.state.storage, {
         profile: this.config.analytics?.profile ?? 'standard',
         namespace: this.config.namespace ?? undefined
       })
-      this._analytics = client as AnalyticsClient
+      this._analytics = client
     }
 
-    return this._analytics as AnalyticsClient
+    return this._analytics
   }
 
   /**
@@ -603,8 +634,7 @@ export class BusinessDO extends DO {
 
     if (!this._finance) {
       // Dynamic import to avoid bundling when not used
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const finance = await import('../finance/src/client') as any
+      const finance = await import('../finance/src/client') as unknown as FinanceClientModule
       const financeConfig = {
         stripeApiKey: this.config.finance.stripeApiKey,
         webhookSecret: this.config.finance.webhookSecret,
@@ -612,11 +642,11 @@ export class BusinessDO extends DO {
         namespace: this.config.namespace ?? undefined,
         storage: this.state.storage
       }
-      const client = await finance.createStripeClient(financeConfig)
-      this._finance = client as FinancialClient
+      const client = finance.createStripeClient(financeConfig)
+      this._finance = client
     }
 
-    return this._finance as FinancialClient
+    return this._finance
   }
 
   /**
