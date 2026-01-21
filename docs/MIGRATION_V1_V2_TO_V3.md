@@ -362,7 +362,8 @@ class MyDO extends DO {
 Built-in audit logging for compliance and debugging:
 
 ```typescript
-import { DO, type AuditContext } from '@dotdo/do'
+import { DO } from '@dotdo/do'
+import type { AuditContext } from '@dotdo/db'
 
 class MyDO extends DO {
   async handleRequest(request: Request) {

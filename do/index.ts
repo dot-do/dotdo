@@ -303,16 +303,8 @@ export {
   asBindingRegistry,
 } from './bindings'
 
-// Re-export audit types from db for convenience
-export type {
-  AuditLog,
-  AuditLogStore,
-  AuditLogQueryOptions,
-  AuditLogConfig,
-  AuditContext,
-  AuditLogLevel,
-  AuditAction
-} from '../db'
+// NOTE: AuditLog types belong to @dotdo/db, import from there directly:
+// import type { AuditLog, AuditLogStore, AuditContext, ... } from '@dotdo/db'
 
 /**
  * Workflow utilities for cross-DO RPC, scheduling, and event handling.
@@ -698,7 +690,7 @@ export {
   type RegisteredIntegration,
   type ListIntegrationsOptions,
   type IntegrationSummary,
-} from '../integrations'
+} from '@dotdo/integrations'
 
 /**
  * Stripe integration for payment processing.
@@ -720,7 +712,7 @@ export {
   type StripePaymentIntent,
   type StripeSubscription,
   type StripeMethods,
-} from '../integrations/stripe'
+} from '@dotdo/integrations/stripe'
 
 /**
  * SendGrid integration for email delivery.
@@ -748,7 +740,7 @@ export {
   type SendGridContact,
   type EmailStats,
   type SendGridMethods,
-} from '../integrations/sendgrid'
+} from '@dotdo/integrations/sendgrid'
 
 // NOTE: Extended primitives (fsx, gitx, bashx) are in v1 worktree only
 // See .worktrees/v1/do/capabilities/ for reference implementations

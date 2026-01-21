@@ -97,7 +97,7 @@ export {
   asBindingRegistry,
 } from '@dotdo/do'
 
-// Audit types (from do, which re-exports from db)
+// Audit types (directly from db - clear ownership)
 export type {
   AuditLog,
   AuditLogStore,
@@ -106,7 +106,7 @@ export type {
   AuditContext,
   AuditLogLevel,
   AuditAction,
-} from '@dotdo/do'
+} from '@dotdo/db'
 
 // Workflow utilities
 export {
