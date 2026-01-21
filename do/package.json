@@ -12,10 +12,13 @@
   },
   "dependencies": {
     "@dotdo/db": "workspace:*",
+    "@dotdo/integrations": "workspace:*",
     "@dotdo/observability": "workspace:*",
     "@dotdo/rpc": "workspace:*",
     "ai-evaluate": "workspace:../primitives/packages/ai-evaluate",
-    "hono": "^4.7.0"
+    "digital-workers": "workspace:../primitives/packages/digital-workers",
+    "hono": "^4.7.0",
+    "language-models": "workspace:../primitives/packages/language-models"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

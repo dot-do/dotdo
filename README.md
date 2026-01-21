@@ -16,11 +16,8 @@ export class MyApp extends DO {
 
     // Event-driven architecture with $ context
     this.$.on.Customer.signup(async (event) => {
-      // Full POSIX filesystem on SQLite
-      await this.$.fs.write('customers/profile.json', event.data)
-
-      // Git operations without shelling out
-      await this.$.git.commit('feat: new customer signup')
+      // Graph-based storage
+      await this.$.things.create({ $type: 'Profile', ...event.data })
 
       // Cross-DO RPC with promise pipelining
       await this.$.Email('welcome').send(event.email)
@@ -279,12 +276,14 @@ dotdo/             # Main package - re-exports everything
 
 ### Extended Primitives (Submodules)
 
-Located in `primitives/`:
-- **fsx** - Full POSIX filesystem on SQLite
-- **gitx** - Git operations with R2 storage
-- **bashx** - Shell execution without VMs
-- **npmx** - Package management for edge
-- **pyx** - Python runtime (experimental)
+Located in root submodule directories (not `primitives/` which is a git submodule for AI primitives):
+- **fsx/** - Full POSIX filesystem on SQLite
+- **gitx/** - Git operations with R2 storage
+- **bashx/** - Shell execution without VMs
+- **npmx/** - Package management for edge
+- **pyx/** - Python runtime (experimental)
+
+> **Note:** These require [manual wiring](#primitives-status) to the `$` context.
 
 ---
 
@@ -511,12 +510,16 @@ The graph model makes these natural. No foreign keys, no join tables—just Thin
 
 ### Extended Primitives
 
+> **Note:** Extended primitives (fsx, gitx, bashx, npmx) exist as separate submodules but are **not wired automatically** to the `$` context. See the [Primitives Status](#primitives-status) section for details.
+
 #### fsx: Filesystem on SQLite
 
+When wired to the `$` context:
+
 ```typescript
-await $.fs.write('data/report.json', data)
-await $.fs.read('content/index.mdx')
-await $.fs.glob('**/*.ts')
+// Requires manual wiring - see Primitives Status section
+await $.fs.writeFile('data/report.json', JSON.stringify(data))
+await $.fs.readFile('content/index.mdx', { encoding: 'utf-8' })
 await $.fs.mkdir('uploads', { recursive: true })
 ```
 
@@ -527,11 +530,14 @@ Full POSIX semantics implemented on DO SQLite:
 
 #### gitx: Git Operations
 
+When wired to the `$` context:
+
 ```typescript
-await $.git.clone('https://github.com/org/repo')
-await $.git.checkout('feature-branch')
+// Requires manual wiring - see Primitives Status section
+await $.git.sync()
+await $.git.add('src/index.ts')
 await $.git.commit('feat: add new feature')
-await $.git.push('origin', 'main')
+await $.git.push()
 ```
 
 Complete Git internals reimplemented for edge:
@@ -541,15 +547,146 @@ Complete Git internals reimplemented for edge:
 
 #### bashx: Shell Without VMs
 
+When wired to the `$` context:
+
 ```typescript
-const result = await $.bash`npm install && npm run build`
-await $.bash`ffmpeg -i input.mp4 -c:v libx264 output.mp4`
+// Requires manual wiring - see Primitives Status section
+const result = await $.bash.exec('ls', ['-la'])
+await $.bash.run('npm install && npm run build')
 ```
 
 Shell execution without spawning VMs:
 - **AST-based safety analysis** (tree-sitter parsing)
 - **Native file ops** (cat, ls, head use fsx directly)
 - **Tiered execution**: pure JS → Workers → Containers
+
+---
+
+## Primitives Status
+
+This section documents the implementation status of extended primitives (fsx, gitx, bashx, npmx).
+
+### Summary
+
+| Primitive | Package | Status | `$` Context Wiring |
+|-----------|---------|--------|-------------------|
+| **fsx** | `fsx/` submodule | Implemented | Manual |
+| **gitx** | `gitx/` submodule | Implemented | Manual |
+| **bashx** | `bashx/` submodule | Implemented | Manual |
+| **npmx** | `npmx/` submodule | Implemented | Manual |
+
+### Current Architecture
+
+The primitives are **implemented** in separate submodule directories (`fsx/`, `gitx/`, `bashx/`, `npmx/`) and are re-exported from `do/primitives/index.ts`. However, they are **not automatically wired** to the `$` context when you extend the base `DO` class.
+
+The `WorkflowContext` (`$`) supports primitives via its `CreateContextOptions`:
+
+```typescript
+// From do/workflow/types.ts
+interface CreateContextOptions {
+  fs?: FsCapability
+  git?: GitCapability
+  bash?: BashCapability
+  npm?: NpmCapability
+  // ... other options
+}
+```
+
+### How to Wire Primitives
+
+To use primitives in your DO, you need to create implementations of the capability interfaces and pass them to `createContext()`:
+
+```typescript
+import { DO, createContext, type FsCapability, type GitCapability, type BashCapability } from '@dotdo/do'
+import { FSx, MemoryBackend } from '@dotdo/do/primitives'
+
+export class MyDOWithPrimitives extends DO {
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env)
+
+    // Create primitive implementations
+    const fsCapability = createFsCapability(state)
+    const gitCapability = createGitCapability(state, env)
+    const bashCapability = createBashCapability(fsCapability)
+
+    // Override $ with primitives wired
+    this.$ = createContext(state, env, {
+      fs: fsCapability,
+      git: gitCapability,
+      bash: bashCapability,
+    })
+  }
+}
+
+// Helper to create FsCapability from FSx
+function createFsCapability(state: DurableObjectState): FsCapability {
+  const fsx = new FSx({ backend: new MemoryBackend() })
+  return {
+    name: 'fs',
+    readFile: (path, opts) => fsx.readFile(path, opts),
+    writeFile: (path, data) => fsx.writeFile(path, data),
+    exists: (path) => fsx.exists(path),
+    mkdir: (path, opts) => fsx.mkdir(path, opts),
+    readdir: (path) => fsx.readdir(path),
+    stat: (path) => fsx.stat(path),
+    unlink: (path) => fsx.unlink(path),
+    rmdir: (path) => fsx.rmdir(path),
+    rm: (path, opts) => fsx.rm(path, opts),
+  }
+}
+```
+
+### Capability Interfaces
+
+Each primitive has a defined capability interface:
+
+**FsCapability** (`$.fs`):
+- `readFile(path, options?)` - Read file contents
+- `writeFile(path, data)` - Write file
+- `exists(path)` - Check if path exists
+- `mkdir(path, options?)` - Create directory
+- `readdir(path)` - List directory contents
+- `stat(path)` - Get file/directory stats
+- `unlink(path)` - Delete file
+- `rmdir(path)` - Delete directory
+- `rm(path, options?)` - Remove file or directory
+
+**GitCapability** (`$.git`):
+- `binding` - Repository binding info (repo, branch, commit)
+- `sync()` - Sync with remote
+- `push()` - Push changes
+- `status()` - Get repository status
+- `add(files)` - Stage files
+- `commit(message)` - Create commit
+- `diff()` - Get diff output
+- `log()` - Get commit history
+- `pull()` - Pull from remote
+
+**BashCapability** (`$.bash`):
+- `exec(command, args?, options?)` - Execute command with args
+- `run(script)` - Run shell script
+- `parse(input)` - Parse shell script to AST
+- `analyze(input)` - Analyze command safety
+- `isDangerous(input)` - Check if command is dangerous
+
+**NpmCapability** (`$.npm`):
+- `install(packages?, options?)` - Install packages
+- `uninstall(packages)` - Remove packages
+- `run(script, args?)` - Run npm script
+- `list(options?)` - List installed packages
+- `search(query)` - Search npm registry
+- `info(name, version?)` - Get package info
+
+### Roadmap
+
+The current manual wiring approach is intentional to keep the base `DO` class lightweight. Future enhancements may include:
+
+1. **Automatic wiring via env bindings** - Detect and wire primitives from Cloudflare bindings
+2. **Lazy initialization** - Initialize primitives on first access
+3. **Composable mixins** - Use `WithFs(DO)`, `WithGit(DO)` mixin patterns
+4. **Pre-built DO variants** - `DOWithPrimitives` class with all primitives wired
+
+See [ADR-004](./docs/adr/ADR-004-workflow-context-modules.md) for the composable modules design.
 
 ---
 

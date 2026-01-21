@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-// Import from primitives submodule - language-models provides model resolution
+// Import from language-models package
 import {
   resolve,
   resolveWithProvider,
@@ -27,7 +27,7 @@ import {
   ALIASES,
   type ModelInfo,
   type ResolvedModel,
-} from '../../primitives/packages/language-models/src/index.js'
+} from 'language-models'
 import { createContext, type WorkflowContext } from '../workflow/context'
 
 // Mock DurableObjectState for DO context creation

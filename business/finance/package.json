@@ -2,8 +2,8 @@
   "name": "@dotdo/business-finance",
   "version": "0.0.1",
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "index.ts",
+  "types": "index.ts",
   "scripts": {
     "test": "vitest",
     "typecheck": "tsc --noEmit"

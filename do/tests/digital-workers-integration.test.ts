@@ -21,7 +21,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 
-// Import capability tiers (has no external dependencies)
+// Import capability tiers from digital-workers package
 import {
   CAPABILITY_TIERS,
   TIER_ORDER,
@@ -38,7 +38,7 @@ import {
   createCapabilityProfile,
   TierRegistry,
   type CapabilityTier,
-} from '../../primitives/packages/digital-workers/src/capability-tiers.js'
+} from 'digital-workers'
 
 // =============================================================================
 // LOCAL TYPE DEFINITIONS
