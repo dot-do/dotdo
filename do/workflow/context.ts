@@ -10,10 +10,12 @@
  * @module do/workflow/context
  */
 
-import { createEventsStore, type Event, type EventsStore, type JsonValue } from '../../db'
+import { createEventsStore, type Event, type EventsStore, type JsonValue, type ThingsStore } from '../../db'
 import { createEveryProxy } from './schedule'
 import { createOnProxy, matchHandlers, invokeHandlers, type RetryOptions } from './events'
 import { createDORPCProxy } from './rpc'
+import { type EntitySchema as LegacyEntitySchema } from './entity'
+import { parseSchema, type EntitySchema, type RawDatabaseSchema } from '../schema'
 import { RPCError, TimeoutError, InternalError, ValidationError } from '@dotdo/rpc'
 import {
   createInMemoryErrorStore,
@@ -72,6 +74,12 @@ interface ContextState {
   stubCache: Map<string, DOStubProxy>
   fireAndForgetErrors: FireAndForgetErrorStore
   integrations: IntegrationRegistry
+  /** Things store for entity operations (do-lekf.8) */
+  things?: ThingsStore
+  /** Entity schema registry - parsed from DB() calls (do-lekf.8) */
+  entitySchemas: Map<string, EntitySchema>
+  /** Legacy entity schemas for backward compatibility with entity proxy */
+  legacyEntitySchemas: Map<string, LegacyEntitySchema>
 }
 
 /**
@@ -84,6 +92,9 @@ function initializeContextState(options?: CreateContextOptions): ContextState {
   const stubCache = new Map<string, DOStubProxy>()
   const fireAndForgetErrors = options?.errorStore ?? createInMemoryErrorStore()
   const integrations = options?.integrationRegistry ?? new IntegrationRegistry()
+  const things = options?.things
+  const entitySchemas = new Map<string, EntitySchema>()
+  const legacyEntitySchemas = new Map<string, LegacyEntitySchema>()
 
   // Initialize async context system (do-nexi)
   initializeAsyncContext().catch((err) => {
@@ -97,7 +108,7 @@ function initializeContextState(options?: CreateContextOptions): ContextState {
     })
   }
 
-  return { events, handlers, schedules, stubCache, fireAndForgetErrors, integrations }
+  return { events, handlers, schedules, stubCache, fireAndForgetErrors, integrations, things, entitySchemas, legacyEntitySchemas }
 }
 
 /**
@@ -341,7 +352,7 @@ function createBaseContext(
   env: unknown,
   options?: CreateContextOptions
 ): Record<string, unknown> {
-  const { events, handlers, schedules, stubCache, fireAndForgetErrors, integrations } = state
+  const { events, handlers, schedules, stubCache, fireAndForgetErrors, integrations, things, entitySchemas, legacyEntitySchemas } = state
 
   const baseContext: Record<string, unknown> = {
     // Fire-and-forget event emission with retry support
@@ -398,6 +409,49 @@ function createBaseContext(
       return hasWorkflowContext()
     },
 
+    // Database Schema Methods (do-lekf.8)
+    /**
+     * Define entire database schema at once (ai-database style).
+     * Parses the schema using the unified parser and registers all entities.
+     */
+    DB(schemas: RawDatabaseSchema): void {
+      if (!things) {
+        throw new Error('Cannot use $.DB() without a things store. Pass { things: store } to createContext options.')
+      }
+
+      // Parse the raw schema using the unified parser
+      const parsed = parseSchema(schemas)
+
+      // Register each entity schema
+      for (const [name, schema] of parsed.entities) {
+        entitySchemas.set(name, schema)
+
+        // Convert fields Map to array of entries - handle both Map and plain object
+        // (workers runtime may serialize Maps as plain objects)
+        const fieldsEntries = schema.fields instanceof Map
+          ? Array.from(schema.fields.entries())
+          : Object.entries(schema.fields as unknown as Record<string, { type: string; required: boolean; defaultValue?: unknown }>)
+
+        // Also register in legacy schema format for backward compatibility with entity proxy
+        legacyEntitySchemas.set(name, {
+          name,
+          fields: Object.fromEntries(
+            fieldsEntries.map(([fieldName, field]) => [
+              fieldName,
+              {
+                type: field.type as 'string' | 'number' | 'boolean' | 'object' | 'array',
+                required: field.required,
+                default: field.defaultValue,
+              }
+            ])
+          ),
+          strict: false,
+        })
+      }
+
+      logger.info(`Registered ${parsed.entities.size} entity schemas: ${Array.from(parsed.entities.keys()).join(', ')}`)
+    },
+
     // Internal state
     _events: events,
     _handlers: handlers,
@@ -407,6 +461,10 @@ function createBaseContext(
     _fireAndForgetErrors: fireAndForgetErrors,
     // Circuit breaker config for cross-DO RPC (do-fcxj)
     _circuitBreakerConfig: options?.circuitBreaker,
+    // Entity state (do-lekf.8)
+    _things: things,
+    _entitySchemas: entitySchemas,
+    _legacyEntitySchemas: legacyEntitySchemas,
   }
 
   return baseContext

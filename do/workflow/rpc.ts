@@ -23,6 +23,8 @@ import {
   DEFAULT_CIRCUIT_BREAKER_CONFIG,
   NotFoundError,
 } from '@dotdo/rpc'
+import type { ThingsStore } from '../../db'
+import { createEntityAccessor, isEntityName, isReservedProperty, type EntitySchema, type EntityProxy } from './entity'
 
 /**
  * A proxy type representing a DO stub that intercepts method calls
@@ -130,6 +132,10 @@ interface BaseContextWithInternals {
   _stubCache: Map<string, DOStubProxy>
   /** Optional circuit breaker configuration for cross-DO RPC (do-fcxj) */
   _circuitBreakerConfig?: CircuitBreakerRPCConfig
+  /** Things store for entity operations (do-lekf.8) */
+  _things?: ThingsStore
+  /** Legacy entity schemas for entity accessor (do-lekf.8) */
+  _legacyEntitySchemas?: Map<string, EntitySchema>
 }
 
 /**
@@ -164,7 +170,7 @@ interface BaseContextWithInternals {
  */
 export function createDORPCProxy<T extends BaseContextWithInternals>(
   baseContext: T
-): T & Record<string, DOStubFactory> {
+): T & Record<string, DOStubFactory | EntityProxy> {
   // Extract env, stubCache, and circuitBreaker config from baseContext - single source of truth (do-1e3z)
   const config: CrossDORPCConfig = {
     env: baseContext._env,
@@ -172,7 +178,10 @@ export function createDORPCProxy<T extends BaseContextWithInternals>(
     circuitBreaker: baseContext._circuitBreakerConfig,
   }
 
-  return new Proxy(baseContext as T & Record<string, DOStubFactory>, {
+  // Cache for entity accessors (do-lekf.8)
+  const entityAccessorCache = new Map<string, EntityProxy>()
+
+  return new Proxy(baseContext as T & Record<string, DOStubFactory | EntityProxy>, {
     get(target, prop: string | symbol) {
       // Bypass symbols and internal properties
       if (typeof prop === 'symbol') {
@@ -182,6 +191,27 @@ export function createDORPCProxy<T extends BaseContextWithInternals>(
       // Return existing properties (send, try, do, on, every, etc.)
       if (prop in target) {
         return Reflect.get(target, prop)
+      }
+
+      // Skip reserved properties (do-lekf.8)
+      if (isReservedProperty(prop)) {
+        return Reflect.get(target, prop)
+      }
+
+      // For PascalCase names with a things store, return entity accessor (do-lekf.2)
+      // This enables $.Product.create(), $.Product.list(), $.Product(id).get(), etc.
+      const things = baseContext._things
+      const entitySchemas = baseContext._legacyEntitySchemas ?? new Map()
+
+      if (things && isEntityName(prop)) {
+        // Return cached entity accessor or create new one
+        if (!entityAccessorCache.has(prop)) {
+          entityAccessorCache.set(
+            prop,
+            createEntityAccessor({ things, schemas: entitySchemas }, prop)
+          )
+        }
+        return entityAccessorCache.get(prop)
       }
 
       // For unknown properties, assume it's a DO binding name

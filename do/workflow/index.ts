@@ -86,3 +86,17 @@ export {
   resetAsyncContext,
   type RequestScopedContext,
 } from './async-context'
+
+// Entity proxy (do-lekf.2)
+export {
+  createEntityAccessor,
+  isEntityName,
+  isReservedProperty,
+  type EntitySchema,
+  type FieldDefinition,
+  type EntityListOptions,
+  type EntityInstance,
+  type EntityAccessor,
+  type EntityProxy,
+  type EntityProxyConfig,
+} from './entity'

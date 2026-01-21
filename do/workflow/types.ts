@@ -7,7 +7,7 @@
  * @module do/workflow/types
  */
 
-import type { EventsStore, JsonValue } from '../../db'
+import type { EventsStore, JsonValue, ThingsStore } from '../../db'
 import type { OnProxy, EventHandler } from './events'
 import type { ScheduleRegistration } from './schedule'
 import type { DOStubProxy, CircuitBreakerRPCConfig } from './rpc'
@@ -226,6 +226,18 @@ export interface CreateContextOptions extends PrimitivesConfig {
    * ```
    */
   circuitBreaker?: CircuitBreakerRPCConfig
+  /**
+   * Things store for entity operations (do-lekf.2)
+   *
+   * When provided, enables entity proxy access via $.Entity syntax:
+   * - $.Product.define(schema)
+   * - $.Product.create(data)
+   * - $.Product.list(opts)
+   * - $.Product(id).get()
+   * - $.Product(id).update(data)
+   * - $.Product(id).delete()
+   */
+  things?: ThingsStore
 }
 
 /**
@@ -290,6 +302,12 @@ export interface WorkflowContext {
   _fireAndForgetErrors: FireAndForgetErrorStore
   /** Circuit breaker configuration for cross-DO RPC (do-fcxj) */
   _circuitBreakerConfig?: CircuitBreakerRPCConfig
+  /** Things store for entity operations (do-lekf.2) */
+  _things?: ThingsStore
+  /** Entity schema registry - parsed from DB() calls */
+  _entitySchemas: Map<string, EntitySchema>
+  /** Legacy entity schemas for entity proxy (do-lekf.2) */
+  _legacyEntitySchemas: Map<string, EntitySchema>
 }
 
 /**
