@@ -398,12 +398,69 @@ export class Business extends DO {
   }
 
   // ===========================================================================
+  // Aggregation RPC Methods
+  // ===========================================================================
+
+  /**
+   * Execute an aggregation query (exposed via RPC).
+   *
+   * @param query - The parsed query specification
+   * @returns Aggregation result with value, data, or total
+   *
+   * @example
+   * ```typescript
+   * // Via RPC
+   * const result = await rpc(stub, 'runAggregate', [{
+   *   operation: 'sum',
+   *   field: 'amount',
+   *   collection: 'Purchase',
+   *   where: { status: 'completed' }
+   * }])
+   * ```
+   */
+  async runAggregate(query: ParsedQuery): Promise<AggregateResult> {
+    // Validate query
+    if (!query.operation) {
+      throw new Error('Operation is required')
+    }
+    if (!query.collection) {
+      throw new Error('Collection is required')
+    }
+
+    return this.executeAggregation(query)
+  }
+
+  // ===========================================================================
   // Internal Methods
   // ===========================================================================
 
+  /**
+   * Execute an aggregation query against the things store.
+   * Performs in-memory aggregation from things.list() results.
+   */
   protected async executeAggregation(query: ParsedQuery): Promise<AggregateResult> {
-    // Implementation would use ClickHouse or DO SQLite
-    throw new Error('Not implemented - requires @dotdo/clickhouse integration')
+    // Fetch all items of the specified type
+    const items = await this.things.list({ type: query.collection })
+
+    // Apply filters
+    let filtered = items
+
+    // Apply where clause
+    if (query.where) {
+      filtered = filterByWhere(filtered, query.where)
+    }
+
+    // Apply time range filter
+    if (query.timeRange) {
+      filtered = filterByTimeRange(filtered, query.timeRange)
+    }
+
+    // Execute aggregation
+    if (query.groupBy) {
+      return executeGroupedAggregation(filtered, query)
+    } else {
+      return executeSingleAggregation(filtered, query)
+    }
   }
 
   protected async getMetricValue(path: string[]): Promise<number> {
@@ -1219,21 +1276,219 @@ class ServicesAPI {
   }
 }
 
+// =============================================================================
+// Experiment Helper Functions
+// =============================================================================
+
+/**
+ * Generate a deterministic hash from a string for experiments.
+ * Uses a simple djb2 hash algorithm for consistent results.
+ *
+ * @param str - The string to hash
+ * @returns A number between 0 and 1
+ */
+function hashStringForExperiment(str: string): number {
+  let hash = 5381
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) ^ str.charCodeAt(i)
+    // Ensure we stay within 32-bit integer range
+    hash = hash >>> 0
+  }
+  // Convert to 0-1 range
+  return hash / 0xFFFFFFFF
+}
+
+/**
+ * Select a variant based on a hash value and variant weights.
+ *
+ * @param variants - Array of variants with weights
+ * @param hashValue - A number between 0 and 1
+ * @returns The selected variant
+ */
+function selectVariantByWeight(variants: Variant[], hashValue: number): Variant {
+  const totalWeight = variants.reduce((sum, v) => sum + v.weight, 0)
+  const normalizedHash = hashValue * totalWeight
+
+  let cumulative = 0
+  for (const variant of variants) {
+    cumulative += variant.weight
+    if (normalizedHash <= cumulative) {
+      return variant
+    }
+  }
+
+  // Fallback to last variant (should never reach here)
+  return variants[variants.length - 1]
+}
+
 class ExperimentsAPI {
   constructor(private business: Business) {}
 
+  /**
+   * Create a new experiment.
+   *
+   * @param data - Experiment data without id, createdAt, updatedAt
+   * @returns The created experiment
+   */
   async create(data: Omit<Experiment, 'id' | 'createdAt' | 'updatedAt'>): Promise<Experiment> {
-    throw new Error('Not implemented')
+    const now = new Date()
+
+    // Build thing data for storage
+    const thingData: { $type: string } & Record<string, string | number | boolean | null> = {
+      $type: 'Experiment',
+      key: data.key,
+      name: data.name,
+      status: data.status ?? 'draft',
+      variants: JSON.stringify(data.variants),
+      targetMetric: data.targetMetric,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    }
+
+    // Add optional fields if defined
+    if (data.description !== undefined) {
+      thingData['description'] = data.description
+    }
+    if (data.startDate !== undefined) {
+      thingData['startDate'] = data.startDate.toISOString()
+    }
+    if (data.endDate !== undefined) {
+      thingData['endDate'] = data.endDate.toISOString()
+    }
+    if (data.minSampleSize !== undefined) {
+      thingData['minSampleSize'] = data.minSampleSize
+    }
+    if (data.metadata !== undefined) {
+      thingData['metadata'] = JSON.stringify(data.metadata)
+    }
+
+    // Store in things
+    const thing = await this.business.things.create(thingData as { $type: string } & Record<string, unknown>)
+
+    return this.thingToExperiment(thing)
   }
 
+  /**
+   * Get an experiment by key.
+   *
+   * @param key - The experiment key
+   * @returns The experiment or null if not found
+   */
+  async get(key: string): Promise<Experiment | null> {
+    const experiments = await this.business.things.list({ type: 'Experiment' })
+    const thing = experiments.find((e) => e['key'] === key)
+
+    if (!thing) {
+      return null
+    }
+
+    return this.thingToExperiment(thing)
+  }
+
+  /**
+   * List all experiments.
+   *
+   * @returns Array of experiments
+   */
+  async list(): Promise<Experiment[]> {
+    const things = await this.business.things.list({ type: 'Experiment' })
+    return things.map((thing) => this.thingToExperiment(thing))
+  }
+
+  /**
+   * Assign a user to a variant in an experiment.
+   * Uses deterministic hashing for consistent assignment.
+   *
+   * @param experimentKey - The experiment key
+   * @param userId - The user ID to assign
+   * @returns The assigned variant
+   */
   async assign(experimentKey: string, userId: string): Promise<Variant> {
-    throw new Error('Not implemented')
+    // Check for existing assignment
+    const existingAssignment = await this.getAssignment(experimentKey, userId)
+    if (existingAssignment) {
+      // Return the stored variant
+      const experiment = await this.get(experimentKey)
+      if (!experiment) {
+        throw new Error(`Experiment not found: ${experimentKey}`)
+      }
+      const variant = experiment.variants.find((v) => v.key === existingAssignment.variantKey)
+      if (variant) {
+        return variant
+      }
+    }
+
+    // Get the experiment
+    const experiment = await this.get(experimentKey)
+    if (!experiment) {
+      throw new Error(`Experiment not found: ${experimentKey}`)
+    }
+
+    // Generate deterministic hash from experiment key + user id
+    const hashInput = `${experimentKey}:${userId}`
+    const hashValue = hashStringForExperiment(hashInput)
+
+    // Select variant based on weights
+    const variant = selectVariantByWeight(experiment.variants, hashValue)
+
+    // Store the assignment
+    await this.storeAssignment(experimentKey, userId, variant.key)
+
+    return variant
   }
 
+  /**
+   * Get the variant assigned to a user for an experiment.
+   *
+   * @param experimentKey - The experiment key
+   * @param userId - The user ID
+   * @returns The assigned variant or null
+   */
   async getVariant(experimentKey: string, userId: string): Promise<Variant | null> {
-    throw new Error('Not implemented')
+    const assignment = await this.getAssignment(experimentKey, userId)
+    if (!assignment) {
+      return null
+    }
+
+    const experiment = await this.get(experimentKey)
+    if (!experiment) {
+      return null
+    }
+
+    return experiment.variants.find((v) => v.key === assignment.variantKey) ?? null
   }
 
+  /**
+   * Update the status of an experiment.
+   *
+   * @param key - The experiment key
+   * @param status - The new status
+   * @returns The updated experiment
+   */
+  async updateStatus(key: string, status: 'draft' | 'running' | 'paused' | 'completed'): Promise<Experiment> {
+    const experiment = await this.get(key)
+    if (!experiment) {
+      throw new Error(`Experiment not found: ${key}`)
+    }
+
+    const now = new Date()
+
+    await this.business.things.update(experiment.id, {
+      status,
+      updatedAt: now.toISOString(),
+    } as Record<string, unknown>)
+
+    // Return updated experiment
+    const updated = await this.get(key)
+    return updated!
+  }
+
+  /**
+   * Get experiment results with conversion metrics.
+   *
+   * @param experimentKey - The experiment key
+   * @returns Results with variant metrics
+   */
   async results(experimentKey: string): Promise<{
     variants: Array<{
       key: string
@@ -1245,7 +1500,84 @@ class ExperimentsAPI {
     }>
     winner?: string
   }> {
-    throw new Error('Not implemented')
+    // This requires analytics integration
+    throw new Error('Not implemented - requires @dotdo/clickhouse integration')
+  }
+
+  // ===========================================================================
+  // Private Helpers
+  // ===========================================================================
+
+  /**
+   * Get an existing assignment for a user.
+   */
+  private async getAssignment(experimentKey: string, userId: string): Promise<{ variantKey: string } | null> {
+    const assignments = await this.business.things.list({ type: 'ExperimentAssignment' })
+    const assignment = assignments.find(
+      (a) => a['experimentKey'] === experimentKey && a['userId'] === userId
+    )
+
+    if (!assignment) {
+      return null
+    }
+
+    return { variantKey: assignment['variantKey'] as string }
+  }
+
+  /**
+   * Store a new assignment.
+   */
+  private async storeAssignment(experimentKey: string, userId: string, variantKey: string): Promise<void> {
+    const now = new Date()
+
+    await this.business.things.create({
+      $type: 'ExperimentAssignment',
+      experimentKey,
+      userId,
+      variantKey,
+      assignedAt: now.toISOString(),
+    })
+  }
+
+  /**
+   * Convert a Thing to an Experiment.
+   */
+  private thingToExperiment(thing: Record<string, unknown>): Experiment {
+    const variants: Variant[] = typeof thing['variants'] === 'string'
+      ? JSON.parse(thing['variants'] as string)
+      : (thing['variants'] as Variant[]) ?? []
+
+    const experiment: Experiment = {
+      id: thing['$id'] as string,
+      key: thing['key'] as string,
+      name: thing['name'] as string,
+      status: (thing['status'] as Experiment['status']) ?? 'draft',
+      variants,
+      targetMetric: thing['targetMetric'] as string,
+      createdAt: new Date(thing['createdAt'] as string),
+      updatedAt: new Date(thing['updatedAt'] as string),
+    }
+
+    // Add optional properties if they exist
+    if (thing['description'] !== undefined) {
+      experiment.description = thing['description'] as string
+    }
+    if (thing['startDate'] !== undefined) {
+      experiment.startDate = new Date(thing['startDate'] as string)
+    }
+    if (thing['endDate'] !== undefined) {
+      experiment.endDate = new Date(thing['endDate'] as string)
+    }
+    if (thing['minSampleSize'] !== undefined) {
+      experiment.minSampleSize = thing['minSampleSize'] as number
+    }
+    if (thing['metadata'] !== undefined) {
+      experiment.metadata = typeof thing['metadata'] === 'string'
+        ? JSON.parse(thing['metadata'] as string)
+        : thing['metadata'] as Record<string, unknown>
+    }
+
+    return experiment
   }
 }
 
