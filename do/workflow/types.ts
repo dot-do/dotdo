@@ -8,13 +8,16 @@
  */
 
 import type { EventsStore, ThingsStore, SqlStorage } from '@dotdo/db'
-import type { OnProxy, EventHandler } from './events'
+import type { OnProxy, EventHandler, RemoteEventHandler, CodeEvaluator } from './events'
 import type { ScheduleRegistration } from './schedule'
 import type { DOStubProxy, CircuitBreakerRPCConfig } from './rpc'
 import type { FireAndForgetErrorStore } from '../fire-and-forget-errors'
 import type { IntegrationRegistry, IntegrationConfig } from '@dotdo/integrations'
 import type { EntitySchema as UnifiedEntitySchema } from '../schema/types'
 import type { EntitySchema as LegacyEntitySchema } from './entity'
+
+// Re-export for convenience
+export type { CodeEvaluator, RemoteEventHandler }
 
 // Re-export for external use
 export type { CircuitBreakerRPCConfig }
@@ -271,6 +274,35 @@ export interface CreateContextOptions extends PrimitivesConfig {
    * ```
    */
   onScheduleRegistered?: OnScheduleRegisteredCallback
+
+  /**
+   * Custom code evaluator for remote handler execution (do-qkqhm).
+   *
+   * In production Cloudflare Workers environments, this should use ai-evaluate
+   * which provides secure sandboxed execution via worker_loaders binding.
+   *
+   * If not provided, a default Function()-based evaluator is used which
+   * may not work in environments that disallow dynamic code generation.
+   *
+   * @example
+   * ```ts
+   * import { evaluate, createEvaluator } from 'ai-evaluate'
+   *
+   * const $ = createContext(state, env, {
+   *   evaluator: async (code, event, context) => {
+   *     const result = await evaluate({
+   *       script: `
+   *         const handler = ${code};
+   *         return handler(event);
+   *       `
+   *     }, { loader: env.loader, ...context })
+   *     if (!result.success) throw new Error(result.error)
+   *     return result.value
+   *   }
+   * })
+   * ```
+   */
+  evaluator?: CodeEvaluator
 }
 
 /**
@@ -351,9 +383,46 @@ export interface WorkflowContext {
   /** Check if running within a propagated context */
   hasContext(): boolean
 
+  // Remote handler registration (do-qkqhm)
+  /**
+   * Register a remote event handler from stringified code.
+   *
+   * This is the RPC endpoint called by remote clients to register event handlers
+   * that execute server-side. The handler code is stringified on the client side
+   * and sent here for storage and execution when events fire.
+   *
+   * Remote handlers are executed in a sandboxed environment with access to the
+   * $ context. In production, use the `evaluator` option in CreateContextOptions
+   * to provide ai-evaluate's secure execution sandbox.
+   *
+   * @param params - Registration parameters
+   * @param params.event - Event type pattern (e.g., 'Customer.signup', '*.created')
+   * @param params.code - Stringified handler function code
+   * @param params.source - Optional source identifier (client ID, etc.)
+   * @returns The registered handler info
+   *
+   * @example
+   * ```ts
+   * // Client-side: stringify the handler
+   * const handler = async (event) => {
+   *   await $.send({ type: 'welcome-email', payload: { to: event.email } })
+   * }
+   *
+   * // Send to server via RPC
+   * await $.registerHandler({
+   *   event: 'Customer.signup',
+   *   code: handler.toString(),
+   *   source: 'client-123'
+   * })
+   * ```
+   */
+  registerHandler(params: { event: string; code: string; source?: string }): RemoteEventHandler
+
   // Internal state (prefixed with _ to indicate private)
   _events: EventsStore
   _handlers: Map<string, EventHandler[]>
+  /** Remote handlers registry for server-side execution (do-qkqhm) */
+  _remoteHandlers: Map<string, RemoteEventHandler[]>
   _schedules: Map<string, ScheduleRegistration>
   _stubCache: Map<string, DOStubProxy>
   _env: unknown
@@ -368,6 +437,8 @@ export interface WorkflowContext {
   _legacyEntitySchemas: Map<string, LegacyEntitySchema>
   /** SQL storage for DDL execution (do-lekf.3) */
   _sql?: SqlStorage
+  /** Custom evaluator for remote handler execution (do-qkqhm) */
+  _evaluator?: CodeEvaluator
 }
 
 /**

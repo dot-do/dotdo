@@ -96,6 +96,7 @@ import type {
   DoOptions,
   TryOptions,
   CreateContextOptions,
+  CodeEvaluator,
 } from './types'
 import type { EventHandler } from './events'
 
@@ -140,6 +141,8 @@ interface ContextState {
   entitySchemas: Map<string, EntitySchema>
   /** Legacy entity schemas for backward compatibility with entity proxy */
   legacyEntitySchemas: Map<string, LegacyEntitySchema>
+  /** Custom evaluator for remote handler execution (do-qkqhm) */
+  evaluator?: CodeEvaluator
 }
 
 /**
@@ -157,6 +160,7 @@ function initializeContextState(options?: CreateContextOptions): ContextState {
   const sql = options?.sql
   const entitySchemas = new Map<string, EntitySchema>()
   const legacyEntitySchemas = new Map<string, LegacyEntitySchema>()
+  const evaluator = options?.evaluator
 
   // Initialize async context system (do-nexi)
   initializeAsyncContext().catch((err) => {
@@ -170,7 +174,7 @@ function initializeContextState(options?: CreateContextOptions): ContextState {
     })
   }
 
-  return { events, handlers, remoteHandlers, schedules, stubCache, fireAndForgetErrors, integrations, things, sql, entitySchemas, legacyEntitySchemas }
+  return { events, handlers, remoteHandlers, schedules, stubCache, fireAndForgetErrors, integrations, things, sql, entitySchemas, legacyEntitySchemas, evaluator }
 }
 
 /**
@@ -180,7 +184,7 @@ function createEventProcessor(
   state: ContextState,
   baseContext: () => BaseContextWithInternals
 ): (emitted: Event, eventType: string, payload: unknown) => Promise<void> {
-  const { events, handlers, remoteHandlers, fireAndForgetErrors } = state
+  const { events, handlers, remoteHandlers, fireAndForgetErrors, evaluator } = state
 
   return async function processEvent(emitted: Event, eventType: string, payload: unknown): Promise<void> {
     // Get durability config for this event type (supports per-type configuration)
@@ -197,6 +201,7 @@ function createEventProcessor(
     // Also invoke remote handlers (do-qkqhm)
     // Remote handlers are stringified functions registered via RPC
     // They execute server-side with access to the $ context
+    // Uses custom evaluator if provided (e.g., ai-evaluate sandbox)
     const remoteResult = await invokeRemoteHandlers(
       eventType,
       emitted,
@@ -204,7 +209,10 @@ function createEventProcessor(
       {
         // Provide the $ context to remote handlers
         context: { $: baseContext() },
-        timeout: 30000
+        timeout: 30000,
+        // Use custom evaluator if provided (do-qkqhm)
+        // In production, this should be ai-evaluate for secure sandboxed execution
+        evaluator: evaluator
       }
     )
 
@@ -461,7 +469,7 @@ function createBaseContext(
   env: unknown,
   options?: CreateContextOptions
 ): BaseContextWithInternals {
-  const { events, handlers, remoteHandlers, schedules, stubCache, fireAndForgetErrors, integrations, things, sql, entitySchemas, legacyEntitySchemas } = state
+  const { events, handlers, remoteHandlers, schedules, stubCache, fireAndForgetErrors, integrations, things, sql, entitySchemas, legacyEntitySchemas, evaluator } = state
 
   const baseContext: BaseContextWithInternals = {
     // Fire-and-forget event emission with retry support
@@ -673,6 +681,8 @@ function createBaseContext(
     _legacyEntitySchemas: legacyEntitySchemas,
     // SQL storage for DDL execution (do-lekf.3)
     _sql: sql,
+    // Custom evaluator for remote handler execution (do-qkqhm)
+    _evaluator: evaluator,
   }
 
   return baseContext
