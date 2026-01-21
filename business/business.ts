@@ -443,15 +443,18 @@ class GoalsAPI {
     const id = generateObjectiveId()
 
     // Convert key results to proper format
-    const keyResults: KeyResult[] = data.keyResults.map((kr) => ({
-      id: generateKeyResultId(),
-      name: kr.name,
-      targetValue: kr.target,
-      currentValue: 0,
-      unit: kr.unit,
-      metricKey: kr.metricKey,
-      status: 'behind' as const,
-    }))
+    const keyResults: KeyResult[] = data.keyResults.map((kr) => {
+      const result: KeyResult = {
+        id: generateKeyResultId(),
+        name: kr.name,
+        targetValue: kr.target,
+        currentValue: 0,
+        status: 'behind' as const,
+      }
+      if (kr.unit !== undefined) result.unit = kr.unit
+      if (kr.metricKey !== undefined) result.metricKey = kr.metricKey
+      return result
+    })
 
     // Parse period string to OKRPeriod
     const period = parsePeriod(data.period)
@@ -460,28 +463,39 @@ class GoalsAPI {
     const objective: Objective = {
       id,
       name: data.name,
-      description: data.description,
-      owner: data.owner,
       period,
       status: 'behind',
       keyResults,
       createdAt: now,
       updatedAt: now,
     }
+    if (data.description !== undefined) objective.description = data.description
+    if (data.owner !== undefined) objective.owner = data.owner
 
-    // Store in things
-    await this.business.things.create({
-      $id: id,
+    // Build thing data, only including defined values
+    const thingData: { $type: string } & Record<string, string | number | boolean | null> = {
       $type: 'Objective',
       name: objective.name,
-      description: objective.description,
-      owner: objective.owner,
       period: JSON.stringify(period),
       status: objective.status,
       keyResults: JSON.stringify(keyResults),
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
-    })
+    }
+
+    // Only add optional fields if they are defined
+    if (objective.description !== undefined) {
+      thingData['description'] = objective.description
+    }
+    if (objective.owner !== undefined) {
+      thingData['owner'] = objective.owner
+    }
+
+    // Store in things (let the system generate the ID)
+    const thing = await this.business.things.create(thingData as { $type: string } & Record<string, unknown>)
+
+    // Update objective with the actual generated ID
+    objective.id = thing.$id as string
 
     return objective
   }
@@ -498,7 +512,7 @@ class GoalsAPI {
     const now = new Date()
 
     // Merge updates
-    const updateData: Record<string, unknown> = {
+    const updateData: Record<string, string | number | boolean | null> = {
       updatedAt: now.toISOString(),
     }
 
@@ -510,7 +524,7 @@ class GoalsAPI {
       updateData['keyResults'] = JSON.stringify(updates.keyResults)
     }
 
-    await this.business.things.update(id, updateData)
+    await this.business.things.update(id, updateData as Record<string, unknown>)
 
     // Return updated objective
     const updated = await this.business.things.get(id)
@@ -607,17 +621,25 @@ class GoalsAPI {
       ? JSON.parse(thing['period'] as string)
       : (thing['period'] as OKRPeriod)
 
-    return {
-      id: thing.$id as string,
+    const objective: Objective = {
+      id: thing['$id'] as string,
       name: thing['name'] as string,
-      description: thing['description'] as string | undefined,
-      owner: thing['owner'] as string | undefined,
       period,
       status: (thing['status'] as Objective['status']) ?? 'behind',
       keyResults,
       createdAt: new Date(thing['createdAt'] as string),
       updatedAt: new Date(thing['updatedAt'] as string),
     }
+
+    // Only set optional properties if they are defined
+    if (thing['description'] !== undefined) {
+      objective.description = thing['description'] as string
+    }
+    if (thing['owner'] !== undefined) {
+      objective.owner = thing['owner'] as string
+    }
+
+    return objective
   }
 
   /**
