@@ -15,3 +15,5 @@ packages:
   - clickhouse
   - business
   - business/finance
+  - observability
+  - test-utils

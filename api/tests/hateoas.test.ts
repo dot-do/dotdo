@@ -20,7 +20,7 @@ import {
   REQUIRED_COLLECTION_LINKS,
   REQUIRED_ERROR_LINKS
 } from '../hateoas'
-import { expectValidLink } from '../../test-utils'
+import { expectValidLink } from '@dotdo/test-utils'
 
 describe('HATEOAS Link Generation', () => {
   const baseUrl = 'https://api.example.com'

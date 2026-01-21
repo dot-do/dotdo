@@ -17,7 +17,7 @@
  */
 
 import type { Context, MiddlewareHandler, Next } from 'hono'
-import { PayloadTooLargeError } from '../../rpc/errors'
+import { PayloadTooLargeError } from '@dotdo/rpc/errors'
 
 // ============================================================================
 // CONSTANTS

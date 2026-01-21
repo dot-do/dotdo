@@ -8,4 +8,4 @@
  * @module api/test-entry
  */
 
-export { DO, type DOEnv, type DOOptions } from '../do/DO'
+export { DO, type DOEnv, type DOOptions } from '@dotdo/do'

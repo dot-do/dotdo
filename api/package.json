@@ -12,10 +12,14 @@
   },
   "dependencies": {
     "@dotdo/auth": "workspace:*",
+    "@dotdo/db": "workspace:*",
     "@dotdo/do": "workspace:*",
+    "@dotdo/observability": "workspace:*",
+    "@dotdo/rpc": "workspace:*",
     "hono": "^4.7.0"
   },
   "devDependencies": {
+    "@dotdo/test-utils": "workspace:*",
     "typescript": "^5.7.0"
   }
 }

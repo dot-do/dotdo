@@ -4,12 +4,12 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import type { MiddlewareHandler } from 'hono'
-import { authMiddleware } from '../auth/middleware'
-import { getErrorMessage } from '../rpc/errors'
+import { authMiddleware } from '@dotdo/auth'
+import { getErrorMessage } from '@dotdo/rpc/errors'
 import { HealthService, DiscoveryService } from './services'
 import { rateLimitMiddleware, type RateLimitConfig, type RateLimitTier } from './middleware/rate-limit'
 import { bodySizeLimitMiddleware, DEFAULT_MAX_BODY_SIZE } from './middleware/body-size-limit'
-import { createStructuredLogger } from '../observability/logger'
+import { createStructuredLogger } from '@dotdo/observability'
 
 // Create a structured logger for the API
 const logger = createStructuredLogger({ service: 'dotdo-api' })

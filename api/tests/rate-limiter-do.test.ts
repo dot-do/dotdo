@@ -21,7 +21,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { env } from 'cloudflare:test'
 import type { RateLimitCheckParams, RateLimitCheckResult } from '../middleware/RateLimiterDO'
-import { generateTestId } from '../../test-utils'
+import { generateTestId } from '@dotdo/test-utils'
 
 // ============================================================================
 // TYPE DECLARATIONS

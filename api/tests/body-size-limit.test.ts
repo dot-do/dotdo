@@ -26,7 +26,7 @@ import {
   MAX_ALLOWED_BODY_SIZE,
   type BodySizeLimitConfig,
 } from '../middleware/body-size-limit'
-import { PayloadTooLargeError, isPayloadTooLargeError, RPCErrorCode } from '../../rpc/errors'
+import { PayloadTooLargeError, isPayloadTooLargeError, RPCErrorCode } from '@dotdo/rpc/errors'
 
 // ============================================================================
 // TEST HELPERS

@@ -8,6 +8,14 @@
   },
   "main": "index.ts",
   "types": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./logger": "./logger.ts",
+    "./tracing": "./tracing.ts",
+    "./context": "./context.ts",
+    "./middleware": "./middleware.ts",
+    "./metrics": "./metrics.ts"
+  },
   "scripts": {
     "test": "vitest",
     "typecheck": "tsc --noEmit"
