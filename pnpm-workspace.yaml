@@ -17,3 +17,4 @@ packages:
   - business/finance
   - observability
   - test-utils
+  - examples/*

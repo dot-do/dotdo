@@ -20,7 +20,7 @@ import type {
   AuditContext,
   QueryBuilder,
   StorableData,
-} from '../../db'
+} from '@dotdo/db'
 import type { DOHandler } from './registry'
 
 /**

@@ -10,7 +10,7 @@
  * @module do/handlers/alarm
  */
 
-import { createScopedLogger, LogLevel } from '../../utils/logger'
+import { createScopedLogger, LogLevel } from '@dotdo/utils'
 import {
   createAlarmStore,
   executeSchedules,

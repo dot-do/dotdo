@@ -10,7 +10,7 @@
  * @module do/workflow/context
  */
 
-import { createEventsStore, type Event, type EventsStore, type JsonValue, type ThingsStore, type SqlStorage } from '../../db'
+import { createEventsStore, type Event, type EventsStore, type JsonValue, type ThingsStore, type SqlStorage } from '@dotdo/db'
 import { createEveryProxy } from './schedule'
 import { createOnProxy, matchHandlers, invokeHandlers, type RetryOptions } from './events'
 import { createDORPCProxy } from './rpc'

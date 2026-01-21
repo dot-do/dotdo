@@ -181,44 +181,49 @@ export function createMockSqlStorage(): MockSqlStorage {
                   }
                 } else if (lowerSql.includes('where 1=1')) {
                   // "WHERE 1=1" with AND conditions - apply filters in order they appear in SQL
+                  // This pattern is used by createSQLiteRelationshipsStore.find()
                   let valueIndex = 0
 
-                  if (sql.includes('AND type = ?')) {
+                  // Count number of filter conditions (excluding LIMIT/OFFSET at the end)
+                  // Parameters for filters come before LIMIT/OFFSET params
+                  const filterParamCount = boundValues.length
+
+                  if (sql.includes('AND type = ?') && valueIndex < filterParamCount) {
                     const typeValue = boundValues[valueIndex++]
                     rows = rows.filter((r: any) => r.type === typeValue)
                   }
 
-                  if (sql.includes('AND source = ?')) {
+                  if (sql.includes('AND source = ?') && valueIndex < filterParamCount) {
                     const sourceValue = boundValues[valueIndex++]
                     rows = rows.filter((r: any) => r.source === sourceValue)
                   }
 
-                  if (sql.includes('AND correlation_id = ?')) {
+                  if (sql.includes('AND correlation_id = ?') && valueIndex < filterParamCount) {
                     const corrValue = boundValues[valueIndex++]
                     rows = rows.filter((r: any) => r.correlation_id === corrValue)
                   }
 
-                  if (sql.includes('AND timestamp >= ?')) {
+                  if (sql.includes('AND timestamp >= ?') && valueIndex < filterParamCount) {
                     const sinceValue = boundValues[valueIndex++] as number
                     rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp >= sinceValue)
                   }
 
-                  if (sql.includes('AND timestamp <= ?')) {
+                  if (sql.includes('AND timestamp <= ?') && valueIndex < filterParamCount) {
                     const untilValue = boundValues[valueIndex++] as number
                     rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp <= untilValue)
                   }
 
-                  if (sql.includes('AND subject = ?')) {
+                  if (sql.includes('AND subject = ?') && valueIndex < filterParamCount) {
                     const subjectValue = boundValues[valueIndex++]
                     rows = rows.filter((r: any) => r.subject === subjectValue)
                   }
 
-                  if (sql.includes('AND predicate = ?')) {
+                  if (sql.includes('AND predicate = ?') && valueIndex < filterParamCount) {
                     const predicateValue = boundValues[valueIndex++]
                     rows = rows.filter((r: any) => r.predicate === predicateValue)
                   }
 
-                  if (sql.includes('AND object = ?')) {
+                  if (sql.includes('AND object = ?') && valueIndex < filterParamCount) {
                     const objectValue = boundValues[valueIndex++]
                     rows = rows.filter((r: any) => r.object === objectValue)
                   }

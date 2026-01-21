@@ -3,7 +3,7 @@
 // Key patterns: Request tracing, span hierarchies, metric types (counters/gauges/histograms), log levels
 
 import { Hono } from 'hono'
-import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
+import { DO, type DOEnv, createContext, type WorkflowContext } from '@dotdo/do'
 import {
   // Structured logging
   createStructuredLogger,
@@ -34,7 +34,7 @@ import {
   createDOObservability,
   extractDOContextFromHeaders,
   createStorageTracker,
-} from '../../observability'
+} from '@dotdo/observability'
 import type {
   Product,
   Order,
@@ -45,8 +45,6 @@ import type {
 } from './types'
 
 export class ObservabilityDO extends DO {
-  protected declare override $: WorkflowContext
-
   // ========================================================================
   // Observability Components
   // ========================================================================

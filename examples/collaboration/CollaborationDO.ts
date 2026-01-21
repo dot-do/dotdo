@@ -3,7 +3,7 @@
 // Key patterns: $.on.Noun.verb event handlers, $.every scheduling, WebSocket manager
 
 import { Hono } from 'hono'
-import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
+import { DO, type DOEnv, createContext, type WorkflowContext } from '@dotdo/do'
 import type {
   Document,
   Collaborator,
@@ -29,8 +29,6 @@ function getRandomColor(): string {
 }
 
 export class CollaborationDO extends DO {
-  protected declare override $: WorkflowContext
-
   // In-memory state for active session
   private cursors: Map<string, CursorPosition> = new Map()
   private userConnections: Map<string, WebSocket> = new Map()

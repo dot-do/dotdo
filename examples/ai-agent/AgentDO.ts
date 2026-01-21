@@ -3,7 +3,7 @@
 // Key patterns: $.on.Noun.verb event handlers, $.every scheduling, $.do durable actions
 
 import { Hono } from 'hono'
-import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
+import { DO, type DOEnv, createContext, type WorkflowContext } from '@dotdo/do'
 import type {
   Conversation,
   Message,
@@ -97,7 +97,6 @@ interface AgentEnv extends DOEnv {
 }
 
 export class AgentDO extends DO {
-  protected declare override $: WorkflowContext
   private agentEnv: AgentEnv
 
   constructor(state: DurableObjectState, env: AgentEnv) {

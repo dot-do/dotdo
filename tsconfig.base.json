@@ -11,7 +11,25 @@
     "sourceMap": true,
     "composite": true,
     "jsx": "react-jsx",
-    "types": ["@cloudflare/workers-types"]
+    "types": ["@cloudflare/workers-types"],
+    "baseUrl": ".",
+    "paths": {
+      "@dotdo/do": ["do/index.ts"],
+      "@dotdo/db": ["db/index.ts"],
+      "@dotdo/rpc": ["rpc/index.ts"],
+      "@dotdo/api": ["api/index.ts"],
+      "@dotdo/auth": ["auth/index.ts"],
+      "@dotdo/ai": ["ai/index.ts"],
+      "@dotdo/mcp": ["mcp/index.ts"],
+      "@dotdo/utils": ["utils/index.ts"],
+      "@dotdo/observability": ["observability/index.ts"],
+      "@dotdo/integrations": ["integrations/index.ts"],
+      "@dotdo/integrations/*": ["integrations/*"],
+      "@dotdo/test-utils": ["test-utils/index.ts"],
+      "@dotdo/clickhouse": ["clickhouse/index.ts"],
+      "@dotdo/business": ["business/index.ts"],
+      "@dotdo/business-finance": ["business/finance/index.ts"]
+    }
   },
   "exclude": ["node_modules", "dist", "**/*.test.ts", ".worktrees", "primitives", "gitx", "fsx", "bashx", "npmx"]
 }

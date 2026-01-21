@@ -22,9 +22,10 @@ import {
   type QueryBuilder,
   type StorableData,
   type JsonValue,
+  type BulkUpdateItem,
   defaultAuditConfig,
   maskSensitiveFields
-} from '../db'
+} from '@dotdo/db'
 
 /**
  * Options for EntityManager
@@ -141,7 +142,7 @@ export class EntityManager {
         // Emit Thing.updated event
         await eventsStore.emit({
           type: 'Thing.updated',
-          payload: thing,
+          payload: thing as unknown as JsonValue,
           source: thing.$id
         })
 
@@ -170,6 +171,53 @@ export class EntityManager {
 
       async list(options?: { type?: string; limit?: number; offset?: number }): Promise<Thing[]> {
         return baseStore.list(options)
+      },
+
+      async bulkCreate<D extends Partial<StorableData> & { $type: string }>(things: D[]) {
+        const created = await baseStore.bulkCreate(things)
+        for (const thing of created) {
+          await eventsStore.emit({
+            type: 'Thing.created',
+            payload: thing as unknown as JsonValue,
+            source: thing.$id
+          })
+          await logAudit('create', thing.$type, thing.$id, { name: (thing as Record<string, unknown>)['name'] as string })
+        }
+        return created
+      },
+
+      async bulkUpdate(items: BulkUpdateItem<StorableData>[]) {
+        const updated = await baseStore.bulkUpdate(items)
+        for (let i = 0; i < updated.length; i++) {
+          const thing = updated[i]
+          const item = items[i]
+          await eventsStore.emit({
+            type: 'Thing.updated',
+            payload: thing as unknown as JsonValue,
+            source: thing.$id
+          })
+          await logAudit('update', thing.$type, thing.$id, { fields: Object.keys(item.data) })
+        }
+        return updated
+      },
+
+      async bulkDelete(ids: string[]) {
+        const things: (Thing | null)[] = []
+        for (const id of ids) {
+          things.push(await baseStore.get(id))
+        }
+        await baseStore.bulkDelete(ids)
+        for (let i = 0; i < ids.length; i++) {
+          const thing = things[i]
+          if (thing) {
+            await eventsStore.emit({
+              type: 'Thing.deleted',
+              payload: { $id: ids[i], $type: thing.$type },
+              source: ids[i]
+            })
+            await logAudit('delete', thing.$type, ids[i])
+          }
+        }
       }
     }
   }
@@ -196,7 +244,7 @@ export class EntityManager {
         // Emit Relationship.added event
         await eventsStore.emit({
           type: 'Relationship.added',
-          payload: relationship,
+          payload: relationship as unknown as JsonValue,
           source: relationship.subject
         })
 

@@ -3,7 +3,7 @@
 // Key patterns: $.on.Noun.verb event handlers, $.every scheduling, $.do durable actions
 
 import { Hono } from 'hono'
-import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
+import { DO, type DOEnv, createContext, type WorkflowContext } from '@dotdo/do'
 import type {
   Product,
   Cart,
@@ -20,8 +20,6 @@ import type {
 const TAX_RATE = 0.08 // 8% tax
 
 export class EcommerceDO extends DO {
-  protected declare override $: WorkflowContext
-
   constructor(state: DurableObjectState, env: DOEnv) {
     super(state, env)
 

@@ -10,7 +10,7 @@
  * @module @dotdo/do/eval
  */
 
-import type { ThingsStore, EventsStore, RelationshipsStore } from '../../db'
+import type { ThingsStore, EventsStore, RelationshipsStore } from '@dotdo/db'
 
 /**
  * Options for script execution

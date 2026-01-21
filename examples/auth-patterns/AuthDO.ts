@@ -3,7 +3,7 @@
 // Key patterns: Middleware-based auth, secure token generation, rate limiting
 
 import { Hono } from 'hono'
-import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
+import { DO, type DOEnv, createContext, type WorkflowContext } from '@dotdo/do'
 import type {
   User,
   Session,
@@ -128,7 +128,6 @@ interface AuthEnv extends DOEnv {
 }
 
 export class AuthDO extends DO {
-  protected declare override $: WorkflowContext
   private jwtSecret: string
 
   // In-memory rate limiting

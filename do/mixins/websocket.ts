@@ -39,7 +39,7 @@ import {
   type ConnectionHandler
 } from '../websocket'
 import type { Constructor } from './storage'
-import { createScopedLogger, LogLevel } from '../../utils/logger'
+import { createScopedLogger, LogLevel } from '@dotdo/utils'
 import { DEFAULT_HEARTBEAT_INTERVAL_MS, DEFAULT_CONNECTION_TIMEOUT_MS } from '@dotdo/utils'
 
 const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[WithWebSocket]' })

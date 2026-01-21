@@ -3,7 +3,7 @@
 // Key patterns: HATEOAS links, query parameters, bulk operations, proper HTTP methods/status codes
 
 import { Hono } from 'hono'
-import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
+import { DO, type DOEnv, createContext, type WorkflowContext } from '@dotdo/do'
 import type {
   Task,
   Project,
@@ -21,8 +21,6 @@ const DEFAULT_LIMIT = 20
 const MAX_LIMIT = 100
 
 export class TasksDO extends DO {
-  protected declare override $: WorkflowContext
-
   constructor(state: DurableObjectState, env: DOEnv) {
     super(state, env)
 

@@ -7,7 +7,7 @@
  * @module do/utils/cors
  */
 
-import { createScopedLogger, LogLevel } from '../../utils/logger'
+import { createScopedLogger, LogLevel } from '@dotdo/utils'
 
 const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[CORS]' })
 

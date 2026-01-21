@@ -31,7 +31,7 @@ import type {
   AuditContext,
   QueryBuilder,
   StorableData
-} from '../../db'
+} from '@dotdo/db'
 
 // Re-export Constructor and MixinInstance from @dotdo/utils for backward compatibility
 // These are the canonical definitions used across all @dotdo packages

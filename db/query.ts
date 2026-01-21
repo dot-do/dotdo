@@ -135,7 +135,7 @@ export type WhereOperator =
 export interface WhereCondition {
   field: string
   operator: WhereOperator
-  value: JsonValue | JsonValue[]
+  value: JsonValue | JsonValue[] | undefined
 }
 
 /**
@@ -755,7 +755,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
                 if (matchesJoinConditions(targetThing, rightJoin.conditions)) {
                   // Create a "null" source entry with the unmatched target
                   const joinKey = rightJoin.alias || (rightJoin.direction === 'forward' ? rightJoin.predicate : `${rightJoin.predicate}By`)
-                  const nullEntry: ThingWithJoins = {
+                  const nullEntry = {
                     $id: toThingId(''),
                     $type: options.type || '',
                     $createdAt: 0,
@@ -763,7 +763,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
                     _joined: {
                       [joinKey]: [targetThing]
                     }
-                  }
+                  } as ThingWithJoins
                   finalResults.push(nullEntry)
                 }
               }
@@ -797,7 +797,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
               if (!matchedTargetIds.has(targetThing.$id)) {
                 if (matchesJoinConditions(targetThing, fullJoin.conditions)) {
                   const joinKey = fullJoin.alias || (fullJoin.direction === 'forward' ? fullJoin.predicate : `${fullJoin.predicate}By`)
-                  const nullEntry: ThingWithJoins = {
+                  const nullEntry = {
                     $id: toThingId(''),
                     $type: options.type || '',
                     $createdAt: 0,
@@ -805,7 +805,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
                     _joined: {
                       [joinKey]: [targetThing]
                     }
-                  }
+                  } as ThingWithJoins
                   finalResults.push(nullEntry)
                 }
               }
@@ -968,7 +968,10 @@ export function buildWhereClause<T extends StorableData = StorableData>(options:
           } else {
             clauses.push(`${sqlField} ${operator} ?`)
           }
-          params.push(value)
+          // value should be a single JsonValue at this point (not array, not undefined)
+          if (value !== undefined && !Array.isArray(value)) {
+            params.push(value)
+          }
           break
 
         case 'LIKE':
@@ -977,7 +980,10 @@ export function buildWhereClause<T extends StorableData = StorableData>(options:
           } else {
             clauses.push(`${sqlField} LIKE ?`)
           }
-          params.push(value)
+          // value should be a single JsonValue at this point (not array, not undefined)
+          if (value !== undefined && !Array.isArray(value)) {
+            params.push(value)
+          }
           break
 
         case 'IN':

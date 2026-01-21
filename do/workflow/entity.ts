@@ -12,7 +12,7 @@
  * @module do/workflow/entity
  */
 
-import type { ThingsStore, Thing, StorableData } from '../../db'
+import type { ThingsStore, Thing, StorableData } from '@dotdo/db'
 
 /**
  * Schema definition for an entity type.

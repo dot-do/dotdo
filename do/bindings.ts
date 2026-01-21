@@ -23,7 +23,7 @@
  * ```
  */
 
-import { NotFoundError } from '../rpc/errors'
+import { NotFoundError } from '@dotdo/rpc'
 
 /**
  * Generic DurableObjectNamespace type that works with any type parameter.

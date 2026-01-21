@@ -13,8 +13,8 @@
  * @module do/fire-and-forget-errors
  */
 
-import type { SqlStorage, SqlRunResult } from '../db/sqlite'
-import { createScopedLogger, LogLevel } from '../utils/logger'
+import type { SqlStorage, SqlRunResult } from '@dotdo/db'
+import { createScopedLogger, LogLevel } from '@dotdo/utils'
 import {
   DEFAULT_MAX_STORE_ENTRIES,
   DEFAULT_MAX_ERROR_AGE_MS,
@@ -23,7 +23,7 @@ import {
   DEFAULT_COMPLETED_ITEM_MAX_AGE_MS,
   DEFAULT_RETRY_BASE_DELAY_MS,
   DEFAULT_MAX_RETRY_ATTEMPTS,
-} from '../utils/time-constants'
+} from '@dotdo/utils'
 
 const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[FireAndForget]' })
 

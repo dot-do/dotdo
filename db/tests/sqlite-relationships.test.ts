@@ -77,10 +77,7 @@ describe('SQLite RelationshipsStore', () => {
       expect(rels).toHaveLength(1)
     })
 
-    // TODO(do-uyc5): Mock SQL storage doesn't fully support multi-criteria WHERE 1=1 AND ... AND ... queries
-    // Works correctly with real SQLite in miniflare/workers environment
-    // Fix: Enhance createMockSqlStorage() to track bound param order with SQL pattern matching
-    it.skip('should find by multiple criteria', async () => {
+    it('should find by multiple criteria', async () => {
       const rels = await store.find({ subject: 'user-1', predicate: 'owns' })
       expect(rels).toHaveLength(2)
     })
@@ -93,10 +90,7 @@ describe('SQLite RelationshipsStore', () => {
       await store.add({ subject: 'user-1', predicate: 'created', object: 'post-1' })
     })
 
-    // TODO(do-uyc5): Mock SQL storage doesn't fully support multi-criteria WHERE 1=1 AND ... AND ... queries
-    // getRelated uses find() with subject + predicate, which generates multi-criteria SQL
-    // Works correctly with real SQLite in miniflare/workers environment
-    it.skip('should return related object IDs', async () => {
+    it('should return related object IDs', async () => {
       const orders = await store.getRelated('user-1', 'owns')
       expect(orders).toEqual(['order-1', 'order-2'])
     })
@@ -114,10 +108,7 @@ describe('SQLite RelationshipsStore', () => {
       await store.add({ subject: 'user-1', predicate: 'created', object: 'order-1' })
     })
 
-    // TODO(do-uyc5): Mock SQL storage doesn't fully support multi-criteria WHERE 1=1 AND ... AND ... queries
-    // getRelatedTo uses find() with object + predicate, which generates multi-criteria SQL
-    // Works correctly with real SQLite in miniflare/workers environment
-    it.skip('should return related subject IDs', async () => {
+    it('should return related subject IDs', async () => {
       const owners = await store.getRelatedTo('order-1', 'owns')
       expect(owners).toEqual(['user-1', 'user-2'])
     })

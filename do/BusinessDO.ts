@@ -38,6 +38,7 @@
  */
 
 import { DO, type DOEnv, type DOOptions } from './DO'
+import type { StorableData } from '../db/types'
 
 // =============================================================================
 // Dynamic Import Module Types
@@ -719,7 +720,7 @@ export class BusinessDO extends DO {
           updatedAt: Date.now()
         }
         // ThingsStore.update accepts partial data; cast through unknown for type safety
-        const updated = await this.things.update(id, updateData as unknown as Partial<Record<string, unknown>>)
+        const updated = await this.things.update(id, updateData as unknown as Partial<StorableData>)
         return updated as unknown as Product
       },
 
@@ -802,7 +803,7 @@ export class BusinessDO extends DO {
           updatedAt: Date.now()
         }
         // ThingsStore.update accepts partial data; cast through unknown for type safety
-        const updated = await this.things.update(id, updateData as unknown as Partial<Record<string, unknown>>)
+        const updated = await this.things.update(id, updateData as unknown as Partial<StorableData>)
         return updated as unknown as Service
       },
 
@@ -921,7 +922,7 @@ export class BusinessDO extends DO {
           updatedAt: Date.now()
         }
         // ThingsStore.update accepts partial data; cast through unknown for type safety
-        const updated = await this.things.update(id, updateData as unknown as Partial<Record<string, unknown>>)
+        const updated = await this.things.update(id, updateData as unknown as Partial<StorableData>)
         return updated as unknown as OKR
       },
 

@@ -18,7 +18,7 @@ import type {
   ThingsStore,
   Thing,
   StorableData,
-} from '../../db'
+} from '@dotdo/db'
 import type { EntitySchema, RelationDefinition } from './types'
 
 // =============================================================================

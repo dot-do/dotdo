@@ -12,7 +12,7 @@
 
 import type { Hono } from 'hono'
 import { RPCError, NotFoundError, InternalError, AuthenticationError } from '@dotdo/rpc'
-import { createScopedLogger, LogLevel } from '../../utils/logger'
+import { createScopedLogger, LogLevel } from '@dotdo/utils'
 import type { DOHandler } from './registry'
 import { extractCallerInfoWithVerification } from '../auth'
 

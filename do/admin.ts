@@ -43,10 +43,16 @@
 // console.log(health.status) // 'healthy' | 'degraded' | 'unhealthy'
 // ```
 //
-import type { Thing, ThingsStore } from '../db/things'
-import type { Event, EventsStore, EventQueryOptions } from '../db/events'
-import type { Relationship, RelationshipsStore } from '../db/relationships'
-import type { JsonValue } from '../db/types'
+import type {
+  Thing,
+  ThingsStore,
+  Event,
+  EventsStore,
+  EventQueryOptions,
+  Relationship,
+  RelationshipsStore,
+  JsonValue,
+} from '@dotdo/db'
 
 export interface AdminStores {
   things: ThingsStore

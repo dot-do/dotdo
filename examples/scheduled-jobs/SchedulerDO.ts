@@ -3,7 +3,7 @@
 // Key patterns: Fluent scheduler DSL, durable execution, job metrics
 
 import { Hono } from 'hono'
-import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
+import { DO, type DOEnv, createContext, type WorkflowContext } from '@dotdo/do'
 import type {
   Job,
   JobRun,
@@ -27,8 +27,6 @@ const DEFAULT_RETRY_POLICY = {
 }
 
 export class SchedulerDO extends DO {
-  protected declare override $: WorkflowContext
-
   // Track pending retries
   private pendingRetries: Map<string, NodeJS.Timeout> = new Map()
 

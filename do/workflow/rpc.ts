@@ -23,7 +23,7 @@ import {
   DEFAULT_CIRCUIT_BREAKER_CONFIG,
   NotFoundError,
 } from '@dotdo/rpc'
-import type { ThingsStore } from '../../db'
+import type { ThingsStore } from '@dotdo/db'
 import { createEntityAccessor, isEntityName, isReservedProperty, type EntitySchema, type EntityProxy } from './entity'
 import type { EntitySchema as UnifiedEntitySchema } from '../schema/types'
 

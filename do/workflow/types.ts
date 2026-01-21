@@ -7,7 +7,7 @@
  * @module do/workflow/types
  */
 
-import type { EventsStore, ThingsStore, SqlStorage } from '../../db'
+import type { EventsStore, ThingsStore, SqlStorage } from '@dotdo/db'
 import type { OnProxy, EventHandler } from './events'
 import type { ScheduleRegistration } from './schedule'
 import type { DOStubProxy, CircuitBreakerRPCConfig } from './rpc'

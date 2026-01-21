@@ -21,7 +21,7 @@ import {
   getErrorMessage,
   isRetryableError as dbIsRetryableError,
   registerErrorClass,
-} from '../../db/errors'
+} from '@dotdo/db'
 
 // =============================================================================
 // Re-export base types from @dotdo/db for backward compatibility

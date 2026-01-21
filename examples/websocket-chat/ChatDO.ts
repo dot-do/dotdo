@@ -3,7 +3,7 @@
 // Key patterns: ws.on handlers, ws.broadcast, hibernatable WebSockets, $.on events
 
 import { Hono } from 'hono'
-import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
+import { DO, type DOEnv, createContext, type WorkflowContext } from '@dotdo/do'
 import type {
   Room,
   Participant,
@@ -22,8 +22,6 @@ const MAX_RECENT_MESSAGES = 50
 const TYPING_TIMEOUT_MS = 5000
 
 export class ChatDO extends DO {
-  protected declare override $: WorkflowContext
-
   // In-memory state for active session
   private userConnections: Map<string, WebSocket> = new Map()
   private typingUsers: Map<string, TypingState> = new Map()
