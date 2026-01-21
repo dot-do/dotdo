@@ -102,30 +102,94 @@ export class TokenStore implements ITokenStore {
   /**
    * Get stored tokens from the filesystem
    * @returns StoredTokens if they exist, null otherwise
+   * @throws Error if file exists but contains invalid JSON or malformed tokens
    */
   async getTokens(): Promise<StoredTokens | null> {
-    try {
-      if (!fs.existsSync(this.tokensPath)) {
-        return null
-      }
-      const content = fs.readFileSync(this.tokensPath, 'utf-8')
-      return JSON.parse(content) as StoredTokens
-    } catch {
+    if (!fs.existsSync(this.tokensPath)) {
       return null
+    }
+
+    let content: string
+    try {
+      content = fs.readFileSync(this.tokensPath, 'utf-8')
+    } catch (error) {
+      throw new Error(
+        `Failed to read tokens from ${this.tokensPath}: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(content)
+    } catch (error) {
+      throw new Error(
+        `Failed to parse tokens from ${this.tokensPath}: invalid JSON - ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+
+    // Validate token structure
+    if (typeof parsed !== 'object' || parsed === null) {
+      throw new Error(`Invalid token structure in ${this.tokensPath}: expected object`)
+    }
+
+    const tokens = parsed as Record<string, unknown>
+
+    if (typeof tokens['access_token'] !== 'string') {
+      throw new Error(`Invalid token structure in ${this.tokensPath}: missing or invalid access_token`)
+    }
+
+    if (typeof tokens['refresh_token'] !== 'string') {
+      throw new Error(`Invalid token structure in ${this.tokensPath}: missing or invalid refresh_token`)
+    }
+
+    if (typeof tokens['expires_at'] !== 'number') {
+      throw new Error(`Invalid token structure in ${this.tokensPath}: missing or invalid expires_at (expected number)`)
+    }
+
+    return {
+      access_token: tokens['access_token'],
+      refresh_token: tokens['refresh_token'],
+      expires_at: tokens['expires_at'],
     }
   }
 
   /**
-   * Save tokens to the filesystem
-   * Creates the directory if it doesn't exist
+   * Save tokens to the filesystem with secure permissions
+   * Creates the directory if it doesn't exist (mode 0700)
+   * Uses atomic writes (write to temp file, then rename)
+   * Sets file permissions to 0600 (owner read/write only)
    * @param tokens - The tokens to save
+   * @throws Error if save fails
    */
   async saveTokens(tokens: StoredTokens): Promise<void> {
     const dir = path.dirname(this.tokensPath)
+
+    // Create directory with secure permissions (0700 = owner rwx only)
     if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
     }
-    fs.writeFileSync(this.tokensPath, JSON.stringify(tokens, null, 2))
+
+    // Atomic write: write to temp file, then rename
+    const tempPath = `${this.tokensPath}.tmp.${process.pid}`
+    const content = JSON.stringify(tokens, null, 2)
+
+    try {
+      // Write to temp file with secure permissions (0600 = owner rw only)
+      fs.writeFileSync(tempPath, content, { mode: 0o600 })
+
+      // Atomic rename
+      fs.renameSync(tempPath, this.tokensPath)
+    } catch (error) {
+      // Clean up temp file on failure
+      try {
+        fs.unlinkSync(tempPath)
+      } catch {
+        // Ignore cleanup errors
+      }
+      throw new Error(
+        `Failed to save tokens to ${this.tokensPath}: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
   }
 
   /**
