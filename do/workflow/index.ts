@@ -65,6 +65,9 @@ export {
   getStubCount,
   type DOStubProxy,
   type CrossDORPCConfig,
+  // Circuit breaker configuration (do-fcxj)
+  type CircuitBreakerRPCConfig,
+  DEFAULT_CIRCUIT_BREAKER_CONFIG,
 } from './rpc'
 
 // Async context propagation (do-nexi)

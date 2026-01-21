@@ -11,11 +11,17 @@
  * - Type-safe method invocation via Proxy
  * - Correlation ID propagation
  * - Error handling with proper types
+ * - Circuit breaker protection for cascade failure prevention (do-fcxj)
  *
  * @module do/workflow/rpc
  */
 
 import { createDOStub } from '../../rpc/client'
+import {
+  createDOStubWithCircuitBreaker,
+  type CircuitBreakerRPCConfig,
+  DEFAULT_CIRCUIT_BREAKER_CONFIG,
+} from '../../rpc/circuit-breaker'
 import { NotFoundError } from '../../rpc/errors'
 
 /**
@@ -41,7 +47,13 @@ export interface CrossDORPCConfig {
   env: unknown
   /** Cache for storing created stubs */
   stubCache: Map<string, DOStubProxy>
+  /** Circuit breaker configuration (optional, enabled by default) */
+  circuitBreaker?: CircuitBreakerRPCConfig
 }
+
+// Re-export circuit breaker types for convenience
+export type { CircuitBreakerRPCConfig }
+export { DEFAULT_CIRCUIT_BREAKER_CONFIG }
 
 /**
  * Create a cross-DO RPC accessor for a specific binding name
@@ -68,7 +80,7 @@ export function createDOAccessor(
   config: CrossDORPCConfig,
   bindingName: string
 ): DOStubFactory {
-  const { env, stubCache } = config
+  const { env, stubCache, circuitBreaker } = config
 
   return (id: string | DurableObjectId): DOStubProxy => {
     const cacheKey = `${bindingName}:${typeof id === 'string' ? id : id.toString()}`
@@ -89,8 +101,19 @@ export function createDOAccessor(
       )
     }
 
-    // Create and cache the stub
-    const stub = createDOStub<DOStubProxy>(binding, id)
+    // Create stub with circuit breaker protection (do-fcxj)
+    // Circuit breaker is enabled by default unless explicitly disabled
+    const useCircuitBreaker = circuitBreaker?.enabled !== false
+    const stub = useCircuitBreaker
+      ? createDOStubWithCircuitBreaker<DOStubProxy>(binding, id, {
+          circuitBreaker: {
+            ...circuitBreaker,
+            // Prefix circuit name with binding for better isolation
+            namePrefix: circuitBreaker?.namePrefix ?? `do-rpc:${bindingName}`,
+          },
+        })
+      : createDOStub<DOStubProxy>(binding, id)
+
     stubCache.set(cacheKey, stub)
 
     return stub
@@ -105,6 +128,8 @@ export function createDOAccessor(
 interface BaseContextWithInternals {
   _env: unknown
   _stubCache: Map<string, DOStubProxy>
+  /** Optional circuit breaker configuration for cross-DO RPC (do-fcxj) */
+  _circuitBreakerConfig?: CircuitBreakerRPCConfig
 }
 
 /**
@@ -140,10 +165,11 @@ interface BaseContextWithInternals {
 export function createDORPCProxy<T extends BaseContextWithInternals>(
   baseContext: T
 ): T & Record<string, DOStubFactory> {
-  // Extract env and stubCache from baseContext - single source of truth (do-1e3z)
+  // Extract env, stubCache, and circuitBreaker config from baseContext - single source of truth (do-1e3z)
   const config: CrossDORPCConfig = {
     env: baseContext._env,
-    stubCache: baseContext._stubCache
+    stubCache: baseContext._stubCache,
+    circuitBreaker: baseContext._circuitBreakerConfig,
   }
 
   return new Proxy(baseContext as T & Record<string, DOStubFactory>, {
@@ -159,7 +185,7 @@ export function createDORPCProxy<T extends BaseContextWithInternals>(
       }
 
       // For unknown properties, assume it's a DO binding name
-      // Return a function that creates a cached DO stub
+      // Return a function that creates a cached DO stub with circuit breaker protection (do-fcxj)
       return createDOAccessor(config, prop)
     }
   })
