@@ -129,6 +129,16 @@ export interface WebSocketTransportOptions {
 }
 
 /**
+ * Helper to create an error response with optional correlationId.
+ * Handles exactOptionalPropertyTypes requirement.
+ */
+function createErrorResponse(error: SerializedError, correlationId?: string): RPCResponse {
+  const response: RPCResponse = { error }
+  if (correlationId) response.correlationId = correlationId
+  return response
+}
+
+/**
  * Internal message format for WebSocket RPC.
  */
 interface WebSocketRPCMessage {
@@ -352,16 +362,15 @@ export class WebSocketTransport implements Transport {
     this.pendingRequests.delete(response.id)
 
     // Resolve with response
+    const resolvedCorrelationId = response.correlationId ?? pending.correlationId
     if (response.error) {
-      pending.resolve({
-        error: response.error,
-        correlationId: response.correlationId ?? pending.correlationId,
-      })
+      const errorResponse: RPCResponse = { error: response.error }
+      if (resolvedCorrelationId) errorResponse.correlationId = resolvedCorrelationId
+      pending.resolve(errorResponse)
     } else {
-      pending.resolve({
-        result: response.result,
-        correlationId: response.correlationId ?? pending.correlationId,
-      })
+      const successResponse: RPCResponse = { result: response.result }
+      if (resolvedCorrelationId) successResponse.correlationId = resolvedCorrelationId
+      pending.resolve(successResponse)
     }
   }
 
@@ -404,22 +413,23 @@ export class WebSocketTransport implements Transport {
       // Set up pending request with timeout
       const timeoutId = setTimeout(() => {
         this.pendingRequests.delete(id)
-        resolve({
-          error: {
+        resolve(createErrorResponse(
+          {
             type: 'TimeoutError',
             code: 'TIMEOUT',
             message: `Request timed out after ${this.timeout}ms`,
           },
-          correlationId,
-        })
+          correlationId
+        ) as RPCResponse<T>)
       }, this.timeout)
 
-      this.pendingRequests.set(id, {
+      const pendingRequest: PendingRequest = {
         resolve: resolve as (response: RPCResponse) => void,
         reject,
         timeoutId,
-        correlationId,
-      })
+      }
+      if (correlationId) pendingRequest.correlationId = correlationId
+      this.pendingRequests.set(id, pendingRequest)
 
       // Send the message
       this.ws!.send(JSON.stringify(wsMessage))
@@ -446,14 +456,14 @@ export class WebSocketTransport implements Transport {
 
     // Clear queue
     for (const queued of this.messageQueue) {
-      queued.resolve({
-        error: {
+      queued.resolve(createErrorResponse(
+        {
           type: 'TransportError',
           code: 'CONNECTION_CLOSED',
           message: 'Connection closed by client',
         },
-        correlationId: queued.correlationId,
-      })
+        queued.correlationId
+      ))
     }
     this.messageQueue = []
 
@@ -506,14 +516,14 @@ export class WebSocketTransport implements Transport {
       if (pending.timeoutId) {
         clearTimeout(pending.timeoutId)
       }
-      pending.resolve({
-        error: {
+      pending.resolve(createErrorResponse(
+        {
           type: 'TransportError',
           code,
           message,
         },
-        correlationId: pending.correlationId,
-      })
+        pending.correlationId
+      ))
     }
     this.pendingRequests.clear()
   }
@@ -571,22 +581,23 @@ export class WebSocketTransport implements Transport {
 
       const timeoutId = setTimeout(() => {
         this.pendingRequests.delete(id)
-        queued.resolve({
-          error: {
+        queued.resolve(createErrorResponse(
+          {
             type: 'TimeoutError',
             code: 'TIMEOUT',
             message: `Request timed out after ${this.timeout}ms`,
           },
-          correlationId,
-        })
+          correlationId
+        ))
       }, this.timeout)
 
-      this.pendingRequests.set(id, {
+      const pendingRequest: PendingRequest = {
         resolve: queued.resolve,
         reject: queued.reject,
         timeoutId,
-        correlationId,
-      })
+      }
+      if (correlationId) pendingRequest.correlationId = correlationId
+      this.pendingRequests.set(id, pendingRequest)
 
       // Send the message
       this.ws.send(JSON.stringify(queued.message))

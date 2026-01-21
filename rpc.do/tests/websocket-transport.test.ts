@@ -534,7 +534,7 @@ describe('WebSocketTransport', () => {
       expect(wsInstances.length).toBe(2)
 
       // Simulate successful reconnect
-      wsInstances[1].simulateOpen()
+      wsInstances[1]!.simulateOpen()
 
       expect(transport.getState()).toBe(TransportState.CONNECTED)
 
@@ -587,8 +587,9 @@ describe('WebSocketTransport', () => {
       for (let i = 0; i < 4; i++) {
         await vi.advanceTimersByTimeAsync(100)
         if (wsInstances.length > i + 1) {
-          wsInstances[wsInstances.length - 1].simulateError()
-          wsInstances[wsInstances.length - 1].simulateClose(1006)
+          const ws = wsInstances[wsInstances.length - 1]!
+          ws.simulateError()
+          ws.simulateClose(1006)
         }
       }
 
@@ -643,7 +644,7 @@ describe('WebSocketTransport', () => {
       })
 
       const connectPromise = transport.connect()
-      const initialWs = wsInstances[0]
+      const initialWs = wsInstances[0]!
       initialWs.simulateOpen()
       await connectPromise
 
@@ -663,7 +664,7 @@ describe('WebSocketTransport', () => {
       expect(wsInstances.length).toBe(2)
 
       // New WebSocket connects
-      const newWs = wsInstances[1]
+      const newWs = wsInstances[1]!
       newWs.simulateOpen()
 
       // Message should now be sent
@@ -693,7 +694,7 @@ describe('WebSocketTransport', () => {
       })
 
       const connectPromise = transport.connect()
-      const initialWs = wsInstances[0]
+      const initialWs = wsInstances[0]!
       initialWs.simulateOpen()
       await connectPromise
 
@@ -706,14 +707,14 @@ describe('WebSocketTransport', () => {
 
       await vi.advanceTimersByTimeAsync(100)
 
-      const newWs = wsInstances[1]
+      const newWs = wsInstances[1]!
       newWs.simulateOpen()
 
       // Verify messages were sent in order
-      const messages = newWs.getSentMessages().map((m) => JSON.parse(m))
-      expect(messages[0].method).toBe('first')
-      expect(messages[1].method).toBe('second')
-      expect(messages[2].method).toBe('third')
+      const messages = newWs.getSentMessages().map((m) => JSON.parse(m) as { method: string; id: string })
+      expect(messages[0]!.method).toBe('first')
+      expect(messages[1]!.method).toBe('second')
+      expect(messages[2]!.method).toBe('third')
 
       // Complete all promises
       for (const msg of messages) {
