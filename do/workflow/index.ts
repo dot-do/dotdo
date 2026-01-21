@@ -60,38 +60,3 @@ export {
   type DOStubProxy,
   type CrossDORPCConfig,
 } from './rpc'
-
-// EventSystem - Standalone event handling module (do-rljr.3)
-export {
-  EventSystem,
-  createEventSystem,
-  type EventPayload,
-  type EventEmitListener,
-  type EventSystemOptions,
-} from './event-system'
-
-// Alarm scheduling utilities (do-14y8)
-export {
-  createAlarmStore,
-  calculateNextRunTime,
-  calculateNextCronTime,
-  executeSchedules,
-  executeOneTimeAlarms,
-  calculateNextAlarmTime,
-  serializeAlarmStore,
-  deserializeAlarmStore,
-  type AlarmMetadata,
-  type OneTimeAlarm,
-  type AlarmStore,
-} from './alarm'
-
-// CRON validation utilities (do-stfi)
-export {
-  validateCronExpression,
-  validateCronField,
-  validateTimeString,
-  containsDangerousPatterns,
-  CronValidationError,
-  CRON_FIELD_RANGES,
-  type CronFieldType,
-} from './cron-validation'

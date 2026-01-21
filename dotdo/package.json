@@ -1,11 +1,7 @@
 {
   "name": "dotdo",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "type": "module",
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  },
   "main": "index.ts",
   "types": "index.ts",
   "bin": {

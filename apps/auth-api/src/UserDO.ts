@@ -29,7 +29,6 @@ interface UserRow {
   password_hash: string
   created_at: number
   updated_at: number
-  [key: string]: string | number | null | ArrayBuffer  // Index signature for SqlStorageValue compatibility
 }
 
 // ============================================================================
@@ -92,12 +91,7 @@ async function verifyPassword(password: string, storedHash: string): Promise<boo
 
   let result = 0
   for (let i = 0; i < hashArray.length; i++) {
-    const hashByte = hashArray[i]
-    const originalByte = originalHash[i]
-    if (hashByte === undefined || originalByte === undefined) {
-      return false
-    }
-    result |= hashByte ^ originalByte
+    result |= hashArray[i] ^ originalHash[i]
   }
 
   return result === 0
@@ -149,7 +143,7 @@ export class UserDO implements DurableObject {
       'SELECT id, email, name, password_hash, created_at, updated_at FROM users LIMIT 1'
     )
     const rows = [...cursor]
-    return rows.length > 0 ? rows[0]! : null
+    return rows.length > 0 ? rows[0] : null
   }
 
   // Convert row to public user (no password)

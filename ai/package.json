@@ -1,40 +1,18 @@
 {
   "name": "@dotdo/ai",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "type": "module",
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  },
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    }
-  },
-  "files": ["dist"],
+  "main": "index.ts",
+  "types": "index.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest",
-    "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.16",
-    "@ai-sdk/google": "^3.0.10",
-    "@ai-sdk/openai": "^3.0.13",
-    "ai": "^6.0.42",
     "hono": "^4.7.0",
     "js-tiktoken": "^1.0.21"
-  },
-  "optionalDependencies": {
-    "@org.ai/core": "file:../primitives/packages/ai-core",
-    "ai-functions": "file:../primitives/packages/ai-functions"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

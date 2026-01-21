@@ -168,8 +168,9 @@ describe('Auth Middleware', () => {
 
     it('should throw error if secret is not provided', () => {
       expect(() => {
+        // @ts-expect-error - testing runtime validation
         authMiddleware({})
-      }).toThrow('secret is required for JWT validation in authMiddleware')
+      }).toThrow('authMiddleware requires a secret')
     })
 
     it('should accept string secret', async () => {
