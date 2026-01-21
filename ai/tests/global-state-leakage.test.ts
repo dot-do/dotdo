@@ -429,3 +429,227 @@ describe('getOrCreateContext helper', () => {
     expect(newCtx.tracker).toBeDefined()
   })
 })
+
+describe('Request-scoped tracking helper functions', () => {
+  // Save original state to restore after tests
+  let originalRecords: UsageRecord[]
+  let originalBudgetLimit: number
+
+  beforeEach(() => {
+    // Capture initial state
+    originalRecords = globalTracker.exportRecords()
+    originalBudgetLimit = globalTracker.getBudgetLimit()
+    globalTracker.reset()
+    globalTracker.setBudgetLimit(Infinity) // Reset budget limit
+  })
+
+  afterEach(() => {
+    // Restore original state
+    globalTracker.reset()
+    globalTracker.setBudgetLimit(originalBudgetLimit)
+    globalTracker.importRecords(originalRecords)
+  })
+
+  it('should use request-scoped tracker inside runWithContext', async () => {
+    const { runWithContext, getCurrentContext } = await import('../context')
+    const {
+      getRequestTracker,
+      getTracker,
+      recordUsage,
+      getUsageReport,
+    } = await import('../tracking')
+
+    await runWithContext(async () => {
+      const requestTracker = getRequestTracker()
+      expect(requestTracker).toBeDefined()
+
+      const tracker = getTracker()
+      expect(tracker).toBe(requestTracker)
+
+      recordUsage({
+        provider: 'openai',
+        model: 'gpt-4o',
+        tokens: { input: 100, output: 50 },
+        cost: 0.001,
+        timestamp: Date.now(),
+      })
+
+      const report = getUsageReport()
+      expect(report.requestCount).toBe(1)
+      expect(report.totalCost).toBeCloseTo(0.001, 6)
+
+      // Verify it went to request tracker, not global
+      expect(getCurrentContext()?.tracker.getReport().requestCount).toBe(1)
+    })
+
+    // Global tracker should be empty (no leakage)
+    expect(globalTracker.getReport().requestCount).toBe(0)
+  })
+
+  it('should fall back to globalTracker outside runWithContext', async () => {
+    const {
+      getRequestTracker,
+      getTracker,
+      recordUsage,
+      getUsageReport,
+    } = await import('../tracking')
+
+    // Outside runWithContext, request tracker is undefined
+    const requestTracker = getRequestTracker()
+    expect(requestTracker).toBeUndefined()
+
+    // getTracker falls back to globalTracker
+    const tracker = getTracker()
+    expect(tracker).toBe(globalTracker)
+
+    recordUsage({
+      provider: 'openai',
+      model: 'gpt-4o',
+      tokens: { input: 100, output: 50 },
+      cost: 0.001,
+      timestamp: Date.now(),
+    })
+
+    const report = getUsageReport()
+    expect(report.requestCount).toBe(1)
+    expect(report.totalCost).toBeCloseTo(0.001, 6)
+
+    // Verify it went to global tracker
+    expect(globalTracker.getReport().requestCount).toBe(1)
+  })
+
+  it('should support setBudgetLimit and onBudgetThreshold in request context', async () => {
+    const { runWithContext, getCurrentContext } = await import('../context')
+    const {
+      setBudgetLimit,
+      onBudgetThreshold,
+      recordUsage,
+    } = await import('../tracking')
+
+    const alerts: number[] = []
+
+    await runWithContext(async () => {
+      setBudgetLimit(1.0)
+      onBudgetThreshold(0.5, (cost) => {
+        alerts.push(cost)
+      })
+
+      recordUsage({
+        provider: 'openai',
+        model: 'gpt-4o',
+        tokens: { input: 100, output: 50 },
+        cost: 0.6,
+        timestamp: Date.now(),
+      })
+
+      expect(alerts.length).toBe(1)
+      expect(alerts[0]).toBeCloseTo(0.6, 6)
+
+      // Verify budget limit is set on request tracker
+      expect(getCurrentContext()?.tracker.getBudgetLimit()).toBe(1.0)
+    })
+
+    // Global tracker should not have the budget limit
+    expect(globalTracker.getBudgetLimit()).toBe(Infinity)
+  })
+
+  it('should support recordUsageFromMeta in request context', async () => {
+    const { runWithContext, getCurrentContext } = await import('../context')
+    const { recordUsageFromMeta, getUsageReport } = await import('../tracking')
+
+    await runWithContext(async () => {
+      recordUsageFromMeta('openai', {
+        model: 'gpt-4o',
+        tokens: { input: 100, output: 50 },
+        cost: 0.001,
+      })
+
+      const report = getUsageReport()
+      expect(report.requestCount).toBe(1)
+      expect(report.totalTokens).toBe(150)
+    })
+
+    // Global tracker should be empty
+    expect(globalTracker.getReport().requestCount).toBe(0)
+  })
+
+  it('should support filtered reports in request context', async () => {
+    const { runWithContext } = await import('../context')
+    const { recordUsage, getUsageReport } = await import('../tracking')
+
+    await runWithContext(async () => {
+      recordUsage({
+        provider: 'openai',
+        model: 'gpt-4o',
+        tokens: { input: 100, output: 50 },
+        cost: 0.001,
+        timestamp: Date.now(),
+      })
+
+      recordUsage({
+        provider: 'anthropic',
+        model: 'claude-sonnet-4',
+        tokens: { input: 200, output: 100 },
+        cost: 0.002,
+        timestamp: Date.now(),
+      })
+
+      // Filter by provider
+      const openaiReport = getUsageReport({ provider: 'openai' })
+      expect(openaiReport.requestCount).toBe(1)
+      expect(openaiReport.totalCost).toBeCloseTo(0.001, 6)
+
+      // Full report
+      const fullReport = getUsageReport()
+      expect(fullReport.requestCount).toBe(2)
+      expect(fullReport.totalCost).toBeCloseTo(0.003, 6)
+    })
+  })
+
+  it('should isolate tracking between concurrent requests', async () => {
+    const { runWithContext } = await import('../context')
+    const { recordUsage, getUsageReport } = await import('../tracking')
+
+    const results: { request1: number; request2: number } = { request1: 0, request2: 0 }
+
+    // Simulate two concurrent requests
+    await Promise.all([
+      runWithContext(async () => {
+        recordUsage({
+          provider: 'openai',
+          model: 'gpt-4o',
+          tokens: { input: 100, output: 50 },
+          cost: 0.001,
+          timestamp: Date.now(),
+        })
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        results.request1 = getUsageReport().requestCount
+      }),
+      runWithContext(async () => {
+        recordUsage({
+          provider: 'anthropic',
+          model: 'claude-sonnet-4',
+          tokens: { input: 200, output: 100 },
+          cost: 0.002,
+          timestamp: Date.now(),
+        })
+        recordUsage({
+          provider: 'anthropic',
+          model: 'claude-sonnet-4',
+          tokens: { input: 200, output: 100 },
+          cost: 0.002,
+          timestamp: Date.now(),
+        })
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        results.request2 = getUsageReport().requestCount
+      }),
+    ])
+
+    // Each request should see only its own usage
+    expect(results.request1).toBe(1)
+    expect(results.request2).toBe(2)
+
+    // Global tracker should be empty
+    expect(globalTracker.getReport().requestCount).toBe(0)
+  })
+})

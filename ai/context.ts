@@ -33,7 +33,7 @@
  * @see do-hdgk - Fix for global mutable tracker state leakage
  */
 
-import { UsageTracker } from './tracking'
+import { UsageTracker, _initializeContextGetter } from './tracking'
 import type { Provider, ProviderConfig } from './types'
 
 // Re-export for backward compatibility
@@ -306,3 +306,7 @@ export function getOrCreateContext(): RequestContext {
   }
   return createRequestContext()
 }
+
+// Register getCurrentContext with the tracking module to enable request-scoped tracking
+// This avoids circular dependency issues by using a callback registration pattern
+_initializeContextGetter(getCurrentContext)
