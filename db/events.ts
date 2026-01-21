@@ -628,7 +628,7 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
       let deleted = 0
       const result = await adapter.list<Event<P>>({ prefix: EVENTS_PREFIX, includeValues: true })
       let events = Array.from(result.entries.entries())
-        .filter(([_, e]): e is [string, Event<P>] => e !== undefined)
+        .filter((entry): entry is [string, Event<P>] => entry[1] !== undefined)
 
       // Delete by age
       if (state.retentionPolicy.maxAgeDays) {
