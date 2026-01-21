@@ -200,6 +200,9 @@ export {
 // WebSocket management
 export {
   WebSocketManager,
+  // Message size limits (do-nyah)
+  MAX_WEBSOCKET_MESSAGE_SIZE,
+  WEBSOCKET_CLOSE_CODES,
   type WebSocketMessage,
   type WebSocketHandler,
   type BroadcastResult,

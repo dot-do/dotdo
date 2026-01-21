@@ -13,7 +13,14 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { env } from 'cloudflare:test'
-import { WebSocketManager, type ConnectionMetadata, type WebSocketHandler, type ConnectionHandler } from '../websocket'
+import {
+  WebSocketManager,
+  type ConnectionMetadata,
+  type WebSocketHandler,
+  type ConnectionHandler,
+  MAX_WEBSOCKET_MESSAGE_SIZE,
+  WEBSOCKET_CLOSE_CODES,
+} from '../websocket'
 
 // ============================================================================
 // Test Helpers
@@ -895,6 +902,170 @@ describe('WebSocketManager - Connection Lifecycle', () => {
 
     // Should still be 1 since handler was removed
     expect(calls).toHaveLength(1)
+  })
+})
+
+// ============================================================================
+// Message Size Limit Tests
+// ============================================================================
+
+describe('WebSocketManager - Message Size Limits', () => {
+  let manager: WebSocketManager
+
+  beforeEach(() => {
+    manager = new WebSocketManager()
+  })
+
+  it('should have a reasonable max message size constant', () => {
+    // 1 MB is a reasonable limit
+    expect(MAX_WEBSOCKET_MESSAGE_SIZE).toBe(1024 * 1024)
+    expect(MAX_WEBSOCKET_MESSAGE_SIZE).toBeGreaterThan(0)
+  })
+
+  it('should export MESSAGE_TOO_LARGE close code', () => {
+    expect(WEBSOCKET_CLOSE_CODES.MESSAGE_TOO_LARGE).toBe(1009)
+  })
+
+  it('should reject string messages exceeding size limit', async () => {
+    const ws = createTestWebSocket()
+    registerConnection(manager, ws, { tags: ['test'] })
+
+    let handlerCalled = false
+    const handler: WebSocketHandler = () => { handlerCalled = true }
+    manager.on('test', handler)
+
+    // Create a message larger than the limit
+    const oversizedMessage = JSON.stringify({
+      type: 'test',
+      data: 'x'.repeat(MAX_WEBSOCKET_MESSAGE_SIZE + 1000),
+    })
+
+    await manager.handleMessage(ws, oversizedMessage)
+
+    // Handler should NOT be called
+    expect(handlerCalled).toBe(false)
+
+    // Error response should be sent
+    expect(ws._sentMessages.length).toBeGreaterThan(0)
+    const errorResponse = JSON.parse(ws._sentMessages[0])
+    expect(errorResponse.type).toBe('error')
+    expect(errorResponse.error).toBe('Message too large')
+    expect(errorResponse.code).toBe(WEBSOCKET_CLOSE_CODES.MESSAGE_TOO_LARGE)
+    expect(errorResponse.maxSize).toBe(MAX_WEBSOCKET_MESSAGE_SIZE)
+    expect(errorResponse.receivedSize).toBeGreaterThan(MAX_WEBSOCKET_MESSAGE_SIZE)
+  })
+
+  it('should reject binary messages exceeding size limit', async () => {
+    const ws = createTestWebSocket()
+    registerConnection(manager, ws, { tags: ['test'] })
+
+    let handlerCalled = false
+    const handler: WebSocketHandler = () => { handlerCalled = true }
+    manager.on('binary', handler)
+
+    // Create a binary buffer larger than the limit
+    const oversizedBuffer = new ArrayBuffer(MAX_WEBSOCKET_MESSAGE_SIZE + 1000)
+
+    await manager.handleMessage(ws, oversizedBuffer)
+
+    // Handler should NOT be called
+    expect(handlerCalled).toBe(false)
+
+    // Error response should be sent
+    expect(ws._sentMessages.length).toBeGreaterThan(0)
+    const errorResponse = JSON.parse(ws._sentMessages[0])
+    expect(errorResponse.type).toBe('error')
+    expect(errorResponse.error).toBe('Message too large')
+  })
+
+  it('should allow messages at exactly the size limit', async () => {
+    const ws = createTestWebSocket()
+    registerConnection(manager, ws, { tags: ['test'] })
+
+    let receivedData: unknown = null
+    const handler: WebSocketHandler = (_, data) => { receivedData = data }
+    manager.on('test', handler)
+
+    // Create a message that is exactly at the limit
+    // The JSON structure adds some bytes, so we need to account for that
+    const baseJson = '{"type":"test","data":""}'
+    const paddingLength = MAX_WEBSOCKET_MESSAGE_SIZE - baseJson.length
+    const exactSizeMessage = JSON.stringify({
+      type: 'test',
+      data: 'x'.repeat(paddingLength),
+    })
+
+    expect(exactSizeMessage.length).toBe(MAX_WEBSOCKET_MESSAGE_SIZE)
+
+    await manager.handleMessage(ws, exactSizeMessage)
+
+    // Handler should be called
+    expect(receivedData).toBeTruthy()
+  })
+
+  it('should allow messages under the size limit', async () => {
+    const ws = createTestWebSocket()
+    registerConnection(manager, ws, { tags: ['test'] })
+
+    let handlerCalled = false
+    const handler: WebSocketHandler = () => { handlerCalled = true }
+    manager.on('test', handler)
+
+    const normalMessage = JSON.stringify({
+      type: 'test',
+      data: { hello: 'world' },
+    })
+
+    await manager.handleMessage(ws, normalMessage)
+
+    // Handler should be called
+    expect(handlerCalled).toBe(true)
+  })
+
+  it('should allow binary messages under the size limit', async () => {
+    const ws = createTestWebSocket()
+    registerConnection(manager, ws, { tags: ['test'] })
+
+    let handlerCalled = false
+    const handler: WebSocketHandler = () => { handlerCalled = true }
+    manager.on('binary', handler)
+
+    const normalBuffer = new ArrayBuffer(1024) // 1 KB
+
+    await manager.handleMessage(ws, normalBuffer)
+
+    // Handler should be called
+    expect(handlerCalled).toBe(true)
+  })
+
+  it('should not update activity timestamp for oversized messages', async () => {
+    const ws = createTestWebSocket()
+    const initialTime = Date.now() - 10000 // 10 seconds ago
+    registerConnection(manager, ws, {
+      tags: ['test'],
+      lastActivityAt: initialTime,
+    })
+
+    const oversizedMessage = 'x'.repeat(MAX_WEBSOCKET_MESSAGE_SIZE + 1000)
+
+    await manager.handleMessage(ws, oversizedMessage)
+
+    const metadata = manager.getConnectionMetadata(ws)
+    // Activity should NOT be updated for rejected messages
+    expect(metadata?.lastActivityAt).toBe(initialTime)
+  })
+
+  it('should handle send error gracefully when rejecting oversized message', async () => {
+    const ws = createTestWebSocket()
+    registerConnection(manager, ws, { tags: ['test'] })
+
+    // Close the socket to simulate send failure
+    ws.close()
+
+    const oversizedMessage = 'x'.repeat(MAX_WEBSOCKET_MESSAGE_SIZE + 1000)
+
+    // Should not throw
+    await expect(manager.handleMessage(ws, oversizedMessage)).resolves.not.toThrow()
   })
 })
 
