@@ -44,6 +44,7 @@ function createSimulatedState(name: string = 'test-primitives'): DurableObjectSt
 /**
  * Create an in-memory FsCapability for testing.
  * This is a real implementation with Map-based storage, not a vi.fn() mock.
+ * Uses the fsx-compatible method names: read, write, list (not readFile, writeFile, readdir)
  */
 function createInMemoryFsCapability(): FsCapability {
   const fileStore = new Map<string, string | Uint8Array>()
@@ -56,7 +57,8 @@ function createInMemoryFsCapability(): FsCapability {
     async initialize() {},
     async dispose() {},
 
-    async readFile(path: string, options?: { encoding?: string }) {
+    // Primary methods (fsx-compatible)
+    async read(path: string, options?: { encoding?: string }) {
       const content = fileStore.get(path)
       if (!content) {
         const error = new Error(`ENOENT: no such file or directory, open '${path}'`)
@@ -69,7 +71,7 @@ function createInMemoryFsCapability(): FsCapability {
       return typeof content === 'string' ? new TextEncoder().encode(content) : content
     },
 
-    async writeFile(path: string, data: string | Uint8Array) {
+    async write(path: string, data: string | Uint8Array) {
       fileStore.set(path, data)
     },
 
@@ -90,7 +92,7 @@ function createInMemoryFsCapability(): FsCapability {
       }
     },
 
-    async readdir(path: string) {
+    async list(path: string) {
       const entries: string[] = []
       for (const [filePath] of fileStore) {
         if (filePath.startsWith(path + '/')) {
@@ -325,14 +327,14 @@ describe('Primitives via $ Context (do-5ljl)', () => {
     })
 
     it('should write and read files via $.fs', async () => {
-      await $.fs!.writeFile('/test.txt', 'Hello, World!')
-      const content = await $.fs!.readFile('/test.txt', { encoding: 'utf-8' })
+      await $.fs!.write('/test.txt', 'Hello, World!')
+      const content = await $.fs!.read('/test.txt', { encoding: 'utf-8' })
       expect(content).toBe('Hello, World!')
     })
 
     it('should check file existence via $.fs', async () => {
       expect(await $.fs!.exists('/nonexistent.txt')).toBe(false)
-      await $.fs!.writeFile('/exists.txt', 'content')
+      await $.fs!.write('/exists.txt', 'content')
       expect(await $.fs!.exists('/exists.txt')).toBe(true)
     })
 
@@ -344,22 +346,22 @@ describe('Primitives via $ Context (do-5ljl)', () => {
 
     it('should list directory contents via $.fs', async () => {
       await $.fs!.mkdir('/project', { recursive: true })
-      await $.fs!.writeFile('/project/index.ts', 'export {}')
-      await $.fs!.writeFile('/project/package.json', '{}')
-      const entries = await $.fs!.readdir('/project')
+      await $.fs!.write('/project/index.ts', 'export {}')
+      await $.fs!.write('/project/package.json', '{}')
+      const entries = await $.fs!.list('/project')
       expect(entries).toContain('index.ts')
       expect(entries).toContain('package.json')
     })
 
     it('should get file stats via $.fs', async () => {
-      await $.fs!.writeFile('/file.txt', 'content')
+      await $.fs!.write('/file.txt', 'content')
       const stats = await $.fs!.stat('/file.txt')
       expect(stats.isFile()).toBe(true)
       expect(stats.isDirectory()).toBe(false)
     })
 
     it('should delete files via $.fs', async () => {
-      await $.fs!.writeFile('/temp.txt', 'temporary')
+      await $.fs!.write('/temp.txt', 'temporary')
       expect(await $.fs!.exists('/temp.txt')).toBe(true)
       await $.fs!.unlink('/temp.txt')
       expect(await $.fs!.exists('/temp.txt')).toBe(false)
@@ -508,7 +510,7 @@ describe('Primitives via $ Context (do-5ljl)', () => {
 
     it('should support workflow combining fs and git operations', async () => {
       // Write a file
-      await $.fs!.writeFile('/src/index.ts', 'console.log("Hello")')
+      await $.fs!.write('/src/index.ts', 'console.log("Hello")')
 
       // Stage and commit
       await $.git!.add('/src/index.ts')
@@ -523,7 +525,7 @@ describe('Primitives via $ Context (do-5ljl)', () => {
     it('should support workflow combining bash and fs operations', async () => {
       // Create a file using fs
       await $.fs!.mkdir('/project', { recursive: true })
-      await $.fs!.writeFile('/project/script.sh', '#!/bin/bash\necho "Hello"')
+      await $.fs!.write('/project/script.sh', '#!/bin/bash\necho "Hello"')
 
       // Execute a command (in-memory implementation)
       const result = await $.bash!.exec('ls', [], { cwd: '/project' })

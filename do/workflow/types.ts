@@ -53,17 +53,53 @@ export type EveryProxy = {
 
 /**
  * FsCapability interface for filesystem operations via $.fs
+ *
+ * This interface is compatible with the FsCapability from fsx.do/core/types.ts.
+ * Both interfaces use the same method names (read, write, list) for consistency
+ * across the dotdo ecosystem.
+ *
+ * @example
+ * ```typescript
+ * // Using $.fs in a workflow
+ * const content = await $.fs.read('/config.json', { encoding: 'utf-8' })
+ * await $.fs.write('/output.txt', 'Hello, World!')
+ * const files = await $.fs.list('/data')
+ * ```
  */
 export interface FsCapability {
+  /** Capability name for introspection */
   name: 'fs'
+  /** Whether the capability has been initialized */
   initialized?: boolean
+  /** Initialize the capability (called automatically) */
   initialize?(): Promise<void>
+  /** Dispose of resources */
   dispose?(): Promise<void>
-  readFile(path: string, options?: { encoding?: string }): Promise<string | Uint8Array>
-  writeFile(path: string, data: string | Uint8Array): Promise<void>
-  exists(path: string): Promise<boolean>
+
+  // File operations (matching fsx.do FsCapability)
+  /** Read file contents */
+  read(path: string, options?: { encoding?: string }): Promise<string | Uint8Array>
+  /** Write data to a file */
+  write(path: string, data: string | Uint8Array): Promise<void>
+  /** Append data to a file */
+  append?(path: string, data: string | Uint8Array): Promise<void>
+  /** Delete a file */
+  unlink(path: string): Promise<void>
+
+  // Directory operations
+  /** Create a directory */
   mkdir(path: string, options?: { recursive?: boolean }): Promise<void>
-  readdir(path: string): Promise<string[]>
+  /** Remove a directory */
+  rmdir(path: string): Promise<void>
+  /** List directory contents */
+  list(path: string): Promise<string[]>
+  /** Remove file or directory */
+  rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void>
+
+  // Metadata operations
+  /** Check if a path exists */
+  exists(path: string): Promise<boolean>
+  /** Get file/directory statistics */
   stat(path: string): Promise<{
     isFile(): boolean
     isDirectory(): boolean
@@ -75,9 +111,14 @@ export interface FsCapability {
     ctime: Date
     birthtime: Date
   }>
-  unlink(path: string): Promise<void>
-  rmdir(path: string): Promise<void>
-  rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void>
+
+  // Node.js compatibility aliases (optional)
+  /** Alias for read() - Node.js fs compatibility */
+  readFile?(path: string, options?: { encoding?: string }): Promise<string | Uint8Array>
+  /** Alias for write() - Node.js fs compatibility */
+  writeFile?(path: string, data: string | Uint8Array): Promise<void>
+  /** Alias for list() - Node.js fs compatibility */
+  readdir?(path: string): Promise<string[]>
 }
 
 /**
