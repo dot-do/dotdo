@@ -1,400 +1,332 @@
 /**
- * @dotdo/do/primitives - Extended Primitives with AI Assistance
+ * @dotdo/do/primitives - Extended Primitives for Durable Objects
  *
- * This module re-exports primitives from submodules:
- * - fsx: File system operations (from fsx submodule)
- * - gitx: Git operations (from gitx submodule)
- * - bashx: Bash/shell command execution (from bashx submodule)
- * - npmx: NPM/NPX operations (from npmx submodule)
+ * This module provides type definitions and documentation for the extended
+ * primitives that can be wired into the WorkflowContext ($).
+ *
+ * ## Naming Conventions
+ *
+ * All primitives follow consistent naming:
+ * - **FSX** (File System eXtended) - File system operations from `fsx.do`
+ * - **GitX** (Git eXtended) - Git operations from `gitx.do`
+ * - **BashX** (Bash eXtended) - Shell command execution from `bashx.do`
+ * - **NpmX** (NPM eXtended) - Package management from `npmx.do`
+ *
+ * ## Usage
+ *
+ * Primitives are optional capabilities that can be wired into the $ context:
+ *
+ * ```typescript
+ * import { createContext, type FsCapability, type GitCapability, type BashCapability } from '@dotdo/do'
+ * import { FsModule } from 'fsx.do'
+ * import { GitModule } from 'gitx.do'
+ * import { BashModule } from 'bashx.do'
+ *
+ * // In your DO constructor
+ * const fs = new FsModule(state)
+ * const git = new GitModule(state)
+ * const bash = new BashModule()
+ *
+ * const $ = createContext(state, env, { fs, git, bash })
+ *
+ * // Now use primitives via $
+ * await $.fs.writeFile('/config.json', JSON.stringify(config))
+ * await $.git.commit('Update config')
+ * await $.bash.exec('npm', ['install'])
+ * ```
+ *
+ * ## Package Dependencies
+ *
+ * Install the primitives you need:
+ *
+ * ```bash
+ * # File system operations
+ * npm install fsx.do
+ *
+ * # Git operations
+ * npm install gitx.do
+ *
+ * # Bash/shell execution
+ * npm install bashx.do
+ *
+ * # NPM/NPX operations
+ * npm install npmx.do
+ * ```
  *
  * @packageDocumentation
+ * @module @dotdo/do/primitives
  */
 
-// File System Primitive (fsx submodule)
-// Re-export core FSx functionality
-export {
-  // Core classes and types
-  FSx,
-  type FSxOptions,
-  Stats,
-  Dirent,
-  FileHandle,
-  MemoryBackend,
-  type FsBackend,
-  type BackendWriteResult,
-  type BackendReadResult,
-  type BackendOptions,
-  constants,
-  type Constants,
-  // Types
-  type FsCapability,
-  type StorageTier,
-  type FileStat,
-  type StatsInit,
-  type StatsLike,
-  type DirentType,
-  type FileType,
-  type FileEntry,
-  type FileMode,
-  type ReadOptions,
-  type WriteOptions,
-  type ListOptions,
-  type CopyOptions,
-  type MoveOptions,
-  type RemoveOptions,
-  type ReadStreamOptions,
-  type WriteStreamOptions,
-  type MkdirOptions,
-  type RmdirOptions,
-  type ReaddirOptions,
-  type WatchOptions,
-  type WriteResult,
-  type ReadResult,
-  type FSWatcher,
-  type BufferEncoding,
-  type BlobRef,
-  // Errors
-  FSError,
-  ENOENT,
-  EEXIST,
-  EISDIR,
-  ENOTDIR,
-  EACCES,
-  EPERM,
-  ENOTEMPTY,
-  EBADF,
-  EINVAL,
-  ELOOP,
-  ENAMETOOLONG,
-  ENOSPC,
-  EROFS,
-  EBUSY,
-  EMFILE,
-  ENFILE,
-  EXDEV,
-  // Path utilities
-  normalize,
-  join,
-  resolve,
-  dirname,
-  basename,
-  extname,
-  isAbsolute,
-  relative,
-  // Glob and search
-  match,
-  createMatcher,
-  type MatchOptions,
-  glob,
-  GlobTimeoutError,
-  GlobAbortedError,
-  type GlobOptions,
-  find,
-  type FindOptions,
-  type FindResult,
-  grep,
-  type GrepOptions,
-  type GrepMatch,
-  type GrepResult,
-  // CAS
-  ContentAddressableFS,
-  type CASObject,
-  type CASStorage,
-  type ObjectType as CASObjectType,
-  sha1,
-  sha256,
-  bytesToHex,
-  hexToBytes,
-  hashToPath,
-  pathToHash,
-  // Sparse checkout
-  parsePattern,
-  type ParsedPattern,
-  // Config
-  createConfig,
-  isReadOnly,
-  defaultConfig,
-  type FSxConfig,
-  type FSxConfigOptions,
-  // DO integration
-  FileSystemDO,
-  FsModule,
-  type FsModuleConfig,
-  withFs,
-  hasFs,
-  getFs,
-  type WithFsContext,
-  type WithFsOptions,
-  type WithFsDO,
-  // Storage backends
-  TieredFS,
-  R2Storage,
-  SQLiteMetadata,
-  R2Backend,
-  type R2BackendConfig,
-  // Factory
-  createFs,
-  fs,
-} from '../../fsx/index.js'
+// =============================================================================
+// CAPABILITY INTERFACES
+// =============================================================================
 
-// Git Primitive (gitx submodule)
-// Re-export core git functionality
-export {
-  // Types - Objects
-  type ObjectType as GitObjectType,
-  type GitObject,
-  type BlobObject,
-  type TreeObject,
-  type TreeEntry,
-  type CommitObject,
-  type TagObject,
-  type Author,
-  isBlob,
-  isTree,
-  isCommit,
-  isTag,
-  // Validation
-  SHA_PATTERN,
-  VALID_MODES,
-  isValidSha,
-  isValidObjectType,
-  isValidMode,
-  validateTreeEntry,
-  validateAuthor,
-  validateCommit,
-  validateTag,
-  // Serialization
-  serializeBlob,
-  serializeTree,
-  serializeCommit,
-  serializeTag,
-  parseBlob,
-  parseTree,
-  parseCommit,
-  parseTag,
-  // Pack operations
-  PACK_SIGNATURE,
-  PACK_VERSION,
-  PackObjectType,
-  packObjectTypeToString,
-  stringToPackObjectType,
-  encodeVarint,
-  decodeVarint,
-  encodeTypeAndSize,
-  decodeTypeAndSize,
-  parsePackHeader,
-  parsePackObject,
-  createPackfile,
-  type PackHeader,
-  type ParsedPackObject,
-  type PackableObject,
-  // Pack index
-  PACK_INDEX_SIGNATURE,
-  PACK_INDEX_MAGIC,
-  PACK_INDEX_VERSION,
-  LARGE_OFFSET_THRESHOLD,
-  parsePackIndex,
-  createPackIndex,
-  lookupObject,
-  verifyPackIndex,
-  serializePackIndex,
-  getFanoutRange,
-  calculateCRC32,
-  binarySearchObjectId,
-  binarySearchSha,
-  parseFanoutTable,
-  readPackOffset,
-  type PackIndexEntry,
-  type PackIndex,
-  type PackIndexLookupResult,
-  type CreatePackIndexOptions,
-  type PackedObject,
-  // Git operations - Merge
-  merge,
-  findMergeBase,
-  resolveConflict,
-  abortMerge,
-  continueMerge,
-  getMergeState,
-  isMergeInProgress,
-  mergeContent,
-  isBinaryFile,
-  type ConflictType,
-  type MergeStrategy,
-  type MergeStatus,
-  type ConflictMarker,
-  type MergeConflict,
-  type MergeOptions,
-  type MergeStats,
-  type MergeResult,
-  type MergeState,
-  type ResolveOptions,
-  type ResolveResult,
-  type MergeOperationResult,
-  type MergeStorage,
-  // Git operations - Blame
-  blame,
-  blameFile,
-  blameLine,
-  blameRange,
-  getBlameForCommit,
-  trackContentAcrossRenames,
-  detectRenames,
-  buildBlameHistory,
-  formatBlame,
-  parseBlameOutput,
-  type BlameStorage,
-  type BlameOptions,
-  type BlameLineInfo,
-  type BlameCommitInfo,
-  type BlameEntry,
-  type BlameResult,
-  type BlameFormatOptions,
-  type PathHistoryEntry,
-  type BlameHistoryEntry,
-  // Git operations - Commit
-  createCommit,
-  amendCommit,
-  buildCommitObject,
-  formatCommitMessage,
-  parseCommitMessage,
-  validateCommitMessage,
-  isCommitSigned,
-  extractCommitSignature,
-  addSignatureToCommit,
-  isEmptyCommit,
-  getCurrentTimezone,
-  formatTimestamp,
-  parseTimestamp,
-  createAuthor,
-  type CommitAuthor,
-  type SigningOptions,
-  type CommitOptions,
-  type AmendOptions,
-  type FormatOptions,
-  type CommitResult,
-  type ObjectStore,
-  // Git operations - Branch
-  createBranch,
-  deleteBranch,
-  listBranches,
-  renameBranch,
-  checkoutBranch,
-  getCurrentBranch,
-  getBranchInfo,
-  branchExists,
-  setBranchTracking,
-  getBranchTracking,
-  removeBranchTracking,
-  getDefaultBranch,
-  setDefaultBranch,
-  isValidBranchName,
-  normalizeBranchName,
-  type RefStore,
-  type BranchOptions,
-  type BranchCreateResult,
-  type BranchDeleteOptions,
-  type BranchDeleteResult,
-  type BranchListOptions,
-  type BranchInfo,
-  type TrackingInfo,
-  type BranchRenameOptions,
-  type BranchRenameResult,
-  type CheckoutOptions,
-  type CheckoutResult,
-  type SetTrackingResult,
-  type RemoveTrackingResult,
-  // Wire protocol
-  handleInfoRefs,
-  handleUploadPack,
-  handleReceivePack,
-  formatRefAdvertisement,
-  formatUploadPackResponse,
-  formatReceivePackResponse,
-  parseUploadPackRequest,
-  parseReceivePackRequest,
-  parseCapabilities,
-  capabilitiesToStrings,
-  validateContentType,
-  createErrorResponse,
-  encodePktLine,
-  decodePktLine,
-  encodeFlushPkt,
-  encodeDelimPkt,
-  pktLineStream,
-  FLUSH_PKT,
-  DELIM_PKT,
-  MAX_PKT_LINE_DATA,
-} from '../../gitx/src/index.js'
+/**
+ * Re-export capability interfaces from the workflow context.
+ * These define the contract that primitive implementations must satisfy.
+ */
+export type {
+  FsCapability,
+  GitCapability,
+  BashCapability,
+} from '../workflow/context'
 
-// Bash Primitive (bashx submodule)
-// Re-export bash execution functionality
-export {
-  // Main client
-  Bash,
-  bash,
-  type BashClientOptions,
-  type BashClientExtended,
-  type BashResult,
-  type BashOptions,
-  // Escape utilities
-  shellEscape,
-  shellEscapeArg,
-  // Undo tracking
-  UndoManager,
-  createUndoManager,
-  type UndoInfo,
-  getUndoHistory,
-  clearUndoHistory,
-  setUndoOptions,
-  undo,
-  generateUndoInfo,
-  isReversible,
-  trackForUndo,
-  recordUndoEntry,
-  type UndoEntry,
-  type UndoOptions,
-  // Configuration
-  type BashxConfig,
-  type PartialBashxConfig,
-  type CacheConfig,
-  type TimeoutConfig,
-  type LimitConfig,
-  type ExecutionConfig,
-  type RetryConfig,
-  type ConfigValidationError,
-  type ConfigDiffEntry,
-  DEFAULT_CONFIG,
-  getConfig,
-  validateConfig,
-  mergeConfig,
-  configDiff,
-} from '../../bashx/src/index.js'
+// =============================================================================
+// FSX - FILE SYSTEM EXTENDED
+// =============================================================================
 
-// NPM/NPX Primitive (npmx submodule)
-// Re-export npm operations
-export {
-  // SDK
-  npm,
-  npx,
-  createNpm,
-  type NpmConfig,
-  type NpmSDK,
-  // CLI utilities
-  createCLI,
-  runCLI,
-  formatPackageList,
-  formatSearchResults,
-  formatPackageInfo,
-  formatInstallResult,
-  type CommandResult,
-  type PackageEntry,
-  type SearchResult,
-  type ListFormatOptions,
-  type InstallOptions,
-  // Types
-  type InstallResult,
-  type PackageVersion,
-  type PackageUpdate,
-  createEmptyInstallResult,
-} from '../../npmx/index.js'
+/**
+ * FSX (File System eXtended) provides POSIX-compatible filesystem operations.
+ *
+ * ## Features
+ * - POSIX-like API (readFile, writeFile, mkdir, etc.)
+ * - Tiered storage (hot/warm/cold)
+ * - Content-addressable storage (CAS)
+ * - Glob pattern matching
+ * - File search with grep
+ *
+ * ## Package: `fsx.do`
+ *
+ * ```typescript
+ * import { FSx, MemoryBackend, glob, grep, find } from 'fsx.do'
+ *
+ * // Create filesystem with memory backend
+ * const backend = new MemoryBackend()
+ * const fs = new FSx(backend)
+ *
+ * // Basic operations
+ * await fs.writeFile('/hello.txt', 'Hello, World!')
+ * const content = await fs.readFile('/hello.txt', { encoding: 'utf-8' })
+ *
+ * // Glob pattern matching
+ * const files = await glob('**\/*.ts', { fs })
+ *
+ * // Content search
+ * const matches = await grep('TODO', '/src', { fs })
+ * ```
+ *
+ * @see https://fsx.do for full documentation
+ */
+export interface FSX {
+  /** Package name for installation */
+  readonly package: 'fsx.do'
+  /** Capability name when wired to $ context */
+  readonly capability: 'fs'
+}
+
+// =============================================================================
+// GITX - GIT EXTENDED
+// =============================================================================
+
+/**
+ * GitX (Git eXtended) provides complete Git implementation for Workers.
+ *
+ * ## Features
+ * - Complete Git object model (blob, tree, commit, tag)
+ * - Packfile format and delta compression
+ * - Merge, blame, and branch operations
+ * - Git Smart HTTP protocol (fetch, push)
+ * - R2 packfile storage
+ *
+ * ## Package: `gitx.do`
+ *
+ * ```typescript
+ * import { createCommit, merge, blame } from 'gitx.do'
+ *
+ * // Create a commit
+ * const commit = await createCommit(storage, {
+ *   tree: treeSha,
+ *   parents: [parentSha],
+ *   message: 'Add new feature',
+ *   author: { name: 'Alice', email: 'alice@example.com' }
+ * })
+ *
+ * // Merge branches
+ * const result = await merge(storage, 'feature', 'main')
+ *
+ * // Get blame info
+ * const blameInfo = await blame(storage, '/src/index.ts')
+ * ```
+ *
+ * @see https://gitx.do for full documentation
+ */
+export interface GitX {
+  /** Package name for installation */
+  readonly package: 'gitx.do'
+  /** Capability name when wired to $ context */
+  readonly capability: 'git'
+}
+
+// =============================================================================
+// BASHX - BASH EXTENDED
+// =============================================================================
+
+/**
+ * BashX (Bash eXtended) provides AI-enhanced bash with safety analysis.
+ *
+ * ## Features
+ * - AST-based command parsing (tree-sitter-bash)
+ * - Safety classification (structural, not regex)
+ * - Intent analysis and suggestions
+ * - Dangerous command blocking
+ * - Undo tracking for reversible operations
+ *
+ * ## Package: `bashx.do`
+ *
+ * ```typescript
+ * import { bash } from 'bashx.do'
+ *
+ * // Execute commands
+ * const result = await bash`ls -la`
+ *
+ * // Natural language intent
+ * const files = await bash`find all typescript files over 100 lines`
+ *
+ * // Dangerous commands are blocked
+ * const blocked = await bash`rm -rf /`  // { blocked: true }
+ *
+ * // Execute with confirmation
+ * await bash('rm -rf ./temp', { confirm: true })
+ *
+ * // Shell-safe interpolation
+ * const file = 'my file.txt'
+ * await bash`cat ${file}`  // cat 'my file.txt' (escaped)
+ * ```
+ *
+ * @see https://bashx.do for full documentation
+ */
+export interface BashX {
+  /** Package name for installation */
+  readonly package: 'bashx.do'
+  /** Capability name when wired to $ context */
+  readonly capability: 'bash'
+}
+
+// =============================================================================
+// NPMX - NPM EXTENDED
+// =============================================================================
+
+/**
+ * NpmX (NPM eXtended) provides NPM/NPX for edge runtimes.
+ *
+ * ## Features
+ * - npm install in Workers (no Node.js required)
+ * - npx command execution
+ * - Semver resolution
+ * - Package.json handling
+ * - Tarball extraction
+ *
+ * ## Package: `npmx.do`
+ *
+ * ```typescript
+ * import { npm, npx } from 'npmx.do'
+ *
+ * // Install packages at runtime
+ * await npm.install(['lodash', 'react@18'])
+ *
+ * // Run npx commands
+ * await npx('cowsay', ['hello'])
+ *
+ * // Get package info
+ * const info = await npm.info('react')
+ * ```
+ *
+ * @see https://npmx.do for full documentation
+ */
+export interface NpmX {
+  /** Package name for installation */
+  readonly package: 'npmx.do'
+  /** Capability name when wired to $ context */
+  readonly capability: 'npm'
+}
+
+// =============================================================================
+// PRIMITIVE REGISTRY
+// =============================================================================
+
+/**
+ * Registry of all available primitives with their metadata.
+ *
+ * Use this to discover available primitives and their capabilities:
+ *
+ * ```typescript
+ * import { PRIMITIVES } from '@dotdo/do/primitives'
+ *
+ * console.log(PRIMITIVES)
+ * // {
+ * //   fsx: { package: 'fsx.do', capability: 'fs', ... },
+ * //   gitx: { package: 'gitx.do', capability: 'git', ... },
+ * //   bashx: { package: 'bashx.do', capability: 'bash', ... },
+ * //   npmx: { package: 'npmx.do', capability: 'npm', ... },
+ * // }
+ * ```
+ */
+export const PRIMITIVES = {
+  /**
+   * FSX - File System eXtended
+   * POSIX-compatible filesystem for Workers
+   */
+  fsx: {
+    package: 'fsx.do',
+    capability: 'fs',
+    description: 'POSIX-compatible filesystem with tiered storage',
+    features: ['readFile', 'writeFile', 'glob', 'grep', 'find', 'CAS'],
+  },
+
+  /**
+   * GitX - Git eXtended
+   * Complete Git implementation for Workers
+   */
+  gitx: {
+    package: 'gitx.do',
+    capability: 'git',
+    description: 'Complete Git implementation with packfile support',
+    features: ['commit', 'merge', 'blame', 'branch', 'push', 'fetch'],
+  },
+
+  /**
+   * BashX - Bash eXtended
+   * AI-enhanced bash with safety analysis
+   */
+  bashx: {
+    package: 'bashx.do',
+    capability: 'bash',
+    description: 'AI-enhanced bash with AST-based safety analysis',
+    features: ['exec', 'parse', 'analyze', 'isDangerous', 'undo'],
+  },
+
+  /**
+   * NpmX - NPM eXtended
+   * NPM/NPX for edge runtimes
+   */
+  npmx: {
+    package: 'npmx.do',
+    capability: 'npm',
+    description: 'NPM/NPX operations in Workers without Node.js',
+    features: ['install', 'npx', 'info', 'search', 'semver'],
+  },
+} as const
+
+/**
+ * Type for the PRIMITIVES registry
+ */
+export type PrimitiveRegistry = typeof PRIMITIVES
+
+/**
+ * Names of all available primitives
+ */
+export type PrimitiveName = keyof PrimitiveRegistry
+
+/**
+ * Get primitive info by name
+ */
+export function getPrimitiveInfo(name: PrimitiveName) {
+  return PRIMITIVES[name]
+}
+
+/**
+ * List all available primitives
+ */
+export function listPrimitives(): PrimitiveName[] {
+  return Object.keys(PRIMITIVES) as PrimitiveName[]
+}

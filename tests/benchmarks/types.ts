@@ -131,5 +131,17 @@ export const DEFAULT_THRESHOLD_CONFIG: ThresholdConfig = {
     'storage-read': { regressionThreshold: 10, critical: true },
     'storage-write': { regressionThreshold: 10, critical: true },
     'websocket-throughput': { regressionThreshold: 15, critical: false },
+    // Entity benchmarks
+    'entity-create-single': { regressionThreshold: 15, critical: true },
+    'entity-get-single': { regressionThreshold: 10, critical: true },
+    'entity-bulk-create-10': { regressionThreshold: 15, critical: true },
+    'entity-bulk-create-100': { regressionThreshold: 20, critical: false },
+    // Relationship benchmarks
+    'relationship-create-single': { regressionThreshold: 15, critical: true },
+    'relationship-query-by-subject': { regressionThreshold: 15, critical: true },
+    'relationship-getRelated': { regressionThreshold: 15, critical: true },
+    // Graph traversal benchmarks
+    'graph-traversal-2-hops': { regressionThreshold: 20, critical: false },
+    'entity-fetch-with-related': { regressionThreshold: 15, critical: true },
   },
 }

@@ -13,10 +13,22 @@
 
 import type { MiddlewareHandler, Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import type { AuthUser } from '../auth/middleware'
-import { extractToken, verifyTokenSignature } from '../auth/token'
-import { verifyTokenWithJwks, type JwksClient } from '../auth/jwks'
-import { createLogger } from '../utils/logger'
+import type { AuthUser } from '@dotdo/auth'
+import { extractToken, verifyTokenSignature } from '@dotdo/auth'
+import { verifyTokenWithJwks, type JwksClient } from '@dotdo/auth'
+import { validateSecret, isSecretConfigured } from '@dotdo/auth'
+import {
+  PolicyEngine,
+  type UserContext,
+  type ResourceContext,
+  type PolicyDecision,
+  type RoleDefinition,
+  type PermissionAction,
+  type ResourceType,
+  ROLE_HIERARCHY,
+  userHasAtLeastRole,
+} from '@dotdo/auth'
+import { createLogger } from '@dotdo/utils'
 
 const logger = createLogger('[DOAuth]')
 
@@ -30,7 +42,9 @@ const logger = createLogger('[DOAuth]')
 export type CallerType = 'worker' | 'user' | 'do' | 'unknown'
 
 /**
- * Authentication payload returned from token validation
+ * Authentication payload returned from token validation.
+ * Contains standard JWT claims. For tokens with additional custom claims,
+ * use AuthPayloadWithClaims.
  */
 export interface AuthPayload {
   /** Subject (user ID or service ID) */
@@ -49,9 +63,16 @@ export interface AuthPayload {
   exp?: number
   /** Issued at timestamp */
   iat?: number
-  /** Additional claims */
-  [key: string]: unknown
+  /** JWT ID */
+  jti?: string
+  /** Not before timestamp */
+  nbf?: number
 }
+
+/**
+ * AuthPayload with additional dynamic claims.
+ */
+export type AuthPayloadWithClaims = AuthPayload & Record<string, unknown>
 
 /**
  * Caller information extracted from request
@@ -64,7 +85,7 @@ export interface CallerInfo {
   /** Full auth payload (for user requests) */
   auth?: AuthPayload
   /** Source DO ID (for DO-to-DO calls) */
-  sourceDoId?: string
+  sourceDoId?: string | undefined
   /** Whether this is a trusted internal call */
   trusted: boolean
 }
@@ -97,6 +118,19 @@ export interface DOAuthGuard {
 }
 
 /**
+ * Token revocation checker function type for DO auth
+ * Used to integrate with token validation
+ */
+export type DOTokenRevocationChecker = (jti: string) => Promise<boolean>
+
+/**
+ * Token revocation store interface for DO auth
+ */
+export interface DOTokenRevocationStore {
+  isTokenRevoked(jti: string): Promise<boolean>
+}
+
+/**
  * Configuration for DO auth guards
  */
 export interface DOAuthGuardConfig {
@@ -116,6 +150,10 @@ export interface DOAuthGuardConfig {
   trustDoToDo?: boolean
   /** Custom trust verification function */
   customTrustCheck?: (request: Request, callerInfo: CallerInfo) => Promise<boolean>
+  /** Token revocation store for checking if tokens have been revoked */
+  revocationStore?: DOTokenRevocationStore
+  /** Custom revocation checker function (alternative to revocationStore) */
+  revocationChecker?: DOTokenRevocationChecker
 }
 
 // ============================================================================
@@ -165,9 +203,19 @@ export const DO_SIGNATURE_HEADER = 'X-DO-Signature'
 export const DO_TIMESTAMP_HEADER = 'X-DO-Timestamp'
 
 /**
+ * Header containing nonce for replay protection and idempotency
+ */
+export const DO_NONCE_HEADER = 'X-DO-Nonce'
+
+/**
  * Maximum age of a signature in milliseconds (5 minutes)
  */
 const SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000
+
+/**
+ * Maximum future timestamp drift allowed in milliseconds (30 seconds)
+ */
+const SIGNATURE_MAX_FUTURE_MS = 30 * 1000
 
 // ============================================================================
 // HMAC Signing for DO-to-DO Authentication
@@ -190,9 +238,7 @@ let doInternalSecret: string | null = null
  * ```
  */
 export function setDOInternalSecret(secret: string): void {
-  if (!secret || secret.length < 32) {
-    throw new Error('DO_INTERNAL_SECRET must be at least 32 characters')
-  }
+  validateSecret(secret, 32, 'DO_INTERNAL_SECRET', 'DO-to-DO HMAC signing')
   doInternalSecret = secret
 }
 
@@ -219,7 +265,8 @@ async function generateHmacSignature(
   secret: string,
   sourceDoId: string,
   timestamp: string,
-  targetPath?: string
+  targetPath?: string,
+  nonce?: string
 ): Promise<string> {
   const encoder = new TextEncoder()
   const key = await crypto.subtle.importKey(
@@ -230,8 +277,8 @@ async function generateHmacSignature(
     ['sign']
   )
 
-  // Message format: sourceDoId|timestamp|targetPath
-  const message = `${sourceDoId}|${timestamp}|${targetPath || ''}`
+  // Message format: sourceDoId|timestamp|nonce|targetPath
+  const message = `${sourceDoId}|${timestamp}|${nonce || ''}|${targetPath || ''}`
   const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message))
 
   // Convert to base64
@@ -240,16 +287,18 @@ async function generateHmacSignature(
 
 /**
  * Verify HMAC-SHA256 signature for DO-to-DO request
+ * Uses constant-time comparison to prevent timing attacks
  */
 async function verifyHmacSignature(
   secret: string,
   sourceDoId: string,
   timestamp: string,
   signature: string,
-  targetPath?: string
+  targetPath?: string,
+  nonce?: string
 ): Promise<boolean> {
   try {
-    const expectedSignature = await generateHmacSignature(secret, sourceDoId, timestamp, targetPath)
+    const expectedSignature = await generateHmacSignature(secret, sourceDoId, timestamp, targetPath, nonce)
     // Constant-time comparison to prevent timing attacks
     if (signature.length !== expectedSignature.length) {
       return false
@@ -267,9 +316,13 @@ async function verifyHmacSignature(
 /**
  * Verify DO-to-DO request signature
  * Returns true if the request has a valid signature, false otherwise
+ *
+ * Timestamp validation:
+ * - Rejects timestamps older than SIGNATURE_MAX_AGE_MS (5 minutes)
+ * - Rejects timestamps more than SIGNATURE_MAX_FUTURE_MS (30 seconds) in the future
  */
 export async function verifyDOSignature(request: Request): Promise<boolean> {
-  if (!doInternalSecret) {
+  if (!isSecretConfigured(doInternalSecret)) {
     logger.warn(' DO_INTERNAL_SECRET not configured - DO-to-DO verification disabled')
     return false
   }
@@ -277,6 +330,7 @@ export async function verifyDOSignature(request: Request): Promise<boolean> {
   const signature = request.headers.get(DO_SIGNATURE_HEADER)
   const timestamp = request.headers.get(DO_TIMESTAMP_HEADER)
   const sourceDoId = request.headers.get(DO_SOURCE_ID_HEADER)
+  const nonce = request.headers.get(DO_NONCE_HEADER)
 
   if (!signature || !timestamp || !sourceDoId) {
     return false
@@ -289,7 +343,25 @@ export async function verifyDOSignature(request: Request): Promise<boolean> {
   }
 
   const now = Date.now()
-  if (Math.abs(now - timestampMs) > SIGNATURE_MAX_AGE_MS) {
+  const age = now - timestampMs
+
+  // Reject timestamps too far in the past (replay attack prevention)
+  if (age > SIGNATURE_MAX_AGE_MS) {
+    logger.warn('DO-to-DO request rejected: timestamp too old', {
+      age: `${Math.round(age / 1000)}s`,
+      maxAge: `${SIGNATURE_MAX_AGE_MS / 1000}s`,
+      sourceDoId,
+    })
+    return false
+  }
+
+  // Reject timestamps too far in the future (clock manipulation prevention)
+  if (age < -SIGNATURE_MAX_FUTURE_MS) {
+    logger.warn('DO-to-DO request rejected: timestamp in future', {
+      futureBy: `${Math.round(-age / 1000)}s`,
+      maxFuture: `${SIGNATURE_MAX_FUTURE_MS / 1000}s`,
+      sourceDoId,
+    })
     return false
   }
 
@@ -297,7 +369,15 @@ export async function verifyDOSignature(request: Request): Promise<boolean> {
   const url = new URL(request.url)
   const targetPath = url.pathname
 
-  return verifyHmacSignature(doInternalSecret, sourceDoId, timestamp, signature, targetPath)
+  return verifyHmacSignature(doInternalSecret, sourceDoId, timestamp, signature, targetPath, nonce || undefined)
+}
+
+/**
+ * Extract the nonce from a DO-to-DO request
+ * Can be used by the receiver for idempotency checking
+ */
+export function extractDONonce(request: Request): string | null {
+  return request.headers.get(DO_NONCE_HEADER)
 }
 
 // ============================================================================
@@ -475,7 +555,26 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
     trustedWorkers = [],
     trustDoToDo = true,
     customTrustCheck,
+    revocationStore,
+    revocationChecker,
   } = config
+
+  /**
+   * Check if a token has been revoked
+   */
+  async function isTokenRevoked(jti: string | undefined): Promise<boolean> {
+    if (!jti) return false
+
+    if (revocationChecker) {
+      return revocationChecker(jti)
+    }
+
+    if (revocationStore) {
+      return revocationStore.isTokenRevoked(jti)
+    }
+
+    return false
+  }
 
   return {
     async canAccess(request: Request, _doId: string): Promise<boolean> {
@@ -538,8 +637,9 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
           try {
             // Decode without verification just to get the subject
             const parts = token.split('.')
-            if (parts.length === 3) {
-              const payload = JSON.parse(atob(parts[1]))
+            const payloadPart = parts[1]
+            if (parts.length === 3 && payloadPart) {
+              const payload = JSON.parse(atob(payloadPart))
               return payload.sub ?? null
             }
           } catch {
@@ -553,37 +653,44 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
 
     async validateToken(token: string): Promise<AuthPayload | null> {
       try {
+        let payload: AuthPayload | null = null
+
         // Try JWKS validation first if client is available
         if (jwksClient) {
-          const payload = await verifyTokenWithJwks(token, jwksClient, {
+          payload = (await verifyTokenWithJwks(token, jwksClient, {
             issuer: issuer ? (Array.isArray(issuer) ? issuer : [issuer]) : undefined,
             audience: audience ? (Array.isArray(audience) ? audience : [audience]) : undefined,
-          })
-          return payload as AuthPayload
-        }
-
-        // Fall back to symmetric secret validation
-        if (secret) {
+          })) as AuthPayload
+        } else if (secret) {
+          // Fall back to symmetric secret validation
           const firstIssuer = Array.isArray(issuer) ? issuer[0] : issuer
           const firstAudience = Array.isArray(audience) ? audience[0] : audience
-          const payload = await verifyTokenSignature(token, {
+          payload = (await verifyTokenSignature(token, {
             secret: typeof secret === 'string' ? secret : secret,
             ...(firstIssuer && { issuer: firstIssuer }),
             ...(firstAudience && { audience: firstAudience }),
-          })
-          return payload as AuthPayload
+          })) as AuthPayload
+        } else {
+          // No validation configured - decode without verification (NOT RECOMMENDED)
+          logger.warn('No secret or JWKS client configured - tokens will not be verified')
+          const parts = token.split('.')
+          const payloadPart = parts[1]
+          if (parts.length === 3 && payloadPart) {
+            payload = JSON.parse(atob(payloadPart)) as AuthPayload
+          }
         }
 
-        // No validation configured - decode without verification (NOT RECOMMENDED)
-        logger.warn('No secret or JWKS client configured - tokens will not be verified')
-        const parts = token.split('.')
-        const payloadPart = parts[1]
-        if (parts.length === 3 && payloadPart) {
-          const payload = JSON.parse(atob(payloadPart))
-          return payload as AuthPayload
+        if (!payload) {
+          return null
         }
 
-        return null
+        // Check if token has been revoked (requires jti claim)
+        if (await isTokenRevoked(payload.jti)) {
+          logger.warn('Token has been revoked:', payload.jti)
+          return null
+        }
+
+        return payload
       } catch (error) {
         logger.error(' Token validation failed:', error)
         return null
@@ -844,6 +951,304 @@ export function requireDOSource(...allowedDOs: string[]): MiddlewareHandler {
 }
 
 // ============================================================================
+// DO-level RBAC Guards
+// ============================================================================
+
+/**
+ * Options for DO RBAC middleware
+ */
+export interface DORBACMiddlewareOptions {
+  /** Custom roles to add to the policy engine */
+  customRoles?: Record<string, RoleDefinition>
+  /** Function to extract tenant ID from context */
+  getTenantId?: (c: Context) => string | undefined
+  /** Whether to enforce tenant isolation (default: true) */
+  enforceTenantIsolation?: boolean
+}
+
+// Extend Hono context for DO RBAC
+declare module 'hono' {
+  interface ContextVariableMap {
+    doPolicyEngine: PolicyEngine
+    doUserContext: UserContext
+  }
+}
+
+/**
+ * Create DO-level RBAC middleware that initializes the policy engine.
+ *
+ * This middleware should be applied after doAuthMiddleware. It creates a
+ * PolicyEngine instance and UserContext from the authenticated caller info.
+ *
+ * @example
+ * ```typescript
+ * import { Hono } from 'hono'
+ * import { doAuthMiddleware, doRbacMiddleware, requireDOPermission } from '@dotdo/do'
+ *
+ * const app = new Hono()
+ *
+ * // Apply auth first, then RBAC
+ * app.use('/*', doAuthMiddleware({ secret: env.JWT_SECRET }))
+ * app.use('/*', doRbacMiddleware({
+ *   getTenantId: (c) => c.req.header('X-Tenant-ID')
+ * }))
+ *
+ * // Use permission guards
+ * app.post('/things', requireDOPermission('thing', 'create'), (c) => {
+ *   return c.json({ created: true })
+ * })
+ * ```
+ */
+export function doRbacMiddleware(options: DORBACMiddlewareOptions = {}): MiddlewareHandler {
+  const { customRoles = {}, getTenantId, enforceTenantIsolation = true } = options
+
+  const policyEngine = new PolicyEngine(customRoles)
+
+  return async (c, next) => {
+    // Set policy engine in context
+    c.set('doPolicyEngine', policyEngine)
+
+    // Get caller info from auth middleware
+    const callerInfo = c.get('callerInfo')
+
+    // Build user context from caller info
+    let userContext: UserContext
+
+    if (callerInfo?.type === 'user' && callerInfo.auth) {
+      // Authenticated user
+      const tenantId = getTenantId?.(c) ?? c.req.header('X-Tenant-ID')
+      userContext = {
+        id: callerInfo.auth.sub,
+        roles: callerInfo.auth.roles ?? [],
+        permissions: callerInfo.auth.scopes,
+        tenantId,
+        attributes: {},
+      }
+    } else if (callerInfo?.type === 'worker' && callerInfo.trusted) {
+      // Trusted worker - grant elevated access
+      userContext = {
+        id: callerInfo.id ?? 'worker',
+        roles: ['api'],
+        permissions: ['*:*'],
+        attributes: {},
+      }
+    } else if (callerInfo?.type === 'do' && callerInfo.trusted) {
+      // Trusted DO-to-DO call - grant elevated access
+      userContext = {
+        id: callerInfo.sourceDoId ?? 'do',
+        roles: ['api'],
+        permissions: ['*:*'],
+        attributes: {},
+      }
+    } else {
+      // Unknown/unauthenticated - guest access
+      userContext = {
+        id: 'anonymous',
+        roles: ['guest'],
+        attributes: {},
+      }
+    }
+
+    c.set('doUserContext', userContext)
+
+    // Store enforcement preference for guards
+    ;(c as Context & { enforceTenantIsolation?: boolean }).enforceTenantIsolation =
+      enforceTenantIsolation
+
+    return next()
+  }
+}
+
+/**
+ * Require a specific permission on a resource type for DO endpoints.
+ *
+ * This guard uses the PolicyEngine from doRbacMiddleware to check permissions.
+ * It supports resource-level permissions with conditions.
+ *
+ * @example
+ * ```typescript
+ * // Require 'create' permission on 'thing' resources
+ * app.post('/things', requireDOPermission('thing', 'create'), (c) => {
+ *   return c.json({ created: true })
+ * })
+ *
+ * // With custom resource context
+ * app.delete('/things/:id', requireDOPermission('thing', 'delete', async (c) => ({
+ *   type: 'thing',
+ *   id: c.req.param('id'),
+ *   ownerId: (await getThingOwner(c.req.param('id'))),
+ *   tenantId: c.req.header('X-Tenant-ID')
+ * })), (c) => {
+ *   return c.json({ deleted: true })
+ * })
+ * ```
+ */
+export function requireDOPermission(
+  resource: ResourceType | string,
+  action: PermissionAction | string,
+  getResourceContext?: (c: Context) => ResourceContext | Promise<ResourceContext>
+): MiddlewareHandler {
+  return async (c, next) => {
+    const policyEngine = c.var.doPolicyEngine as PolicyEngine | undefined
+    const userContext = c.var.doUserContext as UserContext | undefined
+
+    if (!policyEngine || !userContext) {
+      throw new HTTPException(500, {
+        message: 'DO RBAC middleware not initialized - add doRbacMiddleware first',
+      })
+    }
+
+    // Build resource context
+    let resourceContext: ResourceContext
+    if (getResourceContext) {
+      resourceContext = await getResourceContext(c)
+    } else {
+      // Default resource context from request
+      const id = c.req.param('id')
+      const tenantIdHeader = c.req.header('X-Tenant-ID')
+      resourceContext = {
+        type: resource,
+        ...(id !== undefined && { id }),
+        ...(tenantIdHeader !== undefined && { tenantId: tenantIdHeader }),
+      }
+    }
+
+    // Check authorization (includes tenant isolation)
+    const decision = policyEngine.authorize(userContext, action, resourceContext)
+
+    if (!decision.allowed) {
+      throw new HTTPException(403, {
+        message: decision.reason,
+      })
+    }
+
+    return next()
+  }
+}
+
+/**
+ * Require at least a certain role level in the hierarchy for DO endpoints.
+ *
+ * Uses the role hierarchy to allow higher-privileged roles to pass:
+ * guest < viewer < api < editor < owner < admin < super_admin
+ *
+ * @example
+ * ```typescript
+ * // Require at least 'editor' level (admin and super_admin also pass)
+ * app.post('/things', requireDORoleLevel('editor'), (c) => {
+ *   return c.json({ created: true })
+ * })
+ * ```
+ */
+export function requireDORoleLevel(minimumRole: string): MiddlewareHandler {
+  return async (c, next) => {
+    const userContext = c.var.doUserContext as UserContext | undefined
+
+    if (!userContext) {
+      throw new HTTPException(500, {
+        message: 'DO RBAC middleware not initialized - add doRbacMiddleware first',
+      })
+    }
+
+    if (!userHasAtLeastRole(userContext, minimumRole)) {
+      throw new HTTPException(403, {
+        message: `Required role level: ${minimumRole} or higher`,
+      })
+    }
+
+    return next()
+  }
+}
+
+/**
+ * Require a specific role for DO endpoints.
+ *
+ * @example
+ * ```typescript
+ * app.delete('/admin/reset', requireDORole('super_admin'), (c) => {
+ *   return c.json({ reset: true })
+ * })
+ * ```
+ */
+export function requireDORole(...roles: string[]): MiddlewareHandler {
+  return async (c, next) => {
+    const userContext = c.var.doUserContext as UserContext | undefined
+
+    if (!userContext) {
+      throw new HTTPException(500, {
+        message: 'DO RBAC middleware not initialized - add doRbacMiddleware first',
+      })
+    }
+
+    const hasRole = roles.some((role) => userContext.roles.includes(role))
+    if (!hasRole) {
+      throw new HTTPException(403, {
+        message: `Required role: ${roles.join(' or ')}`,
+      })
+    }
+
+    return next()
+  }
+}
+
+/**
+ * Check DO-level authorization programmatically.
+ *
+ * Use this function within handlers to perform custom authorization checks.
+ *
+ * @example
+ * ```typescript
+ * app.put('/things/:id', async (c) => {
+ *   const thing = await getThing(c.req.param('id'))
+ *
+ *   // Check if user can update this specific thing
+ *   const canUpdate = checkDOAuthorization(c, 'update', {
+ *     type: 'thing',
+ *     id: thing.id,
+ *     ownerId: thing.ownerId,
+ *     tenantId: thing.tenantId
+ *   })
+ *
+ *   if (!canUpdate.allowed) {
+ *     return c.json({ error: canUpdate.reason }, 403)
+ *   }
+ *
+ *   // Proceed with update...
+ * })
+ * ```
+ */
+export function checkDOAuthorization(
+  c: Context,
+  action: PermissionAction | string,
+  resource: ResourceContext
+): PolicyDecision {
+  const policyEngine = c.var.doPolicyEngine as PolicyEngine | undefined
+  const userContext = c.var.doUserContext as UserContext | undefined
+
+  if (!policyEngine || !userContext) {
+    return {
+      allowed: false,
+      reason: 'DO RBAC middleware not initialized',
+    }
+  }
+
+  return policyEngine.authorize(userContext, action, resource)
+}
+
+// Re-export RBAC types and utilities for convenience
+export {
+  PolicyEngine,
+  ROLE_HIERARCHY,
+  userHasAtLeastRole,
+  type UserContext,
+  type ResourceContext,
+  type PolicyDecision,
+  type RoleDefinition,
+  type PermissionAction,
+  type ResourceType,
+}
+
+// ============================================================================
 // Helpers for Cross-DO Calls
 // ============================================================================
 
@@ -854,9 +1259,10 @@ export function requireDOSource(...allowedDOs: string[]): MiddlewareHandler {
 async function signDORequest(
   sourceDoId: string,
   timestamp: string,
-  targetPath?: string
+  targetPath?: string,
+  nonce?: string
 ): Promise<string> {
-  if (!doInternalSecret) {
+  if (!isSecretConfigured(doInternalSecret)) {
     throw new Error('DO_INTERNAL_SECRET not configured - call setDOInternalSecret() first')
   }
 
@@ -869,7 +1275,8 @@ async function signDORequest(
     ['sign']
   )
 
-  const message = `${sourceDoId}|${timestamp}|${targetPath || ''}`
+  // Message format must match generateHmacSignature: sourceDoId|timestamp|nonce|targetPath
+  const message = `${sourceDoId}|${timestamp}|${nonce || ''}|${targetPath || ''}`
   const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message))
 
   return btoa(String.fromCharCode(...new Uint8Array(signature)))
@@ -892,7 +1299,8 @@ async function signDORequest(
 export async function addDOSourceHeaders(
   headers: Headers,
   sourceDoId: string,
-  targetPath?: string
+  targetPath?: string,
+  nonce?: string
 ): Promise<Headers> {
   const timestamp = Date.now().toString()
 
@@ -900,8 +1308,12 @@ export async function addDOSourceHeaders(
   headers.set(DO_SOURCE_ID_HEADER, sourceDoId)
   headers.set(DO_TIMESTAMP_HEADER, timestamp)
 
+  if (nonce) {
+    headers.set(DO_NONCE_HEADER, nonce)
+  }
+
   try {
-    const signature = await signDORequest(sourceDoId, timestamp, targetPath)
+    const signature = await signDORequest(sourceDoId, timestamp, targetPath, nonce)
     headers.set(DO_SIGNATURE_HEADER, signature)
   } catch (error) {
     logger.warn(' Failed to sign DO-to-DO request:', error)
@@ -927,9 +1339,20 @@ export async function addDOSourceHeaders(
 export async function addDOSourceHeadersAsync(
   headers: Headers,
   sourceDoId: string,
-  targetPath?: string
+  targetPath?: string,
+  nonce?: string
 ): Promise<Headers> {
-  return addDOSourceHeaders(headers, sourceDoId, targetPath)
+  return addDOSourceHeaders(headers, sourceDoId, targetPath, nonce)
+}
+
+/**
+ * Options for creating DO-to-DO request headers
+ */
+export interface CreateDOToDoHeadersOptions {
+  /** Optional nonce for idempotency/replay protection */
+  nonce?: string
+  /** Optional correlation ID for request tracing */
+  correlationId?: string
 }
 
 /**
@@ -944,13 +1367,33 @@ export async function addDOSourceHeadersAsync(
  *   body: JSON.stringify({ ... }),
  * })
  * ```
+ *
+ * @example
+ * ```typescript
+ * // With nonce for idempotency
+ * const headers = await createDOToDoHeaders('source-do-123', '/rpc', {
+ *   nonce: crypto.randomUUID(),
+ *   correlationId: 'corr-123'
+ * })
+ * ```
  */
 export async function createDOToDoHeaders(
   sourceDoId: string,
   targetPath?: string,
-  correlationId?: string
+  correlationIdOrOptions?: string | CreateDOToDoHeadersOptions
 ): Promise<Headers> {
   const timestamp = Date.now().toString()
+
+  // Handle backwards compatibility: third param can be string (correlationId) or options object
+  let correlationId: string | undefined
+  let nonce: string | undefined
+
+  if (typeof correlationIdOrOptions === 'string') {
+    correlationId = correlationIdOrOptions
+  } else if (correlationIdOrOptions) {
+    correlationId = correlationIdOrOptions.correlationId
+    nonce = correlationIdOrOptions.nonce
+  }
 
   const headers = new Headers({
     'Content-Type': 'application/json',
@@ -959,8 +1402,12 @@ export async function createDOToDoHeaders(
     [DO_TIMESTAMP_HEADER]: timestamp,
   })
 
+  if (nonce) {
+    headers.set(DO_NONCE_HEADER, nonce)
+  }
+
   try {
-    const signature = await signDORequest(sourceDoId, timestamp, targetPath)
+    const signature = await signDORequest(sourceDoId, timestamp, targetPath, nonce)
     headers.set(DO_SIGNATURE_HEADER, signature)
   } catch (error) {
     logger.warn(' Failed to sign DO-to-DO request:', error)

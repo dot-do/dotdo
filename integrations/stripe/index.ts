@@ -1,5 +1,44 @@
-// Stripe Integration Stub
-// Example integration for the dotdo integration registry (do-laux)
+/**
+ * Stripe Integration - Test Stub Implementation
+ *
+ * This is a **stub implementation** for the dotdo integration registry.
+ * It provides the full Stripe integration interface with mock data responses
+ * for testing and development purposes.
+ *
+ * ## Purpose
+ *
+ * - Defines the contract for Stripe integration methods
+ * - Enables testing of integration registry functionality
+ * - Allows development without real Stripe API credentials
+ * - Demonstrates the integration hooks pattern (do-07dn)
+ *
+ * ## For Real Stripe Integration
+ *
+ * For production use with real Stripe API calls, use:
+ * - `@dotdo/compat/stripe` - API-compatible Stripe SDK
+ * - `lib/tools/adapters/stripe` - Tool adapter for the provider registry
+ *
+ * ## Example Usage (Testing)
+ *
+ * ```typescript
+ * import { createStripeIntegration } from '@dotdo/integrations/stripe'
+ *
+ * const stripe = createStripeIntegration()
+ * await stripe.init({ apiKey: 'sk_test_xxx' })
+ *
+ * // Returns mock data - suitable for testing
+ * const result = await stripe.methods.createCustomer({
+ *   email: 'test@example.com',
+ *   name: 'Test User'
+ * })
+ * // result.data.id = 'cus_<random>'
+ * ```
+ *
+ * @module integrations/stripe
+ * @see do-laux - Integration registry issue
+ * @see do-07dn - Hooks pattern standardization
+ * @see do-d5au - Stub documentation issue
+ */
 
 import type {
   Integration,
@@ -9,8 +48,11 @@ import type {
   IntegrationResult,
   IntegrationWebhookHandler,
   IntegrationEvent,
+  IntegrationHooks,
+  MethodCallContext,
 } from '../types'
 import { successResult, errorResult } from '../registry'
+import { verifyStripeSignature } from '../webhook-verify'
 
 /**
  * Stripe-specific configuration
@@ -97,15 +139,48 @@ export interface StripeMethods extends Record<string, (...args: any[]) => Promis
 }
 
 /**
- * Stripe Integration
- * Provides payment processing capabilities
+ * Stripe Integration - Stub Implementation
+ *
+ * Provides payment processing capabilities via mock responses.
+ * This is a test stub - all methods return simulated data.
+ *
+ * ## Hooks Pattern (do-07dn)
+ *
+ * Stripe supports the full hooks pattern:
+ * - `onEvent()` for webhook event handling
+ * - `handleWebhook()` for incoming webhook requests
+ * - `setHooks()` for method call observability
+ *
+ * ## Stub Behavior
+ *
+ * All methods return mock data with realistic IDs:
+ * - Customer IDs: `cus_<random>`
+ * - Payment Intent IDs: `pi_<random>`
+ * - Subscription IDs: `sub_<random>`
+ * - Request IDs: `req_<random>`
+ *
+ * @example
+ * ```typescript
+ * const stripe = createStripeIntegration()
+ *
+ * // Set up observability hooks
+ * stripe.setHooks({
+ *   onMethodCall: {
+ *     before: (ctx) => console.log(`Calling ${ctx.method}`),
+ *     after: (ctx, result) => console.log(`${ctx.method} completed`)
+ *   },
+ *   onError: (error, ctx) => reportError(error, ctx)
+ * })
+ *
+ * await stripe.init({ apiKey: 'sk_test_xxx' })
+ * ```
  */
 export class StripeIntegration implements Integration<StripeConfig, StripeMethods> {
   readonly name = 'stripe'
   readonly version = '1.0.0'
   readonly metadata: IntegrationMetadata = {
     displayName: 'Stripe',
-    description: 'Payment processing and subscription management',
+    description: 'Payment processing and subscription management (stub implementation)',
     category: 'payments',
     docsUrl: 'https://stripe.com/docs/api',
     websiteUrl: 'https://stripe.com',
@@ -116,6 +191,7 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
   private _status: IntegrationStatus = 'uninitialized'
   private config: StripeConfig | null = null
   private webhookHandlers: IntegrationWebhookHandler[] = []
+  private hooks: IntegrationHooks = {}
 
   get status(): IntegrationStatus {
     return this._status
@@ -152,6 +228,7 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
   async shutdown(): Promise<void> {
     this.config = null
     this.webhookHandlers = []
+    this.hooks = {}
     this._status = 'uninitialized'
   }
 
@@ -160,13 +237,72 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
       return false
     }
 
-    // In a real implementation, you would make a test API call
-    // For the stub, we just return true
+    // Stub: Always returns true when initialized
+    // Real implementation would make a test API call to Stripe
     return true
   }
 
+  // ============================================================================
+  // OBSERVABILITY HOOKS (do-07dn)
+  // ============================================================================
+
   /**
-   * Methods exposed by this integration
+   * Configure observability hooks for method calls and errors.
+   */
+  setHooks(hooks: IntegrationHooks): void {
+    this.hooks = hooks
+  }
+
+  /**
+   * Helper to wrap method calls with hooks.
+   * Call this at the start and end of method implementations for full observability.
+   */
+  private async invokeWithHooks<T>(
+    method: string,
+    args: unknown[],
+    fn: () => Promise<IntegrationResult<T>>
+  ): Promise<IntegrationResult<T>> {
+    const context: MethodCallContext = {
+      method,
+      args,
+      timestamp: new Date(),
+    }
+
+    // Call before hook
+    if (this.hooks.onMethodCall?.before) {
+      await this.hooks.onMethodCall.before(context)
+    }
+
+    let result: IntegrationResult<T>
+    try {
+      result = await fn()
+    } catch (error) {
+      result = errorResult('UNEXPECTED_ERROR', String(error), error)
+    }
+
+    // Call after hook
+    if (this.hooks.onMethodCall?.after) {
+      await this.hooks.onMethodCall.after(context, result as IntegrationResult)
+    }
+
+    // Call error hook on failure
+    if (!result.success && this.hooks.onError) {
+      await this.hooks.onError(result.error!, { integration: this.name, method, args })
+    }
+
+    return result
+  }
+
+  // ============================================================================
+  // STUB METHODS
+  // All methods return mock data for testing purposes.
+  // For real Stripe API calls, use @dotdo/compat/stripe or lib/tools/adapters/stripe
+  // ============================================================================
+
+  /**
+   * Methods exposed by this integration.
+   *
+   * **Note:** All methods return stub/mock data. They do not make real API calls.
    */
   readonly methods: StripeMethods = {
     createCustomer: async (data) => {
@@ -288,8 +424,16 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
     },
   }
 
+  // ============================================================================
+  // WEBHOOK HANDLING
+  // Webhook signature verification is real; event handling calls registered handlers
+  // ============================================================================
+
   /**
-   * Handle incoming webhooks from Stripe
+   * Handle incoming webhooks from Stripe.
+   *
+   * This method performs real signature verification using the configured
+   * webhook secret, then dispatches events to registered handlers.
    */
   async handleWebhook(request: Request): Promise<Response> {
     if (this._status !== 'ready' || !this.config) {
@@ -300,14 +444,28 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
       const body = await request.text()
       const signature = request.headers.get('stripe-signature')
 
-      if (!signature && this.config.webhookSecret) {
-        return new Response('Missing signature', { status: 400 })
-      }
+      // Verify webhook signature if secret is configured
+      if (this.config.webhookSecret) {
+        if (!signature) {
+          return new Response(JSON.stringify({ error: 'Missing Stripe-Signature header' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
 
-      // In a real implementation, you would:
-      // 1. Verify the webhook signature
-      // 2. Parse the event
-      // 3. Call registered handlers
+        const verification = await verifyStripeSignature(body, signature, this.config.webhookSecret)
+
+        if (!verification.valid) {
+          console.error('Stripe webhook signature verification failed:', verification.error)
+          return new Response(
+            JSON.stringify({ error: 'Signature verification failed', details: verification.error }),
+            {
+              status: 401,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          )
+        }
+      }
 
       const event = JSON.parse(body) as { type: string; data: { object: unknown } }
 
@@ -345,9 +503,10 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
 
 /**
  * Generate a random ID for stub responses
+ * Uses crypto.randomUUID() for cryptographically secure random generation
  */
 function generateId(): string {
-  return Math.random().toString(36).substring(2, 15)
+  return crypto.randomUUID().replace(/-/g, '').substring(0, 13)
 }
 
 /**

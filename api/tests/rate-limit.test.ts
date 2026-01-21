@@ -726,6 +726,174 @@ describe('Per-User Rate Limiting', () => {
     const key = rateLimiter.getKeyForRequest(request)
     expect(key).toBe('user:anonymous')
   })
+
+  it('should extract user ID from JWT Bearer token (sub claim)', async () => {
+    // Create a valid JWT with sub claim: {"sub": "user-12345", "iat": 1737000000}
+    // Header: {"alg": "HS256", "typ": "JWT"}
+    const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const payload = btoa(JSON.stringify({ sub: 'user-12345', iat: 1737000000 })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const signature = 'fake-signature'
+    const token = `${header}.${payload}.${signature}`
+
+    const request = new Request('https://api.dotdo.dev/test', {
+      method: 'GET',
+      headers: new Headers({
+        'CF-Connecting-IP': '192.168.1.1',
+        'Authorization': `Bearer ${token}`,
+      }),
+    })
+
+    const key = rateLimiter.getKeyForRequest(request)
+    expect(key).toBe('user:user-12345')
+  })
+
+  it('should extract user ID from JWT with user_id claim', async () => {
+    // Create a valid JWT with user_id claim (no sub)
+    const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const payload = btoa(JSON.stringify({ user_id: 'custom-user-id', iat: 1737000000 })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const signature = 'fake-signature'
+    const token = `${header}.${payload}.${signature}`
+
+    const request = new Request('https://api.dotdo.dev/test', {
+      method: 'GET',
+      headers: new Headers({
+        'CF-Connecting-IP': '192.168.1.1',
+        'Authorization': `Bearer ${token}`,
+      }),
+    })
+
+    const key = rateLimiter.getKeyForRequest(request)
+    expect(key).toBe('user:custom-user-id')
+  })
+
+  it('should extract user ID from JWT with jti claim as fallback', async () => {
+    // Create a valid JWT with only jti claim (no sub or user_id)
+    const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const payload = btoa(JSON.stringify({ jti: 'jwt-id-12345', iat: 1737000000 })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const signature = 'fake-signature'
+    const token = `${header}.${payload}.${signature}`
+
+    const request = new Request('https://api.dotdo.dev/test', {
+      method: 'GET',
+      headers: new Headers({
+        'CF-Connecting-IP': '192.168.1.1',
+        'Authorization': `Bearer ${token}`,
+      }),
+    })
+
+    const key = rateLimiter.getKeyForRequest(request)
+    expect(key).toBe('user:jwt-id-12345')
+  })
+
+  it('should extract user ID from JWT with email claim as last resort', async () => {
+    // Create a valid JWT with only email claim
+    const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const payload = btoa(JSON.stringify({ email: 'user@example.com', iat: 1737000000 })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const signature = 'fake-signature'
+    const token = `${header}.${payload}.${signature}`
+
+    const request = new Request('https://api.dotdo.dev/test', {
+      method: 'GET',
+      headers: new Headers({
+        'CF-Connecting-IP': '192.168.1.1',
+        'Authorization': `Bearer ${token}`,
+      }),
+    })
+
+    const key = rateLimiter.getKeyForRequest(request)
+    expect(key).toBe('user:user@example.com')
+  })
+
+  it('should prefer sub claim over user_id claim', async () => {
+    // Create a valid JWT with both sub and user_id claims
+    const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const payload = btoa(JSON.stringify({ sub: 'sub-user', user_id: 'userid-user', iat: 1737000000 })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const signature = 'fake-signature'
+    const token = `${header}.${payload}.${signature}`
+
+    const request = new Request('https://api.dotdo.dev/test', {
+      method: 'GET',
+      headers: new Headers({
+        'CF-Connecting-IP': '192.168.1.1',
+        'Authorization': `Bearer ${token}`,
+      }),
+    })
+
+    const key = rateLimiter.getKeyForRequest(request)
+    expect(key).toBe('user:sub-user')
+  })
+
+  it('should use token prefix as fallback for invalid JWT', async () => {
+    // Malformed JWT that cannot be decoded
+    const token = 'not-a-valid-jwt-token-but-long-enough-to-have-32-chars'
+
+    const request = new Request('https://api.dotdo.dev/test', {
+      method: 'GET',
+      headers: new Headers({
+        'CF-Connecting-IP': '192.168.1.1',
+        'Authorization': `Bearer ${token}`,
+      }),
+    })
+
+    const key = rateLimiter.getKeyForRequest(request)
+    // First 32 chars of token as fallback
+    expect(key).toBe(`user:bearer:${token.substring(0, 32)}`)
+  })
+
+  it('should use token prefix for JWT without user identifier claims', async () => {
+    // Create a valid JWT with no user identifier claims (only iat)
+    const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const payload = btoa(JSON.stringify({ iat: 1737000000, exp: 1737100000 })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const signature = 'fake-signature'
+    const token = `${header}.${payload}.${signature}`
+
+    const request = new Request('https://api.dotdo.dev/test', {
+      method: 'GET',
+      headers: new Headers({
+        'CF-Connecting-IP': '192.168.1.1',
+        'Authorization': `Bearer ${token}`,
+      }),
+    })
+
+    const key = rateLimiter.getKeyForRequest(request)
+    // Should fall back to bearer: prefix with first 32 chars
+    expect(key).toMatch(/^user:bearer:/)
+    expect(key.length).toBeGreaterThan('user:bearer:'.length)
+  })
+
+  it('should use anonymous for empty Bearer token', async () => {
+    const request = new Request('https://api.dotdo.dev/test', {
+      method: 'GET',
+      headers: new Headers({
+        'CF-Connecting-IP': '192.168.1.1',
+        'Authorization': 'Bearer ',
+      }),
+    })
+
+    const key = rateLimiter.getKeyForRequest(request)
+    expect(key).toBe('user:anonymous')
+  })
+
+  it('should prefer X-User-ID header over JWT token', async () => {
+    // Create a valid JWT with sub claim
+    const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const payload = btoa(JSON.stringify({ sub: 'jwt-user', iat: 1737000000 })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const signature = 'fake-signature'
+    const token = `${header}.${payload}.${signature}`
+
+    const request = new Request('https://api.dotdo.dev/test', {
+      method: 'GET',
+      headers: new Headers({
+        'CF-Connecting-IP': '192.168.1.1',
+        'X-User-ID': 'explicit-user-id',
+        'Authorization': `Bearer ${token}`,
+      }),
+    })
+
+    const key = rateLimiter.getKeyForRequest(request)
+    // X-User-ID should take precedence
+    expect(key).toBe('user:explicit-user-id')
+  })
 })
 
 // ============================================================================

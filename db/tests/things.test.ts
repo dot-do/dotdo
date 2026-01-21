@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createThingsStore, type Thing, type ThingsStore } from '../things'
+import { DbValidationError, DbNotFoundError } from '../errors'
 
 describe('Things Store', () => {
   let store: ThingsStore
@@ -21,7 +22,18 @@ describe('Things Store', () => {
 
     it('should require $type', async () => {
       // Intentionally passing invalid input to test runtime validation
+      await expect(store.create({ name: 'Alice' } as unknown as { $type: string })).rejects.toThrow(DbValidationError)
       await expect(store.create({ name: 'Alice' } as unknown as { $type: string })).rejects.toThrow('$type is required')
+    })
+
+    it('should require $type to be a string', async () => {
+      await expect(store.create({ $type: 123 } as unknown as { $type: string })).rejects.toThrow(DbValidationError)
+      await expect(store.create({ $type: 123 } as unknown as { $type: string })).rejects.toThrow('must be a string')
+    })
+
+    it('should require $type to not be empty', async () => {
+      await expect(store.create({ $type: '' })).rejects.toThrow(DbValidationError)
+      await expect(store.create({ $type: '   ' })).rejects.toThrow('cannot be empty')
     })
 
     it('should generate unique IDs for each thing', async () => {
@@ -73,8 +85,9 @@ describe('Things Store', () => {
       expect(updated.$updatedAt).toBeGreaterThanOrEqual(created.$updatedAt)
     })
 
-    it('should throw for non-existent thing', async () => {
-      await expect(store.update('non-existent', { name: 'Bob' })).rejects.toThrow('Thing not found')
+    it('should throw DbNotFoundError for non-existent thing', async () => {
+      await expect(store.update('non-existent', { name: 'Bob' })).rejects.toThrow(DbNotFoundError)
+      await expect(store.update('non-existent', { name: 'Bob' })).rejects.toThrow('Thing with id non-existent not found')
     })
 
     it('should not allow changing $id', async () => {
@@ -118,8 +131,9 @@ describe('Things Store', () => {
       expect(result).toBeNull()
     })
 
-    it('should throw for non-existent thing', async () => {
-      await expect(store.delete('non-existent')).rejects.toThrow('Thing not found')
+    it('should throw DbNotFoundError for non-existent thing', async () => {
+      await expect(store.delete('non-existent')).rejects.toThrow(DbNotFoundError)
+      await expect(store.delete('non-existent')).rejects.toThrow('Thing with id non-existent not found')
     })
   })
 
@@ -181,9 +195,9 @@ describe('Things Store', () => {
 
       const items = await store.list({ type: 'Item' })
 
-      expect(items[0].$id).toBe(third.$id)
-      expect(items[1].$id).toBe(second.$id)
-      expect(items[2].$id).toBe(first.$id)
+      expect(items[0]!.$id).toBe(third.$id)
+      expect(items[1]!.$id).toBe(second.$id)
+      expect(items[2]!.$id).toBe(first.$id)
     })
 
     it('should return empty array for non-existent type', async () => {
@@ -215,12 +229,12 @@ describe('Things Store', () => {
       ])
 
       expect(things).toHaveLength(3)
-      expect(things[0].$type).toBe('Customer')
-      expect(things[0].name).toBe('Alice')
-      expect(things[1].$type).toBe('Customer')
-      expect(things[1].name).toBe('Bob')
-      expect(things[2].$type).toBe('Order')
-      expect(things[2].total).toBe(100)
+      expect(things[0]!.$type).toBe('Customer')
+      expect(things[0]!.name).toBe('Alice')
+      expect(things[1]!.$type).toBe('Customer')
+      expect(things[1]!.name).toBe('Bob')
+      expect(things[2]!.$type).toBe('Order')
+      expect(things[2]!.total).toBe(100)
 
       // All should have unique IDs
       const ids = things.map(t => t.$id)
@@ -241,11 +255,18 @@ describe('Things Store', () => {
         // Intentionally passing invalid input to test atomic rollback
         { name: 'No Type' } as unknown as { $type: string }, // Missing $type
         { $type: 'Customer', name: 'Bob' }
-      ])).rejects.toThrow('$type is required')
+      ])).rejects.toThrow(DbValidationError)
 
       // Count after - should be unchanged (atomic rollback)
       const afterCount = (await store.list()).length
       expect(afterCount).toBe(beforeCount)
+    })
+
+    it('should include item index in validation error', async () => {
+      await expect(store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' },
+        { name: 'No Type' } as unknown as { $type: string },
+      ])).rejects.toThrow('items[1].$type')
     })
 
     it('should preserve all custom properties', async () => {
@@ -254,10 +275,10 @@ describe('Things Store', () => {
         { $type: 'Order', total: 200, items: ['c'], metadata: { source: 'api' } }
       ])
 
-      expect(things[0].items).toEqual(['a', 'b'])
-      expect(things[0].metadata).toEqual({ source: 'web' })
-      expect(things[1].items).toEqual(['c'])
-      expect(things[1].metadata).toEqual({ source: 'api' })
+      expect(things[0]!.items).toEqual(['a', 'b'])
+      expect(things[0]!.metadata).toEqual({ source: 'web' })
+      expect(things[1]!.items).toEqual(['c'])
+      expect(things[1]!.metadata).toEqual({ source: 'api' })
     })
   })
 
@@ -272,18 +293,18 @@ describe('Things Store', () => {
       await new Promise(resolve => setTimeout(resolve, 1))
 
       const updated = await store.bulkUpdate([
-        { id: created[0].$id, data: { status: 'inactive' } },
-        { id: created[1].$id, data: { name: 'Robert', status: 'pending' } }
+        { id: created[0]!.$id, data: { status: 'inactive' } },
+        { id: created[1]!.$id, data: { name: 'Robert', status: 'pending' } }
       ])
 
       expect(updated).toHaveLength(2)
-      expect(updated[0].status).toBe('inactive')
-      expect(updated[0].name).toBe('Alice') // Unchanged
-      expect(updated[1].status).toBe('pending')
-      expect(updated[1].name).toBe('Robert')
+      expect(updated[0]!.status).toBe('inactive')
+      expect(updated[0]!.name).toBe('Alice') // Unchanged
+      expect(updated[1]!.status).toBe('pending')
+      expect(updated[1]!.name).toBe('Robert')
 
       // Charlie should be unchanged
-      const charlie = await store.get(created[2].$id)
+      const charlie = await store.get(created[2]!.$id)
       expect(charlie?.status).toBe('active')
     })
 
@@ -299,12 +320,12 @@ describe('Things Store', () => {
       ])
 
       await expect(store.bulkUpdate([
-        { id: created[0].$id, data: { status: 'inactive' } },
+        { id: created[0]!.$id, data: { status: 'inactive' } },
         { id: 'non-existent', data: { status: 'inactive' } }
-      ])).rejects.toThrow('Thing not found')
+      ])).rejects.toThrow(DbNotFoundError)
 
       // Alice should be unchanged (atomic rollback)
-      const alice = await store.get(created[0].$id)
+      const alice = await store.get(created[0]!.$id)
       expect(alice?.status).toBe('active')
     })
 
@@ -315,12 +336,12 @@ describe('Things Store', () => {
 
       // Intentionally passing invalid updates to test that system fields are protected
       const updated = await store.bulkUpdate([
-        { id: created[0].$id, data: { $id: 'new-id', $type: 'Order', $createdAt: 0 } as unknown as Partial<Thing> }
+        { id: created[0]!.$id, data: { $id: 'new-id', $type: 'Order', $createdAt: 0 } as unknown as Partial<Thing> }
       ])
 
-      expect(updated[0].$id).toBe(created[0].$id)
-      expect(updated[0].$type).toBe('Customer')
-      expect(updated[0].$createdAt).toBe(created[0].$createdAt)
+      expect(updated[0]!.$id).toBe(created[0]!.$id)
+      expect(updated[0]!.$type).toBe('Customer')
+      expect(updated[0]!.$createdAt).toBe(created[0]!.$createdAt)
     })
 
     it('should update $updatedAt for all modified things', async () => {
@@ -332,12 +353,63 @@ describe('Things Store', () => {
       await new Promise(resolve => setTimeout(resolve, 1))
 
       const updated = await store.bulkUpdate([
-        { id: created[0].$id, data: { name: 'Alice Updated' } },
-        { id: created[1].$id, data: { name: 'Bob Updated' } }
+        { id: created[0]!.$id, data: { name: 'Alice Updated' } },
+        { id: created[1]!.$id, data: { name: 'Bob Updated' } }
       ])
 
-      expect(updated[0].$updatedAt).toBeGreaterThan(created[0].$updatedAt)
-      expect(updated[1].$updatedAt).toBeGreaterThan(created[1].$updatedAt)
+      expect(updated[0]!.$updatedAt).toBeGreaterThan(created[0]!.$updatedAt)
+      expect(updated[1]!.$updatedAt).toBeGreaterThan(created[1]!.$updatedAt)
+    })
+  })
+
+  describe('getMany', () => {
+    it('should retrieve multiple things by ids', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' },
+        { $type: 'Customer', name: 'Bob' },
+        { $type: 'Order', total: 100 }
+      ])
+
+      const result = await store.getMany([created[0]!.$id, created[2]!.$id])
+
+      expect(result.size).toBe(2)
+      expect(result.get(created[0]!.$id)).toEqual(created[0])
+      expect(result.get(created[2]!.$id)).toEqual(created[2])
+      expect(result.has(created[1]!.$id)).toBe(false) // Bob not requested
+    })
+
+    it('should return empty map for empty input', async () => {
+      const result = await store.getMany([])
+      expect(result.size).toBe(0)
+    })
+
+    it('should skip non-existent ids without error', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' }
+      ])
+
+      const result = await store.getMany([created[0]!.$id, 'non-existent', 'also-missing'])
+
+      expect(result.size).toBe(1)
+      expect(result.get(created[0]!.$id)).toEqual(created[0])
+      expect(result.has('non-existent')).toBe(false)
+      expect(result.has('also-missing')).toBe(false)
+    })
+
+    it('should return empty map when all ids are non-existent', async () => {
+      const result = await store.getMany(['non-existent-1', 'non-existent-2'])
+      expect(result.size).toBe(0)
+    })
+
+    it('should handle duplicate ids', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' }
+      ])
+
+      const result = await store.getMany([created[0]!.$id, created[0]!.$id])
+
+      expect(result.size).toBe(1)
+      expect(result.get(created[0]!.$id)).toEqual(created[0])
     })
   })
 
@@ -349,11 +421,11 @@ describe('Things Store', () => {
         { $type: 'Customer', name: 'Charlie' }
       ])
 
-      await store.bulkDelete([created[0].$id, created[1].$id])
+      await store.bulkDelete([created[0]!.$id, created[1]!.$id])
 
-      expect(await store.get(created[0].$id)).toBeNull()
-      expect(await store.get(created[1].$id)).toBeNull()
-      expect(await store.get(created[2].$id)).not.toBeNull() // Charlie still exists
+      expect(await store.get(created[0]!.$id)).toBeNull()
+      expect(await store.get(created[1]!.$id)).toBeNull()
+      expect(await store.get(created[2]!.$id)).not.toBeNull() // Charlie still exists
     })
 
     it('should return empty for empty input', async () => {
@@ -368,12 +440,12 @@ describe('Things Store', () => {
       ])
 
       await expect(store.bulkDelete([
-        created[0].$id,
+        created[0]!.$id,
         'non-existent'
-      ])).rejects.toThrow('Thing not found')
+      ])).rejects.toThrow(DbNotFoundError)
 
       // Alice should still exist (atomic rollback)
-      expect(await store.get(created[0].$id)).not.toBeNull()
+      expect(await store.get(created[0]!.$id)).not.toBeNull()
     })
 
     it('should handle deleting a single item', async () => {
@@ -381,9 +453,9 @@ describe('Things Store', () => {
         { $type: 'Customer', name: 'Alice' }
       ])
 
-      await store.bulkDelete([created[0].$id])
+      await store.bulkDelete([created[0]!.$id])
 
-      expect(await store.get(created[0].$id)).toBeNull()
+      expect(await store.get(created[0]!.$id)).toBeNull()
     })
   })
 })

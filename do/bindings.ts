@@ -32,11 +32,22 @@ export type AnyDurableObjectNamespace = DurableObjectNamespace<any>
 
 /**
  * Constraint type for binding registries.
- * Uses a mapped type approach to avoid strict index signature issues.
+ * This type is intentionally a Record type to serve as a generic constraint.
+ * Concrete binding registries should define specific named properties.
+ *
+ * @example
+ * ```typescript
+ * // Concrete registry with specific properties
+ * interface MyBindings {
+ *   USER_DO: DurableObjectNamespace
+ *   ORDER_DO: DurableObjectNamespace
+ * }
+ *
+ * // Use in generic constraint
+ * function getBinding<T extends DOBindingConstraint>(env: T) { ... }
+ * ```
  */
-export type DOBindingConstraint = {
-  [key: string]: AnyDurableObjectNamespace
-}
+export type DOBindingConstraint = Record<string, AnyDurableObjectNamespace>
 
 /**
  * Base type for DO binding registries.

@@ -1,9 +1,48 @@
-// Resource definition DSL - see do-7rf.7.4
+/**
+ * @dotdo/api - Resource Definition DSL
+ *
+ * Provides a fluent API for defining REST resources with automatic
+ * Zod schema generation, route definitions, and CRUD operations.
+ *
+ * ## Key Concepts
+ *
+ * - **ResourceDefinition**: Complete resource specification including fields, relations, and hooks
+ * - **ResourceBuilder**: Fluent API for building resource definitions
+ * - **ResourceContext**: Request-scoped context for tenant isolation
+ *
+ * @module @dotdo/api/resource
+ *
+ * @example
+ * ```typescript
+ * import { defineResource } from '@dotdo/api'
+ *
+ * // Define a Customer resource with fluent API
+ * const CustomerResource = defineResource<CustomerData>('Customer')
+ *   .fields({
+ *     name: { type: 'string', required: true },
+ *     email: { type: 'string', format: 'email', required: true },
+ *     status: { type: 'enum', values: ['active', 'inactive'] }
+ *   })
+ *   .relations({
+ *     orders: { type: 'hasMany', resource: 'Order' }
+ *   })
+ *   .hooks({
+ *     beforeCreate: async (data) => {
+ *       data.createdAt = new Date()
+ *       return data
+ *     }
+ *   })
+ *   .build()
+ * ```
+ */
 import { z } from 'zod'
 import type { Context } from 'hono'
-import type { JsonValue, StorableData } from '../db'
+import type { JsonValue, StorableData } from '@dotdo/db'
 
-// Field Types
+/**
+ * Supported field types for resource definitions.
+ * Maps to both Zod schemas and OpenAPI types.
+ */
 export type FieldType =
   | 'string'
   | 'number'
@@ -356,7 +395,7 @@ function generateRoutes(
 
   if (relations) {
     routes.relations = {}
-    for (const [relationName, _relationDef] of Object.entries(relations)) {
+    for (const relationName of Object.keys(relations)) {
       routes.relations[relationName] = {
         method: 'GET',
         path: `${basePath}/:id/${relationName}`,
@@ -367,22 +406,359 @@ function generateRoutes(
   return routes
 }
 
-// Global Resource Registry
-const resourceRegistry: Map<string, ResourceDefinition<StorableData>> = new Map()
+// ============================================================================
+// Request-Scoped Resource Context
+// ============================================================================
+// The global registry pattern causes tenant state leakage in multi-tenant
+// environments. This module provides request-scoped contexts for isolation.
+// See do-9jh4 for the original bug report.
 
-function registerResource<T extends StorableData>(name: string, definition: ResourceDefinition<T>): void {
-  resourceRegistry.set(name, definition as unknown as ResourceDefinition<StorableData>)
+/**
+ * Request-scoped resource context that contains isolated state
+ */
+export interface ResourceContext {
+  /**
+   * Register a resource in this context
+   */
+  registerResource<T extends StorableData>(name: string, definition: ResourceDefinition<T>): void
+
+  /**
+   * Get a resource by name from this context
+   */
+  getResource(name: string): ResourceDefinition<StorableData> | undefined
+
+  /**
+   * Get all resources from this context
+   */
+  getAllResources(): Record<string, ResourceDefinition<StorableData>>
+
+  /**
+   * Clear all resources from this context
+   */
+  clearRegistry(): void
+
+  /**
+   * Cleanup this context (alias for clearRegistry)
+   */
+  cleanup(): void
 }
 
+/**
+ * Create a new request-scoped resource context with isolated state.
+ *
+ * Each context has its own resource registry, preventing resources
+ * defined by one tenant from leaking to another.
+ *
+ * @returns A new isolated ResourceContext
+ *
+ * @example
+ * ```ts
+ * // Per-request usage
+ * export async function handleRequest(request: Request) {
+ *   const ctx = createResourceContext()
+ *
+ *   try {
+ *     // Define resources for this tenant
+ *     ctx.registerResource('CustomResource', definition)
+ *     return await processRequest(ctx, request)
+ *   } finally {
+ *     ctx.cleanup()
+ *   }
+ * }
+ * ```
+ */
+export function createResourceContext(): ResourceContext {
+  // Private state for this context
+  const registry = new Map<string, ResourceDefinition<StorableData>>()
+
+  return {
+    registerResource<T extends StorableData>(name: string, definition: ResourceDefinition<T>): void {
+      registry.set(name, definition as unknown as ResourceDefinition<StorableData>)
+    },
+
+    getResource(name: string): ResourceDefinition<StorableData> | undefined {
+      return registry.get(name)
+    },
+
+    getAllResources(): Record<string, ResourceDefinition<StorableData>> {
+      return Object.fromEntries(registry.entries())
+    },
+
+    clearRegistry(): void {
+      registry.clear()
+    },
+
+    cleanup(): void {
+      registry.clear()
+    },
+  }
+}
+
+/**
+ * Minimal AsyncLocalStorage interface for type safety.
+ * Compatible with Node.js AsyncLocalStorage and Cloudflare Workers.
+ */
+interface AsyncLocalStorageInterface<T> {
+  run<R>(store: T, callback: () => R): R
+  getStore(): T | undefined
+}
+
+/**
+ * AsyncLocalStorage instance - lazily initialized.
+ * Works in Node.js, Cloudflare Workers, and other compatible runtimes.
+ */
+let asyncLocalStorage: AsyncLocalStorageInterface<ResourceContext> | null = null
+
+// Lazy initialization to avoid issues in environments without AsyncLocalStorage
+async function getAsyncLocalStorage(): Promise<AsyncLocalStorageInterface<ResourceContext>> {
+  if (!asyncLocalStorage) {
+    try {
+      // Try dynamic import for Node.js/Workers environments.
+      // The module name is stored in a variable to prevent bundlers from
+      // statically analyzing this import (which would fail in browser environments).
+      const moduleName = 'node:async_hooks'
+      const asyncHooks = await (import(moduleName) as Promise<{
+        AsyncLocalStorage: new <T>() => AsyncLocalStorageInterface<T>
+      }>)
+
+      // Verify that AsyncLocalStorage is available and is a constructor
+      if (typeof asyncHooks?.AsyncLocalStorage !== 'function') {
+        throw new Error('AsyncLocalStorage not available in this environment')
+      }
+
+      asyncLocalStorage = new asyncHooks.AsyncLocalStorage<ResourceContext>()
+    } catch (error: unknown) {
+      // Fallback: Simple implementation using a stack for non-ALS environments.
+      // This handles:
+      // - Browser environments where 'node:async_hooks' doesn't exist
+      // - Older Node.js versions without AsyncLocalStorage support
+      // - Bundled environments where the dynamic import fails
+      // - Cloudflare Workers before AsyncLocalStorage was supported
+      //
+      // Note: The stack-based fallback works correctly for synchronous code
+      // but does NOT preserve context across async boundaries the way
+      // real AsyncLocalStorage does. For proper async context tracking,
+      // use an environment that supports AsyncLocalStorage natively.
+      if (process.env['NODE_ENV'] === 'development' && error instanceof Error) {
+        console.debug(`[resource] AsyncLocalStorage not available, using stack fallback: ${error.message}`)
+      }
+
+      const contextStack: ResourceContext[] = []
+      asyncLocalStorage = {
+        run<R>(store: ResourceContext, callback: () => R): R {
+          contextStack.push(store)
+          try {
+            return callback()
+          } finally {
+            contextStack.pop()
+          }
+        },
+        getStore(): ResourceContext | undefined {
+          return contextStack[contextStack.length - 1]
+        },
+      }
+    }
+  }
+  return asyncLocalStorage!
+}
+
+/**
+ * Run a function with a new request-scoped resource context.
+ * The context is automatically available via getCurrentResourceContext().
+ *
+ * @param fn - The async function to run with the context
+ * @returns The result of the function
+ *
+ * @example
+ * ```ts
+ * // In middleware
+ * app.use(async (c, next) => {
+ *   await runWithResourceContext(async () => {
+ *     await next()
+ *   })
+ * })
+ *
+ * // In handler - resources are isolated per request
+ * const ctx = getCurrentResourceContext()
+ * const resource = ctx?.getResource('CustomResource')
+ * ```
+ */
+export async function runWithResourceContext<T>(fn: () => Promise<T>): Promise<T> {
+  const ctx = createResourceContext()
+  const als = await getAsyncLocalStorage()
+
+  try {
+    return await als.run(ctx, fn)
+  } finally {
+    ctx.cleanup()
+  }
+}
+
+/**
+ * Get the current resource context from AsyncLocalStorage.
+ * Returns undefined if not running within runWithResourceContext().
+ *
+ * @returns The current ResourceContext or undefined
+ */
+export function getCurrentResourceContext(): ResourceContext | undefined {
+  if (!asyncLocalStorage) {
+    return undefined
+  }
+  return asyncLocalStorage.getStore()
+}
+
+/**
+ * Get or create a resource context for the current request.
+ * If running within runWithResourceContext(), returns that context.
+ * Otherwise, returns the global registry wrapped as a ResourceContext.
+ *
+ * This ensures backward compatibility with code that doesn't use
+ * the request-scoped pattern.
+ *
+ * @returns A ResourceContext (existing, new, or global fallback)
+ */
+export function getOrCreateResourceContext(): ResourceContext {
+  const existing = getCurrentResourceContext()
+  if (existing) {
+    return existing
+  }
+  // Return global registry wrapped as a context for backward compatibility
+  return globalResourceContext
+}
+
+// ============================================================================
+// Global Resource Registry (DEPRECATED - causes tenant state leakage)
+// ============================================================================
+// DEPRECATED: The global registry pattern causes state leakage between
+// requests/tenants. Use request-scoped contexts via runWithResourceContext()
+// for proper isolation. See do-miqf for details.
+//
+// Migration guide:
+// 1. Wrap request handlers with runWithResourceContext()
+// 2. Use getCurrentResourceContext() to get the isolated context
+// 3. Register resources on the context, not globally
+//
+// Example:
+//   await runWithResourceContext(async () => {
+//     defineResource('Customer').fields({...}).build()
+//     const resources = getAllResources() // Only sees this context's resources
+//   })
+
+/**
+ * @deprecated Global registry causes tenant state leakage. Use createResourceContext() or runWithResourceContext() instead.
+ * @internal
+ */
+const resourceRegistry: Map<string, ResourceDefinition<StorableData>> = new Map()
+
+/**
+ * Global registry wrapped as a ResourceContext for backward compatibility.
+ * @deprecated Use createResourceContext() for tenant-isolated contexts.
+ * @internal
+ */
+const globalResourceContext: ResourceContext = {
+  registerResource<T extends StorableData>(name: string, definition: ResourceDefinition<T>): void {
+    resourceRegistry.set(name, definition as unknown as ResourceDefinition<StorableData>)
+  },
+  getResource(name: string): ResourceDefinition<StorableData> | undefined {
+    return resourceRegistry.get(name)
+  },
+  getAllResources(): Record<string, ResourceDefinition<StorableData>> {
+    return Object.fromEntries(resourceRegistry.entries())
+  },
+  clearRegistry(): void {
+    resourceRegistry.clear()
+  },
+  cleanup(): void {
+    resourceRegistry.clear()
+  },
+}
+
+/**
+ * Register a resource definition.
+ *
+ * When running inside runWithResourceContext(), registers to the request-scoped context.
+ * Otherwise, registers to the global registry (deprecated behavior).
+ *
+ * @internal
+ */
+function registerResource<T extends StorableData>(name: string, definition: ResourceDefinition<T>): void {
+  // If running in a request context, register there (isolated)
+  const ctx = getCurrentResourceContext()
+  if (ctx) {
+    ctx.registerResource(name, definition)
+  } else {
+    // Fall back to global registry for backward compatibility
+    // This is deprecated behavior - resources will leak between tenants
+    resourceRegistry.set(name, definition as unknown as ResourceDefinition<StorableData>)
+  }
+}
+
+/**
+ * Get a resource definition by name.
+ *
+ * When running inside runWithResourceContext(), only returns resources from the
+ * request-scoped context (proper tenant isolation).
+ *
+ * When running outside a context, returns from the global registry (deprecated).
+ *
+ * @param name - The resource name
+ * @returns The resource definition or undefined
+ */
 export function getResource(name: string): ResourceDefinition<StorableData> | undefined {
+  // If running in a request context, ONLY get from context (isolation)
+  const ctx = getCurrentResourceContext()
+  if (ctx) {
+    return ctx.getResource(name)
+  }
+  // Fall back to global registry (deprecated - causes state leakage)
   return resourceRegistry.get(name)
 }
 
+/**
+ * Get all registered resource definitions.
+ *
+ * When running inside runWithResourceContext(), only returns resources from the
+ * request-scoped context (proper tenant isolation).
+ *
+ * When running outside a context, returns from the global registry (deprecated).
+ *
+ * @returns Record of resource name to definition
+ */
 export function getAllResources(): Record<string, ResourceDefinition<StorableData>> {
+  // If running in a request context, ONLY get from context (isolation)
+  const ctx = getCurrentResourceContext()
+  if (ctx) {
+    return ctx.getAllResources()
+  }
+  // Fall back to global registry (deprecated - causes state leakage)
   return Object.fromEntries(resourceRegistry.entries())
 }
 
+/**
+ * Clear the resource registry.
+ *
+ * When running inside runWithResourceContext(), clears only the request-scoped context.
+ * Otherwise, clears the global registry.
+ */
 export function clearRegistry(): void {
+  // Clear the appropriate registry
+  const ctx = getCurrentResourceContext()
+  if (ctx) {
+    ctx.clearRegistry()
+  } else {
+    resourceRegistry.clear()
+  }
+}
+
+/**
+ * Clear the global registry explicitly.
+ *
+ * @deprecated The global registry causes tenant state leakage.
+ * Use request-scoped contexts instead.
+ *
+ * Only use this for testing or emergency cleanup.
+ */
+export function clearGlobalRegistry(): void {
   resourceRegistry.clear()
 }
 
