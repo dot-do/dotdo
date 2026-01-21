@@ -360,9 +360,10 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
 
 /**
  * Generate a random ID for stub responses
+ * Uses crypto.randomUUID() for cryptographically secure random generation
  */
 function generateId(): string {
-  return Math.random().toString(36).substring(2, 15)
+  return crypto.randomUUID().replace(/-/g, '').substring(0, 13)
 }
 
 /**
