@@ -117,27 +117,57 @@ program
 const DEFAULT_CLIENT_ID = 'rpc-do-cli'
 const DEFAULT_OAUTH_URL = 'https://oauth.do'
 
+// OAuth provider presets
+const OAUTH_PROVIDERS: Record<string, { clientId: string; oauthUrl: string }> = {
+  'oauth.do': { clientId: 'rpc-do-cli', oauthUrl: 'https://oauth.do' },
+  github: { clientId: 'rpc-do-github', oauthUrl: 'https://github.com/login/oauth' },
+  google: { clientId: 'rpc-do-google', oauthUrl: 'https://accounts.google.com/o/oauth2' },
+}
+
 program
   .command('login')
   .description('Authenticate with OAuth device flow')
   .option('--force', 'Force re-authentication even if already logged in')
-  .option('--client-id <id>', 'OAuth client ID', DEFAULT_CLIENT_ID)
-  .option('--oauth-url <url>', 'OAuth server URL', DEFAULT_OAUTH_URL)
-  .action(async (options: { force?: boolean; clientId: string; oauthUrl: string }) => {
+  .option('--provider <name>', 'OAuth provider preset (oauth.do, github, google)', 'oauth.do')
+  .option('--client-id <id>', 'OAuth client ID (overrides provider preset)')
+  .option('--oauth-url <url>', 'OAuth server URL (overrides provider preset)')
+  .action(async (options: { force?: boolean; provider: string; clientId?: string; oauthUrl?: string }) => {
+    // Get provider preset or use defaults
+    const preset = OAUTH_PROVIDERS[options.provider] ?? { clientId: DEFAULT_CLIENT_ID, oauthUrl: DEFAULT_OAUTH_URL }
+
+    // Allow explicit overrides
+    const clientId = options.clientId ?? preset.clientId
+    const oauthUrl = options.oauthUrl ?? preset.oauthUrl
+
     const { deviceFlow, tokenStore } = createDefaultLoginOptions({
-      clientId: options.clientId,
-      oauthBaseUrl: options.oauthUrl,
+      clientId,
+      oauthBaseUrl: oauthUrl,
     })
 
-    const result = await loginCommand({
-      deviceFlow,
-      tokenStore,
-      force: options.force,
-      onOutput: (message) => console.log(message),
-    })
+    // Handle Ctrl+C gracefully during login
+    const abortController = new AbortController()
+    const onSignal = () => {
+      console.log('\nLogin cancelled.')
+      abortController.abort()
+      process.exit(130) // Standard exit code for Ctrl+C
+    }
+    process.on('SIGINT', onSignal)
+    process.on('SIGTERM', onSignal)
 
-    if (!result.success) {
-      process.exit(1)
+    try {
+      const result = await loginCommand({
+        deviceFlow,
+        tokenStore,
+        force: options.force,
+        onOutput: (message) => console.log(message),
+      })
+
+      if (!result.success) {
+        process.exit(1)
+      }
+    } finally {
+      process.off('SIGINT', onSignal)
+      process.off('SIGTERM', onSignal)
     }
   })
 
