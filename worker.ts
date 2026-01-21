@@ -5,6 +5,7 @@
 // All business logic lives in the DO, not the worker.
 //
 // Includes graceful degradation with circuit breaker pattern (do-ejab)
+// Fixed: Handler is now request-scoped to avoid global state issues (do-d1rfn)
 
 import { DO } from './do/DO'
 import {
@@ -30,38 +31,40 @@ interface Env {
   ENABLE_GRACEFUL_DEGRADATION?: string
 }
 
-// Global graceful degradation handler (initialized per worker instance)
-let degradationHandler: GracefulDegradationHandler | null = null
-
 /**
- * Get or create the graceful degradation handler
+ * Create a request-scoped graceful degradation handler.
+ *
+ * This avoids global state issues where circuit breaker state would be
+ * shared across isolate reuses. Each request gets its own handler with
+ * configuration from the current environment.
+ *
+ * Note: This means circuit breaker state is ephemeral per-request. For
+ * persistent circuit breaker state across requests, the state should be
+ * moved into the Durable Object itself (future enhancement).
  */
-function getGracefulDegradationHandler(env: Env): GracefulDegradationHandler {
-  if (!degradationHandler) {
-    degradationHandler = createGracefulDegradationHandler({
-      circuitBreakerConfig: {
-        failureThreshold: env.CIRCUIT_FAILURE_THRESHOLD ? parseInt(env.CIRCUIT_FAILURE_THRESHOLD, 10) : 5,
-        resetTimeoutMs: env.CIRCUIT_RESET_TIMEOUT_MS ? parseInt(env.CIRCUIT_RESET_TIMEOUT_MS, 10) : 30000,
-        timeoutMs: env.CIRCUIT_TIMEOUT_MS ? parseInt(env.CIRCUIT_TIMEOUT_MS, 10) : 10000,
-        onStateChange: (name, fromState, toState) => {
-          console.log(`[CircuitBreaker] ${name}: ${fromState} -> ${toState}`)
-        },
-        onFailure: (name, error, stats) => {
-          console.warn(`[CircuitBreaker] ${name} failure: ${error.message} (consecutive: ${stats.consecutiveFailures})`)
-        },
+function createRequestScopedHandler(env: Env): GracefulDegradationHandler {
+  return createGracefulDegradationHandler({
+    circuitBreakerConfig: {
+      failureThreshold: env.CIRCUIT_FAILURE_THRESHOLD ? parseInt(env.CIRCUIT_FAILURE_THRESHOLD, 10) : 5,
+      resetTimeoutMs: env.CIRCUIT_RESET_TIMEOUT_MS ? parseInt(env.CIRCUIT_RESET_TIMEOUT_MS, 10) : 30000,
+      timeoutMs: env.CIRCUIT_TIMEOUT_MS ? parseInt(env.CIRCUIT_TIMEOUT_MS, 10) : 10000,
+      onStateChange: (name, fromState, toState) => {
+        console.log(`[CircuitBreaker] ${name}: ${fromState} -> ${toState}`)
       },
-      healthCheckConfig: {
-        timeoutMs: 5000,
-        degradedLatencyMs: 1000,
+      onFailure: (name, error, stats) => {
+        console.warn(`[CircuitBreaker] ${name} failure: ${error.message} (consecutive: ${stats.consecutiveFailures})`)
       },
-      fallbackConfig: {
-        statusCode: 503,
-        enableCache: true,
-        cacheTtlMs: 60000,
-      },
-    })
-  }
-  return degradationHandler
+    },
+    healthCheckConfig: {
+      timeoutMs: 5000,
+      degradedLatencyMs: 1000,
+    },
+    fallbackConfig: {
+      statusCode: 503,
+      enableCache: true,
+      cacheTtlMs: 60000,
+    },
+  })
 }
 
 /**
@@ -134,14 +137,18 @@ export default {
     const url = new URL(request.url)
     const hostParts = url.hostname.split('.')
 
+    // Create request-scoped handler for health/status endpoints and request handling
+    // This avoids global state issues (do-d1rfn)
+    const handler = createRequestScopedHandler(env)
+
     // Handle health check endpoint
     if (url.pathname === '/_health') {
-      return handleHealthCheck(env)
+      return handleHealthCheck(handler)
     }
 
     // Handle circuit breaker status endpoint
     if (url.pathname === '/_circuit-status') {
-      return handleCircuitStatus(env)
+      return handleCircuitStatus(handler)
     }
 
     // Extract namespace from subdomain
@@ -159,9 +166,7 @@ export default {
       return executeWithTelemetry(request, () => stub.fetch(request))
     }
 
-    // Use graceful degradation handler with telemetry capture
-    const handler = getGracefulDegradationHandler(env)
-
+    // Use request-scoped graceful degradation handler with telemetry capture
     return executeWithTelemetry(request, async () => {
       return handler.executeRequest(ns, request, async () => {
         return stub.fetch(request)
@@ -172,9 +177,9 @@ export default {
 
 /**
  * Handle health check endpoint
+ * Takes the request-scoped handler to avoid global state
  */
-function handleHealthCheck(env: Env): Response {
-  const handler = getGracefulDegradationHandler(env)
+function handleHealthCheck(handler: GracefulDegradationHandler): Response {
   const report: HealthReport = handler.getHealthReport()
 
   const statusCode = report.status === 'healthy' ? 200 : report.status === 'degraded' ? 200 : 503
@@ -190,9 +195,9 @@ function handleHealthCheck(env: Env): Response {
 
 /**
  * Handle circuit breaker status endpoint
+ * Takes the request-scoped handler to avoid global state
  */
-function handleCircuitStatus(env: Env): Response {
-  const handler = getGracefulDegradationHandler(env)
+function handleCircuitStatus(handler: GracefulDegradationHandler): Response {
   const stats = handler.getAllCircuitStats()
 
   return new Response(JSON.stringify(stats, null, 2), {
