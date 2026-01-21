@@ -2,6 +2,213 @@
 // Provides type-safe validation for RPC method parameters
 
 import { ValidationError } from './errors'
+import type { RPCMessage } from './transport/types'
+
+// ============================================================================
+// URL Validation
+// ============================================================================
+
+/**
+ * Options for URL validation
+ */
+export interface URLValidationOptions {
+  /**
+   * Strict mode requires HTTPS except for localhost/development hosts.
+   * @default false
+   */
+  strict?: boolean
+  /**
+   * Additional hosts to allow HTTP connections to (in strict mode).
+   * Localhost and 127.0.0.1 are always allowed.
+   */
+  allowedHosts?: string[]
+}
+
+/**
+ * Localhost patterns that are always allowed with HTTP
+ */
+const LOCALHOST_PATTERNS = [
+  'localhost',
+  '127.0.0.1',
+  '[::1]',
+]
+
+/**
+ * Validates an RPC endpoint URL.
+ *
+ * A valid RPC URL:
+ * - Must be a string
+ * - Must be a valid URL format
+ * - Must use http: or https: protocol
+ * - In strict mode, must use https: unless connecting to localhost
+ * - Must not contain path traversal sequences
+ *
+ * @param url - The URL to validate
+ * @param options - Validation options
+ * @returns True if the URL is valid for RPC communication
+ *
+ * @example
+ * ```typescript
+ * isValidRPCUrl('https://api.example.com')           // true
+ * isValidRPCUrl('http://api.example.com')            // true (default)
+ * isValidRPCUrl('http://api.example.com', { strict: true }) // false
+ * isValidRPCUrl('http://localhost:8787', { strict: true })  // true (localhost allowed)
+ * isValidRPCUrl('ftp://example.com')                 // false
+ * ```
+ */
+export function isValidRPCUrl(url: unknown, options: URLValidationOptions = {}): url is string {
+  // Must be a non-empty string
+  if (typeof url !== 'string' || url.length === 0) {
+    return false
+  }
+
+  let parsedUrl: URL
+  try {
+    parsedUrl = new URL(url)
+  } catch {
+    return false
+  }
+
+  // Only allow http: and https: protocols
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    return false
+  }
+
+  // Check for path traversal attempts
+  // Check the original URL string before parsing, as URL normalization may remove '..'
+  const lowerUrl = url.toLowerCase()
+  if (
+    lowerUrl.includes('..') ||
+    lowerUrl.includes('%2e%2e') ||
+    lowerUrl.includes('%2e.') ||
+    lowerUrl.includes('.%2e')
+  ) {
+    return false
+  }
+
+  // In strict mode, require HTTPS unless connecting to localhost
+  if (options.strict && parsedUrl.protocol === 'http:') {
+    const hostname = parsedUrl.hostname
+
+    // Check if it's a localhost pattern
+    const isLocalhost = LOCALHOST_PATTERNS.some(pattern =>
+      hostname === pattern || hostname.startsWith(`${pattern}:`)
+    )
+
+    // Check if it's in the allowed hosts list
+    const allowedHosts = options.allowedHosts ?? []
+    const isAllowedHost = allowedHosts.includes(hostname)
+
+    if (!isLocalhost && !isAllowedHost) {
+      return false
+    }
+  }
+
+  return true
+}
+
+// ============================================================================
+// Circular Reference Detection
+// ============================================================================
+
+/**
+ * Checks for circular references in an object graph.
+ * Throws an error if a circular reference is detected.
+ *
+ * This is important for RPC args validation because circular references
+ * will cause JSON.stringify to throw an error.
+ *
+ * @param value - The value to check for circular references
+ * @throws Error with 'circular' in the message if a circular reference is found
+ *
+ * @example
+ * ```typescript
+ * const obj = { a: 1 }
+ * checkCircularReferences(obj) // OK
+ *
+ * const circular = { a: 1 }
+ * circular.self = circular
+ * checkCircularReferences(circular) // throws "Detected circular reference"
+ * ```
+ */
+export function checkCircularReferences(value: unknown): void {
+  const seen = new Set<object>()
+
+  function check(current: unknown): void {
+    // Primitives cannot have circular references
+    if (current === null || typeof current !== 'object') {
+      return
+    }
+
+    // If we've seen this object before, it's a circular reference
+    if (seen.has(current)) {
+      throw new Error('Detected circular reference in RPC arguments')
+    }
+
+    // Mark as seen and recurse into children
+    seen.add(current)
+
+    if (Array.isArray(current)) {
+      for (const item of current) {
+        check(item)
+      }
+    } else {
+      for (const key in current) {
+        if (Object.prototype.hasOwnProperty.call(current, key)) {
+          check((current as Record<string, unknown>)[key])
+        }
+      }
+    }
+
+    // Note: We do NOT remove from 'seen' after recursion
+    // This ensures we detect multiple references to the same object,
+    // which while not strictly circular, still breaks JSON.stringify
+  }
+
+  check(value)
+}
+
+// ============================================================================
+// RPC Message Validation
+// ============================================================================
+
+/**
+ * Validates a complete RPC message before sending.
+ *
+ * Performs the following validations:
+ * 1. Method name is valid (no path traversal, injection, etc.)
+ * 2. Args array doesn't contain circular references
+ *
+ * @param message - The RPC message to validate
+ * @throws ValidationError if the message is invalid
+ *
+ * @example
+ * ```typescript
+ * validateRPCMessage({ method: 'users.create', args: [{ name: 'Alice' }] }) // OK
+ * validateRPCMessage({ method: '../etc/passwd', args: [] }) // throws
+ * ```
+ */
+export function validateRPCMessage(message: RPCMessage): void {
+  // Validate method name
+  if (!isValidRPCMethod(message.method)) {
+    throw ValidationError.forField(
+      'method',
+      'must start with a letter and contain only alphanumeric characters and dots',
+      message.method
+    )
+  }
+
+  // Validate args don't have circular references
+  for (let i = 0; i < message.args.length; i++) {
+    try {
+      checkCircularReferences(message.args[i])
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+      // Rethrow with 'circular' in the message for consistent error handling
+      throw new Error(`Detected circular reference at args[${i}]: ${errorMessage}`)
+    }
+  }
+}
 
 // ============================================================================
 // RPC Method Validation

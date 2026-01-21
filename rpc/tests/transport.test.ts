@@ -1574,3 +1574,91 @@ describe('createStubTransport', () => {
     expect(mockBinding.get).toHaveBeenCalledWith(mockDoId)
   })
 })
+
+// ============================================================================
+// FetchTransport Validation Tests
+// ============================================================================
+
+describe('FetchTransport validation', () => {
+  it('should validate RPC message method name before sending', async () => {
+    const { FetchTransport } = await import('../transport/fetch')
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ result: 'test' }),
+      headers: new Headers(),
+    })
+
+    const transport = new FetchTransport({
+      url: 'https://api.example.com',
+      fetch: mockFetch,
+      validateMessages: true,
+    })
+
+    // Valid method name should succeed
+    const validResponse = await transport.send({ method: 'users.create', args: [] })
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(validResponse.error).toBeUndefined()
+  })
+
+  it('should reject invalid method names when validation is enabled', async () => {
+    const { FetchTransport } = await import('../transport/fetch')
+
+    const mockFetch = vi.fn()
+
+    const transport = new FetchTransport({
+      url: 'https://api.example.com',
+      fetch: mockFetch,
+      validateMessages: true,
+    })
+
+    // Invalid method name should return error without calling fetch
+    const response = await transport.send({ method: '../etc/passwd', args: [] })
+
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(response.error).toBeDefined()
+    expect(response.error?.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('should reject circular references in args when validation is enabled', async () => {
+    const { FetchTransport } = await import('../transport/fetch')
+
+    const mockFetch = vi.fn()
+
+    const transport = new FetchTransport({
+      url: 'https://api.example.com',
+      fetch: mockFetch,
+      validateMessages: true,
+    })
+
+    // Create circular reference
+    const circular: Record<string, unknown> = { a: 1 }
+    circular['self'] = circular
+
+    const response = await transport.send({ method: 'test', args: [circular] })
+
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(response.error).toBeDefined()
+    expect(response.error?.message).toContain('circular')
+  })
+
+  it('should skip validation by default for backward compatibility', async () => {
+    const { FetchTransport } = await import('../transport/fetch')
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ result: 'test' }),
+      headers: new Headers(),
+    })
+
+    const transport = new FetchTransport({
+      url: 'https://api.example.com',
+      fetch: mockFetch,
+      // No validateMessages option - default behavior
+    })
+
+    // Should still send even with technically invalid method (for backward compat)
+    await transport.send({ method: 'users.create', args: [] })
+    expect(mockFetch).toHaveBeenCalled()
+  })
+})

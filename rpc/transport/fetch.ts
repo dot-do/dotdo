@@ -2,7 +2,8 @@
 // Used for client-to-worker communication over HTTP
 
 import { generateCorrelationId, CORRELATION_ID_HEADER } from '../headers'
-import { isSerializedError, TransportError, type SerializedError } from '../errors'
+import { isSerializedError, TransportError, ValidationError, type SerializedError } from '../errors'
+import { validateRPCMessage, checkCircularReferences } from '../validation'
 import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportState } from './types'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 
@@ -14,6 +15,12 @@ export interface FetchTransportOptions extends TransportOptions {
   url: string
   /** Custom fetch implementation (for testing or polyfills) */
   fetch?: typeof globalThis.fetch
+  /**
+   * Enable validation of RPC messages before sending.
+   * When enabled, validates method names and checks for circular references.
+   * @default false (for backward compatibility)
+   */
+  validateMessages?: boolean
 }
 
 /**
@@ -53,6 +60,7 @@ export class FetchTransport implements Transport {
   private readonly baseCorrelationId?: string
   private readonly headers: Record<string, string>
   private readonly fetchImpl: typeof globalThis.fetch
+  private readonly validateMessages: boolean
 
   constructor(options: FetchTransportOptions) {
     this.url = options.url
@@ -62,6 +70,7 @@ export class FetchTransport implements Transport {
     }
     this.headers = options.headers ?? {}
     this.fetchImpl = options.fetch ?? globalThis.fetch
+    this.validateMessages = options.validateMessages ?? false
   }
 
   /**
@@ -69,6 +78,27 @@ export class FetchTransport implements Transport {
    */
   async send<T = unknown>(message: RPCMessage): Promise<RPCResponse<T>> {
     const correlationId = message.correlationId ?? this.baseCorrelationId ?? generateCorrelationId()
+
+    // Validate message if validation is enabled
+    if (this.validateMessages) {
+      try {
+        validateRPCMessage(message)
+      } catch (error) {
+        // Return validation error without making network request
+        const errorMessage = error instanceof Error ? error.message : 'Validation failed'
+        const isCircular = errorMessage.toLowerCase().includes('circular')
+
+        return {
+          error: {
+            type: 'ValidationError',
+            code: 'VALIDATION_ERROR',
+            message: errorMessage,
+            httpStatus: 400,
+          },
+          correlationId,
+        }
+      }
+    }
 
     let response: Response
     try {
