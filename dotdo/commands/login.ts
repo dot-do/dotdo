@@ -68,9 +68,28 @@ export interface LoginOptions {
 // ============================================================================
 
 /**
- * Get the config directory path
+ * Custom config directory for testing (set via setConfigDir or DOTDO_CONFIG_DIR env var)
+ */
+let customConfigDir: string | undefined
+
+/**
+ * Set a custom config directory (for testing)
+ */
+export function setConfigDir(dir: string | undefined): void {
+  customConfigDir = dir
+}
+
+/**
+ * Get the config directory path.
+ * Uses custom dir if set, DOTDO_CONFIG_DIR env var, or defaults to ~/.dotdo
  */
 function getConfigDir(): string {
+  if (customConfigDir) {
+    return customConfigDir
+  }
+  if (process.env['DOTDO_CONFIG_DIR']) {
+    return process.env['DOTDO_CONFIG_DIR']
+  }
   return join(homedir(), CONFIG_DIR_NAME)
 }
 

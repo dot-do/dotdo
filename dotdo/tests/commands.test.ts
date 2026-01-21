@@ -8,12 +8,45 @@
  * - do delete
  * - build
  * - config set
+ *
+ * NO MOCKS - Uses real file system with temp directories and output capture.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
+
+// ============================================================================
+// Test Utilities
+// ============================================================================
+
+/**
+ * Capture console output for assertions.
+ * This is NOT a mock - it directly replaces console methods and restores them.
+ */
+function captureConsole() {
+  const logs: string[] = []
+  const errors: string[] = []
+  const originalLog = console.log
+  const originalError = console.error
+
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(' '))
+  }
+  console.error = (...args: unknown[]) => {
+    errors.push(args.map(String).join(' '))
+  }
+
+  return {
+    logs,
+    errors,
+    restore: () => {
+      console.log = originalLog
+      console.error = originalError
+    },
+  }
+}
 
 describe('CLI Commands', () => {
   let testDir: string
@@ -85,11 +118,7 @@ describe('CLI Commands', () => {
       const originalCwd = process.cwd()
       process.chdir(testDir)
 
-      // Mock console.log to capture output
-      const logs: string[] = []
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
-        logs.push(args.join(' '))
-      })
+      const output = captureConsole()
 
       try {
         const result = await doList({ format: 'json' })
@@ -101,7 +130,7 @@ describe('CLI Commands', () => {
         expect(result[1].scriptName).toBe('counter-worker')
       } finally {
         process.chdir(originalCwd)
-        consoleSpy.mockRestore()
+        output.restore()
       }
     })
 
@@ -111,14 +140,14 @@ describe('CLI Commands', () => {
       const originalCwd = process.cwd()
       process.chdir(testDir)
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
         const result = await doList({ format: 'json' })
         expect(result).toEqual([])
       } finally {
         process.chdir(originalCwd)
-        consoleSpy.mockRestore()
+        output.restore()
       }
     })
 
@@ -140,7 +169,7 @@ describe('CLI Commands', () => {
       const originalCwd = process.cwd()
       process.chdir(testDir)
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
         const result = await doList({ namespace: 'DO', format: 'json' })
@@ -148,7 +177,7 @@ describe('CLI Commands', () => {
         expect(result[0].name).toBe('DO')
       } finally {
         process.chdir(originalCwd)
-        consoleSpy.mockRestore()
+        output.restore()
       }
     })
   })
@@ -164,7 +193,7 @@ describe('CLI Commands', () => {
     it('returns inspect result with id', async () => {
       const { doInspect } = await import('../commands/do-inspect')
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
         const result = await doInspect({
@@ -175,14 +204,14 @@ describe('CLI Commands', () => {
         expect(result.id).toBe('test-do-123')
         expect(result.exists).toBe(true)
       } finally {
-        consoleSpy.mockRestore()
+        output.restore()
       }
     })
 
     it('includes namespace in result', async () => {
       const { doInspect } = await import('../commands/do-inspect')
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
         const result = await doInspect({
@@ -193,7 +222,7 @@ describe('CLI Commands', () => {
 
         expect(result.namespace).toBe('MY_DO')
       } finally {
-        consoleSpy.mockRestore()
+        output.restore()
       }
     })
   })
@@ -206,21 +235,13 @@ describe('CLI Commands', () => {
       expect(typeof doDeleteCommand).toBe('function')
     })
 
-    it('returns cancelled result when not forced and no input', async () => {
+    it('returns result when using force mode (skips interactive prompt)', async () => {
       const { doDelete } = await import('../commands/do-delete')
 
-      // Mock readline to return 'n'
-      vi.mock('readline', () => ({
-        createInterface: () => ({
-          question: (msg: string, cb: (answer: string) => void) => cb('n'),
-          close: () => {},
-        }),
-      }))
-
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
-        // Force mode to skip interactive prompt
+        // Force mode skips interactive prompt - no readline mock needed
         const result = await doDelete({
           id: 'test-do-789',
           force: true,
@@ -231,8 +252,7 @@ describe('CLI Commands', () => {
         // Will be false since no local dev server is running
         expect(result.deleted).toBe(false)
       } finally {
-        consoleSpy.mockRestore()
-        vi.unmock('readline')
+        output.restore()
       }
     })
   })
@@ -275,7 +295,7 @@ describe('CLI Commands', () => {
       const originalCwd = process.cwd()
       process.chdir(testDir)
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
         const result = await configSet({
@@ -295,7 +315,7 @@ describe('CLI Commands', () => {
         expect(config.apiUrl).toBe('https://custom.api.dev')
       } finally {
         process.chdir(originalCwd)
-        consoleSpy.mockRestore()
+        output.restore()
       }
     })
 
@@ -305,7 +325,7 @@ describe('CLI Commands', () => {
       const originalCwd = process.cwd()
       process.chdir(testDir)
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
         const result = await configSet({
@@ -321,7 +341,7 @@ describe('CLI Commands', () => {
         expect(config.verbose).toBe(true)
       } finally {
         process.chdir(originalCwd)
-        consoleSpy.mockRestore()
+        output.restore()
       }
     })
 
@@ -331,7 +351,7 @@ describe('CLI Commands', () => {
       const originalCwd = process.cwd()
       process.chdir(testDir)
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
         const result = await configSet({
@@ -347,7 +367,7 @@ describe('CLI Commands', () => {
         expect(config.port).toBe(8787)
       } finally {
         process.chdir(originalCwd)
-        consoleSpy.mockRestore()
+        output.restore()
       }
     })
 
@@ -357,7 +377,7 @@ describe('CLI Commands', () => {
       const originalCwd = process.cwd()
       process.chdir(testDir)
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
         const result = await configSet({
@@ -374,7 +394,7 @@ describe('CLI Commands', () => {
         expect(config.env.API_KEY).toBe('secret-key')
       } finally {
         process.chdir(originalCwd)
-        consoleSpy.mockRestore()
+        output.restore()
       }
     })
 
@@ -388,7 +408,7 @@ describe('CLI Commands', () => {
       const originalCwd = process.cwd()
       process.chdir(testDir)
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
         await configSet({
@@ -406,7 +426,7 @@ describe('CLI Commands', () => {
         expect(config.verbose).toBe(true)
       } finally {
         process.chdir(originalCwd)
-        consoleSpy.mockRestore()
+        output.restore()
       }
     })
 
@@ -416,7 +436,7 @@ describe('CLI Commands', () => {
       const originalCwd = process.cwd()
       process.chdir(testDir)
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
         const result = await configSet({
@@ -432,7 +452,7 @@ describe('CLI Commands', () => {
         expect(config.features).toEqual(['auth', 'logging', 'metrics'])
       } finally {
         process.chdir(originalCwd)
-        consoleSpy.mockRestore()
+        output.restore()
       }
     })
   })
@@ -455,7 +475,7 @@ describe('CLI Commands', () => {
       const originalCwd = process.cwd()
       process.chdir(testDir)
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
         const result = await configGet({})
@@ -465,7 +485,7 @@ describe('CLI Commands', () => {
         expect(result.value).toEqual(initialConfig)
       } finally {
         process.chdir(originalCwd)
-        consoleSpy.mockRestore()
+        output.restore()
       }
     })
 
@@ -479,7 +499,7 @@ describe('CLI Commands', () => {
       const originalCwd = process.cwd()
       process.chdir(testDir)
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
         const result = await configGet({ key: 'apiUrl' })
@@ -489,7 +509,7 @@ describe('CLI Commands', () => {
         expect(result.value).toBe('https://test.api.dev')
       } finally {
         process.chdir(originalCwd)
-        consoleSpy.mockRestore()
+        output.restore()
       }
     })
 
@@ -503,7 +523,7 @@ describe('CLI Commands', () => {
       const originalCwd = process.cwd()
       process.chdir(testDir)
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
         const result = await configGet({ key: 'env.API_KEY' })
@@ -513,7 +533,7 @@ describe('CLI Commands', () => {
         expect(result.value).toBe('secret-123')
       } finally {
         process.chdir(originalCwd)
-        consoleSpy.mockRestore()
+        output.restore()
       }
     })
 
@@ -527,8 +547,7 @@ describe('CLI Commands', () => {
       const originalCwd = process.cwd()
       process.chdir(testDir)
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
         const result = await configGet({ key: 'nonExistentKey' })
@@ -538,8 +557,7 @@ describe('CLI Commands', () => {
         expect(result.value).toBeUndefined()
       } finally {
         process.chdir(originalCwd)
-        consoleSpy.mockRestore()
-        consoleErrorSpy.mockRestore()
+        output.restore()
       }
     })
 
@@ -549,7 +567,7 @@ describe('CLI Commands', () => {
       const originalCwd = process.cwd()
       process.chdir(testDir)
 
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const output = captureConsole()
 
       try {
         const result = await configGet({})
@@ -559,7 +577,7 @@ describe('CLI Commands', () => {
         expect(result.value).toEqual({})
       } finally {
         process.chdir(originalCwd)
-        consoleSpy.mockRestore()
+        output.restore()
       }
     })
   })

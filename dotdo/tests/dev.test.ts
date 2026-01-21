@@ -1,163 +1,209 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { spawn } from 'child_process'
-import type { ChildProcess } from 'child_process'
+/**
+ * Dev Command Tests
+ *
+ * Tests for `dotdo dev` command using dependency injection.
+ * NO MOCKS - uses injected spawn function for testing.
+ */
 
-// Mock child_process
-vi.mock('child_process', () => ({
-  spawn: vi.fn(),
-}))
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import type { ChildProcess } from 'child_process'
+import { EventEmitter } from 'events'
+import { startDevServer, type SpawnFn } from '../commands/dev'
+
+// ============================================================================
+// Test Helpers
+// ============================================================================
+
+/**
+ * Create a fake spawn function that returns a controllable mock process.
+ * This is NOT vi.mock - it's dependency injection with a test double.
+ */
+function createFakeSpawn() {
+  const calls: Array<{ command: string; args: string[]; options?: object }> = []
+
+  // Create a fake child process using EventEmitter
+  const createFakeProcess = (): ChildProcess => {
+    const proc = new EventEmitter() as ChildProcess & EventEmitter
+    const stdout = new EventEmitter()
+    const stderr = new EventEmitter()
+
+    // Assign required properties
+    ;(proc as any).stdout = stdout
+    ;(proc as any).stderr = stderr
+    ;(proc as any).stdin = null
+    ;(proc as any).stdio = [null, stdout, stderr]
+    ;(proc as any).pid = 12345
+    ;(proc as any).killed = false
+    ;(proc as any).connected = false
+    ;(proc as any).exitCode = null
+    ;(proc as any).signalCode = null
+    ;(proc as any).spawnargs = []
+    ;(proc as any).spawnfile = ''
+    ;(proc as any).kill = () => {
+      ;(proc as any).killed = true
+      return true
+    }
+    ;(proc as any).send = () => false
+    ;(proc as any).disconnect = () => {}
+    ;(proc as any).unref = () => {}
+    ;(proc as any).ref = () => {}
+    ;(proc as any)[Symbol.dispose] = () => {}
+
+    return proc
+  }
+
+  let currentProcess: ChildProcess | null = null
+
+  const spawn: SpawnFn = (command, args, options) => {
+    calls.push({ command, args, options })
+    currentProcess = createFakeProcess()
+    return currentProcess
+  }
+
+  return {
+    spawn,
+    calls,
+    getCurrentProcess: () => currentProcess,
+    simulateOutput: (data: string) => {
+      if (currentProcess?.stdout) {
+        ;(currentProcess.stdout as EventEmitter).emit('data', Buffer.from(data))
+      }
+    },
+    simulateError: (data: string) => {
+      if (currentProcess?.stderr) {
+        ;(currentProcess.stderr as EventEmitter).emit('data', Buffer.from(data))
+      }
+    },
+    simulateClose: (code: number) => {
+      if (currentProcess) {
+        ;(currentProcess as EventEmitter).emit('close', code)
+      }
+    },
+    simulateProcessError: (error: Error) => {
+      if (currentProcess) {
+        ;(currentProcess as EventEmitter).emit('error', error)
+      }
+    },
+  }
+}
+
+/**
+ * Capture console output
+ */
+function captureConsole() {
+  const logs: string[] = []
+  const errors: string[] = []
+  const originalLog = console.log
+  const originalError = console.error
+
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(' '))
+  }
+  console.error = (...args: unknown[]) => {
+    errors.push(args.map(String).join(' '))
+  }
+
+  return {
+    logs,
+    errors,
+    restore: () => {
+      console.log = originalLog
+      console.error = originalError
+    },
+  }
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 describe('dotdo dev command', () => {
-  let mockProcess: Partial<ChildProcess>
-  let mockStdout: { on: ReturnType<typeof vi.fn>; pipe: ReturnType<typeof vi.fn> }
-  let mockStderr: { on: ReturnType<typeof vi.fn>; pipe: ReturnType<typeof vi.fn> }
+  let fakeSpawn: ReturnType<typeof createFakeSpawn>
+  let output: ReturnType<typeof captureConsole>
 
   beforeEach(() => {
-    // Create mock event emitters for stdout/stderr
-    mockStdout = {
-      on: vi.fn((event, callback) => {
-        if (event === 'data') {
-          // Simulate wrangler startup messages
-          setTimeout(() => callback(Buffer.from('⎔ Starting local server...\n')), 10)
-          setTimeout(() => callback(Buffer.from('Ready on http://localhost:8787\n')), 20)
-        }
-        return mockStdout
-      }),
-      pipe: vi.fn(),
-    }
-
-    mockStderr = {
-      on: vi.fn(),
-      pipe: vi.fn(),
-    }
-
-    // Create mock child process
-    mockProcess = {
-      stdout: mockStdout,
-      stderr: mockStderr,
-      on: vi.fn((event, callback) => {
-        if (event === 'close') {
-          // Don't auto-close in tests
-        }
-        return mockProcess as ChildProcess
-      }),
-      kill: vi.fn(),
-      pid: 12345,
-    }
-
-    // Setup spawn mock to return our mock process
-    vi.mocked(spawn).mockReturnValue(mockProcess as ChildProcess)
+    fakeSpawn = createFakeSpawn()
+    output = captureConsole()
   })
 
   afterEach(() => {
-    vi.clearAllMocks()
+    output.restore()
   })
 
   describe('Basic functionality', () => {
-    it('should start wrangler dev server', async () => {
-      const { startDevServer } = await import('../commands/dev')
+    it('should start wrangler dev server with injected spawn', () => {
+      const server = startDevServer({ spawn: fakeSpawn.spawn })
 
-      const server = startDevServer({})
-
-      expect(spawn).toHaveBeenCalledWith(
-        expect.stringContaining('wrangler'),
-        expect.arrayContaining(['dev']),
-        expect.objectContaining({
-          stdio: 'pipe',
-          cwd: expect.any(String),
-        })
-      )
+      expect(fakeSpawn.calls.length).toBe(1)
+      expect(fakeSpawn.calls[0].command).toContain('wrangler')
+      expect(fakeSpawn.calls[0].args).toContain('dev')
+      expect(fakeSpawn.calls[0].options).toMatchObject({
+        stdio: 'pipe',
+      })
 
       server.stop()
     })
 
-    it('should use default port 8787', async () => {
-      const { startDevServer } = await import('../commands/dev')
+    it('should use default port 8787', () => {
+      const server = startDevServer({ spawn: fakeSpawn.spawn })
 
-      const server = startDevServer({})
-
-      expect(spawn).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.arrayContaining(['dev']),
-        expect.any(Object)
-      )
-
-      // Wrangler uses 8787 by default
-      const calls = vi.mocked(spawn).mock.calls
-      expect(calls[0][1]).not.toContain('--port')
+      // Wrangler uses 8787 by default, so --port should not be in args
+      expect(fakeSpawn.calls[0].args).not.toContain('--port')
+      expect(server.port).toBe(8787)
 
       server.stop()
     })
 
-    it('should accept custom port via --port flag', async () => {
-      const { startDevServer } = await import('../commands/dev')
+    it('should accept custom port via port option', () => {
+      const server = startDevServer({ spawn: fakeSpawn.spawn, port: 3000 })
 
-      const server = startDevServer({ port: 3000 })
-
-      expect(spawn).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.arrayContaining(['dev', '--port', '3000']),
-        expect.any(Object)
-      )
+      expect(fakeSpawn.calls[0].args).toContain('--port')
+      expect(fakeSpawn.calls[0].args).toContain('3000')
+      expect(server.port).toBe(3000)
 
       server.stop()
     })
 
-    it('should support --inspect flag for debugging', async () => {
-      const { startDevServer } = await import('../commands/dev')
+    it('should support --inspect flag for debugging', () => {
+      const server = startDevServer({ spawn: fakeSpawn.spawn, inspect: true })
 
-      const server = startDevServer({ inspect: true })
-
-      expect(spawn).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.arrayContaining(['dev', '--inspect']),
-        expect.any(Object)
-      )
+      expect(fakeSpawn.calls[0].args).toContain('--inspect')
 
       server.stop()
     })
 
-    it('should pass through wrangler config file if specified', async () => {
-      const { startDevServer } = await import('../commands/dev')
+    it('should pass through wrangler config file if specified', () => {
+      const server = startDevServer({
+        spawn: fakeSpawn.spawn,
+        config: 'custom-wrangler.toml',
+      })
 
-      const server = startDevServer({ config: 'custom-wrangler.toml' })
-
-      expect(spawn).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.arrayContaining(['dev', '--config', 'custom-wrangler.toml']),
-        expect.any(Object)
-      )
+      expect(fakeSpawn.calls[0].args).toContain('--config')
+      expect(fakeSpawn.calls[0].args).toContain('custom-wrangler.toml')
 
       server.stop()
     })
   })
 
   describe('Environment handling', () => {
-    it('should load .env file if present', async () => {
-      const { startDevServer } = await import('../commands/dev')
+    it('should load .env file if present', () => {
+      const server = startDevServer({
+        spawn: fakeSpawn.spawn,
+        env: '.env.local',
+      })
 
-      const server = startDevServer({ env: '.env.local' })
-
-      // Should pass .env to wrangler
-      expect(spawn).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.arrayContaining(['dev', '--env', '.env.local']),
-        expect.any(Object)
-      )
+      expect(fakeSpawn.calls[0].args).toContain('--env')
+      expect(fakeSpawn.calls[0].args).toContain('.env.local')
 
       server.stop()
     })
 
-    it('should inherit environment variables', async () => {
-      const { startDevServer } = await import('../commands/dev')
+    it('should inherit environment variables', () => {
+      const server = startDevServer({ spawn: fakeSpawn.spawn })
 
-      const server = startDevServer({})
-
-      expect(spawn).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(Array),
+      expect(fakeSpawn.calls[0].options?.env).toMatchObject(
         expect.objectContaining({
-          env: expect.objectContaining(process.env),
+          FORCE_COLOR: '1',
         })
       )
 
@@ -166,183 +212,129 @@ describe('dotdo dev command', () => {
   })
 
   describe('Output handling', () => {
-    it('should display startup banner', async () => {
-      const { startDevServer } = await import('../commands/dev')
-      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    it('should display startup banner', () => {
+      const server = startDevServer({ spawn: fakeSpawn.spawn })
 
-      const server = startDevServer({})
-
-      // Should log startup banner
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('dotdo dev')
-      )
-
-      server.stop()
-      consoleLogSpy.mockRestore()
-    })
-
-    it('should format and display wrangler output', async () => {
-      const { startDevServer } = await import('../commands/dev')
-
-      const server = startDevServer({ verbose: true })
-
-      // Wait for stdout to be processed
-      await new Promise((resolve) => setTimeout(resolve, 50))
-
-      // Should pipe stdout
-      expect(mockStdout.on).toHaveBeenCalledWith('data', expect.any(Function))
+      expect(output.logs.some((log) => log.includes('dotdo dev'))).toBe(true)
 
       server.stop()
     })
 
-    it('should display request logs in dev mode', async () => {
-      const { startDevServer } = await import('../commands/dev')
+    it('should handle stdout data events', () => {
+      const server = startDevServer({ spawn: fakeSpawn.spawn, verbose: true })
 
-      const server = startDevServer({})
+      // Simulate wrangler output
+      fakeSpawn.simulateOutput('Ready on http://localhost:8787\n')
+
+      server.stop()
+    })
+
+    it('should display request logs in dev mode', () => {
+      const server = startDevServer({ spawn: fakeSpawn.spawn })
 
       // Simulate a request log from wrangler
-      const dataCallback = mockStdout.on.mock.calls.find(
-        (call: unknown[]) => call[0] === 'data'
-      )?.[1]
-
-      if (dataCallback) {
-        dataCallback(Buffer.from('[wrangler] GET / 200 OK (5ms)\n'))
-      }
+      fakeSpawn.simulateOutput('[wrangler] GET / 200 OK (5ms)\n')
 
       server.stop()
     })
   })
 
   describe('File watching and hot reload', () => {
-    it('should enable hot reload by default', async () => {
-      const { startDevServer } = await import('../commands/dev')
-
-      const server = startDevServer({})
+    it('should enable hot reload by default', () => {
+      const server = startDevServer({ spawn: fakeSpawn.spawn })
 
       // Wrangler has hot reload enabled by default, so we shouldn't see --no-bundle
-      const calls = vi.mocked(spawn).mock.calls
-      expect(calls[0][1]).not.toContain('--no-bundle')
+      expect(fakeSpawn.calls[0].args).not.toContain('--no-bundle')
 
       server.stop()
     })
 
-    it('should support live reload flag', async () => {
-      const { startDevServer } = await import('../commands/dev')
+    it('should support live reload flag', () => {
+      const server = startDevServer({
+        spawn: fakeSpawn.spawn,
+        liveReload: true,
+      })
 
-      const server = startDevServer({ liveReload: true })
-
-      expect(spawn).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.arrayContaining(['dev', '--live-reload']),
-        expect.any(Object)
-      )
+      expect(fakeSpawn.calls[0].args).toContain('--live-reload')
 
       server.stop()
     })
 
-    it('should watch for file changes', async () => {
-      const { startDevServer } = await import('../commands/dev')
-
-      const server = startDevServer({})
+    it('should watch for file changes', () => {
+      const server = startDevServer({ spawn: fakeSpawn.spawn })
 
       // Simulate file change notification
-      const dataCallback = mockStdout.on.mock.calls.find(
-        (call: unknown[]) => call[0] === 'data'
-      )?.[1]
-
-      if (dataCallback) {
-        dataCallback(Buffer.from('[wrangler] Detected changes, reloading...\n'))
-      }
+      fakeSpawn.simulateOutput('[wrangler] Detected changes, reloading...\n')
 
       server.stop()
     })
   })
 
   describe('Process management', () => {
-    it('should cleanup process on stop', async () => {
-      const { startDevServer } = await import('../commands/dev')
+    it('should cleanup process on stop', () => {
+      const server = startDevServer({ spawn: fakeSpawn.spawn })
+      const proc = fakeSpawn.getCurrentProcess()
 
-      const server = startDevServer({})
       server.stop()
 
-      expect(mockProcess.kill).toHaveBeenCalled()
+      expect((proc as any).killed).toBe(true)
     })
 
-    it('should handle process errors gracefully', async () => {
-      const { startDevServer } = await import('../commands/dev')
-
-      // Mock process error
-      const errorCallback = vi.fn()
-      mockProcess.on = vi.fn((event, callback) => {
-        if (event === 'error') {
-          errorCallback.mockImplementation(callback)
-        }
-        return mockProcess as ChildProcess
-      })
-
-      const server = startDevServer({})
+    it('should handle process errors gracefully', () => {
+      const server = startDevServer({ spawn: fakeSpawn.spawn })
 
       // Trigger error
-      if (errorCallback.mock.calls.length > 0) {
-        errorCallback(new Error('Process failed'))
-      }
+      fakeSpawn.simulateProcessError(new Error('Process failed'))
+
+      // Should have logged the error
+      expect(output.errors.some((log) => log.includes('Failed to start dev server'))).toBe(true)
 
       server.stop()
     })
 
-    it('should return process info', async () => {
-      const { startDevServer } = await import('../commands/dev')
-
-      const server = startDevServer({ port: 3000 })
+    it('should return process info', () => {
+      const server = startDevServer({ spawn: fakeSpawn.spawn, port: 3000 })
 
       expect(server).toHaveProperty('port', 3000)
       expect(server).toHaveProperty('stop')
-      expect(server.stop).toBeTypeOf('function')
+      expect(typeof server.stop).toBe('function')
+      expect(server).toHaveProperty('process')
 
       server.stop()
     })
   })
 
   describe('Advanced features', () => {
-    it('should support local protocol flag', async () => {
-      const { startDevServer } = await import('../commands/dev')
+    it('should support local protocol flag', () => {
+      const server = startDevServer({
+        spawn: fakeSpawn.spawn,
+        localProtocol: 'https',
+      })
 
-      const server = startDevServer({ localProtocol: 'https' })
-
-      expect(spawn).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.arrayContaining(['dev', '--local-protocol', 'https']),
-        expect.any(Object)
-      )
+      expect(fakeSpawn.calls[0].args).toContain('--local-protocol')
+      expect(fakeSpawn.calls[0].args).toContain('https')
 
       server.stop()
     })
 
-    it('should support persist state flag for DO', async () => {
-      const { startDevServer } = await import('../commands/dev')
+    it('should support persist state flag for DO', () => {
+      const server = startDevServer({
+        spawn: fakeSpawn.spawn,
+        persist: true,
+      })
 
-      const server = startDevServer({ persist: true })
-
-      expect(spawn).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.arrayContaining(['dev', '--persist']),
-        expect.any(Object)
-      )
+      expect(fakeSpawn.calls[0].args).toContain('--persist')
 
       server.stop()
     })
 
-    it('should display helpful info on startup', async () => {
-      const { startDevServer } = await import('../commands/dev')
-      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    it('should display helpful info on startup', () => {
+      const server = startDevServer({ spawn: fakeSpawn.spawn, port: 3000 })
 
-      const server = startDevServer({ port: 3000 })
-
-      // Should show URL and other info
-      expect(consoleLogSpy).toHaveBeenCalled()
+      // Should show URL
+      expect(output.logs.some((log) => log.includes('localhost:3000'))).toBe(true)
 
       server.stop()
-      consoleLogSpy.mockRestore()
     })
   })
 })

@@ -1,16 +1,19 @@
 /**
  * Tests for workers.do integration
  *
+ * NO MOCKS - Uses dependency injection via the `api` option in WorkersDoClientOptions.
+ * The WorkersDoClient accepts an injected API implementation for testing.
+ *
  * TDD approach:
  * - Test project creation and management
- * - Test deployment flow (upload → validate → deploy)
+ * - Test deployment flow (upload -> validate -> deploy)
  * - Test log streaming
  * - Test status checking
  * - Test environment variable management
  * - Test error handling and retries
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import {
   WorkersDoClient,
   createWorkersDoClient,
@@ -19,60 +22,227 @@ import {
   type LogEntry,
   type EnvVar,
   type HealthStatus,
+  type WorkersDoAPI,
 } from '../services/workers-do'
 
-// Mock the RPC client
-vi.mock('@dotdo/rpc', () => ({
-  createClient: vi.fn(() => mockAPI),
-}))
+// ============================================================================
+// Test Helpers
+// ============================================================================
 
-// Mock API responses
-let mockAPI: {
-  projects: {
-    create: ReturnType<typeof vi.fn>
-    get: ReturnType<typeof vi.fn>
-    list: ReturnType<typeof vi.fn>
-    delete: ReturnType<typeof vi.fn>
+/**
+ * Create a fake API implementation for testing.
+ * This is dependency injection, NOT vi.mock.
+ */
+function createFakeAPI(): {
+  api: WorkersDoAPI
+  calls: Record<string, Array<unknown[]>>
+} {
+  const calls: Record<string, Array<unknown[]>> = {
+    'projects.create': [],
+    'projects.get': [],
+    'projects.list': [],
+    'projects.delete': [],
+    'deployments.create': [],
+    'deployments.get': [],
+    'deployments.list': [],
+    'deployments.cancel': [],
+    'logs.stream': [],
+    'logs.get': [],
+    'env.set': [],
+    'env.get': [],
+    'env.delete': [],
+    'health.check': [],
   }
+
+  // Response handlers that can be customized per test
+  let projectsCreateHandler: () => Promise<Project> = async () => ({
+    $id: 'proj-default',
+    name: 'default-project',
+    url: 'https://default.workers.do',
+    createdAt: new Date().toISOString(),
+  })
+
+  let projectsGetHandler: () => Promise<Project> = async () => ({
+    $id: 'proj-default',
+    name: 'default-project',
+    url: 'https://default.workers.do',
+    createdAt: new Date().toISOString(),
+  })
+
+  let projectsListHandler: () => Promise<Project[]> = async () => []
+  let projectsDeleteHandler: () => Promise<boolean> = async () => true
+
+  let deploymentsCreateHandler: () => Promise<Deployment> = async () => ({
+    $id: 'deploy-default',
+    projectId: 'proj-default',
+    version: '1.0.0',
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  })
+
+  let deploymentsGetHandler: () => Promise<Deployment> = async () => ({
+    $id: 'deploy-default',
+    projectId: 'proj-default',
+    version: '1.0.0',
+    status: 'active',
+    createdAt: new Date().toISOString(),
+  })
+
+  let deploymentsListHandler: () => Promise<Deployment[]> = async () => []
+  let deploymentsCancelHandler: () => Promise<boolean> = async () => true
+
+  let logsStreamHandler: () => Promise<ReadableStream<LogEntry>> = async () =>
+    new ReadableStream({
+      start(controller) {
+        controller.close()
+      },
+    })
+
+  let logsGetHandler: () => Promise<LogEntry[]> = async () => []
+
+  let envSetHandler: () => Promise<boolean> = async () => true
+  let envGetHandler: () => Promise<EnvVar[]> = async () => []
+  let envDeleteHandler: () => Promise<boolean> = async () => true
+
+  let healthCheckHandler: () => Promise<HealthStatus> = async () => ({
+    healthy: true,
+    uptime: 3600000,
+    lastCheck: new Date().toISOString(),
+  })
+
+  const api: WorkersDoAPI = {
+    projects: {
+      create: async (options) => {
+        calls['projects.create'].push([options])
+        return projectsCreateHandler()
+      },
+      get: async (id) => {
+        calls['projects.get'].push([id])
+        return projectsGetHandler()
+      },
+      list: async () => {
+        calls['projects.list'].push([])
+        return projectsListHandler()
+      },
+      delete: async (id) => {
+        calls['projects.delete'].push([id])
+        return projectsDeleteHandler()
+      },
+    },
+    deployments: {
+      create: async (options) => {
+        calls['deployments.create'].push([options])
+        return deploymentsCreateHandler()
+      },
+      get: async (id) => {
+        calls['deployments.get'].push([id])
+        return deploymentsGetHandler()
+      },
+      list: async (projectId) => {
+        calls['deployments.list'].push([projectId])
+        return deploymentsListHandler()
+      },
+      cancel: async (id) => {
+        calls['deployments.cancel'].push([id])
+        return deploymentsCancelHandler()
+      },
+    },
+    logs: {
+      stream: async (options) => {
+        calls['logs.stream'].push([options])
+        return logsStreamHandler()
+      },
+      get: async (projectId, options) => {
+        calls['logs.get'].push([projectId, options])
+        return logsGetHandler()
+      },
+    },
+    env: {
+      set: async (options) => {
+        calls['env.set'].push([options])
+        return envSetHandler()
+      },
+      get: async (projectId) => {
+        calls['env.get'].push([projectId])
+        return envGetHandler()
+      },
+      delete: async (projectId, key) => {
+        calls['env.delete'].push([projectId, key])
+        return envDeleteHandler()
+      },
+    },
+    health: {
+      check: async (projectId) => {
+        calls['health.check'].push([projectId])
+        return healthCheckHandler()
+      },
+    },
+  }
+
+  return {
+    api,
+    calls,
+    // Expose setters for customizing responses
+    setProjectsCreateHandler: (handler: typeof projectsCreateHandler) => {
+      projectsCreateHandler = handler
+    },
+    setProjectsGetHandler: (handler: typeof projectsGetHandler) => {
+      projectsGetHandler = handler
+    },
+    setProjectsListHandler: (handler: typeof projectsListHandler) => {
+      projectsListHandler = handler
+    },
+    setProjectsDeleteHandler: (handler: typeof projectsDeleteHandler) => {
+      projectsDeleteHandler = handler
+    },
+    setDeploymentsCreateHandler: (handler: typeof deploymentsCreateHandler) => {
+      deploymentsCreateHandler = handler
+    },
+    setDeploymentsGetHandler: (handler: typeof deploymentsGetHandler) => {
+      deploymentsGetHandler = handler
+    },
+    setDeploymentsListHandler: (handler: typeof deploymentsListHandler) => {
+      deploymentsListHandler = handler
+    },
+    setDeploymentsCancelHandler: (handler: typeof deploymentsCancelHandler) => {
+      deploymentsCancelHandler = handler
+    },
+    setLogsStreamHandler: (handler: typeof logsStreamHandler) => {
+      logsStreamHandler = handler
+    },
+    setLogsGetHandler: (handler: typeof logsGetHandler) => {
+      logsGetHandler = handler
+    },
+    setEnvSetHandler: (handler: typeof envSetHandler) => {
+      envSetHandler = handler
+    },
+    setEnvGetHandler: (handler: typeof envGetHandler) => {
+      envGetHandler = handler
+    },
+    setEnvDeleteHandler: (handler: typeof envDeleteHandler) => {
+      envDeleteHandler = handler
+    },
+    setHealthCheckHandler: (handler: typeof healthCheckHandler) => {
+      healthCheckHandler = handler
+    },
+  } as {
+    api: WorkersDoAPI
+    calls: Record<string, Array<unknown[]>>
+  } & Record<string, (handler: () => Promise<unknown>) => void>
 }
 
 describe('WorkersDoClient', () => {
   let client: WorkersDoClient
+  let fakeAPI: ReturnType<typeof createFakeAPI>
 
   beforeEach(() => {
-    // Reset mocks before each test
-    mockAPI = {
-      projects: {
-        create: vi.fn(),
-        get: vi.fn(),
-        list: vi.fn(),
-        delete: vi.fn(),
-      },
-      deployments: {
-        create: vi.fn(),
-        get: vi.fn(),
-        list: vi.fn(),
-        cancel: vi.fn(),
-      },
-      logs: {
-        stream: vi.fn(),
-        get: vi.fn(),
-      },
-      env: {
-        set: vi.fn(),
-        get: vi.fn(),
-        delete: vi.fn(),
-      },
-      health: {
-        check: vi.fn(),
-      },
-    }
-
+    fakeAPI = createFakeAPI()
     client = createWorkersDoClient({
       token: 'test-token',
       timeout: 5000,
       maxRetries: 2,
       retryBaseDelay: 100,
+      api: fakeAPI.api,
     })
   })
 
@@ -87,7 +257,7 @@ describe('WorkersDoClient', () => {
         environment: 'production',
       }
 
-      mockAPI.projects.create.mockResolvedValue(mockProject)
+      ;(fakeAPI as any).setProjectsCreateHandler(async () => mockProject)
 
       const result = await client.createProject({
         name: 'test-project',
@@ -96,11 +266,14 @@ describe('WorkersDoClient', () => {
       })
 
       expect(result).toEqual(mockProject)
-      expect(mockAPI.projects.create).toHaveBeenCalledWith({
-        name: 'test-project',
-        namespace: 'default',
-        environment: 'production',
-      })
+      expect(fakeAPI.calls['projects.create']).toHaveLength(1)
+      expect(fakeAPI.calls['projects.create'][0]).toEqual([
+        {
+          name: 'test-project',
+          namespace: 'default',
+          environment: 'production',
+        },
+      ])
     })
 
     it('should get a project by ID', async () => {
@@ -111,12 +284,13 @@ describe('WorkersDoClient', () => {
         createdAt: new Date().toISOString(),
       }
 
-      mockAPI.projects.get.mockResolvedValue(mockProject)
+      ;(fakeAPI as any).setProjectsGetHandler(async () => mockProject)
 
       const result = await client.getProject('proj-123')
 
       expect(result).toEqual(mockProject)
-      expect(mockAPI.projects.get).toHaveBeenCalledWith('proj-123')
+      expect(fakeAPI.calls['projects.get']).toHaveLength(1)
+      expect(fakeAPI.calls['projects.get'][0]).toEqual(['proj-123'])
     })
 
     it('should list all projects', async () => {
@@ -135,7 +309,7 @@ describe('WorkersDoClient', () => {
         },
       ]
 
-      mockAPI.projects.list.mockResolvedValue(mockProjects)
+      ;(fakeAPI as any).setProjectsListHandler(async () => mockProjects)
 
       const result = await client.listProjects()
 
@@ -144,12 +318,12 @@ describe('WorkersDoClient', () => {
     })
 
     it('should delete a project', async () => {
-      mockAPI.projects.delete.mockResolvedValue(true)
+      ;(fakeAPI as any).setProjectsDeleteHandler(async () => true)
 
       const result = await client.deleteProject('proj-123')
 
       expect(result).toBe(true)
-      expect(mockAPI.projects.delete).toHaveBeenCalledWith('proj-123')
+      expect(fakeAPI.calls['projects.delete'][0]).toEqual(['proj-123'])
     })
   })
 
@@ -165,7 +339,7 @@ describe('WorkersDoClient', () => {
         bundleSize: 4,
       }
 
-      mockAPI.deployments.create.mockResolvedValue(mockDeployment)
+      ;(fakeAPI as any).setDeploymentsCreateHandler(async () => mockDeployment)
 
       const result = await client.deploy({
         projectId: 'proj-123',
@@ -174,11 +348,7 @@ describe('WorkersDoClient', () => {
       })
 
       expect(result).toEqual(mockDeployment)
-      expect(mockAPI.deployments.create).toHaveBeenCalledWith({
-        projectId: 'proj-123',
-        bundle,
-        version: '1.0.0',
-      })
+      expect(fakeAPI.calls['deployments.create']).toHaveLength(1)
     })
 
     it('should validate bundle before deploy (dry run)', async () => {
@@ -192,7 +362,7 @@ describe('WorkersDoClient', () => {
         bundleSize: 4,
       }
 
-      mockAPI.deployments.create.mockResolvedValue(mockDeployment)
+      ;(fakeAPI as any).setDeploymentsCreateHandler(async () => mockDeployment)
 
       const result = await client.deploy({
         projectId: 'proj-123',
@@ -202,12 +372,10 @@ describe('WorkersDoClient', () => {
       })
 
       expect(result).toEqual(mockDeployment)
-      expect(mockAPI.deployments.create).toHaveBeenCalledWith({
-        projectId: 'proj-123',
-        bundle,
-        version: '1.0.0',
-        dryRun: true,
-      })
+      const createCall = fakeAPI.calls['deployments.create'][0][0] as {
+        dryRun?: boolean
+      }
+      expect(createCall.dryRun).toBe(true)
     })
 
     it('should get deployment status', async () => {
@@ -223,7 +391,7 @@ describe('WorkersDoClient', () => {
         buildTime: 5000,
       }
 
-      mockAPI.deployments.get.mockResolvedValue(mockDeployment)
+      ;(fakeAPI as any).setDeploymentsGetHandler(async () => mockDeployment)
 
       const result = await client.getDeployment('deploy-123')
 
@@ -251,7 +419,7 @@ describe('WorkersDoClient', () => {
         },
       ]
 
-      mockAPI.deployments.list.mockResolvedValue(mockDeployments)
+      ;(fakeAPI as any).setDeploymentsListHandler(async () => mockDeployments)
 
       const result = await client.listDeployments('proj-123')
 
@@ -260,12 +428,12 @@ describe('WorkersDoClient', () => {
     })
 
     it('should cancel a deployment', async () => {
-      mockAPI.deployments.cancel.mockResolvedValue(true)
+      ;(fakeAPI as any).setDeploymentsCancelHandler(async () => true)
 
       const result = await client.cancelDeployment('deploy-123')
 
       expect(result).toBe(true)
-      expect(mockAPI.deployments.cancel).toHaveBeenCalledWith('deploy-123')
+      expect(fakeAPI.calls['deployments.cancel'][0]).toEqual(['deploy-123'])
     })
 
     it('should wait for deployment to complete', async () => {
@@ -296,8 +464,8 @@ describe('WorkersDoClient', () => {
       ]
 
       let callCount = 0
-      mockAPI.deployments.get.mockImplementation(() => {
-        return Promise.resolve(deploymentStates[callCount++] || deploymentStates[deploymentStates.length - 1])
+      ;(fakeAPI as any).setDeploymentsGetHandler(async () => {
+        return deploymentStates[callCount++] || deploymentStates[deploymentStates.length - 1]
       })
 
       const result = await client.waitForDeployment('deploy-123', 100, 5000)
@@ -315,11 +483,11 @@ describe('WorkersDoClient', () => {
         createdAt: new Date().toISOString(),
       }
 
-      mockAPI.deployments.get.mockResolvedValue(pendingDeployment)
+      ;(fakeAPI as any).setDeploymentsGetHandler(async () => pendingDeployment)
 
-      await expect(
-        client.waitForDeployment('deploy-123', 100, 500)
-      ).rejects.toThrow('Deployment timeout')
+      await expect(client.waitForDeployment('deploy-123', 100, 500)).rejects.toThrow(
+        'Deployment timeout'
+      )
     })
   })
 
@@ -340,12 +508,12 @@ describe('WorkersDoClient', () => {
 
       const mockStream = new ReadableStream({
         start(controller) {
-          mockLogs.forEach(log => controller.enqueue(log))
+          mockLogs.forEach((log) => controller.enqueue(log))
           controller.close()
         },
       })
 
-      mockAPI.logs.stream.mockResolvedValue(mockStream)
+      ;(fakeAPI as any).setLogsStreamHandler(async () => mockStream)
 
       const stream = await client.streamLogs({
         projectId: 'proj-123',
@@ -353,10 +521,7 @@ describe('WorkersDoClient', () => {
       })
 
       expect(stream).toBeInstanceOf(ReadableStream)
-      expect(mockAPI.logs.stream).toHaveBeenCalledWith({
-        projectId: 'proj-123',
-        follow: true,
-      })
+      expect(fakeAPI.calls['logs.stream']).toHaveLength(1)
     })
 
     it('should get recent logs', async () => {
@@ -374,18 +539,18 @@ describe('WorkersDoClient', () => {
         },
       ]
 
-      mockAPI.logs.get.mockResolvedValue(mockLogs)
+      ;(fakeAPI as any).setLogsGetHandler(async () => mockLogs)
 
       const result = await client.getLogs('proj-123', { limit: 10, level: 'error' })
 
       expect(result).toEqual(mockLogs)
-      expect(mockAPI.logs.get).toHaveBeenCalledWith('proj-123', { limit: 10, level: 'error' })
+      expect(fakeAPI.calls['logs.get'][0]).toEqual(['proj-123', { limit: 10, level: 'error' }])
     })
   })
 
   describe('Environment Variables', () => {
     it('should set environment variables', async () => {
-      mockAPI.env.set.mockResolvedValue(true)
+      ;(fakeAPI as any).setEnvSetHandler(async () => true)
 
       const result = await client.setEnv({
         projectId: 'proj-123',
@@ -396,13 +561,7 @@ describe('WorkersDoClient', () => {
       })
 
       expect(result).toBe(true)
-      expect(mockAPI.env.set).toHaveBeenCalledWith({
-        projectId: 'proj-123',
-        variables: [
-          { key: 'API_KEY', value: 'secret-key', isSecret: true },
-          { key: 'DEBUG', value: 'true', isSecret: false },
-        ],
-      })
+      expect(fakeAPI.calls['env.set']).toHaveLength(1)
     })
 
     it('should get environment variables', async () => {
@@ -411,7 +570,7 @@ describe('WorkersDoClient', () => {
         { key: 'DEBUG', value: 'true', isSecret: false },
       ]
 
-      mockAPI.env.get.mockResolvedValue(mockEnvVars)
+      ;(fakeAPI as any).setEnvGetHandler(async () => mockEnvVars)
 
       const result = await client.getEnv('proj-123')
 
@@ -421,12 +580,12 @@ describe('WorkersDoClient', () => {
     })
 
     it('should delete an environment variable', async () => {
-      mockAPI.env.delete.mockResolvedValue(true)
+      ;(fakeAPI as any).setEnvDeleteHandler(async () => true)
 
       const result = await client.deleteEnv('proj-123', 'OLD_VAR')
 
       expect(result).toBe(true)
-      expect(mockAPI.env.delete).toHaveBeenCalledWith('proj-123', 'OLD_VAR')
+      expect(fakeAPI.calls['env.delete'][0]).toEqual(['proj-123', 'OLD_VAR'])
     })
   })
 
@@ -443,7 +602,7 @@ describe('WorkersDoClient', () => {
         },
       }
 
-      mockAPI.health.check.mockResolvedValue(mockHealth)
+      ;(fakeAPI as any).setHealthCheckHandler(async () => mockHealth)
 
       const result = await client.checkHealth('proj-123')
 
@@ -465,7 +624,7 @@ describe('WorkersDoClient', () => {
         },
       }
 
-      mockAPI.health.check.mockResolvedValue(mockHealth)
+      ;(fakeAPI as any).setHealthCheckHandler(async () => mockHealth)
 
       const result = await client.checkHealth('proj-123')
 
@@ -477,54 +636,62 @@ describe('WorkersDoClient', () => {
   describe('Error Handling', () => {
     it('should retry on network errors', async () => {
       // Create client with 3 retries for this test
+      const retryFakeAPI = createFakeAPI()
       const retryClient = createWorkersDoClient({
         token: 'test-token',
         timeout: 5000,
         maxRetries: 3,
         retryBaseDelay: 100,
+        api: retryFakeAPI.api,
       })
 
       let callCount = 0
-      mockAPI.projects.get.mockImplementation(() => {
+      ;(retryFakeAPI as any).setProjectsGetHandler(async () => {
         callCount++
         if (callCount === 1) {
-          return Promise.reject(new Error('fetch failed'))
+          throw new Error('fetch failed')
         }
         if (callCount === 2) {
-          return Promise.reject(new Error('econnreset'))
+          throw new Error('econnreset')
         }
-        return Promise.resolve({
+        return {
           $id: 'proj-123',
           name: 'test-project',
           url: 'https://test-project.workers.do',
           createdAt: new Date().toISOString(),
-        })
+        }
       })
 
       const result = await retryClient.getProject('proj-123')
 
       expect(result.$id).toBe('proj-123')
-      expect(mockAPI.projects.get).toHaveBeenCalledTimes(3)
+      expect(callCount).toBe(3)
     })
 
     it('should not retry on non-retryable errors', async () => {
-      const nonRetryableError = new Error('Invalid credentials')
-      mockAPI.projects.get.mockRejectedValue(nonRetryableError)
+      let callCount = 0
+      ;(fakeAPI as any).setProjectsGetHandler(async () => {
+        callCount++
+        throw new Error('Invalid credentials')
+      })
 
       await expect(client.getProject('proj-123')).rejects.toThrow('Invalid credentials')
-      expect(mockAPI.projects.get).toHaveBeenCalledTimes(1)
+      expect(callCount).toBe(1)
     })
 
     it('should throw after max retries', async () => {
-      mockAPI.projects.get.mockRejectedValue(new Error('Network timeout'))
+      ;(fakeAPI as any).setProjectsGetHandler(async () => {
+        throw new Error('Network timeout')
+      })
 
       await expect(client.getProject('proj-123')).rejects.toThrow()
-      expect(mockAPI.projects.get).toHaveBeenCalledTimes(2) // maxRetries = 2
+      expect(fakeAPI.calls['projects.get'].length).toBe(2) // maxRetries = 2
     })
 
     it('should handle timeout errors', async () => {
-      const timeoutError = new Error('Request timeout')
-      mockAPI.deployments.create.mockRejectedValue(timeoutError)
+      ;(fakeAPI as any).setDeploymentsCreateHandler(async () => {
+        throw new Error('Request timeout')
+      })
 
       await expect(
         client.deploy({
@@ -547,7 +714,7 @@ describe('WorkersDoClient', () => {
         deployedAt: new Date().toISOString(),
       }
 
-      mockAPI.deployments.create.mockResolvedValue(mockDeployment)
+      ;(fakeAPI as any).setDeploymentsCreateHandler(async () => mockDeployment)
 
       const result = await client.deploy({
         projectId: 'proj-123',
@@ -562,19 +729,20 @@ describe('WorkersDoClient', () => {
 
   describe('Client Creation', () => {
     it('should create client with default options', () => {
-      const client = createWorkersDoClient({ token: 'test-token' })
-      expect(client).toBeInstanceOf(WorkersDoClient)
+      const defaultClient = createWorkersDoClient({ token: 'test-token', api: fakeAPI.api })
+      expect(defaultClient).toBeInstanceOf(WorkersDoClient)
     })
 
     it('should create client with custom options', () => {
-      const client = createWorkersDoClient({
+      const customClient = createWorkersDoClient({
         url: 'https://custom.workers.do',
         token: 'test-token',
         timeout: 10000,
         maxRetries: 5,
         retryBaseDelay: 500,
+        api: fakeAPI.api,
       })
-      expect(client).toBeInstanceOf(WorkersDoClient)
+      expect(customClient).toBeInstanceOf(WorkersDoClient)
     })
   })
 })

@@ -1,6 +1,15 @@
-import { spawn, type ChildProcess } from 'child_process'
+import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions as NodeSpawnOptions } from 'child_process'
 import { resolve, join } from 'path'
 import { existsSync } from 'fs'
+
+/**
+ * Spawn function type for dependency injection
+ */
+export type SpawnFn = (
+  command: string,
+  args: string[],
+  options?: NodeSpawnOptions
+) => ChildProcess
 
 export interface DevServerOptions {
   port?: number
@@ -11,6 +20,8 @@ export interface DevServerOptions {
   liveReload?: boolean
   localProtocol?: 'http' | 'https'
   persist?: boolean
+  /** Dependency injection for spawn function (for testing) */
+  spawn?: SpawnFn
 }
 
 export interface DevServer {
@@ -32,6 +43,7 @@ export function startDevServer(options: DevServerOptions = {}): DevServer {
     liveReload = false,
     localProtocol,
     persist = false,
+    spawn = nodeSpawn,
   } = options
 
   // Find wrangler binary
@@ -81,7 +93,7 @@ export function startDevServer(options: DevServerOptions = {}): DevServer {
   // Display startup banner
   displayBanner(port, { inspect, persist, liveReload })
 
-  // Spawn wrangler process
+  // Spawn wrangler process using injected or default spawn
   const childProcess = spawn(wranglerPath, args, {
     cwd,
     stdio: 'pipe',
