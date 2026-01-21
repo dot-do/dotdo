@@ -152,7 +152,7 @@ function generateKeyResultId(): string {
  *   .last(30, 'days')
  *
  * // Or with template literals
- * const result = await business.aggregate`
+ * const result = await business.agg`
  *   sum(amount) from purchases by day last 30 days
  * `
  * ```
@@ -165,7 +165,8 @@ export class Business extends DO {
     env: Record<string, unknown>,
     config: BusinessConfig = {}
   ) {
-    super(state, env, { backend: config.backend ?? 'db4' })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    super(state as any, env)
     this.businessConfig = config
   }
 
@@ -279,11 +280,11 @@ export class Business extends DO {
   }
 
   /**
-   * Aggregate data with template literal syntax
+   * Run template literal aggregation query
    *
    * @example
    * ```typescript
-   * const result = await business.aggregate`
+   * const result = await business.agg`
    *   sum(amount) from purchases
    *   where status = 'completed'
    *   by day
@@ -292,14 +293,14 @@ export class Business extends DO {
    *
    * // With interpolation
    * const productId = 'prod_123'
-   * const sales = await business.aggregate`
+   * const sales = await business.agg`
    *   count() from purchases
    *   where productId = ${productId}
    *   last 7 days
    * `
    * ```
    */
-  async aggregate(
+  async agg(
     strings: TemplateStringsArray,
     ...values: unknown[]
   ): Promise<AggregateResult> {

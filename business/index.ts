@@ -46,7 +46,7 @@
  *   .last(30, 'days')
  *
  * // 4. Or use template literal syntax
- * const sales = await this.aggregate`
+ * const sales = await this.agg`
  *   sum(amount) from purchases
  *   where status = 'completed'
  *   by product

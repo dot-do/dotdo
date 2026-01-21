@@ -586,7 +586,7 @@ export {
   AdminDO,
   createAdminHooks,
   type AdminStores,
-  type EntityListOptions,
+  type EntityListOptions as AdminEntityListOptions,
   type EntityListResult,
   type EventListOptions,
   type EventListResult,

@@ -9,6 +9,16 @@
  * - createCrossDOClientWithCircuitBreaker: Wraps createCrossDOClient with circuit breaker
  * - CircuitBreakerRPCConfig: Configuration for circuit breaker in RPC context
  *
+ * ## Dependency Note (do-mm51r)
+ *
+ * This module uses a relative import from `../do/circuit-breaker` rather than
+ * the package path `@dotdo/do/circuit-breaker`. This is intentional:
+ *
+ * - `@dotdo/do` depends on `@dotdo/rpc` (production)
+ * - `@dotdo/rpc` would create a package-level circular dependency if it depended on `@dotdo/do`
+ * - The relative import bypasses package resolution and works in this monorepo
+ * - `do/circuit-breaker.ts` is a leaf module with no RPC imports, so no runtime cycle exists
+ *
  * @module @dotdo/rpc/circuit-breaker
  */
 
