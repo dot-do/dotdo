@@ -2,7 +2,10 @@ import {
   createStartHandler,
   defaultStreamHandler,
 } from '@tanstack/start/server'
+import { getRouterManifest } from '@tanstack/start/router-manifest'
+import { createRouter } from './router'
 
-// createStartHandler now takes a HandlerCallback directly
-// Router and manifest are loaded via virtual modules automatically
-export default createStartHandler(defaultStreamHandler)
+export default createStartHandler({
+  createRouter,
+  getRouterManifest,
+})(defaultStreamHandler)

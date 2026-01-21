@@ -1,19 +1,9 @@
 // Fetch Transport - HTTP/fetch-based RPC transport
 // Used for client-to-worker communication over HTTP
 
-import { generateCorrelationId, CORRELATION_ID_HEADER } from '../headers'
+import { generateCorrelationId, CORRELATION_ID_HEADER } from '../client'
 import { isSerializedError, type SerializedError } from '../errors'
-import { validateRPCMessage } from '../validation'
-import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportState, ErrorInterceptor } from './types'
-import {
-  createTransportErrorFromCatch,
-  createValidationErrorResponse,
-  createServerErrorFromStatus,
-  createErrorResponse,
-  createErrorContext,
-  applyErrorInterceptor,
-} from './error-utils'
-import { DEFAULT_RPC_TIMEOUT_MS } from '@dotdo/utils'
+import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportState } from './types'
 
 /**
  * Options for the fetch transport
@@ -23,12 +13,6 @@ export interface FetchTransportOptions extends TransportOptions {
   url: string
   /** Custom fetch implementation (for testing or polyfills) */
   fetch?: typeof globalThis.fetch
-  /**
-   * Enable validation of RPC messages before sending.
-   * When enabled, validates method names and checks for circular references.
-   * @default false (for backward compatibility)
-   */
-  validateMessages?: boolean
 }
 
 /**
@@ -68,19 +52,15 @@ export class FetchTransport implements Transport {
   private readonly baseCorrelationId?: string
   private readonly headers: Record<string, string>
   private readonly fetchImpl: typeof globalThis.fetch
-  private readonly validateMessages: boolean
-  private readonly onError?: ErrorInterceptor
 
   constructor(options: FetchTransportOptions) {
     this.url = options.url
-    this.timeout = options.timeout ?? DEFAULT_RPC_TIMEOUT_MS
+    this.timeout = options.timeout ?? 30000
     if (options.correlationId !== undefined) {
       this.baseCorrelationId = options.correlationId
     }
     this.headers = options.headers ?? {}
     this.fetchImpl = options.fetch ?? globalThis.fetch
-    this.validateMessages = options.validateMessages ?? false
-    this.onError = options.onError
   }
 
   /**
@@ -88,58 +68,20 @@ export class FetchTransport implements Transport {
    */
   async send<T = unknown>(message: RPCMessage): Promise<RPCResponse<T>> {
     const correlationId = message.correlationId ?? this.baseCorrelationId ?? generateCorrelationId()
-    const startTime = Date.now()
 
-    // Validate message if validation is enabled
-    if (this.validateMessages) {
-      try {
-        validateRPCMessage(message)
-      } catch (error) {
-        // Return validation error without making network request
-        const errorMessage = error instanceof Error ? error.message : 'Validation failed'
-        const validationError = createValidationErrorResponse(errorMessage, correlationId)
-
-        return createErrorResponse({
-          error: validationError,
-          correlationId,
-          transportType: 'fetch',
-          message,
-          endpoint: this.url,
-          startTime,
-          onError: this.onError,
-        })
-      }
-    }
-
-    let response: Response
-    try {
-      response = await this.fetchImpl(`${this.url}/rpc`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          [CORRELATION_ID_HEADER]: correlationId,
-          ...this.headers,
-        },
-        body: JSON.stringify({
-          method: message.method,
-          args: message.args,
-        }),
-        signal: AbortSignal.timeout(this.timeout),
-      })
-    } catch (error) {
-      // Handle transport-level errors (network failures, timeouts, DNS resolution, etc.)
-      const transportError = createTransportErrorFromCatch(error, 'fetch', this.url)
-
-      return createErrorResponse({
-        error: transportError,
-        correlationId,
-        transportType: 'fetch',
-        message,
-        endpoint: this.url,
-        startTime,
-        onError: this.onError,
-      })
-    }
+    const response = await this.fetchImpl(`${this.url}/rpc`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [CORRELATION_ID_HEADER]: correlationId,
+        ...this.headers,
+      },
+      body: JSON.stringify({
+        method: message.method,
+        args: message.args,
+      }),
+      signal: AbortSignal.timeout(this.timeout),
+    })
 
     const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) ?? correlationId
 
@@ -148,19 +90,8 @@ export class FetchTransport implements Transport {
       try {
         const errorBody = await response.json() as SerializedError & { correlationId?: string }
         if (isSerializedError(errorBody)) {
-          // Apply error interceptor even for server-returned errors
-          const context = createErrorContext({
-            transportType: 'fetch',
-            message,
-            correlationId: responseCorrelationId,
-            error: errorBody,
-            endpoint: this.url,
-            startTime,
-          })
-          const finalError = applyErrorInterceptor(errorBody, context, this.onError)
-
           return {
-            error: finalError,
+            error: errorBody,
             correlationId: responseCorrelationId,
           }
         }
@@ -169,17 +100,15 @@ export class FetchTransport implements Transport {
       }
 
       // Return generic error response
-      const serverError = createServerErrorFromStatus(response.status, 'fetch', response.statusText)
-
-      return createErrorResponse({
-        error: serverError,
+      return {
+        error: {
+          type: 'RPCError',
+          code: 'INTERNAL_ERROR',
+          message: `RPC error: ${response.status}`,
+          httpStatus: response.status,
+        },
         correlationId: responseCorrelationId,
-        transportType: 'fetch',
-        message,
-        endpoint: this.url,
-        startTime,
-        onError: this.onError,
-      })
+      }
     }
 
     // Parse successful response
