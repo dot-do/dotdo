@@ -1,0 +1,81 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dotdo-production",
+  "main": "worker.ts",
+  "compatibility_date": "2025-01-15",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Production-specific settings
+  "workers_dev": false,  // Disable workers.dev subdomain in production
+
+  // Custom domain routing
+  "routes": [
+    { "pattern": "api.yourdomain.com/*", "zone_name": "yourdomain.com" },
+    { "pattern": "*.api.yourdomain.com/*", "zone_name": "yourdomain.com" }
+  ],
+
+  // Durable Object bindings
+  "durable_objects": {
+    "bindings": [
+      { "name": "DO", "class_name": "DO" }
+    ]
+  },
+
+  // Migrations for DO classes with SQLite storage
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DO"]
+    }
+  ],
+
+  // Production environment variables
+  "vars": {
+    "ENVIRONMENT": "production",
+    "LOG_LEVEL": "info"
+  },
+
+  // R2 bucket for backups and large file storage
+  "r2_buckets": [
+    {
+      "binding": "BACKUP_BUCKET",
+      "bucket_name": "dotdo-backups-prod"
+    },
+    {
+      "binding": "STORAGE",
+      "bucket_name": "dotdo-storage-prod"
+    }
+  ],
+
+  // KV namespaces for caching
+  "kv_namespaces": [
+    {
+      "binding": "CACHE",
+      "id": "your-kv-namespace-id-here"
+    }
+  ],
+
+  // Analytics Engine for metrics
+  "analytics_engine_datasets": [
+    {
+      "binding": "ANALYTICS",
+      "dataset": "dotdo_production"
+    }
+  ],
+
+  // Observability settings
+  "observability": {
+    "enabled": true
+  },
+
+  // Placement hint for optimal performance
+  // Options: "smart" (automatic), or specific region like "wnam" (Western North America)
+  "placement": {
+    "mode": "smart"
+  },
+
+  // Limits (adjust based on your plan)
+  "limits": {
+    "cpu_ms": 30000
+  }
+}
