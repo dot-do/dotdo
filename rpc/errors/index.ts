@@ -1,12 +1,20 @@
 // Re-exports for @dotdo/rpc errors module
 // This file provides a single entry point for all error-related exports
+// RPC errors extend the base types from @dotdo/db for ecosystem consistency
 
 // Export all base error classes, types, and utilities
 export {
-  // Error codes
+  // Error codes - both legacy RPC and unified ErrorCode
   RPCErrorCode,
+  ErrorCode,
+  type ErrorCodeType,
+  ERROR_CODE_TO_HTTP_STATUS,
+  getHttpStatusForCode,
+  isRetryableCode,
 
-  // Base error class and options
+  // Base error classes
+  DotdoError,
+  type DotdoErrorOptions,
   RPCError,
   type RPCErrorOptions,
 
@@ -38,6 +46,7 @@ export {
 
   // Serialization
   type SerializedError,
+  type SerializedDotdoError,
   type SerializeErrorOptions,
   serializeError,
   serializeUnknownError,

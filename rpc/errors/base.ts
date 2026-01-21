@@ -1,77 +1,102 @@
 // Base Error Classes for @dotdo/rpc
-// Provides a hierarchy of typed RPC errors with serialization support
+// Extends @dotdo/db error types for ecosystem consistency
+// Provides additional RPC-specific error types and utilities
 
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import {
+  DotdoError,
+  type DotdoErrorOptions,
+  ErrorCode,
+  type ErrorCodeType,
+  ERROR_CODE_TO_HTTP_STATUS,
+  getHttpStatusForCode,
+  isRetryableCode,
+  type SerializedDotdoError,
+  type SerializeErrorOptions as DbSerializeErrorOptions,
+  serializeDotdoError,
+  serializeUnknownAsDotdoError,
+  deserializeDotdoError,
+  isSerializedDotdoError,
+  getErrorMessage,
+  isRetryableError as dbIsRetryableError,
+  registerErrorClass,
+} from '../../db/errors'
+
+// =============================================================================
+// Re-export base types from @dotdo/db for backward compatibility
+// =============================================================================
+
+export {
+  ErrorCode,
+  type ErrorCodeType,
+  ERROR_CODE_TO_HTTP_STATUS,
+  getHttpStatusForCode,
+  isRetryableCode,
+  type SerializedDotdoError,
+  type DbSerializeErrorOptions,
+  getErrorMessage,
+  DotdoError,
+  type DotdoErrorOptions,
+}
 
 /**
- * Standard RPC error codes with semantic meaning
+ * Standard RPC error codes - alias for ErrorCode for backward compatibility
+ * @deprecated Use ErrorCode from @dotdo/db instead
  */
-export enum RPCErrorCode {
+export const RPCErrorCode = {
   // Client errors (4xx)
-  NOT_FOUND = 'NOT_FOUND',
-  VALIDATION_ERROR = 'VALIDATION_ERROR',
-  AUTHENTICATION_ERROR = 'AUTHENTICATION_ERROR',
-  AUTHORIZATION_ERROR = 'AUTHORIZATION_ERROR',
-  CONFLICT = 'CONFLICT',
-  RATE_LIMIT = 'RATE_LIMIT',
-  PAYLOAD_TOO_LARGE = 'PAYLOAD_TOO_LARGE',
-  INVALID_PARAMS = 'INVALID_PARAMS', // Alias for VALIDATION_ERROR (backward compat)
+  NOT_FOUND: ErrorCode.NOT_FOUND,
+  VALIDATION_ERROR: ErrorCode.VALIDATION_ERROR,
+  AUTHENTICATION_ERROR: ErrorCode.AUTHENTICATION_ERROR,
+  AUTHORIZATION_ERROR: ErrorCode.AUTHORIZATION_ERROR,
+  CONFLICT: ErrorCode.CONFLICT,
+  RATE_LIMIT: ErrorCode.RATE_LIMIT,
+  PAYLOAD_TOO_LARGE: ErrorCode.PAYLOAD_TOO_LARGE,
+  INVALID_PARAMS: ErrorCode.VALIDATION_ERROR, // Alias for VALIDATION_ERROR (backward compat)
 
   // Server errors (5xx)
-  INTERNAL_ERROR = 'INTERNAL_ERROR',
-  TIMEOUT = 'TIMEOUT',
-  NETWORK_ERROR = 'NETWORK_ERROR',
-  SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
-  CIRCUIT_OPEN = 'CIRCUIT_OPEN',
-}
+  INTERNAL_ERROR: ErrorCode.INTERNAL_ERROR,
+  TIMEOUT: ErrorCode.TIMEOUT,
+  NETWORK_ERROR: ErrorCode.NETWORK_ERROR,
+  SERVICE_UNAVAILABLE: ErrorCode.SERVICE_UNAVAILABLE,
+  CIRCUIT_OPEN: ErrorCode.CIRCUIT_OPEN,
+} as const
 
-/**
- * Mapping from error codes to HTTP status codes
- */
-const ERROR_CODE_TO_HTTP_STATUS: Record<RPCErrorCode, ContentfulStatusCode> = {
-  [RPCErrorCode.NOT_FOUND]: 404,
-  [RPCErrorCode.VALIDATION_ERROR]: 400,
-  [RPCErrorCode.AUTHENTICATION_ERROR]: 401,
-  [RPCErrorCode.AUTHORIZATION_ERROR]: 403,
-  [RPCErrorCode.CONFLICT]: 409,
-  [RPCErrorCode.RATE_LIMIT]: 429,
-  [RPCErrorCode.PAYLOAD_TOO_LARGE]: 413,
-  [RPCErrorCode.INVALID_PARAMS]: 400,
-  [RPCErrorCode.INTERNAL_ERROR]: 500,
-  [RPCErrorCode.TIMEOUT]: 504,
-  [RPCErrorCode.NETWORK_ERROR]: 503,
-  [RPCErrorCode.SERVICE_UNAVAILABLE]: 503,
-  [RPCErrorCode.CIRCUIT_OPEN]: 503,
-}
+export type RPCErrorCodeType = (typeof RPCErrorCode)[keyof typeof RPCErrorCode]
 
 /**
  * Options for creating an RPC error
+ * Extends DotdoErrorOptions for consistency
  */
 export interface RPCErrorOptions {
   cause?: Error
 }
 
 /**
- * Base RPC Error class with code, message, details, and HTTP status
+ * Base RPC Error class extending DotdoError
+ * Maintains backward compatibility while using consistent base
  */
-export class RPCError extends Error {
+export class RPCError extends DotdoError {
   public readonly httpStatus: ContentfulStatusCode
 
   constructor(
-    public readonly code: RPCErrorCode,
+    code: ErrorCodeType | string,
     message: string,
-    public readonly details?: Record<string, unknown>,
+    details?: Record<string, unknown>,
     options?: RPCErrorOptions
   ) {
-    super(message, options)
+    super(code, message, {
+      cause: options?.cause,
+      details,
+    })
     this.name = 'RPCError'
-    this.httpStatus = ERROR_CODE_TO_HTTP_STATUS[code] ?? (500 as ContentfulStatusCode)
-    Object.setPrototypeOf(this, new.target.prototype)
+    this.httpStatus = getHttpStatusForCode(code) as ContentfulStatusCode
   }
 
   toJSON(): SerializedError {
     const result: SerializedError = {
-      type: this.constructor.name,
+      type: this.name,
+      name: this.name, // Backward compatibility
       code: this.code,
       message: this.message,
       httpStatus: this.httpStatus,
@@ -92,7 +117,7 @@ export class RPCError extends Error {
  */
 export class NotFoundError extends RPCError {
   constructor(message = 'Resource not found', details?: Record<string, unknown>, options?: RPCErrorOptions) {
-    super(RPCErrorCode.NOT_FOUND, message, details, options)
+    super(ErrorCode.NOT_FOUND, message, details, options)
     this.name = 'NotFoundError'
   }
 
@@ -112,7 +137,7 @@ export class NotFoundError extends RPCError {
  */
 export class ValidationError extends RPCError {
   constructor(message = 'Validation failed', details?: Record<string, unknown>, options?: RPCErrorOptions) {
-    super(RPCErrorCode.VALIDATION_ERROR, message, details, options)
+    super(ErrorCode.VALIDATION_ERROR, message, details, options)
     this.name = 'ValidationError'
   }
 
@@ -140,7 +165,7 @@ export class ValidationError extends RPCError {
  */
 export class AuthenticationError extends RPCError {
   constructor(message = 'Authentication required', details?: Record<string, unknown>, options?: RPCErrorOptions) {
-    super(RPCErrorCode.AUTHENTICATION_ERROR, message, details, options)
+    super(ErrorCode.AUTHENTICATION_ERROR, message, details, options)
     this.name = 'AuthenticationError'
   }
 
@@ -162,7 +187,7 @@ export class AuthenticationError extends RPCError {
  */
 export class AuthorizationError extends RPCError {
   constructor(message = 'Access denied', details?: Record<string, unknown>, options?: RPCErrorOptions) {
-    super(RPCErrorCode.AUTHORIZATION_ERROR, message, details, options)
+    super(ErrorCode.AUTHORIZATION_ERROR, message, details, options)
     this.name = 'AuthorizationError'
   }
 
@@ -179,7 +204,7 @@ export class AuthorizationError extends RPCError {
  */
 export class ConflictError extends RPCError {
   constructor(message = 'Resource conflict', details?: Record<string, unknown>, options?: RPCErrorOptions) {
-    super(RPCErrorCode.CONFLICT, message, details, options)
+    super(ErrorCode.CONFLICT, message, details, options)
     this.name = 'ConflictError'
   }
 
@@ -208,7 +233,7 @@ export class ConflictError extends RPCError {
  */
 export class RateLimitError extends RPCError {
   constructor(message = 'Rate limit exceeded', details?: Record<string, unknown>, options?: RPCErrorOptions) {
-    super(RPCErrorCode.RATE_LIMIT, message, details, options)
+    super(ErrorCode.RATE_LIMIT, message, details, options)
     this.name = 'RateLimitError'
   }
 
@@ -226,7 +251,7 @@ export class RateLimitError extends RPCError {
  */
 export class PayloadTooLargeError extends RPCError {
   constructor(message = 'Request payload too large', details?: Record<string, unknown>, options?: RPCErrorOptions) {
-    super(RPCErrorCode.PAYLOAD_TOO_LARGE, message, details, options)
+    super(ErrorCode.PAYLOAD_TOO_LARGE, message, details, options)
     this.name = 'PayloadTooLargeError'
   }
 
@@ -266,7 +291,7 @@ export class PayloadTooLargeError extends RPCError {
  */
 export class TimeoutError extends RPCError {
   constructor(message = 'Request timed out', details?: Record<string, unknown>, options?: RPCErrorOptions) {
-    super(RPCErrorCode.TIMEOUT, message, details, options)
+    super(ErrorCode.TIMEOUT, message, details, options)
     this.name = 'TimeoutError'
   }
 
@@ -280,7 +305,7 @@ export class TimeoutError extends RPCError {
  */
 export class NetworkError extends RPCError {
   constructor(message = 'Network error', details?: Record<string, unknown>, options?: RPCErrorOptions) {
-    super(RPCErrorCode.NETWORK_ERROR, message, details, options)
+    super(ErrorCode.NETWORK_ERROR, message, details, options)
     this.name = 'NetworkError'
   }
 
@@ -305,7 +330,7 @@ export class NetworkError extends RPCError {
  */
 export class InternalError extends RPCError {
   constructor(message = 'Internal error', details?: Record<string, unknown>, options?: RPCErrorOptions) {
-    super(RPCErrorCode.INTERNAL_ERROR, message, details, options)
+    super(ErrorCode.INTERNAL_ERROR, message, details, options)
     this.name = 'InternalError'
   }
 
@@ -326,7 +351,7 @@ export class ServiceUnavailableError extends RPCError {
     details?: Record<string, unknown>,
     options?: RPCErrorOptions
   ) {
-    super(RPCErrorCode.SERVICE_UNAVAILABLE, message, details, options)
+    super(ErrorCode.SERVICE_UNAVAILABLE, message, details, options)
     this.name = 'ServiceUnavailableError'
   }
 
@@ -349,7 +374,7 @@ export class TransportError extends RPCError {
     details?: Record<string, unknown>,
     options?: RPCErrorOptions
   ) {
-    super(RPCErrorCode.NETWORK_ERROR, message, details, options)
+    super(ErrorCode.NETWORK_ERROR, message, details, options)
     this.name = 'TransportError'
   }
 
@@ -433,7 +458,7 @@ export class CircuitOpenError extends RPCError {
     details?: Record<string, unknown>,
     options?: RPCErrorOptions
   ) {
-    super(RPCErrorCode.CIRCUIT_OPEN, message, details, options)
+    super(ErrorCode.CIRCUIT_OPEN, message, details, options)
     this.name = 'CircuitOpenError'
   }
 
@@ -462,52 +487,52 @@ export class CircuitOpenError extends RPCError {
 // ============================================================================
 
 /**
- * Check if a value is an RPCError
+ * Check if a value is an RPCError (or DotdoError)
  */
 export function isRPCError(error: unknown): error is RPCError {
-  return error instanceof RPCError
+  return error instanceof RPCError || error instanceof DotdoError
 }
 
 /**
  * Check if an error is a NotFoundError
  */
 export function isNotFoundError(error: unknown): error is NotFoundError {
-  return error instanceof NotFoundError
+  return error instanceof NotFoundError || (error instanceof DotdoError && error.code === ErrorCode.NOT_FOUND)
 }
 
 /**
  * Check if an error is a ValidationError
  */
 export function isValidationError(error: unknown): error is ValidationError {
-  return error instanceof ValidationError
+  return error instanceof ValidationError || (error instanceof DotdoError && error.code === ErrorCode.VALIDATION_ERROR)
 }
 
 /**
  * Check if an error is an AuthenticationError
  */
 export function isAuthenticationError(error: unknown): error is AuthenticationError {
-  return error instanceof AuthenticationError
+  return error instanceof AuthenticationError || (error instanceof DotdoError && error.code === ErrorCode.AUTHENTICATION_ERROR)
 }
 
 /**
  * Check if an error is an AuthorizationError
  */
 export function isAuthorizationError(error: unknown): error is AuthorizationError {
-  return error instanceof AuthorizationError
+  return error instanceof AuthorizationError || (error instanceof DotdoError && error.code === ErrorCode.AUTHORIZATION_ERROR)
 }
 
 /**
  * Check if an error is a PayloadTooLargeError
  */
 export function isPayloadTooLargeError(error: unknown): error is PayloadTooLargeError {
-  return error instanceof PayloadTooLargeError
+  return error instanceof PayloadTooLargeError || (error instanceof DotdoError && error.code === ErrorCode.PAYLOAD_TOO_LARGE)
 }
 
 /**
  * Check if an error is a CircuitOpenError
  */
 export function isCircuitOpenError(error: unknown): error is CircuitOpenError {
-  return error instanceof CircuitOpenError
+  return error instanceof CircuitOpenError || (error instanceof DotdoError && error.code === ErrorCode.CIRCUIT_OPEN)
 }
 
 /**
@@ -519,76 +544,30 @@ export function isTransportError(error: unknown): error is TransportError {
 
 /**
  * Check if an error is retryable
- *
- * Checks in order:
- * 1. Custom errors with explicit `retriable` property (definitive)
- * 2. RPCError types with non-retryable codes (ValidationError, AuthN/AuthZ, NotFound)
- * 3. RPCError types with retryable codes (NetworkError, Timeout, etc.)
- * 4. Generic errors default to false (not retryable) - be explicit about retries
- *
- * This philosophy follows "only retry known transient errors"
- * Use NetworkError, TimeoutError, or set retriable=true for transient failures
+ * Delegates to base implementation from @dotdo/db
  */
 export function isRetryableError(error: unknown): boolean {
-  // Check for explicit retriable property on any error (definitive answer)
-  if (error && typeof error === 'object' && 'retriable' in error) {
-    return (error as { retriable: boolean }).retriable
-  }
-
-  // RPCError-based errors check the error code
-  if (error instanceof RPCError) {
-    // Explicitly retryable codes (transient errors that may succeed on retry)
-    const retryableCodes: RPCErrorCode[] = [
-      RPCErrorCode.NETWORK_ERROR,
-      RPCErrorCode.TIMEOUT,
-      RPCErrorCode.RATE_LIMIT,
-      RPCErrorCode.SERVICE_UNAVAILABLE,
-      RPCErrorCode.CIRCUIT_OPEN,
-    ]
-    if (retryableCodes.includes(error.code)) {
-      return true
-    }
-
-    // All other RPCErrors (including INTERNAL_ERROR) are not retryable by default
-    return false
-  }
-
-  // Generic errors are NOT retryable by default
-  // If you need retry behavior, use NetworkError/TimeoutError or set retriable=true
-  return false
+  return dbIsRetryableError(error)
 }
 
 // ============================================================================
-// Serialization
+// Serialization - Unified with @dotdo/db
 // ============================================================================
 
 /**
  * Serialized error format for transmission across boundaries
+ * Extends SerializedDotdoError for compatibility
  */
-export interface SerializedError {
-  /** Error type name (e.g., 'NotFoundError') */
-  type: string
-  /** Error name (alias for type, for backward compatibility) */
-  name?: string
-  /** Error code for programmatic handling */
-  code: RPCErrorCode | string
-  /** Human-readable error message */
-  message: string
-  /** Additional error details */
-  details?: Record<string, unknown>
+export interface SerializedError extends SerializedDotdoError {
   /** HTTP status code */
   httpStatus?: ContentfulStatusCode
-  /** Stack trace (optional) */
-  stack?: string
 }
 
 /**
  * Options for error serialization
+ * Alias for backward compatibility
  */
-export interface SerializeErrorOptions {
-  /** Include stack trace in serialized output (default: true) */
-  includeStack?: boolean
-}
+export type SerializeErrorOptions = DbSerializeErrorOptions
 
 /**
  * Type for error subclass constructors in the registry
@@ -601,11 +580,9 @@ type RPCErrorSubclassConstructor = new (
 ) => RPCError
 
 /**
- * Registry of error constructors for deserialization
- * Note: RPCError itself is not in this registry because it has a different constructor signature
- * (requires error code as first parameter). It's handled as a fallback in deserializeError.
+ * Registry of RPC error constructors for deserialization
  */
-const ERROR_REGISTRY: Record<string, RPCErrorSubclassConstructor> = {
+const RPC_ERROR_REGISTRY: Record<string, RPCErrorSubclassConstructor> = {
   NotFoundError,
   ValidationError,
   AuthenticationError,
@@ -621,26 +598,36 @@ const ERROR_REGISTRY: Record<string, RPCErrorSubclassConstructor> = {
   TransportError,
 }
 
+// Register RPC error classes with the db error registry for cross-boundary deserialization
+for (const [name, ErrorClass] of Object.entries(RPC_ERROR_REGISTRY)) {
+  registerErrorClass(name, ErrorClass as unknown as new (message: string, options?: DotdoErrorOptions) => DotdoError)
+}
+
 /**
  * Serialize an error for transmission across boundaries
  *
- * Handles RPCError, standard Error, and unknown error types
+ * Handles RPCError, DotdoError, standard Error, and unknown error types
  */
-export function serializeError(error: Error | RPCError, options: SerializeErrorOptions = {}): SerializedError {
+export function serializeError(error: Error | RPCError | DotdoError, options: SerializeErrorOptions = {}): SerializedError {
   const { includeStack = true } = options
+
+  if (error instanceof RPCError) {
+    const serialized = error.toJSON()
+    if (includeStack && error.stack) {
+      serialized.stack = error.stack
+    }
+    return serialized
+  }
+
+  if (error instanceof DotdoError) {
+    return serializeDotdoError(error, options) as SerializedError
+  }
 
   const serialized: SerializedError = {
     type: error.name,
-    name: error.name, // Backward compatibility
-    code: error instanceof RPCError ? error.code : RPCErrorCode.INTERNAL_ERROR,
+    name: error.name,
+    code: ErrorCode.INTERNAL_ERROR,
     message: error.message,
-  }
-
-  if (error instanceof RPCError) {
-    if (error.details !== undefined) {
-      serialized.details = error.details
-    }
-    serialized.httpStatus = error.httpStatus
   }
 
   if (includeStack && error.stack) {
@@ -655,116 +642,49 @@ export function serializeError(error: Error | RPCError, options: SerializeErrorO
  *
  * This is the recommended entry point for error serialization as it handles:
  * - RPCError instances (with code, details, httpStatus)
+ * - DotdoError instances (from @dotdo/db)
  * - Standard Error instances (with stack trace)
  * - Unknown values (converted to string message)
- *
- * @example
- * ```typescript
- * try {
- *   await riskyOperation()
- * } catch (error) {
- *   return c.json(serializeUnknownError(error), 500)
- * }
- * ```
  */
 export function serializeUnknownError(error: unknown, options: SerializeErrorOptions = {}): SerializedError {
   if (error instanceof RPCError) {
     return serializeError(error, options)
   }
 
+  if (error instanceof DotdoError) {
+    return serializeDotdoError(error, options) as SerializedError
+  }
+
   if (error instanceof Error) {
     return serializeError(error, options)
   }
 
-  // Handle non-Error values (strings, objects, null, undefined, etc.)
+  // Handle non-Error values
   return {
     type: 'UnknownError',
     name: 'UnknownError',
-    code: RPCErrorCode.INTERNAL_ERROR,
+    code: ErrorCode.INTERNAL_ERROR,
     message: String(error),
     httpStatus: 500 as ContentfulStatusCode,
   }
 }
 
 /**
- * Extract error message from an unknown error value
- *
- * Convenience function for the common pattern:
- * `error instanceof Error ? error.message : String(error)`
- *
- * @example
- * ```typescript
- * catch (error) {
- *   console.error('Operation failed:', getErrorMessage(error))
- * }
- * ```
- */
-export function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message
-  }
-  return String(error)
-}
-
-/**
  * Type guard to check if an object is a SerializedError
- *
- * This is useful when receiving error responses from cross-DO RPC calls
- * to determine if the response body contains a structured error that can
- * be deserialized back into an RPCError.
- *
- * @example
- * ```typescript
- * const errorBody = await response.json().catch(() => null)
- * if (errorBody && isSerializedError(errorBody)) {
- *   throw deserializeError(errorBody)
- * }
- * ```
+ * Delegates to @dotdo/db implementation
  */
 export function isSerializedError(value: unknown): value is SerializedError {
-  if (typeof value !== 'object' || value === null) {
-    return false
-  }
-
-  const obj = value as Record<string, unknown>
-
-  // Must have a message (required for all errors)
-  if (typeof obj['message'] !== 'string') {
-    return false
-  }
-
-  // Must have either 'type' or 'name' (for error class identification)
-  const hasType = typeof obj['type'] === 'string'
-  const hasName = typeof obj['name'] === 'string'
-  if (!hasType && !hasName) {
-    return false
-  }
-
-  // Optional fields must be correct types if present
-  if (obj['code'] !== undefined && typeof obj['code'] !== 'string') {
-    return false
-  }
-  if (obj['httpStatus'] !== undefined && typeof obj['httpStatus'] !== 'number') {
-    return false
-  }
-  if (obj['details'] !== undefined && typeof obj['details'] !== 'object') {
-    return false
-  }
-  if (obj['stack'] !== undefined && typeof obj['stack'] !== 'string') {
-    return false
-  }
-
-  return true
+  return isSerializedDotdoError(value)
 }
 
 /**
  * Deserialize an error received from across boundaries
+ * Handles both RPC and db error types
  */
-export function deserializeError(serialized: SerializedError): Error | RPCError {
-  // Support both 'type' and 'name' fields for backward compatibility
+export function deserializeError(serialized: SerializedError): Error | RPCError | DotdoError {
   const errorType = serialized.type ?? serialized.name ?? 'Error'
 
-  // Handle generic Error (not an RPCError)
+  // Handle generic Error
   if (errorType === 'Error' && !serialized.code) {
     const error = new Error(serialized.message)
     error.name = 'Error'
@@ -774,19 +694,38 @@ export function deserializeError(serialized: SerializedError): Error | RPCError 
     return error
   }
 
-  const ErrorClass = ERROR_REGISTRY[errorType]
-
-  if (ErrorClass && errorType !== 'RPCError') {
-    const error = new ErrorClass(serialized.message, serialized.details)
+  // Check RPC error registry first (for specific error types)
+  const RPCErrorClass = RPC_ERROR_REGISTRY[errorType]
+  if (RPCErrorClass) {
+    const error = new RPCErrorClass(serialized.message, serialized.details)
     if (serialized.stack) {
       error.stack = serialized.stack
     }
     return error
   }
 
-  // Fallback to base RPCError
+  // Handle base RPCError type explicitly
+  if (errorType === 'RPCError') {
+    const error = new RPCError(
+      serialized.code ?? ErrorCode.INTERNAL_ERROR,
+      serialized.message,
+      serialized.details
+    )
+    if (serialized.stack) {
+      error.stack = serialized.stack
+    }
+    return error
+  }
+
+  // Try db error registry via deserializeDotdoError
+  const dbError = deserializeDotdoError(serialized)
+  if (dbError instanceof DotdoError && !(dbError instanceof Error && dbError.name === 'DotdoError')) {
+    return dbError
+  }
+
+  // Fallback to base RPCError for RPC-related errors
   const error = new RPCError(
-    (serialized.code as RPCErrorCode) ?? RPCErrorCode.INTERNAL_ERROR,
+    serialized.code ?? ErrorCode.INTERNAL_ERROR,
     serialized.message,
     serialized.details
   )
@@ -797,3 +736,5 @@ export function deserializeError(serialized: SerializedError): Error | RPCError 
 
   return error
 }
+
+// Re-export getErrorMessage from @dotdo/db (already exported above)

@@ -61,7 +61,8 @@ describe('RPCErrorCode', () => {
   it('should define standard error codes', () => {
     expect(RPCErrorCode.INTERNAL_ERROR).toBe('INTERNAL_ERROR')
     expect(RPCErrorCode.NOT_FOUND).toBe('NOT_FOUND')
-    expect(RPCErrorCode.INVALID_PARAMS).toBe('INVALID_PARAMS')
+    // INVALID_PARAMS is now an alias for VALIDATION_ERROR for backward compatibility
+    expect(RPCErrorCode.INVALID_PARAMS).toBe('VALIDATION_ERROR')
     expect(RPCErrorCode.TIMEOUT).toBe('TIMEOUT')
     expect(RPCErrorCode.NETWORK_ERROR).toBe('NETWORK_ERROR')
     expect(RPCErrorCode.RATE_LIMIT).toBe('RATE_LIMIT')
