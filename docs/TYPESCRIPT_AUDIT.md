@@ -615,3 +615,221 @@ Target milestones:
 - Primitives cleanup should be coordinated with that repository
 - Test file `any` usage is lower priority but should still be reduced
 - Some mixin patterns may always require `any` - document these as exceptions
+
+---
+
+# Type Assertion Audit (`as any` / `as unknown`)
+
+## Summary
+
+This section audits the use of type assertions (`as any` and `as unknown`) across the dotdo codebase. Type assertions override TypeScript's type inference and can mask type errors, leading to runtime issues.
+
+**Audit Date:** 2026-01-21
+**Issue:** do-7wsc
+
+## Statistics
+
+### Overall Count
+
+| Assertion Type | Total Instances | Files |
+|----------------|-----------------|-------|
+| `as any` | 1,167 | 220 |
+| `as unknown` | 1,265 | 258 |
+| **Combined Total** | 2,432 | ~350 unique |
+
+### Test vs Production Code
+
+| Category | Count | Percentage |
+|----------|-------|------------|
+| Test Files (.test.ts, .bench.ts) | 1,868 | 76.8% |
+| Production Code | 562 | 23.1% |
+
+### By Package (All Files)
+
+| Package | Files with Assertions | Priority |
+|---------|----------------------|----------|
+| primitives | 163 | P3 - Submodule (separate lifecycle) |
+| fsx | 54 | P1 - High (core filesystem) |
+| do | 44 | P1 - High (core DO class) |
+| bashx | 43 | P2 - Medium |
+| gitx | 29 | P2 - Medium |
+| db | 25 | P1 - High (core storage) |
+| rpc | 18 | P2 - Medium |
+| ai | 9 | P2 - Medium |
+| tests | 8 | P3 - Benchmark code |
+| npmx | 8 | P3 - Low |
+| api | 8 | P2 - Medium |
+| examples | 7 | P4 - Example code |
+| mcp | 5 | P3 - Low |
+| dotdo | 4 | P2 - CLI |
+| app | 4 | P3 - Low |
+
+## Top 10 Files Needing Attention
+
+### Production Source Files (Non-Test)
+
+| Rank | File | Count | Category |
+|------|------|-------|----------|
+| 1 | `/Users/nathanclevenger/projects/dotdo/examples/auth-patterns/AuthDO.ts` | 37 | Example code - Entity type casting |
+| 2 | `/Users/nathanclevenger/projects/dotdo/examples/websocket-chat/ChatDO.ts` | 24 | Example code - Entity type casting |
+| 3 | `/Users/nathanclevenger/projects/dotdo/examples/scheduled-jobs/SchedulerDO.ts` | 22 | Example code - Entity type casting |
+| 4 | `/Users/nathanclevenger/projects/dotdo/examples/ecommerce/EcommerceDO.ts` | 21 | Example code - Entity type casting |
+| 5 | `/Users/nathanclevenger/projects/dotdo/examples/ai-agent/AgentDO.ts` | 20 | Example code - Entity type casting |
+| 6 | `/Users/nathanclevenger/projects/dotdo/dotdo/cli.ts` | 15 | CLI - Dynamic command handling |
+| 7 | `/Users/nathanclevenger/projects/dotdo/primitives/packages/ai-core/src/ai-promise.ts` | 12 | AI Promise - Type widening |
+| 8 | `/Users/nathanclevenger/projects/dotdo/ai/ai-core.ts` | 10 | AI Core - Mock detection, dynamic imports |
+| 9 | `/Users/nathanclevenger/projects/dotdo/primitives/packages/digital-tools/src/providers/email/resend.ts` | 9 | Provider - API response handling |
+| 10 | `/Users/nathanclevenger/projects/dotdo/examples/rest-crud/TasksDO.ts` | 8 | Example code - Entity type casting |
+
+### Test Files (Highest Counts)
+
+| Rank | File | Count | Pattern |
+|------|------|-------|---------|
+| 1 | `/Users/nathanclevenger/projects/dotdo/fsx/core/watch/subscription.test.ts` | 118 | Mock state setup |
+| 2 | `/Users/nathanclevenger/projects/dotdo/primitives/packages/ai-functions/test/ai-promise.test.ts` | 62 | Type narrowing tests |
+| 3 | `/Users/nathanclevenger/projects/dotdo/fsx/test/storage/transactions.test.ts` | 62 | Storage mocking |
+| 4 | `/Users/nathanclevenger/projects/dotdo/fsx/tests/watch/glob-subscriptions.test.ts` | 61 | Mock state setup |
+| 5 | `/Users/nathanclevenger/projects/dotdo/npmx/test/do/rpc.test.ts` | 51 | RPC stub casting |
+| 6 | `/Users/nathanclevenger/projects/dotdo/fsx/tests/watch/do-integration.test.ts` | 51 | Integration mocking |
+| 7 | `/Users/nathanclevenger/projects/dotdo/ai/tests/ai-functions-integration.test.ts` | 51 | AI mock setup |
+| 8 | `/Users/nathanclevenger/projects/dotdo/ai/tests/ai-props-integration.test.ts` | 49 | AI mock setup |
+| 9 | `/Users/nathanclevenger/projects/dotdo/fsx/tests/tiered.test.ts` | 47 | Storage tier mocking |
+| 10 | `/Users/nathanclevenger/projects/dotdo/do/tests/event-retention.test.ts` | 44 | Event system mocking |
+
+## Categories by Safety Level
+
+### Level 1: SAFE - Controlled Type Narrowing
+
+Pattern: Using `as unknown as T` to access known internal properties in tests.
+
+```typescript
+// Example from do/tests/context.test.ts
+const $ = (instance as unknown as { $: WorkflowContext }).$
+```
+
+**Assessment:** Safe when accessing internal/private properties in test code. The property is known to exist at runtime.
+
+**Files:** 34 test files with this pattern (primarily in `do/tests/`)
+
+### Level 2: SAFE WITH GUARDS - Entity Type Casting
+
+Pattern: Casting generic entity results to specific types.
+
+```typescript
+// Example from examples/auth-patterns/AuthDO.ts
+const user = await this.things.get(userId) as unknown as User & { $id: string }
+if ((session as unknown as Session).expiresAt < now) { ... }
+```
+
+**Assessment:** Safe when preceded by type validation or existence checks. The examples directory shows the common pattern of casting `things` results to domain-specific types.
+
+**Files:** All example DOs (37+ assertions total), core `db/digital-objects.ts`
+
+### Level 3: NEEDS REVIEW - Environment/Runtime Detection
+
+Pattern: Checking global or runtime-specific properties.
+
+```typescript
+// Example from ai/ai-core.ts
+if (typeof globalThis !== 'undefined' && (globalThis as any).ENVIRONMENT === 'production') { ... }
+if ((globalThis as any).__vitest_worker__) return true
+if ((globalThis as any).jest) return true
+```
+
+**Assessment:** Necessary for cross-environment compatibility but should be centralized into utility functions with proper type definitions.
+
+**Files:** `ai/ai-core.ts`, `observability/context.ts`, `do/workflow/async-context.ts`, benchmark files
+
+### Level 4: NEEDS REVIEW - Dynamic Import/Module Handling
+
+Pattern: Handling dynamically imported modules.
+
+```typescript
+// Example from ai/ai-core.ts
+const aiModule = await import('ai') as any
+```
+
+**Assessment:** Often necessary when TypeScript can't infer types from dynamic imports. Consider using explicit type imports.
+
+**Files:** `ai/ai-core.ts`, `dotdo/cli.ts`
+
+### Level 5: CAUTION - Mock Object Creation
+
+Pattern: Creating mock objects for testing.
+
+```typescript
+// Example pattern in test files
+const mockState = { ... } as any
+const mockEnv = { DO: mockNamespace } as unknown as Env
+```
+
+**Assessment:** Common in tests but can mask missing mock properties. Consider using proper mock utilities like `vi.mocked()` or dedicated mock factories.
+
+**Files:** Widespread in test files (118 instances in `fsx/core/watch/subscription.test.ts` alone)
+
+### Level 6: CAUTION - Proxy/Dynamic API Returns
+
+Pattern: Returning `any` from dynamic APIs.
+
+```typescript
+// Pattern seen in workflow/schedule DSL
+return new Proxy(builder, handler) as any
+```
+
+**Assessment:** Required for highly dynamic APIs. Document expected runtime types and consider branded types.
+
+**Files:** `do/workflow/context.ts`, CLI tools
+
+### Level 7: DANGEROUS - Silencing Type Errors
+
+Pattern: Using `as any` to bypass type checker errors.
+
+```typescript
+// Anti-pattern
+someFunction(incompatibleArg as any)
+```
+
+**Assessment:** Should be investigated case-by-case. May indicate:
+- Missing type definitions
+- Design issues requiring refactoring
+- Temporary workarounds that became permanent
+
+**Prevalence:** Scattered across codebase, needs manual review
+
+## Recommended Actions
+
+### Immediate (P0)
+
+1. **Review example DOs** - The examples directory has the highest concentration of type assertions. Since these serve as documentation, they should demonstrate proper typing patterns.
+
+2. **Centralize globalThis checks** - Create utility module for runtime/environment detection:
+   ```typescript
+   // utils/runtime.ts
+   export const isVitest = (): boolean => '__vitest_worker__' in globalThis
+   export const isJest = (): boolean => 'jest' in globalThis
+   export const isProduction = (): boolean => process.env.NODE_ENV === 'production'
+   ```
+
+### Short-term (P1)
+
+3. **Define entity type guards** - Create type guard utilities for `things` results:
+   ```typescript
+   function isUser(thing: unknown): thing is User {
+     return thing !== null && typeof thing === 'object' && 'email' in thing
+   }
+   ```
+
+4. **Improve test mock utilities** - Create typed mock factories instead of inline `as any` casts.
+
+### Long-term (P2)
+
+5. **Review primitives submodule** - Coordinate with primitives repo on reducing assertions in AI packages.
+
+6. **Add ESLint rule** - Enforce `@typescript-eslint/no-explicit-any` with allowances for documented exceptions.
+
+## Notes
+
+- The `primitives/` directory is a git submodule with 163 files containing assertions
+- Example code (7 files) accounts for 130+ assertions - these should demonstrate best practices
+- Test file assertions (76.8% of total) are generally acceptable but high concentrations indicate mock infrastructure could be improved
+- The `as unknown as T` pattern is preferred over `as any` when type narrowing is intentional
