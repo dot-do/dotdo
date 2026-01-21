@@ -1,8 +1,8 @@
 // fetch tool - MCP tool that fetches a single Thing by $id with enrichments
 import type { MCPTool } from '../server'
-import type { ThingsStore } from '@dotdo/db'
-import type { RelationshipsStore } from '@dotdo/db'
-import type { EventsStore } from '@dotdo/db'
+import type { ThingsStore } from '../../db/things'
+import type { RelationshipsStore } from '../../db/relationships'
+import type { EventsStore } from '../../db/events'
 
 export interface FetchParams {
   $id: string

@@ -314,17 +314,6 @@ AI routing uses template literals: `` await ai`Summarize: ${text}` ``
 
 Full TypeScript support across all packages with strict type checking.
 
-### TypeScript Configuration Notes
-
-The `tsconfig.base.json` enables strict TypeScript with `noUncheckedIndexedAccess: true` and `exactOptionalPropertyTypes: true`.
-
-**`noPropertyAccessFromIndexSignature` is intentionally disabled** at the base level because:
-- Enabling it causes ~600 TS4111 errors across the codebase
-- Most errors are in SQLite row mapping code (db/sqlite.ts, db/audit.ts) where we read typed rows from queries
-- The pattern `row.column_name` is more readable than `row['column_name']` for known-schema database rows
-- Some sub-projects (app/, gitx/, primitives/) enable this flag independently where it fits their patterns
-- Future work could add explicit interfaces for SQL row types to enable this flag globally
-
 ## Git Submodules
 
 The `primitives/` directory is a **git submodule** pointing to [primitives.org.ai](https://primitives.org.ai).

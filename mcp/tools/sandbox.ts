@@ -1,7 +1,7 @@
 // sandbox tool - Execute code in a secure sandbox with $ context injection
 import type { MCPTool } from '../server'
-import { createSandbox, type SandboxOptions, type SandboxResult, type SandboxPermissions, type ResourceLimits, type SandboxResourceEnforcer } from '../sandbox'
-import type { WorkflowContext } from '../types'
+import { createSandbox, type SandboxOptions, type SandboxResult, type SandboxPermissions, type ResourceLimits } from '../sandbox'
+import type { WorkflowContext } from '../../do/context'
 
 export interface SandboxParams {
   code: string
@@ -15,8 +15,6 @@ export interface SandboxToolDeps {
   context: WorkflowContext
   defaultPermissions?: SandboxPermissions
   defaultResourceLimits?: ResourceLimits
-  /** Optional DO-scoped enforcer. Use createScopedResourceEnforcer() to create one. */
-  enforcer?: SandboxResourceEnforcer
 }
 
 /**
@@ -98,6 +96,7 @@ export function createSandboxTool(deps: SandboxToolDeps): MCPTool {
 
       // Collect audit logs if enabled
       const auditLog: unknown[] = []
+      const onAudit = audit ? (log: unknown) => auditLog.push(log) : undefined
 
       // Merge permissions and resource limits with defaults
       const sandboxOptions: SandboxOptions = {
@@ -108,12 +107,8 @@ export function createSandboxTool(deps: SandboxToolDeps): MCPTool {
           ...resourceLimits,
           timeout: effectiveTimeout
         },
-        audit
-      }
-
-      // Only set onAudit when audit is enabled (avoid undefined with exactOptionalPropertyTypes)
-      if (audit) {
-        sandboxOptions.onAudit = (log: unknown) => auditLog.push(log)
+        audit,
+        onAudit
       }
 
       // Create and execute sandbox

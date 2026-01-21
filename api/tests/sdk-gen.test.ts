@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { generateSDK, SDKGenerator } from '../codegen/sdk'
 import type { ResourceDefinition } from '../resource'
-import type { StorableData } from '@dotdo/db'
 import { z } from 'zod'
 
 describe('SDK Generation', () => {
@@ -9,7 +8,7 @@ describe('SDK Generation', () => {
     $id: z.string(),
     name: z.string(),
     email: z.string(),
-    plan: z.string().nullable()  // Use nullable instead of optional for StorableData compatibility
+    plan: z.string().optional()
   })
 
   const orderSchema = z.object({
@@ -19,15 +18,7 @@ describe('SDK Generation', () => {
     status: z.string()
   })
 
-  // Define explicit interface for StorableData compatibility
-  interface CustomerResource extends StorableData {
-    $id: string
-    name: string
-    email: string
-    plan: string | null
-  }
-
-  const customerResource: ResourceDefinition<CustomerResource> = {
+  const customerResource: ResourceDefinition<z.infer<typeof customerSchema>> = {
     name: 'customers',
     schema: customerSchema,
     fields: {

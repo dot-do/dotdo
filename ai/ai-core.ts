@@ -16,10 +16,7 @@
  * - Chat API support
  */
 
-// Type aliases for AI SDK models
-// These match the AI SDK's type definitions
-type LanguageModel = string | { provider: string; modelId: string; specificationVersion: string; doGenerate: Function; doStream: Function }
-type EmbeddingModel = string | { provider: string; modelId: string; specificationVersion: string; doEmbed: Function }
+import type { LanguageModel, EmbeddingModel } from 'ai'
 import type { ZodTypeAny } from 'zod'
 
 // Core types (defined inline to avoid dependency on primitives submodule)
@@ -68,20 +65,20 @@ export interface AIGenerateResult {
   }
 }
 
-export interface SimpleSchema {
-  [key: string]: string | string[] | SimpleSchema
-}
+export type SimpleSchema = Record<string, string | string[] | SimpleSchema>
 
 // ============================================================================
 // Provider Configuration
 // ============================================================================
 
-import type { Provider, ProviderConfig as BaseProviderConfig } from './types'
+export type Provider = 'openai' | 'anthropic' | 'google' | 'cloudflare'
 
-// Re-export for backward compatibility
-export type { Provider } from './types'
-
-export interface ProviderConfig extends BaseProviderConfig {}
+export interface ProviderConfig {
+  provider: Provider
+  apiKey?: string
+  accountId?: string
+  defaultModel?: string
+}
 
 // Global provider registry
 const providers = new Map<Provider, ProviderConfig>()
@@ -283,7 +280,7 @@ export interface GenerateTextResult {
     completionTokens: number
     totalTokens: number
   }
-  finishReason?: string | undefined
+  finishReason?: string
   toolCalls?: Array<{
     name: string
     arguments: unknown
@@ -325,35 +322,17 @@ export async function generateText(
   // Use real AI SDK for actual models
   const { generateText: aiGenerateText } = await import('ai')
 
-  // Build options object carefully to avoid type issues with exactOptionalPropertyTypes
-  const sdkOptions: Record<string, unknown> = { model }
-  if (options.prompt !== undefined) sdkOptions['prompt'] = options.prompt
-  if (options.messages !== undefined) sdkOptions['messages'] = options.messages
-  if (options.system !== undefined) sdkOptions['system'] = options.system
-  if (options.maxTokens !== undefined) sdkOptions['maxTokens'] = options.maxTokens
-  if (options.temperature !== undefined) sdkOptions['temperature'] = options.temperature
-  if (options.topP !== undefined) sdkOptions['topP'] = options.topP
-  if (options.topK !== undefined) sdkOptions['topK'] = options.topK
-  if (options.presencePenalty !== undefined) sdkOptions['presencePenalty'] = options.presencePenalty
-  if (options.frequencyPenalty !== undefined) sdkOptions['frequencyPenalty'] = options.frequencyPenalty
-  if (options.seed !== undefined) sdkOptions['seed'] = options.seed
-  if (options.maxRetries !== undefined) sdkOptions['maxRetries'] = options.maxRetries
-  if (options.abortSignal !== undefined) sdkOptions['abortSignal'] = options.abortSignal
-  if (options.headers !== undefined) sdkOptions['headers'] = options.headers
-  if (options.tools !== undefined) sdkOptions['tools'] = options.tools
-  if (options.toolChoice !== undefined) sdkOptions['toolChoice'] = options.toolChoice
-  if (options.maxSteps !== undefined) sdkOptions['maxSteps'] = options.maxSteps
+  const result = await aiGenerateText({
+    ...options,
+    model,
+  })
 
-  const result = await aiGenerateText(sdkOptions as unknown as Parameters<typeof aiGenerateText>[0])
-
-  // AI SDK v4+ uses inputTokens/outputTokens in the usage object
-  const usage = result.usage as { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined
   return {
     text: result.text,
     usage: {
-      promptTokens: usage?.inputTokens ?? 0,
-      completionTokens: usage?.outputTokens ?? 0,
-      totalTokens: usage?.totalTokens ?? 0,
+      promptTokens: result.usage?.promptTokens || 0,
+      completionTokens: result.usage?.completionTokens || 0,
+      totalTokens: result.usage?.totalTokens || 0,
     },
     finishReason: result.finishReason,
   }
@@ -389,7 +368,7 @@ export interface GenerateObjectResult<T = unknown> {
     completionTokens: number
     totalTokens: number
   }
-  finishReason?: string | undefined
+  finishReason?: string
 }
 
 /**
@@ -433,21 +412,16 @@ export async function generateObject<T>(
     output: 'object',
   } as any)
 
-  // AI SDK v4+ uses inputTokens/outputTokens in the usage object
-  const usage = result.usage as { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined
   return {
     object: result.object as T,
     usage: {
-      promptTokens: usage?.inputTokens ?? 0,
-      completionTokens: usage?.outputTokens ?? 0,
-      totalTokens: usage?.totalTokens ?? 0,
+      promptTokens: result.usage?.promptTokens || 0,
+      completionTokens: result.usage?.completionTokens || 0,
+      totalTokens: result.usage?.totalTokens || 0,
     },
     finishReason: result.finishReason,
   }
 }
-
-// Type alias for streamText result to handle version differences
-type AIStreamTextResult = ReturnType<typeof import('ai').streamText>
 
 // ============================================================================
 // Text Streaming
@@ -488,25 +462,18 @@ export async function streamText(
 
   const model = await resolveModel(options.model)
 
-  // Filter out undefined values to satisfy exactOptionalPropertyTypes
-  const filteredOptions: Record<string, unknown> = { model }
-  for (const [key, value] of Object.entries(options)) {
-    if (value !== undefined && key !== 'model') {
-      filteredOptions[key] = value
-    }
-  }
-
-  // AI SDK's streamText returns an object with textStream, fullStream, and usage properties
-  // Cast to any to avoid type conflicts between our StreamTextResult and the SDK's
-  const result = aiStreamText(filteredOptions as unknown as Parameters<typeof aiStreamText>[0]) as any
+  const result = aiStreamText({
+    ...options,
+    model,
+  })
 
   return {
     textStream: result.textStream,
     fullStream: result.fullStream,
-    usage: Promise.resolve(result.usage).then((u: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined) => ({
-      promptTokens: u?.inputTokens ?? 0,
-      completionTokens: u?.outputTokens ?? 0,
-      totalTokens: u?.totalTokens ?? 0,
+    usage: result.usage.then((u: any) => ({
+      promptTokens: u?.promptTokens || 0,
+      completionTokens: u?.completionTokens || 0,
+      totalTokens: u?.totalTokens || 0,
     })),
   }
 }
@@ -578,10 +545,7 @@ export async function embedText(
   }
 
   // Use real AI SDK with the model
-  // Cast to any to access the embed function from the 'ai' package
-  // This is needed because TypeScript resolves 'ai' to our local package
-  const aiSDK = await import('ai') as any
-  const embed = aiSDK.embed as (options: { model: unknown; value: string }) => Promise<{ embedding: number[] }>
+  const { embed } = await import('ai')
 
   if (typeof text === 'string') {
     const result = await embed({
@@ -599,7 +563,7 @@ export async function embedText(
     }))
   )
 
-  return results.map((r: { embedding: number[] }) => r.embedding)
+  return results.map(r => r.embedding)
 }
 
 // ============================================================================
@@ -667,16 +631,13 @@ export interface CompletionOptions {
  * @deprecated Use generateText instead
  */
 export async function complete(options: CompletionOptions): Promise<string> {
-  // Build options object with only defined values
-  const genOptions: GenerateTextOptions = {
+  const result = await generateText({
     model: options.model,
     prompt: options.prompt,
-  }
-  if (options.system !== undefined) genOptions.system = options.system
-  if (options.maxTokens !== undefined) genOptions.maxTokens = options.maxTokens
-  if (options.temperature !== undefined) genOptions.temperature = options.temperature
-
-  const result = await generateText(genOptions)
+    system: options.system,
+    maxTokens: options.maxTokens,
+    temperature: options.temperature,
+  })
 
   return result.text
 }
@@ -712,15 +673,12 @@ export interface ChatOptions {
  * ```
  */
 export async function chat(options: ChatOptions): Promise<string> {
-  // Build options object with only defined values
-  const genOptions: GenerateTextOptions = {
+  const result = await generateText({
     model: options.model,
     messages: options.messages,
-  }
-  if (options.maxTokens !== undefined) genOptions.maxTokens = options.maxTokens
-  if (options.temperature !== undefined) genOptions.temperature = options.temperature
-
-  const result = await generateText(genOptions)
+    maxTokens: options.maxTokens,
+    temperature: options.temperature,
+  })
 
   return result.text
 }

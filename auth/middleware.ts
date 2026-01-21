@@ -1,44 +1,20 @@
-/**
- * @dotdo/auth - Authentication Middleware
- *
- * Provides Hono middleware for JWT and API key authentication.
- * Supports JWKS validation, claim verification, and role/scope extraction.
- *
- * @module @dotdo/auth/middleware
- */
+// Auth middleware for Hono
 import type { MiddlewareHandler, Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { jwtVerify } from 'jose'
-import { validateSecretPresent } from './validation'
 
-/**
- * Options for configuring JWT authentication middleware.
- */
 export interface AuthOptions {
-  /** Expected JWT issuer claim (iss). If set, tokens from other issuers will be rejected. */
-  issuer?: string | undefined
-  /** Expected JWT audience claim (aud). If set, tokens for other audiences will be rejected. */
-  audience?: string | undefined
-  /** Secret key for HMAC signature verification. Either secret or publicKey is required. */
-  secret?: string | Uint8Array | undefined
-  /** Public key for asymmetric (RSA/EC) signature verification. Either secret or publicKey is required. */
-  publicKey?: string | undefined
-  /** Paths to skip authentication (e.g., ['/health', '/public']). */
-  skipPaths?: string[] | undefined
+  issuer?: string
+  audience?: string
+  secret?: string | Uint8Array
+  skipPaths?: string[]
 }
 
-/**
- * Authenticated user information extracted from JWT claims.
- */
 export interface AuthUser {
-  /** User ID from the JWT subject (sub) claim. */
   id: string
-  /** User email from the email claim. */
-  email?: string | undefined
-  /** User roles from the roles claim. */
-  roles?: string[] | undefined
-  /** OAuth scopes from the scopes claim. */
-  scopes?: string[] | undefined
+  email?: string
+  roles?: string[]
+  scopes?: string[]
 }
 
 declare module 'hono' {
@@ -48,44 +24,13 @@ declare module 'hono' {
   }
 }
 
-/**
- * Create JWT authentication middleware for Hono.
- *
- * This middleware validates JWT tokens from the Authorization header,
- * verifies signatures and claims, and sets the authenticated user
- * in the request context.
- *
- * **Security:** Fails closed - invalid/missing tokens result in 401 responses.
- *
- * @param options - Authentication configuration options
- * @returns Hono middleware handler
- *
- * @example
- * ```typescript
- * import { Hono } from 'hono'
- * import { authMiddleware } from '@dotdo/auth'
- *
- * const app = new Hono()
- *
- * // Protect all routes except /health
- * app.use('/*', authMiddleware({
- *   secret: process.env.JWT_SECRET,
- *   issuer: 'https://auth.example.com',
- *   audience: 'my-api',
- *   skipPaths: ['/health']
- * }))
- *
- * app.get('/me', (c) => {
- *   const user = c.get('user')
- *   return c.json({ userId: user.id, email: user.email })
- * })
- * ```
- */
 export function authMiddleware(options: AuthOptions = {}): MiddlewareHandler {
   const { skipPaths = [], secret, issuer, audience } = options
 
   // Require secret for JWT validation
-  validateSecretPresent(secret, 'secret', 'JWT validation in authMiddleware')
+  if (!secret) {
+    throw new Error('authMiddleware requires a secret for JWT validation')
+  }
 
   // Convert string secret to Uint8Array if needed
   const secretKey = typeof secret === 'string' ? new TextEncoder().encode(secret) : secret
@@ -148,32 +93,6 @@ export function authMiddleware(options: AuthOptions = {}): MiddlewareHandler {
   }
 }
 
-/**
- * Create API key authentication middleware for Hono.
- *
- * This middleware extracts an API key from a configurable header and sets
- * a minimal user context. For full API key validation with scopes and rate
- * limiting, use createApiKeyMiddleware with an ApiKeyManager.
- *
- * @param options - Configuration options
- * @param options.header - Header name for API key (default: 'X-API-Key')
- * @returns Hono middleware handler
- *
- * @example
- * ```typescript
- * import { Hono } from 'hono'
- * import { apiKeyMiddleware } from '@dotdo/auth'
- *
- * const app = new Hono()
- *
- * app.use('/api/*', apiKeyMiddleware({ header: 'X-API-Key' }))
- *
- * app.get('/api/data', (c) => {
- *   const token = c.get('token')  // The API key
- *   return c.json({ data: 'sensitive' })
- * })
- * ```
- */
 export function apiKeyMiddleware(options: { header?: string } = {}): MiddlewareHandler {
   const { header = 'X-API-Key' } = options
 

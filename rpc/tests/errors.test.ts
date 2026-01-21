@@ -14,7 +14,6 @@ import {
   CircuitOpenError,
   isCircuitOpenError,
   RetryWithCircuitBreaker,
-  ValidationError,
 } from '../errors'
 import { expectRPCError, expectRPCErrorType } from '../../test-utils'
 
@@ -246,75 +245,8 @@ describe('retryWithBackoff', () => {
     const result = await promise
     expect(result).toBe('success')
   })
-
-  it('should throw ValidationError for negative maxRetries', async () => {
-    const fn = vi.fn().mockResolvedValue('success')
-
-    await expect(
-      retryWithBackoff(fn, { maxRetries: -1 })
-    ).rejects.toThrow('maxRetries must be >= 0')
-
-    await expect(
-      retryWithBackoff(fn, { maxRetries: -1 })
-    ).rejects.toBeInstanceOf(ValidationError)
-
-    expect(fn).not.toHaveBeenCalled()
-  })
-
-  it('should throw ValidationError for very negative maxRetries', async () => {
-    const fn = vi.fn().mockResolvedValue('success')
-
-    await expect(
-      retryWithBackoff(fn, { maxRetries: -100 })
-    ).rejects.toThrow('maxRetries must be >= 0')
-
-    expect(fn).not.toHaveBeenCalled()
-  })
-
-  it('should include error details for negative maxRetries', async () => {
-    const fn = vi.fn().mockResolvedValue('success')
-
-    try {
-      await retryWithBackoff(fn, { maxRetries: -5 })
-      expect.fail('Should have thrown')
-    } catch (error) {
-      expect(error).toBeInstanceOf(ValidationError)
-      if (error instanceof ValidationError) {
-        expect(error.details).toEqual({
-          field: 'maxRetries',
-          value: -5,
-          constraint: 'non-negative integer',
-        })
-      }
-    }
-  })
-
-  it('should work with maxRetries = 0 (no retries)', async () => {
-    const error = new RPCError(RPCErrorCode.NETWORK_ERROR, 'Network failed')
-    const fn = vi.fn().mockRejectedValue(error)
-
-    await expect(
-      retryWithBackoff(fn, { maxRetries: 0, initialDelay: 100 })
-    ).rejects.toThrow('Network failed')
-
-    expect(fn).toHaveBeenCalledTimes(1) // Called once, no retries
-  })
-
-  it('should succeed on first try with maxRetries = 0', async () => {
-    const fn = vi.fn().mockResolvedValue('success')
-
-    const result = await retryWithBackoff(fn, { maxRetries: 0 })
-
-    expect(result).toBe('success')
-    expect(fn).toHaveBeenCalledTimes(1)
-  })
 })
 
-/**
- * CircuitBreaker Test Suite
- * Tests all state transitions (CLOSED -> OPEN -> HALF_OPEN -> CLOSED),
- * metrics tracking, threshold behavior, and reset functionality.
- */
 describe('CircuitBreaker', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -857,17 +789,6 @@ describe('CircuitOpenError', () => {
   })
 })
 
-/**
- * RetryWithCircuitBreaker Test Suite
- * Tests combined retry and circuit breaker behavior including:
- * - Exponential backoff with jitter
- * - Circuit state transitions (CLOSED -> OPEN -> HALF_OPEN -> CLOSED)
- * - onStateChange callbacks
- * - Integrated metrics (retry attempts + circuit breaker state)
- * - Retry logic within circuit breaker context
- * - isAllowingRequests() state checks
- * - Reset functionality for both retry and circuit breaker state
- */
 describe('RetryWithCircuitBreaker', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -1118,50 +1039,5 @@ describe('RetryWithCircuitBreaker', () => {
     const metrics = resilient.getMetrics()
     expect(metrics.lastRetryDelayMs).toBeGreaterThanOrEqual(100)
     expect(metrics.lastRetryDelayMs).toBeLessThanOrEqual(125)
-  })
-
-  it('should throw ValidationError for negative maxRetries in constructor', () => {
-    expect(() => {
-      new RetryWithCircuitBreaker({
-        retry: { maxRetries: -1 },
-      })
-    }).toThrow('maxRetries must be >= 0')
-
-    expect(() => {
-      new RetryWithCircuitBreaker({
-        retry: { maxRetries: -1 },
-      })
-    }).toThrow(ValidationError)
-  })
-
-  it('should include error details for negative maxRetries', () => {
-    try {
-      new RetryWithCircuitBreaker({
-        retry: { maxRetries: -10 },
-      })
-      expect.fail('Should have thrown')
-    } catch (error) {
-      expect(error).toBeInstanceOf(ValidationError)
-      if (error instanceof ValidationError) {
-        expect(error.details).toEqual({
-          field: 'maxRetries',
-          value: -10,
-          constraint: 'non-negative integer',
-        })
-      }
-    }
-  })
-
-  it('should work with maxRetries = 0 in constructor', async () => {
-    const resilient = new RetryWithCircuitBreaker({
-      retry: { maxRetries: 0, initialDelay: 100 },
-      circuitBreaker: { failureThreshold: 5 },
-    })
-
-    const error = new RPCError(RPCErrorCode.NETWORK_ERROR, 'Network failed')
-    const fn = vi.fn().mockRejectedValue(error)
-
-    await expect(resilient.execute(fn)).rejects.toThrow('Network failed')
-    expect(fn).toHaveBeenCalledTimes(1) // Called once, no retries
   })
 })

@@ -848,7 +848,7 @@ describe('Migration Rollback', () => {
       expect(pending[1].version).toBe(3)
     })
 
-    it('should track appliedAt timestamps', async () => {
+    it('should track applied_at timestamps', async () => {
       await runner.initialize()
 
       const migrations: Migration[] = [
@@ -861,8 +861,8 @@ describe('Migration Rollback', () => {
 
       const applied = await runner.getAppliedMigrations()
       expect(applied).toHaveLength(1)
-      expect(applied[0].appliedAt).toBeGreaterThanOrEqual(beforeApply)
-      expect(applied[0].appliedAt).toBeLessThanOrEqual(afterApply)
+      expect(applied[0].applied_at).toBeGreaterThanOrEqual(beforeApply)
+      expect(applied[0].applied_at).toBeLessThanOrEqual(afterApply)
     })
   })
 
