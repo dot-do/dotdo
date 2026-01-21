@@ -21,7 +21,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createContext, type WorkflowContext } from '../context'
 import { invokeHandlers, type EventHandler } from '../on'
-import { ValidationError, NetworkError, TimeoutError, isRetryableError } from '../../rpc/errors'
+import { ValidationError, NetworkError, TimeoutError, isRetryableError } from '@dotdo/rpc'
 
 // Mock DurableObjectState for unit tests
 const createMockState = () => ({

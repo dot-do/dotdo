@@ -77,10 +77,7 @@ describe('SQLite RelationshipsStore', () => {
       expect(rels).toHaveLength(1)
     })
 
-    it.skip('should find by multiple criteria', async () => {
-      // This test requires proper SQL WHERE clause handling with multiple AND conditions
-      // In a real Cloudflare Workers environment with miniflare and actual SQLite, this works correctly
-      // Skipped due to mock SQL storage limitations
+    it('should find by multiple criteria', async () => {
       const rels = await store.find({ subject: 'user-1', predicate: 'owns' })
       expect(rels).toHaveLength(2)
     })
@@ -93,8 +90,7 @@ describe('SQLite RelationshipsStore', () => {
       await store.add({ subject: 'user-1', predicate: 'created', object: 'post-1' })
     })
 
-    it.skip('should return related object IDs', async () => {
-      // Skipped: requires multi-criteria SQL query support in mock
+    it('should return related object IDs', async () => {
       const orders = await store.getRelated('user-1', 'owns')
       expect(orders).toEqual(['order-1', 'order-2'])
     })
@@ -112,8 +108,7 @@ describe('SQLite RelationshipsStore', () => {
       await store.add({ subject: 'user-1', predicate: 'created', object: 'order-1' })
     })
 
-    it.skip('should return related subject IDs', async () => {
-      // Skipped: requires multi-criteria SQL query support in mock
+    it('should return related subject IDs', async () => {
       const owners = await store.getRelatedTo('order-1', 'owns')
       expect(owners).toEqual(['user-1', 'user-2'])
     })

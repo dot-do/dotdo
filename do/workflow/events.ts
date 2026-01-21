@@ -18,17 +18,32 @@
  * @module do/workflow/events
  */
 
-import { createNestedProxy } from '../utils/proxy'
-import { isRetryableError, ValidationError } from '../../rpc/errors'
-import { createLogger } from '../../utils/logger'
+import { createNestedProxy, createScopedLogger, LogLevel } from '@dotdo/utils'
+import { isRetryableError, ValidationError } from '@dotdo/rpc'
 
-const logger = createLogger('[EventHandlers]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[EventHandlers]' })
 
 /**
  * Event handler function type
  * @template T - The type of the event payload (defaults to unknown for backward compatibility)
  */
 export type EventHandler<T = unknown> = (event: T) => Promise<void> | void
+
+/**
+ * Remote event handler registration (stringified code for server-side execution)
+ */
+export interface RemoteEventHandler {
+  /** Unique identifier for this handler registration */
+  id: string
+  /** Event type pattern (e.g., 'Customer.signup', '*.created') */
+  event: string
+  /** Stringified handler code */
+  code: string
+  /** When the handler was registered */
+  registeredAt: number
+  /** Source identifier (e.g., client ID, DO ID) */
+  source?: string
+}
 
 /**
  * Proxy for event handlers on a specific noun
@@ -399,4 +414,323 @@ export function clearAllHandlers(
   handlers: Map<string, EventHandler[]>
 ): void {
   handlers.clear()
+}
+
+// ============================================================================
+// Remote Event Handler Management
+// ============================================================================
+
+/**
+ * Generate a unique ID for a remote handler registration
+ */
+function generateHandlerId(): string {
+  return `rh-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+}
+
+/**
+ * Register a remote event handler from stringified code.
+ *
+ * This stores the handler code for server-side execution when events fire.
+ * The handler will be executed using a sandboxed script interpreter with
+ * access to the $ context.
+ *
+ * @param event - Event type pattern (e.g., 'Customer.signup')
+ * @param code - Stringified handler function code
+ * @param remoteHandlers - Map storing remote handler registrations
+ * @param source - Optional source identifier
+ * @returns The registered remote handler
+ *
+ * @example
+ * ```ts
+ * const remoteHandlers = new Map()
+ *
+ * // Register a remote handler
+ * const handler = registerRemoteHandler(
+ *   'Customer.signup',
+ *   'async (event) => { console.log(event.email) }',
+ *   remoteHandlers,
+ *   'client-123'
+ * )
+ * ```
+ */
+export function registerRemoteHandler(
+  event: string,
+  code: string,
+  remoteHandlers: Map<string, RemoteEventHandler[]>,
+  source?: string
+): RemoteEventHandler {
+  const handler: RemoteEventHandler = {
+    id: generateHandlerId(),
+    event,
+    code,
+    registeredAt: Date.now(),
+    source
+  }
+
+  const existing = remoteHandlers.get(event) || []
+  remoteHandlers.set(event, [...existing, handler])
+
+  logger.debug(`Registered remote handler for "${event}" (id: ${handler.id})`)
+
+  return handler
+}
+
+/**
+ * Find all remote handlers that match a given event type
+ *
+ * Matches handlers in order of specificity (same as matchHandlers):
+ * 1. Exact match (Customer.signup)
+ * 2. Noun wildcard (Customer.*)
+ * 3. Verb wildcard (*.signup)
+ * 4. Global wildcard (*.*)
+ *
+ * @param eventType - Event type in format "Noun.verb"
+ * @param remoteHandlers - Remote handler registry map
+ * @returns Array of matching remote handlers
+ */
+export function matchRemoteHandlers(
+  eventType: string,
+  remoteHandlers: Map<string, RemoteEventHandler[]>
+): RemoteEventHandler[] {
+  const [noun, verb] = eventType.split('.')
+  const matched: RemoteEventHandler[] = []
+
+  // 1. Exact match
+  const exact = remoteHandlers.get(eventType)
+  if (exact) matched.push(...exact)
+
+  // 2. Noun wildcard (Customer.*)
+  if (noun && verb) {
+    const nounWild = remoteHandlers.get(`${noun}.*`)
+    if (nounWild) matched.push(...nounWild)
+  }
+
+  // 3. Verb wildcard (*.created)
+  if (noun && verb) {
+    const verbWild = remoteHandlers.get(`*.${verb}`)
+    if (verbWild) matched.push(...verbWild)
+  }
+
+  // 4. Global wildcard (*.*)
+  const globalWild = remoteHandlers.get('*.*')
+  if (globalWild) matched.push(...globalWild)
+
+  return matched
+}
+
+/**
+ * Type for a custom code evaluator function
+ * Used to execute stringified handler code in a sandboxed environment
+ */
+export type CodeEvaluator = (
+  code: string,
+  event: unknown,
+  context: Record<string, unknown>
+) => Promise<unknown>
+
+/**
+ * Options for executing remote handlers
+ */
+export interface ExecuteRemoteHandlerOptions {
+  /** The $ context to make available to the handler */
+  context?: Record<string, unknown>
+  /** Timeout for handler execution in milliseconds */
+  timeout?: number
+  /**
+   * Custom code evaluator for executing handler code.
+   * In production, this should be a sandboxed evaluator (V8 isolates, WASM, etc.).
+   * If not provided, uses a default Function()-based evaluator which may not be
+   * available in all environments (e.g., Cloudflare Workers disallow new Function()).
+   */
+  evaluator?: CodeEvaluator
+}
+
+/**
+ * Result of executing a remote handler
+ */
+export interface RemoteHandlerResult {
+  handler: RemoteEventHandler
+  succeeded: boolean
+  attempts: number
+  error?: Error
+}
+
+/**
+ * Execute a single remote handler by evaluating its stringified code.
+ *
+ * The handler code is executed in a sandboxed context with access to the
+ * $ context for workflow operations. This enables remote clients to register
+ * handlers that run server-side with full DO capabilities.
+ *
+ * SECURITY NOTE: This executes user-provided code. In production, this should
+ * be sandboxed (e.g., using V8 isolates, WebAssembly, or a custom interpreter).
+ * The current implementation uses Function() which is suitable for trusted code.
+ *
+ * @param handler - The remote handler to execute
+ * @param event - Event data to pass to the handler
+ * @param options - Execution options
+ * @returns Result of the execution
+ *
+ * @example
+ * ```ts
+ * const result = await executeRemoteHandler(
+ *   remoteHandler,
+ *   { email: 'user@example.com' },
+ *   { context: { $: workflowContext } }
+ * )
+ * ```
+ */
+/**
+ * Default code evaluator using Function() constructor.
+ * Note: This may not work in environments that disallow dynamic code
+ * generation (e.g., Cloudflare Workers with unsafe-eval CSP).
+ */
+const defaultEvaluator: CodeEvaluator = async (code, event, context) => {
+  const contextKeys = Object.keys(context)
+  const contextValues = Object.values(context)
+
+  // Build a wrapper that creates the handler function and calls it
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  const createHandler = new Function(
+    ...contextKeys,
+    '__handlerCode__',
+    '__event__',
+    `
+    'use strict';
+    const handler = eval('(' + __handlerCode__ + ')');
+    return handler(__event__);
+    `
+  )
+
+  return createHandler(...contextValues, code, event)
+}
+
+export async function executeRemoteHandler(
+  handler: RemoteEventHandler,
+  event: unknown,
+  options: ExecuteRemoteHandlerOptions = {}
+): Promise<RemoteHandlerResult> {
+  const { context = {}, timeout = 30000, evaluator = defaultEvaluator } = options
+
+  try {
+    // Execute with timeout
+    const result = await Promise.race([
+      evaluator(handler.code, event, context),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Handler execution timed out after ${timeout}ms`)), timeout)
+      )
+    ])
+
+    return {
+      handler,
+      succeeded: true,
+      attempts: 1
+    }
+  } catch (error) {
+    const errorObj = error instanceof Error ? error : new Error(String(error))
+    logger.error(`Remote handler "${handler.id}" failed:`, errorObj.message)
+
+    return {
+      handler,
+      succeeded: false,
+      attempts: 1,
+      error: errorObj
+    }
+  }
+}
+
+/**
+ * Execute all matching remote handlers for an event
+ *
+ * @param eventType - Event type in format "Noun.verb"
+ * @param event - Event data to pass to handlers
+ * @param remoteHandlers - Remote handler registry
+ * @param options - Execution options
+ * @returns Results for all handlers
+ */
+export async function invokeRemoteHandlers(
+  eventType: string,
+  event: unknown,
+  remoteHandlers: Map<string, RemoteEventHandler[]>,
+  options: ExecuteRemoteHandlerOptions = {}
+): Promise<{ succeeded: RemoteHandlerResult[]; failed: RemoteHandlerResult[] }> {
+  const matched = matchRemoteHandlers(eventType, remoteHandlers)
+
+  if (matched.length === 0) {
+    return { succeeded: [], failed: [] }
+  }
+
+  const results = await Promise.all(
+    matched.map(handler => executeRemoteHandler(handler, event, options))
+  )
+
+  const succeeded = results.filter(r => r.succeeded)
+  const failed = results.filter(r => !r.succeeded)
+
+  return { succeeded, failed }
+}
+
+/**
+ * Remove a specific remote handler by ID
+ *
+ * @param handlerId - The ID of the handler to remove
+ * @param remoteHandlers - Remote handler registry
+ * @returns True if the handler was found and removed
+ */
+export function removeRemoteHandler(
+  handlerId: string,
+  remoteHandlers: Map<string, RemoteEventHandler[]>
+): boolean {
+  for (const [event, handlers] of remoteHandlers) {
+    const index = handlers.findIndex(h => h.id === handlerId)
+    if (index !== -1) {
+      handlers.splice(index, 1)
+      if (handlers.length === 0) {
+        remoteHandlers.delete(event)
+      }
+      logger.debug(`Removed remote handler "${handlerId}" for event "${event}"`)
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Clear all remote handlers for a specific event type
+ *
+ * @param event - Event type pattern
+ * @param remoteHandlers - Remote handler registry
+ */
+export function clearRemoteHandlers(
+  event: string,
+  remoteHandlers: Map<string, RemoteEventHandler[]>
+): void {
+  remoteHandlers.delete(event)
+}
+
+/**
+ * Clear all remote handlers
+ *
+ * @param remoteHandlers - Remote handler registry
+ */
+export function clearAllRemoteHandlers(
+  remoteHandlers: Map<string, RemoteEventHandler[]>
+): void {
+  remoteHandlers.clear()
+}
+
+/**
+ * Get all registered remote handlers
+ *
+ * @param remoteHandlers - Remote handler registry
+ * @returns Array of all remote handlers
+ */
+export function getAllRemoteHandlers(
+  remoteHandlers: Map<string, RemoteEventHandler[]>
+): RemoteEventHandler[] {
+  const all: RemoteEventHandler[] = []
+  for (const handlers of remoteHandlers.values()) {
+    all.push(...handlers)
+  }
+  return all
 }

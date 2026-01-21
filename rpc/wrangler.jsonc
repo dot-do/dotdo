@@ -8,7 +8,9 @@
     "bindings": [
       { "name": "DO", "class_name": "TestDO" },
       { "name": "TARGET_DO", "class_name": "TargetDO" },
-      { "name": "SOURCE_DO", "class_name": "SourceDO" }
+      { "name": "SOURCE_DO", "class_name": "SourceDO" },
+      { "name": "CONTEXT_DO", "class_name": "ContextDO" },
+      { "name": "ENTITY_DO", "class_name": "EntityDO" }
     ]
   },
 
@@ -17,6 +19,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["TestDO", "TargetDO", "SourceDO"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ContextDO", "EntityDO"]
     }
   ]
 }
