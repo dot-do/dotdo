@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["*.ts", "src/**/*.ts"],
+  "exclude": ["finance/**"]
+}

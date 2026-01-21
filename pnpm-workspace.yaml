@@ -13,6 +13,5 @@ packages:
   - integrations
   - utils
   - clickhouse
-  - finance
-  - observability
-  - experiments
+  - business
+  - business/finance
