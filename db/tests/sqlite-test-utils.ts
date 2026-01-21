@@ -170,12 +170,12 @@ export function createMockSqlStorage(): MockSqlStorage {
 
                     // Check for timestamp range
                     if (sql.includes('timestamp >= ?')) {
-                      const sinceValue = boundValues[filterIndex++]
+                      const sinceValue = boundValues[filterIndex++] as number
                       rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp >= sinceValue)
                     }
 
                     if (sql.includes('timestamp <= ?')) {
-                      const untilValue = boundValues[filterIndex++]
+                      const untilValue = boundValues[filterIndex++] as number
                       rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp <= untilValue)
                     }
                   }
@@ -199,12 +199,12 @@ export function createMockSqlStorage(): MockSqlStorage {
                   }
 
                   if (sql.includes('AND timestamp >= ?')) {
-                    const sinceValue = boundValues[valueIndex++]
+                    const sinceValue = boundValues[valueIndex++] as number
                     rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp >= sinceValue)
                   }
 
                   if (sql.includes('AND timestamp <= ?')) {
-                    const untilValue = boundValues[valueIndex++]
+                    const untilValue = boundValues[valueIndex++] as number
                     rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp <= untilValue)
                   }
 

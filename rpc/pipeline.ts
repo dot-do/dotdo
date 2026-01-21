@@ -301,7 +301,7 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
     })
 
     if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({}))
+      const errorBody = await response.json().catch(() => ({})) as { message?: string }
       throw new Error(errorBody.message || `Pipeline error: ${response.status}`)
     }
 
