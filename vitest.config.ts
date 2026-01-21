@@ -102,6 +102,8 @@ export default defineWorkersConfig({
       './oauth/vitest.config.ts',
       // AI package
       './ai/vitest.config.ts',
+      // Utils package
+      './utils/vitest.config.ts',
     ],
 
     // CRITICAL: Limit concurrency to prevent resource exhaustion
