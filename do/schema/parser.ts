@@ -258,6 +258,7 @@ function parseRelationField(fieldName: string, value: string): ParsedFieldResult
   let backref: string | undefined
   let array = false
   let optional = false
+  let threshold: number | undefined
 
   // Check for array suffix
   if (targetType.endsWith('[]')) {
@@ -271,10 +272,20 @@ function parseRelationField(fieldName: string, value: string): ParsedFieldResult
     targetType = targetType.slice(0, -1)
   }
 
+  // Parse threshold from ~>Type(0.9) syntax
+  const thresholdMatch = targetType.match(/^([^(]+)\(([0-9.]+)\)$/)
+  if (thresholdMatch && thresholdMatch[1] && thresholdMatch[2]) {
+    const thresholdValue = parseFloat(thresholdMatch[2])
+    if (!isNaN(thresholdValue) && thresholdValue >= 0 && thresholdValue <= 1) {
+      threshold = thresholdValue
+      targetType = thresholdMatch[1]
+    }
+  }
+
   // Check for backref (e.g., User.owner)
   if (targetType.includes('.')) {
     const parts = targetType.split('.')
-    targetType = parts[0]
+    targetType = parts[0]!
     backref = parts.slice(1).join('.')
   }
 
@@ -286,6 +297,7 @@ function parseRelationField(fieldName: string, value: string): ParsedFieldResult
     ...(backref && { backref }),
     ...(array && { array }),
     ...(optional && { optional }),
+    ...(threshold !== undefined && { threshold }),
   }
 
   return {
@@ -654,4 +666,215 @@ export function isGeneratedField(schema: UnifiedSchema, entityName: string, fiel
   const entity = schema.entities.get(entityName)
   const field = entity?.fields.get(fieldName)
   return field?.generated ?? false
+}
+
+// =============================================================================
+// Relation Operator Helpers (do-lekf.5)
+// =============================================================================
+
+/**
+ * Options for hasOne relation helper
+ */
+export interface HasOneOptions {
+  /** Whether the relation is optional */
+  optional?: boolean
+}
+
+/**
+ * Options for fuzzy relation helper
+ */
+export interface FuzzyRelationOptions {
+  /** Similarity threshold (0-1) for AI matching */
+  threshold?: number
+  /** Whether the relation is optional */
+  optional?: boolean
+}
+
+/**
+ * Options for fuzzy backref helper
+ */
+export interface FuzzyBackrefOptions {
+  /** Whether the relation returns an array */
+  array?: boolean
+  /** Similarity threshold (0-1) for AI matching */
+  threshold?: number
+}
+
+/**
+ * Create a forward exact relation (hasOne).
+ *
+ * Use this for foreign key relationships where an entity
+ * has exactly one related entity.
+ *
+ * @param targetType - The target entity type
+ * @param options - Optional configuration
+ * @returns Relation string in IceType format
+ *
+ * @example
+ * ```ts
+ * const schema = {
+ *   Order: {
+ *     customer: hasOne('Customer'),     // '-> Customer'
+ *     assignee: hasOne('User', { optional: true }), // '-> User?'
+ *   }
+ * }
+ * ```
+ */
+export function hasOne(targetType: string, options?: HasOneOptions): string {
+  const optionalSuffix = options?.optional ? '?' : ''
+  return `-> ${targetType}${optionalSuffix}`
+}
+
+/**
+ * Create a backward relation (hasMany).
+ *
+ * Use this for reverse lookups where an entity has multiple
+ * related entities pointing to it.
+ *
+ * @param targetType - The target entity type that has the foreign key
+ * @param backref - The field name on the target entity that references this entity
+ * @returns Relation string in IceType format
+ *
+ * @example
+ * ```ts
+ * const schema = {
+ *   Customer: {
+ *     orders: hasMany('Order', 'customer'), // '<- Order.customer[]'
+ *   },
+ *   Order: {
+ *     customer: hasOne('Customer'),
+ *   }
+ * }
+ * ```
+ */
+export function hasMany(targetType: string, backref: string): string {
+  return `<- ${targetType}.${backref}[]`
+}
+
+/**
+ * Create a forward exact relation (alias for hasOne).
+ *
+ * Use this from the "child" perspective when the entity
+ * belongs to another entity.
+ *
+ * @param targetType - The target entity type
+ * @param options - Optional configuration
+ * @returns Relation string in IceType format
+ *
+ * @example
+ * ```ts
+ * const schema = {
+ *   OrderItem: {
+ *     order: belongsTo('Order'),
+ *     product: belongsTo('Product'),
+ *   }
+ * }
+ * ```
+ */
+export function belongsTo(targetType: string, options?: HasOneOptions): string {
+  return hasOne(targetType, options)
+}
+
+/**
+ * Create a many-to-many relation through a junction table.
+ *
+ * This creates a backward relation through a junction entity,
+ * allowing you to model many-to-many relationships.
+ *
+ * @param targetType - The final target entity type (for documentation)
+ * @param throughType - The junction table entity type
+ * @param backref - The field name on the junction table that references this entity
+ * @returns Relation string in IceType format
+ *
+ * @example
+ * ```ts
+ * const schema = {
+ *   Student: {
+ *     enrollments: manyToMany('Course', 'Enrollment', 'student'),
+ *   },
+ *   Course: {
+ *     enrollments: manyToMany('Student', 'Enrollment', 'course'),
+ *   },
+ *   Enrollment: {
+ *     student: belongsTo('Student'),
+ *     course: belongsTo('Course'),
+ *   }
+ * }
+ * ```
+ */
+export function manyToMany(_targetType: string, throughType: string, backref: string): string {
+  // The targetType parameter documents the final target but the actual
+  // relation goes through the junction table
+  return `<- ${throughType}.${backref}[]`
+}
+
+/**
+ * Create a forward fuzzy (AI-matched) relation.
+ *
+ * Use this for semantic relationships where the AI should
+ * find the best matching entity based on similarity.
+ *
+ * @param targetType - The target entity type
+ * @param options - Optional configuration including threshold
+ * @returns Relation string in IceType format
+ *
+ * @example
+ * ```ts
+ * const schema = {
+ *   Product: {
+ *     category: fuzzyRelation('Category'),
+ *     bestMatch: fuzzyRelation('Category', { threshold: 0.85 }),
+ *   }
+ * }
+ * ```
+ */
+export function fuzzyRelation(targetType: string, options?: FuzzyRelationOptions): string {
+  let result = `~> ${targetType}`
+
+  if (options?.threshold !== undefined) {
+    result = `~> ${targetType}(${options.threshold})`
+  }
+
+  if (options?.optional) {
+    result += '?'
+  }
+
+  return result
+}
+
+/**
+ * Create a backward fuzzy (AI-matched) relation.
+ *
+ * Use this for reverse lookups with semantic matching.
+ *
+ * @param targetType - The target entity type
+ * @param backref - The field name on the target entity
+ * @param options - Optional configuration
+ * @returns Relation string in IceType format
+ *
+ * @example
+ * ```ts
+ * const schema = {
+ *   Category: {
+ *     products: fuzzyBackref('Product', 'category', { array: true }),
+ *   }
+ * }
+ * ```
+ */
+export function fuzzyBackref(
+  targetType: string,
+  backref: string,
+  options?: FuzzyBackrefOptions
+): string {
+  let result = `<~ ${targetType}.${backref}`
+
+  if (options?.threshold !== undefined) {
+    result = `<~ ${targetType}.${backref}(${options.threshold})`
+  }
+
+  if (options?.array) {
+    result += '[]'
+  }
+
+  return result
 }
