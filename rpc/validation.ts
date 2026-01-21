@@ -6,27 +6,59 @@ import type { RPCMessage } from './transport/types'
 import type { z as ZodType } from 'zod'
 
 // Lazy-loaded zod module to avoid bundler issues with dynamic require
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _zod: typeof ZodType | null = null
+let _zodPromise: Promise<typeof ZodType> | null = null
 
 /**
- * Get the zod module, importing it lazily on first use.
+ * Get the zod module asynchronously, importing it lazily on first use.
  * Throws an error if zod is not installed.
  */
-function getZod(): typeof ZodType {
-  if (_zod === null) {
-    try {
-      // Use a variable to prevent bundlers from statically analyzing this
-      const zodModule = 'zod'
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      _zod = require(zodModule).z
-    } catch {
+async function getZodAsync(): Promise<typeof ZodType> {
+  if (_zod !== null) {
+    return _zod
+  }
+  if (_zodPromise === null) {
+    _zodPromise = import('zod').then((mod) => {
+      _zod = mod.z
+      return mod.z
+    }).catch(() => {
       throw new Error(
         'zod is required for ZodArgSchemas. Install it with: npm install zod'
       )
-    }
+    })
+  }
+  return _zodPromise
+}
+
+/**
+ * Get the zod module synchronously. Must call initZod() first or this will throw.
+ * For synchronous usage, prefer initZod() at app startup then use getZod().
+ */
+function getZod(): typeof ZodType {
+  if (_zod === null) {
+    throw new Error(
+      'zod not initialized. Call initZod() first or use async ZodArgSchemas methods. ' +
+      'Install zod with: npm install zod'
+    )
   }
   return _zod
+}
+
+/**
+ * Initialize zod module for synchronous usage.
+ * Call this at app startup if you need synchronous ZodArgSchemas methods.
+ *
+ * @example
+ * ```typescript
+ * // At app startup
+ * await initZod()
+ *
+ * // Now synchronous methods work
+ * const schema = ZodArgSchemas.string('name')
+ * ```
+ */
+export async function initZod(): Promise<void> {
+  await getZodAsync()
 }
 
 // ============================================================================

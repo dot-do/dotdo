@@ -509,7 +509,7 @@ export function createSecureDOStub<T extends object>(
   options: SecureDOStubOptions
 ): RPCClientType<T> {
   // Lazy import to avoid circular dependencies
-  let createDOToDoHeaders: typeof import('../do/auth').createDOToDoHeaders | null = null
+  let createDOToDoHeaders: typeof import('@dotdo/auth').createDOToDoHeaders | null = null
 
   const doId = isDurableObjectId(id) ? id : binding.idFromName(id)
   const stub = binding.get(doId)
@@ -518,9 +518,10 @@ export function createSecureDOStub<T extends object>(
   // Create a method invoker that preserves type inference
   const createMethodProxy = <M>(methodName: string): M => {
     return (async (...args: unknown[]): Promise<unknown> => {
-      // Lazy load the auth module
+      // Lazy load the auth module from @dotdo/auth (Layer 1)
+      // Previously imported from @dotdo/do/auth (Layer 2) which caused layer violations
       if (!createDOToDoHeaders) {
-        const authModule = await import('../do/auth')
+        const authModule = await import('@dotdo/auth')
         createDOToDoHeaders = authModule.createDOToDoHeaders
       }
 

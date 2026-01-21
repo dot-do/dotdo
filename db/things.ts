@@ -3,8 +3,9 @@
 // Storage abstraction added per do-68rr
 // Branded types added per do-e3my
 // Input validation added per do-c8s8
+// Types moved to types.ts per do-stc2d.1 to break circular dependencies
 
-import type { StorableData, JsonValue } from './types'
+import type { StorableData } from './types'
 import type { StorageAdapter } from './storage'
 import type { ThingId } from './branded-types'
 import { toThingId } from './branded-types'
@@ -24,50 +25,23 @@ import {
 import { applyCursorPagination } from './pagination'
 import type { CursorPaginationOptions, CursorPaginatedResult } from './pagination'
 
-/**
- * Base Thing interface with system fields.
- * T extends StorableData for user-defined properties
- * Uses branded ThingId for type safety - see do-e3my
- *
- * @stable
- * @since 1.0.0
- */
-export interface BaseThing {
-  $id: ThingId
-  $type: string
-  $createdAt: number
-  $updatedAt: number
-}
+// Re-export types from types.ts for backward compatibility
+export type {
+  BaseThing,
+  Thing,
+  ThingInput,
+  ThingUpdate,
+  BulkUpdateItem,
+} from './types'
 
-/**
- * Thing type combining system fields with user data.
- * Use Thing<T> for typed entity storage
- *
- * @stable
- * @since 1.0.0
- */
-export type Thing<T extends StorableData = StorableData> = BaseThing & T
-
-/**
- * Input type for creating a Thing (excludes auto-generated fields)
- */
-export type ThingInput<T extends StorableData = StorableData> =
-  Omit<BaseThing, '$id' | '$createdAt' | '$updatedAt'> & T
-
-/**
- * Input type for updating a Thing (excludes immutable fields)
- */
-export type ThingUpdate<T extends StorableData = StorableData> =
-  Partial<Omit<T, '$id' | '$type'>>
-
-/**
- * Bulk update item with generic support
- * Uses branded ThingId for type safety
- */
-export interface BulkUpdateItem<T extends StorableData = StorableData> {
-  id: ThingId | string  // Accept both for backward compatibility
-  data: ThingUpdate<T>
-}
+// Import types for local use
+import type {
+  BaseThing,
+  Thing,
+  ThingInput,
+  ThingUpdate,
+  BulkUpdateItem,
+} from './types'
 
 /**
  * Cursor-based pagination result
