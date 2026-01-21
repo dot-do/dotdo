@@ -18,7 +18,7 @@ interface ThingRow {
 export class TransactionDO extends DurableObject {
   private sql: SqlStorage
 
-  constructor(state: DurableObjectState, env: unknown) {
+  constructor(state: DurableObjectState, env: Record<string, unknown>) {
     super(state, env)
     this.sql = state.storage.sql
 
@@ -79,14 +79,14 @@ export class TransactionDO extends DurableObject {
         )
 
         const result = this.sql.exec('SELECT * FROM things WHERE id = ?', id)
-        const row = [...result][0] as ThingRow
+        const row = [...result][0] as unknown as ThingRow
         return Response.json(this.rowToThing(row))
       }
 
       if (path === '/things/get' && method === 'GET') {
         const id = url.searchParams.get('id')
         const result = this.sql.exec('SELECT * FROM things WHERE id = ?', id)
-        const rows = [...result] as ThingRow[]
+        const rows = [...result] as unknown as ThingRow[]
         if (rows.length === 0) {
           return Response.json({ error: 'Not found' }, { status: 404 })
         }
@@ -102,7 +102,7 @@ export class TransactionDO extends DurableObject {
         const { id, data, expectedVersion } = body
 
         const existingResult = this.sql.exec('SELECT * FROM things WHERE id = ?', id)
-        const existingRows = [...existingResult] as ThingRow[]
+        const existingRows = [...existingResult] as unknown as ThingRow[]
         const existing = existingRows[0]
 
         if (!existing) {
@@ -131,7 +131,7 @@ export class TransactionDO extends DurableObject {
         )
 
         const result = this.sql.exec('SELECT * FROM things WHERE id = ?', id)
-        const row = [...result][0] as ThingRow
+        const row = [...result][0] as unknown as ThingRow
         return Response.json(this.rowToThing(row))
       }
 
@@ -143,7 +143,7 @@ export class TransactionDO extends DurableObject {
         } else {
           result = this.sql.exec('SELECT * FROM things ORDER BY created_at DESC')
         }
-        const rows = [...result] as ThingRow[]
+        const rows = [...result] as unknown as ThingRow[]
         return Response.json({ things: rows.map(r => this.rowToThing(r)) })
       }
 
@@ -193,7 +193,7 @@ export class TransactionDO extends DurableObject {
 
         await this.ctx.blockConcurrencyWhile(async () => {
           const existingResult = this.sql.exec('SELECT * FROM things WHERE id = ?', id)
-          const rows = [...existingResult] as ThingRow[]
+          const rows = [...existingResult] as unknown as ThingRow[]
           const existing = rows[0]
 
           if (!existing) {
@@ -211,7 +211,7 @@ export class TransactionDO extends DurableObject {
         })
 
         const result = this.sql.exec('SELECT * FROM things WHERE id = ?', id)
-        const row = [...result][0] as ThingRow
+        const row = [...result][0] as unknown as ThingRow
         return Response.json(this.rowToThing(row))
       }
 
