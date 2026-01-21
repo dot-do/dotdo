@@ -361,11 +361,7 @@ describe('Sandbox with $ context', () => {
       expect(result.error).toBeDefined()
     })
 
-    // TODO(do-uyc5): fetch blocking requires globalOutbound support in Miniflare fallback
-    // The worker_loaders binding correctly blocks fetch via globalOutbound: null
-    // but Miniflare fallback in ai-evaluate/node.ts doesn't pass this option
-    // Fix: Pass globalOutbound: null option in ai-evaluate's Miniflare configuration
-    it.skip('should block network access', async () => {
+    it('should block network access', async () => {
       const sandbox = createSandbox({ context: context })
       const result = await sandbox.execute(`
         try {
