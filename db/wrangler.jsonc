@@ -17,14 +17,5 @@
       "tag": "v1",
       "new_sqlite_classes": ["DO"]
     }
-  ],
-
-  // R2 bucket bindings for tiered storage integration tests
-  // Miniflare provides in-memory R2 simulation for tests
-  "r2_buckets": [
-    {
-      "binding": "R2_STORAGE",
-      "bucket_name": "dotdo-storage"
-    }
   ]
 }

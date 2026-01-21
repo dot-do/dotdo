@@ -18,12 +18,11 @@ async function basicTracking() {
 
   const tracker = new UsageTracker()
 
-  // Make an AI request - keep reference to promise to access $meta
-  const promise = ai`Explain TypeScript generics`
-  const result = await promise
+  // Make an AI request
+  const result = await ai`Explain TypeScript generics`
 
-  // Record usage from AIPromise $meta (access on promise, not result)
-  tracker.recordFromMeta('openai', promise.$meta)
+  // Record usage from AIPromise $meta
+  tracker.recordFromMeta('openai', result.$meta)
 
   // Get usage report
   const report = tracker.getReport()
@@ -205,10 +204,8 @@ async function globalTrackerExample() {
   // Use the global singleton tracker
   globalTracker.setBudgetLimit(10.0)
 
-  // Keep reference to promise to access $meta after await
-  const promise = ai`Hello world`
-  const result = await promise
-  globalTracker.recordFromMeta('openai', promise.$meta)
+  const result = await ai`Hello world`
+  globalTracker.recordFromMeta('openai', result.$meta)
 
   const report = globalTracker.getReport()
   console.log(`Global tracker: $${report.totalCost.toFixed(6)}`)

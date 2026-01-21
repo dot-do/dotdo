@@ -1,11 +1,7 @@
 {
   "name": "@dotdo/rpc",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "type": "module",
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  },
   "main": "index.ts",
   "types": "index.ts",
   "exports": {
@@ -25,8 +21,7 @@
   },
   "dependencies": {
     "capnweb": "^0.4.0",
-    "hono": "^4.7.0",
-    "zod": "^4.3.5"
+    "hono": "^4.7.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

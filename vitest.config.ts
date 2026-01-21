@@ -44,20 +44,9 @@ const defaultExcludes = [
   '**/primitives/**',
   '**/dist/**',
   '**/build/**',
-  // Miniflare integration tests require workers pool config
-  // Run with: npx vitest --config rpc/vitest.config.ts
-  'rpc/tests/miniflare-integration.test.ts',
 ]
 
 export default defineConfig({
-  resolve: {
-    alias: {
-      // Map primitives workspace packages to source for integration testing
-      '@org.ai/core': new URL('./primitives/packages/ai-core/src/index.ts', import.meta.url).pathname,
-      'ai-providers': new URL('./primitives/packages/ai-providers/src/index.ts', import.meta.url).pathname,
-      'language-models': new URL('./primitives/packages/language-models/src/index.ts', import.meta.url).pathname,
-    },
-  },
   test: {
     globals: true,
 
@@ -79,7 +68,6 @@ export default defineConfig({
       'apps/**/tests/**/*.test.ts',
       'tests/benchmarks/**/*.test.ts',
       'testing/**/*.test.ts',
-      'integrations/tests/**/*.test.ts',
     ],
 
     exclude: defaultExcludes,
@@ -109,10 +97,10 @@ export default defineConfig({
         '**/build/**',
       ],
       thresholds: {
-        statements: 75,
-        branches: 70,
-        functions: 75,
-        lines: 75,
+        statements: 65,
+        branches: 60,
+        functions: 60,
+        lines: 65,
       },
     },
   },

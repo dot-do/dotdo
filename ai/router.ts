@@ -1,34 +1,9 @@
-/**
- * @dotdo/ai - Multi-Provider Router
- *
- * Implements intelligent routing across LLM providers (OpenAI, Anthropic, Google, Cloudflare)
- * with support for automatic fallback, cost optimization, load balancing, and health tracking.
- *
- * @module @dotdo/ai/router
- */
+// Multi-provider routing for @dotdo/ai
+// Implements intelligent routing across LLM providers with fallback, cost optimization, and load balancing
 
-import type {
-  Provider,
-  Capability,
-  LoadBalancingStrategy,
-  BackoffConfig,
-  CircuitBreakerConfig,
-  FallbackEntry,
-  FallbackChainConfig,
-  FallbackConfig
-} from './types'
-
-// Re-export core types for backward compatibility
-export type {
-  Provider,
-  Capability,
-  LoadBalancingStrategy,
-  BackoffConfig,
-  CircuitBreakerConfig,
-  FallbackEntry,
-  FallbackChainConfig,
-  FallbackConfig
-} from './types'
+export type Provider = 'openai' | 'anthropic' | 'google' | 'cloudflare'
+export type Capability = 'fast' | 'smart' | 'cheap'
+export type LoadBalancingStrategy = 'round-robin' | 'random' | 'least-loaded'
 
 export interface ProviderConfig {
   provider: Provider
@@ -42,32 +17,19 @@ export interface ModelInfo {
   costPer1kTokens: number
   maxTokens: number
   speed: 'fast' | 'medium' | 'slow'
-  /** Pricing tier for cost optimization */
-  tier?: 'budget' | 'standard' | 'premium'
-  /** Human-readable display name */
-  displayName?: string
 }
 
 export interface RouterConfig {
   providers?: ProviderConfig[]
-  /** Simple fallback chain (backward compatible) */
   fallback?: Provider[]
-  /** Advanced fallback configuration with capability-based chains */
-  fallbackConfig?: FallbackConfig
-  /** Circuit breaker configuration for health management */
-  circuitBreaker?: CircuitBreakerConfig
-  /** Default backoff configuration for retries */
-  backoff?: BackoffConfig
   maxCostPerRequest?: number
   maxRetries?: number
   loadBalancing?: LoadBalancingStrategy
 }
 
 export interface ExecuteOptions {
-  model?: string | undefined
+  model?: string
   provider?: Provider
-  /** Capability hint for fallback chain selection */
-  capability?: Capability
   temperature?: number
   maxTokens?: number
 }
@@ -83,17 +45,6 @@ interface ProviderHealth {
   healthy: boolean
   lastCheck: number
   consecutiveFailures: number
-  /** Number of consecutive successes during recovery (for circuit breaker) */
-  consecutiveSuccesses: number
-  /** Circuit breaker state: closed (healthy), open (unhealthy), half-open (testing) */
-  circuitState: 'closed' | 'open' | 'half-open'
-  /** Timestamp when circuit breaker transitioned to open state */
-  openedAt?: number
-}
-
-interface ProviderLoadInfo {
-  /** Number of in-flight requests for this provider */
-  inFlight: number
 }
 
 // Provider registry with model mappings
@@ -105,319 +56,91 @@ export const providers = {
 }
 
 // Model catalog with cost and capability info
-// Pricing as of January 2026 - costs are per 1K tokens (average of input/output)
 const MODEL_CATALOG: Record<string, ModelInfo> = {
-  // ==========================================================================
-  // OpenAI Models
-  // ==========================================================================
-
-  // GPT-4o - Flagship multimodal model
-  'gpt-4o': {
-    provider: 'openai',
-    model: 'gpt-4o',
-    costPer1kTokens: 0.005,
-    maxTokens: 128000,
-    speed: 'fast',
-    tier: 'standard',
-    displayName: 'GPT-4o',
-  },
-  'gpt-4o-mini': {
-    provider: 'openai',
-    model: 'gpt-4o-mini',
-    costPer1kTokens: 0.00015,
-    maxTokens: 128000,
-    speed: 'fast',
-    tier: 'budget',
-    displayName: 'GPT-4o Mini',
-  },
-
-  // GPT-4 Turbo - High capability
-  'gpt-4-turbo': {
-    provider: 'openai',
-    model: 'gpt-4-turbo',
-    costPer1kTokens: 0.01,
-    maxTokens: 128000,
-    speed: 'fast',
-    tier: 'standard',
-    displayName: 'GPT-4 Turbo',
-  },
-
-  // GPT-4 - Original
+  // OpenAI models
   'gpt-4': {
     provider: 'openai',
     model: 'gpt-4',
     costPer1kTokens: 0.03,
     maxTokens: 8192,
-    speed: 'medium',
-    tier: 'premium',
-    displayName: 'GPT-4',
+    speed: 'medium'
   },
-
-  // GPT-3.5 Turbo - Legacy fast model
+  'gpt-4-turbo': {
+    provider: 'openai',
+    model: 'gpt-4-turbo',
+    costPer1kTokens: 0.01,
+    maxTokens: 128000,
+    speed: 'fast'
+  },
   'gpt-3.5-turbo': {
     provider: 'openai',
     model: 'gpt-3.5-turbo',
-    costPer1kTokens: 0.0005,
-    maxTokens: 16385,
-    speed: 'fast',
-    tier: 'budget',
-    displayName: 'GPT-3.5 Turbo',
+    costPer1kTokens: 0.001,
+    maxTokens: 4096,
+    speed: 'fast'
   },
 
-  // o1 Reasoning Models
-  'o1': {
-    provider: 'openai',
-    model: 'o1',
-    costPer1kTokens: 0.015,
-    maxTokens: 200000,
-    speed: 'slow',
-    tier: 'premium',
-    displayName: 'o1',
-  },
-  'o1-mini': {
-    provider: 'openai',
-    model: 'o1-mini',
-    costPer1kTokens: 0.003,
-    maxTokens: 128000,
-    speed: 'medium',
-    tier: 'standard',
-    displayName: 'o1-mini',
-  },
-  'o3-mini': {
-    provider: 'openai',
-    model: 'o3-mini',
-    costPer1kTokens: 0.0011,
-    maxTokens: 200000,
-    speed: 'fast',
-    tier: 'budget',
-    displayName: 'o3-mini',
-  },
-
-  // ==========================================================================
-  // Anthropic Models
-  // ==========================================================================
-
-  // Claude Opus 4.5 - Most capable
-  'claude-opus-4-5-20251101': {
-    provider: 'anthropic',
-    model: 'claude-opus-4-5-20251101',
-    costPer1kTokens: 0.015,
-    maxTokens: 200000,
-    speed: 'medium',
-    tier: 'premium',
-    displayName: 'Claude Opus 4.5',
-  },
-
-  // Claude Sonnet 4 - Balanced performance
-  'claude-sonnet-4-20250514': {
-    provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
-    costPer1kTokens: 0.003,
-    maxTokens: 200000,
-    speed: 'fast',
-    tier: 'standard',
-    displayName: 'Claude Sonnet 4',
-  },
-
-  // Claude 3.5 Sonnet - Previous generation
-  'claude-3-5-sonnet-20241022': {
-    provider: 'anthropic',
-    model: 'claude-3-5-sonnet-20241022',
-    costPer1kTokens: 0.003,
-    maxTokens: 200000,
-    speed: 'fast',
-    tier: 'standard',
-    displayName: 'Claude 3.5 Sonnet',
-  },
-
-  // Claude 3.5 Haiku - Fast and efficient
-  'claude-3-5-haiku-20241022': {
-    provider: 'anthropic',
-    model: 'claude-3-5-haiku-20241022',
-    costPer1kTokens: 0.0008,
-    maxTokens: 200000,
-    speed: 'fast',
-    tier: 'budget',
-    displayName: 'Claude 3.5 Haiku',
-  },
-
-  // Legacy Claude 3 models (still supported)
+  // Anthropic models
   'claude-3-opus': {
     provider: 'anthropic',
-    model: 'claude-3-opus-20240229',
+    model: 'claude-3-opus',
     costPer1kTokens: 0.015,
     maxTokens: 200000,
-    speed: 'medium',
-    tier: 'premium',
-    displayName: 'Claude 3 Opus',
+    speed: 'medium'
   },
   'claude-3-sonnet': {
     provider: 'anthropic',
-    model: 'claude-3-sonnet-20240229',
+    model: 'claude-3-sonnet',
     costPer1kTokens: 0.003,
     maxTokens: 200000,
-    speed: 'fast',
-    tier: 'standard',
-    displayName: 'Claude 3 Sonnet',
+    speed: 'fast'
   },
   'claude-3-haiku': {
     provider: 'anthropic',
-    model: 'claude-3-haiku-20240307',
+    model: 'claude-3-haiku',
     costPer1kTokens: 0.00025,
     maxTokens: 200000,
-    speed: 'fast',
-    tier: 'budget',
-    displayName: 'Claude 3 Haiku',
+    speed: 'fast'
   },
 
-  // ==========================================================================
-  // Google Models
-  // ==========================================================================
-
-  // Gemini 2.0 Flash - Latest fast model
-  'gemini-2.0-flash': {
-    provider: 'google',
-    model: 'gemini-2.0-flash',
-    costPer1kTokens: 0.0001,
-    maxTokens: 1048576,
-    speed: 'fast',
-    tier: 'budget',
-    displayName: 'Gemini 2.0 Flash',
-  },
-
-  // Gemini 2.0 Flash Thinking - Reasoning variant
-  'gemini-2.0-flash-thinking-exp': {
-    provider: 'google',
-    model: 'gemini-2.0-flash-thinking-exp',
-    costPer1kTokens: 0.0001,
-    maxTokens: 1048576,
-    speed: 'medium',
-    tier: 'budget',
-    displayName: 'Gemini 2.0 Flash Thinking',
-  },
-
-  // Gemini 1.5 Pro - High capability
-  'gemini-1.5-pro': {
-    provider: 'google',
-    model: 'gemini-1.5-pro',
-    costPer1kTokens: 0.00125,
-    maxTokens: 2097152,
-    speed: 'medium',
-    tier: 'standard',
-    displayName: 'Gemini 1.5 Pro',
-  },
-
-  // Gemini 1.5 Flash - Fast variant
-  'gemini-1.5-flash': {
-    provider: 'google',
-    model: 'gemini-1.5-flash',
-    costPer1kTokens: 0.000075,
-    maxTokens: 1048576,
-    speed: 'fast',
-    tier: 'budget',
-    displayName: 'Gemini 1.5 Flash',
-  },
-
-  // Legacy Gemini Pro (aliased to 1.5)
+  // Google models
   'gemini-pro': {
     provider: 'google',
-    model: 'gemini-1.5-pro',
-    costPer1kTokens: 0.00125,
-    maxTokens: 2097152,
-    speed: 'medium',
-    tier: 'standard',
-    displayName: 'Gemini Pro',
+    model: 'gemini-pro',
+    costPer1kTokens: 0.00025,
+    maxTokens: 32000,
+    speed: 'fast'
   },
-
-  // Gemini Ultra (deprecated, maps to 1.5 Pro)
   'gemini-ultra': {
     provider: 'google',
-    model: 'gemini-1.5-pro',
-    costPer1kTokens: 0.00125,
-    maxTokens: 2097152,
-    speed: 'medium',
-    tier: 'premium',
-    displayName: 'Gemini Ultra',
+    model: 'gemini-ultra',
+    costPer1kTokens: 0.01,
+    maxTokens: 32000,
+    speed: 'medium'
   },
 
-  // ==========================================================================
-  // Cloudflare Workers AI Models
-  // ==========================================================================
-
-  // Llama 3.1 - Latest open source
-  '@cf/meta/llama-3.1-8b-instruct': {
-    provider: 'cloudflare',
-    model: '@cf/meta/llama-3.1-8b-instruct',
-    costPer1kTokens: 0.0001,
-    maxTokens: 128000,
-    speed: 'fast',
-    tier: 'budget',
-    displayName: 'Llama 3.1 8B',
-  },
-
-  // Legacy Llama 2 (still supported)
+  // Cloudflare Workers AI
   '@cf/meta/llama-2-7b-chat-int8': {
     provider: 'cloudflare',
     model: '@cf/meta/llama-2-7b-chat-int8',
     costPer1kTokens: 0.0001,
     maxTokens: 4096,
-    speed: 'fast',
-    tier: 'budget',
-    displayName: 'Llama 2 7B',
-  },
+    speed: 'fast'
+  }
 }
 
-// Capability-based model selection - updated for latest models
+// Capability-based model selection
 const CAPABILITY_MODELS: Record<Capability, string> = {
-  fast: 'claude-3-5-haiku-20241022',
-  smart: 'claude-opus-4-5-20251101',
-  cheap: 'gemini-2.0-flash',
+  fast: 'claude-3-haiku',
+  smart: 'claude-3-opus',
+  cheap: 'gemini-pro'
 }
 
-/**
- * Multi-provider AI router with intelligent routing, fallback, and load balancing.
- *
- * The Router handles provider selection, health tracking, automatic retries with
- * exponential backoff, and cost-based model selection.
- *
- * @example
- * ```typescript
- * import { Router } from '@dotdo/ai'
- *
- * // Create router with custom providers
- * const router = new Router({
- *   providers: [
- *     { provider: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY },
- *     { provider: 'openai', apiKey: process.env.OPENAI_API_KEY }
- *   ],
- *   fallback: ['anthropic', 'openai'],
- *   maxRetries: 3,
- *   loadBalancing: 'round-robin'
- * })
- *
- * // Execute with automatic fallback
- * const result = await router.execute('Explain quantum computing', {
- *   model: 'claude-sonnet-4-20250514'
- * })
- *
- * // Select by capability
- * const fastModel = router.selectByCapability('fast')
- * const smartModel = router.selectByCapability('smart')
- * const cheapModel = router.selectByCapability('cheap')
- *
- * // Select optimal model for task with cost constraints
- * const model = router.selectModel({
- *   task: 'summarization',
- *   tokens: 5000
- * })
- * ```
- */
 export class Router {
   private config: RouterConfig
   private providerConfigs: Map<Provider, ProviderConfig>
   private currentProviderIndex: number = 0
   private healthStatus: Map<Provider, ProviderHealth>
-  private loadInfo: Map<Provider, ProviderLoadInfo>
   private executor?: (prompt: string, options: ExecuteOptions) => Promise<ExecuteResult>
   private delayCallback?: (delay: number) => void
 
@@ -425,55 +148,32 @@ export class Router {
     this.config = {
       maxRetries: 3,
       loadBalancing: 'round-robin',
-      // Default circuit breaker config
-      circuitBreaker: {
-        failureThreshold: 3,
-        recoveryTimeout: 60000,
-        successThreshold: 1,
-        ...config.circuitBreaker
-      },
-      // Default backoff config
-      backoff: {
-        initialDelay: 1000,
-        multiplier: 2,
-        maxDelay: 30000,
-        jitter: true,
-        ...config.backoff
-      },
       ...config
     }
 
     this.providerConfigs = new Map()
     this.healthStatus = new Map()
-    this.loadInfo = new Map()
 
     // Initialize provider configs
     if (config.providers) {
       config.providers.forEach(pc => {
         this.providerConfigs.set(pc.provider, pc)
-        this._initProviderHealth(pc.provider)
-        this.loadInfo.set(pc.provider, { inFlight: 0 })
+        this.healthStatus.set(pc.provider, {
+          healthy: true,
+          lastCheck: Date.now(),
+          consecutiveFailures: 0
+        })
       })
     } else {
       // Initialize default providers
       Object.values(providers).forEach(provider => {
-        this._initProviderHealth(provider)
-        this.loadInfo.set(provider, { inFlight: 0 })
+        this.healthStatus.set(provider, {
+          healthy: true,
+          lastCheck: Date.now(),
+          consecutiveFailures: 0
+        })
       })
     }
-  }
-
-  /**
-   * Initialize provider health state with circuit breaker fields
-   */
-  private _initProviderHealth(provider: Provider): void {
-    this.healthStatus.set(provider, {
-      healthy: true,
-      lastCheck: Date.now(),
-      consecutiveFailures: 0,
-      consecutiveSuccesses: 0,
-      circuitState: 'closed'
-    })
   }
 
   /**
@@ -539,87 +239,68 @@ export class Router {
       const maxRetries = this.config.maxRetries || 3
       let totalRetries = 0
 
-      // Track load for least-loaded strategy
-      this._incrementLoad(provider)
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          const result = await this._executeWithProvider(prompt, {
+            ...options,
+            provider
+          })
 
-      try {
-        for (let attempt = 0; attempt < maxRetries; attempt++) {
-          try {
-            const result = await this._executeWithProvider(prompt, {
-              ...options,
-              provider
-            })
+          this._markHealthy(provider)
 
-            this._markHealthy(provider)
-
-            const executeResult: ExecuteResult = {
-              ...result,
-              provider
-            }
-            if (totalRetries > 0) {
-              executeResult.retries = totalRetries
-            }
-            return executeResult
-          } catch (error) {
-            totalRetries++
-
-            if (this._isRateLimitError(error as Error)) {
-              if (totalRetries >= maxRetries) {
-                throw new Error('Max retries exceeded')
-              }
-
-              // Use configurable exponential backoff
-              const delay = this._calculateBackoffDelay(attempt)
-              if (this.delayCallback) {
-                this.delayCallback(delay)
-              }
-              await this._sleep(delay)
-              continue
-            }
-
-            throw error
+          const executeResult: ExecuteResult = {
+            ...result,
+            provider
           }
+          if (totalRetries > 0) {
+            executeResult.retries = totalRetries
+          }
+          return executeResult
+        } catch (error) {
+          totalRetries++
+
+          if (this._isRateLimitError(error as Error)) {
+            if (totalRetries >= maxRetries) {
+              throw new Error('Max retries exceeded')
+            }
+
+            const delay = Math.pow(2, attempt) * 1000
+            if (this.delayCallback) {
+              this.delayCallback(delay)
+            }
+            await this._sleep(delay)
+            continue
+          }
+
+          throw error
         }
-      } finally {
-        // Always decrement load when request completes (success or failure)
-        this._decrementLoad(provider)
       }
     }
 
-    // Fallback chain mode with capability-based selection
-    const fallbackChain = this._getFallbackChain(options)
+    // Fallback chain mode
+    const fallbackChain = this.config.fallback || ['anthropic', 'openai', 'google']
     const maxRetries = this.config.maxRetries || 3
 
     let lastError: Error | null = null
     let totalRetries = 0
-    let providersAttempted: Provider[] = []
 
-    // Try each provider in fallback chain (sorted by weight if applicable)
-    const sortedChain = [...fallbackChain].sort((a, b) => (b.weight ?? 1) - (a.weight ?? 1))
-
-    for (const entry of sortedChain) {
-      const provider = entry.provider
-
-      // Skip unavailable providers (using circuit breaker logic)
-      if (!this._isProviderAvailable(provider)) {
+    // Try each provider in fallback chain
+    for (const provider of fallbackChain) {
+      // Skip unhealthy providers
+      const health = this.healthStatus.get(provider)
+      if (health && !health.healthy) {
         continue
       }
-
-      providersAttempted.push(provider)
-
-      // Determine model to use (fallback entry may override)
-      const modelOverride = entry.model ?? options.model
 
       // Try with retries for rate limits
       for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
           const result = await this._executeWithProvider(prompt, {
             ...options,
-            model: modelOverride,
             provider
           })
 
-          // Mark provider as healthy (updates circuit breaker state)
+          // Mark provider as healthy
           this._markHealthy(provider)
 
           const executeResult: ExecuteResult = {
@@ -641,8 +322,8 @@ export class Router {
               throw new Error('Max retries exceeded')
             }
 
-            // Use configurable exponential backoff
-            const delay = this._calculateBackoffDelay(attempt)
+            // Exponential backoff
+            const delay = Math.pow(2, attempt) * 1000
             if (this.delayCallback) {
               this.delayCallback(delay)
             }
@@ -650,18 +331,14 @@ export class Router {
             continue
           }
 
-          // Other errors, mark unhealthy and try next provider
+          // Other errors, try next provider
           this._markUnhealthy(provider)
           break
         }
       }
     }
 
-    // Include attempted providers in error message for debugging
-    const attemptedStr = providersAttempted.length > 0
-      ? ` (tried: ${providersAttempted.join(', ')})`
-      : ''
-    throw new Error(`All providers failed${attemptedStr}: ${lastError?.message}`)
+    throw new Error(`All providers failed: ${lastError?.message}`)
   }
 
   /**
@@ -694,18 +371,16 @@ export class Router {
 
     // Default implementation (placeholder)
     // Real implementation would call actual provider APIs
-    const result: ExecuteResult = {
+    return {
       result: `Response from ${options.provider}: ${prompt}`,
+      provider: options.provider
     }
-    if (options.provider !== undefined) {
-      result.provider = options.provider
-    }
-    return result
   }
 
   private _selectProviderForLoadBalancing(): Provider {
     const healthyProviders = Array.from(this.providerConfigs.keys()).filter(provider => {
-      return this._isProviderAvailable(provider)
+      const health = this.healthStatus.get(provider)
+      return !health || health.healthy
     })
 
     if (healthyProviders.length === 0) {
@@ -725,12 +400,8 @@ export class Router {
         break
 
       case 'least-loaded':
-        // Select provider with minimum in-flight requests
-        selectedProvider = healthyProviders.reduce((least, current) => {
-          const leastLoad = this.loadInfo.get(least)?.inFlight ?? 0
-          const currentLoad = this.loadInfo.get(current)?.inFlight ?? 0
-          return currentLoad < leastLoad ? current : least
-        }, healthyProviders[0]!)
+        // TODO: Implement least-loaded strategy
+        selectedProvider = healthyProviders[0]
         break
 
       default:
@@ -743,285 +414,29 @@ export class Router {
     return selectedProvider
   }
 
-  /**
-   * Detect rate limit errors from various providers.
-   *
-   * This method uses multiple detection strategies to robustly identify rate limit errors:
-   * 1. HTTP status code 429 (standard rate limit response)
-   * 2. Error name patterns (e.g., RateLimitError, TooManyRequestsError)
-   * 3. Error code patterns from provider SDKs
-   * 4. Message content matching for various provider-specific formats
-   *
-   * @param error - The error to check
-   * @returns true if this appears to be a rate limit error
-   */
   private _isRateLimitError(error: Error): boolean {
-    // Check HTTP status code (429 = Too Many Requests)
-    // Many API errors include status on the error object
-    const errorWithStatus = error as Error & { status?: number; statusCode?: number; code?: string | number }
-    if (errorWithStatus.status === 429 || errorWithStatus.statusCode === 429) {
-      return true
-    }
-
-    // Check error code (some SDKs use string codes)
-    const code = errorWithStatus.code
-    if (typeof code === 'string') {
-      const codeLower = code.toLowerCase()
-      if (
-        codeLower === 'rate_limit_exceeded' ||
-        codeLower === 'rate_limit_error' ||
-        codeLower === 'too_many_requests' ||
-        codeLower === 'quota_exceeded' ||
-        codeLower === 'resource_exhausted'
-      ) {
-        return true
-      }
-    }
-    if (code === 429) {
-      return true
-    }
-
-    // Check error name/type
-    const errorName = error.name?.toLowerCase() || ''
-    if (
-      errorName.includes('ratelimit') ||
-      errorName.includes('rate_limit') ||
-      errorName.includes('toomanyrequests') ||
-      errorName.includes('too_many_requests') ||
-      errorName.includes('quotaexceeded') ||
-      errorName.includes('resourceexhausted')
-    ) {
-      return true
-    }
-
-    // Check error message for various rate limit patterns
-    // This is the fallback when structured error info isn't available
-    const message = error.message?.toLowerCase() || ''
-    const rateLimitPatterns = [
-      'rate limit',
-      'rate_limit',
-      'ratelimit',
-      'too many requests',
-      'too_many_requests',
-      'toomanyrequests',
-      'quota exceeded',
-      'quota_exceeded',
-      'quotaexceeded',
-      'resource exhausted',
-      'resource_exhausted',
-      'resourceexhausted',
-      'throttle',
-      'throttled',
-      'request limit',
-      'requests per minute',
-      'requests per second',
-      'rpm limit',
-      'tpm limit',
-      'tokens per minute',
-      'capacity exceeded',
-      'overloaded',
-      'try again later',
-      'retry after',
-      'retry-after',
-      '429'
-    ]
-
-    for (const pattern of rateLimitPatterns) {
-      if (message.includes(pattern)) {
-        return true
-      }
-    }
-
-    return false
+    return error.message.includes('Rate limit') || error.message.includes('rate limit')
   }
 
-  /**
-   * Record a successful request for circuit breaker state management.
-   * Transitions from half-open to closed when success threshold is met.
-   */
   private _markHealthy(provider: Provider): void {
-    const current = this.healthStatus.get(provider)
-    const cbConfig = this.config.circuitBreaker!
-    const consecutiveSuccesses = (current?.consecutiveSuccesses ?? 0) + 1
-
-    // If in half-open state and success threshold met, close the circuit
-    if (current?.circuitState === 'half-open' && consecutiveSuccesses >= (cbConfig.successThreshold ?? 1)) {
-      this.healthStatus.set(provider, {
-        healthy: true,
-        lastCheck: Date.now(),
-        consecutiveFailures: 0,
-        consecutiveSuccesses: 0,
-        circuitState: 'closed'
-      })
-    } else if (current?.circuitState === 'half-open') {
-      // Still in half-open, increment successes
-      this.healthStatus.set(provider, {
-        ...current,
-        lastCheck: Date.now(),
-        consecutiveSuccesses
-      })
-    } else {
-      // Normal healthy state
-      this.healthStatus.set(provider, {
-        healthy: true,
-        lastCheck: Date.now(),
-        consecutiveFailures: 0,
-        consecutiveSuccesses: 0,
-        circuitState: 'closed'
-      })
-    }
-  }
-
-  /**
-   * Record a failed request for circuit breaker state management.
-   * Opens circuit when failure threshold is met.
-   */
-  _markUnhealthy(provider: Provider): void {
-    const current = this.healthStatus.get(provider)
-    const cbConfig = this.config.circuitBreaker!
-    const consecutiveFailures = (current?.consecutiveFailures ?? 0) + 1
-
-    // Check if failure threshold met (open the circuit)
-    const shouldOpen = consecutiveFailures >= (cbConfig.failureThreshold ?? 3)
-
-    const openedAt = shouldOpen ? Date.now() : current?.openedAt
     this.healthStatus.set(provider, {
-      healthy: !shouldOpen,
+      healthy: true,
       lastCheck: Date.now(),
-      consecutiveFailures,
-      consecutiveSuccesses: 0,
-      circuitState: shouldOpen ? 'open' : (current?.circuitState ?? 'closed'),
-      ...(openedAt !== undefined && { openedAt }),
+      consecutiveFailures: 0
     })
   }
 
-  /**
-   * Check if a provider should be considered available for requests.
-   * Handles circuit breaker state transitions (open -> half-open after recovery timeout).
-   */
-  _isProviderAvailable(provider: Provider): boolean {
-    const health = this.healthStatus.get(provider)
-    if (!health) return true
-
-    // If circuit is closed, provider is available
-    if (health.circuitState === 'closed') return true
-
-    // If circuit is half-open, allow one request through to test
-    if (health.circuitState === 'half-open') return true
-
-    // Circuit is open - check if recovery timeout has elapsed
-    const cbConfig = this.config.circuitBreaker!
-    const recoveryTimeout = cbConfig.recoveryTimeout ?? 60000
-    const timeSinceOpen = Date.now() - (health.openedAt ?? 0)
-
-    if (timeSinceOpen >= recoveryTimeout) {
-      // Transition to half-open state - allow testing
-      this.healthStatus.set(provider, {
-        ...health,
-        circuitState: 'half-open',
-        consecutiveSuccesses: 0
-      })
-      return true
-    }
-
-    // Circuit still open, provider unavailable
-    return false
-  }
-
-  /**
-   * Calculate delay for retry with configurable exponential backoff.
-   */
-  _calculateBackoffDelay(attempt: number, backoffConfig?: BackoffConfig): number {
-    const config = backoffConfig ?? this.config.backoff!
-    const initialDelay = config.initialDelay ?? 1000
-    const multiplier = config.multiplier ?? 2
-    const maxDelay = config.maxDelay ?? 30000
-    const jitter = config.jitter ?? true
-
-    let delay = initialDelay * Math.pow(multiplier, attempt)
-    delay = Math.min(delay, maxDelay)
-
-    if (jitter) {
-      // Add random jitter: +/- 10%
-      const jitterAmount = delay * 0.1
-      delay = delay + (Math.random() * jitterAmount * 2 - jitterAmount)
-    }
-
-    return Math.round(delay)
-  }
-
-  /**
-   * Get the fallback chain for the given options.
-   * Supports capability-based and model-based chain selection.
-   */
-  _getFallbackChain(options: ExecuteOptions = {}): FallbackEntry[] {
-    const fallbackConfig = this.config.fallbackConfig
-
-    // If advanced fallback config is provided, use it
-    if (fallbackConfig) {
-      // Check for model-specific chain first
-      if (options.model && fallbackConfig.byModel?.[options.model]) {
-        return this._normalizeFallbackChain(fallbackConfig.byModel[options.model])
-      }
-
-      // Check for capability-specific chain
-      if (options.capability && fallbackConfig.byCapability?.[options.capability]) {
-        return this._normalizeFallbackChain(fallbackConfig.byCapability[options.capability])
-      }
-
-      // Use default chain from advanced config
-      if (fallbackConfig.default) {
-        return this._normalizeFallbackChain(fallbackConfig.default)
-      }
-    }
-
-    // Fall back to simple fallback array
-    const simpleFallback = this.config.fallback ?? ['anthropic', 'openai', 'google']
-    return simpleFallback.map(provider => ({ provider, weight: 1 }))
-  }
-
-  /**
-   * Normalize a fallback chain config to FallbackEntry array.
-   */
-  private _normalizeFallbackChain(chain: FallbackChainConfig | Provider[]): FallbackEntry[] {
-    if (Array.isArray(chain)) {
-      // Simple provider array
-      return chain.map(provider => ({ provider, weight: 1 }))
-    }
-    // Advanced chain config
-    return chain.chain
+  _markUnhealthy(provider: Provider): void {
+    const current = this.healthStatus.get(provider)
+    this.healthStatus.set(provider, {
+      healthy: false,
+      lastCheck: Date.now(),
+      consecutiveFailures: (current?.consecutiveFailures || 0) + 1
+    })
   }
 
   private async _sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms))
-  }
-
-  private _incrementLoad(provider: Provider): void {
-    const load = this.loadInfo.get(provider)
-    if (load) {
-      load.inFlight++
-    } else {
-      this.loadInfo.set(provider, { inFlight: 1 })
-    }
-  }
-
-  private _decrementLoad(provider: Provider): void {
-    const load = this.loadInfo.get(provider)
-    if (load && load.inFlight > 0) {
-      load.inFlight--
-    }
-  }
-
-  /**
-   * Get the current load (in-flight requests) for each provider.
-   * Useful for monitoring and debugging load balancing behavior.
-   */
-  getProviderLoad(): Record<Provider, number> {
-    const result: Record<string, number> = {}
-    for (const [provider] of this.providerConfigs) {
-      result[provider] = this.loadInfo.get(provider)?.inFlight ?? 0
-    }
-    return result as Record<Provider, number>
   }
 
   // Test helper methods (prefixed with _ to indicate internal/test use)
@@ -1036,25 +451,7 @@ export class Router {
 }
 
 /**
- * Configure global providers and create a new Router instance.
- *
- * This is a convenience function for quick setup. For more control,
- * create a Router instance directly with new Router(config).
- *
- * @param configs - Array of provider configurations with API keys
- * @returns A configured Router instance
- *
- * @example
- * ```typescript
- * import { configureProviders } from '@dotdo/ai'
- *
- * const router = configureProviders([
- *   { provider: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY },
- *   { provider: 'openai', apiKey: process.env.OPENAI_API_KEY }
- * ])
- *
- * const result = await router.execute('Hello, world!')
- * ```
+ * Configure global providers (legacy API from providers.ts)
  */
 export function configureProviders(configs: ProviderConfig[]): Router {
   return new Router({ providers: configs })

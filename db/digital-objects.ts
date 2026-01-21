@@ -1,85 +1,14 @@
 // Digital Objects Integration for @dotdo/db
 // Adapts digital-objects provider to @dotdo/db Thing interface
 
-import type { StorableData } from './types'
-import type { Thing, ThingsStore, ThingListOptions } from './things'
-import type { ThingId } from './branded-types'
-
-// ============================================================================
-// Local type definitions (previously from primitives/digital-objects)
-// ============================================================================
-
-/**
- * Field definition for noun schemas
- */
-export interface ExtendedFieldDefinition {
-  type: string
-  required?: boolean
-  default?: unknown
-  description?: string
-}
-
-/**
- * Schema definition for a Noun
- */
-export type NounSchema = Record<string, string | ExtendedFieldDefinition>
-
-/**
- * Noun definition (type/class of digital object)
- */
-export interface Noun {
-  name: string
-  schema?: NounSchema
-  description?: string
-  plural?: string
-}
-
-/**
- * Digital object (thing instance)
- */
-export interface DOThing<T extends StorableData = StorableData> {
-  id: string
-  noun: string
-  data: T
-  createdAt: Date
-  updatedAt: Date
-}
-
-/**
- * Validation options for digital objects operations
- */
-export interface DOValidationOptions {
-  validate?: boolean
-}
-
-/**
- * List options for querying digital objects
- */
-export interface DOListOptions {
-  limit?: number
-  offset?: number
-  where?: Record<string, unknown>
-  orderBy?: string
-  order?: 'asc' | 'desc'
-}
-
-/**
- * Digital objects provider interface
- */
-export interface DigitalObjectsProvider {
-  create<T extends StorableData>(
-    noun: string,
-    data: T,
-    id?: string,
-    options?: DOValidationOptions
-  ): Promise<DOThing<T>>
-  get(id: string): Promise<DOThing | null>
-  update(id: string, data: StorableData, options?: DOValidationOptions): Promise<DOThing>
-  delete(id: string): Promise<boolean>
-  list(noun: string, options?: DOListOptions): Promise<DOThing[]>
-  getNoun(name: string): Promise<Noun | null>
-  listNouns(): Promise<Noun[]>
-}
+import type {
+  DigitalObjectsProvider,
+  Thing as DOThing,
+  Noun,
+  ValidationOptions as DOValidationOptions,
+  ListOptions as DOListOptions,
+} from '../primitives/packages/digital-objects/src/types.js'
+import type { Thing, ThingsStore } from './things'
 
 /**
  * Extended ThingsStore with digital-objects features
@@ -94,7 +23,7 @@ export interface DigitalObjectsThingsStore extends ThingsStore {
  * Validation options that match @dotdo/db convention
  */
 export interface ValidationOptions {
-  validate?: boolean | undefined
+  validate?: boolean
 }
 
 /**
@@ -107,9 +36,9 @@ export interface ValidationOptions {
  * - updatedAt (Date) -> $updatedAt (number)
  * - data.* -> * (flatten data fields to top level)
  */
-function mapToDbThing<T extends StorableData>(doThing: DOThing<T>): Thing {
+function mapToDbThing<T extends Record<string, unknown>>(doThing: DOThing<T>): Thing {
   return {
-    $id: doThing.id as ThingId,
+    $id: doThing.id,
     $type: doThing.noun,
     $createdAt: doThing.createdAt.getTime(),
     $updatedAt: doThing.updatedAt.getTime(),
@@ -123,7 +52,7 @@ function mapToDbThing<T extends StorableData>(doThing: DOThing<T>): Thing {
  * Removes metadata fields ($id, $type, $createdAt, $updatedAt)
  * to get the data payload for digital-objects
  */
-function extractData<T extends StorableData>(dbThing: Partial<T>): StorableData {
+function extractData<T extends Record<string, unknown>>(dbThing: Partial<T>): Record<string, unknown> {
   const { $id, $type, $createdAt, $updatedAt, ...data } = dbThing as any
   return data
 }
@@ -133,8 +62,6 @@ function extractData<T extends StorableData>(dbThing: Partial<T>): StorableData 
  */
 function convertValidationOptions(options?: ValidationOptions): DOValidationOptions | undefined {
   if (!options) return undefined
-  // Handle undefined explicitly for exactOptionalPropertyTypes
-  if (options.validate === undefined) return undefined
   return { validate: options.validate }
 }
 
@@ -166,7 +93,7 @@ export function createDigitalObjectsAdapter(
   provider: DigitalObjectsProvider
 ): DigitalObjectsThingsStore {
   return {
-    async create<D extends Partial<StorableData> & { $type: string }>(data: D, options?: ValidationOptions): Promise<Thing & D> {
+    async create(data, options?: ValidationOptions) {
       const { $type, ...payload } = data as any
 
       if (!$type) {
@@ -186,14 +113,14 @@ export function createDigitalObjectsAdapter(
         convertValidationOptions(options)
       )
 
-      return mapToDbThing(doThing) as Thing & D
+      return mapToDbThing(doThing)
     },
 
     async get(id) {
       const doThing = await provider.get(id)
       if (!doThing) return null
 
-      return mapToDbThing(doThing as DOThing<StorableData>)
+      return mapToDbThing(doThing)
     },
 
     async update(id, data, options?: ValidationOptions) {
@@ -215,7 +142,7 @@ export function createDigitalObjectsAdapter(
       }
     },
 
-    async list(listOptions: ThingListOptions & { where?: unknown; orderBy?: string; order?: 'asc' | 'desc' } = {}) {
+    async list(listOptions = {}) {
       const { type, limit, offset, where, orderBy, order } = listOptions
 
       if (!type) {
@@ -225,63 +152,17 @@ export function createDigitalObjectsAdapter(
         throw new Error('type is required for list operation')
       }
 
-      // Build DOListOptions, only including defined properties
-      const doOptions: DOListOptions = {}
-      if (limit !== undefined) doOptions.limit = limit
-      if (offset !== undefined) doOptions.offset = offset
-      if (where !== undefined && where !== null) doOptions.where = where as Record<string, unknown>
-      if (orderBy !== undefined) doOptions.orderBy = orderBy
-      if (order !== undefined) doOptions.order = order
+      const doOptions: DOListOptions = {
+        limit,
+        offset,
+        where,
+        orderBy,
+        order,
+      }
 
       const doThings = await provider.list(type, doOptions)
 
-      return doThings.map((t) => mapToDbThing(t as DOThing<StorableData>))
-    },
-
-    async getMany(ids: string[]): Promise<Map<string, Thing>> {
-      const result = new Map<string, Thing>()
-      for (const id of ids) {
-        const doThing = await provider.get(id)
-        if (doThing) {
-          result.set(id, mapToDbThing(doThing as DOThing<StorableData>))
-        }
-      }
-      return result
-    },
-
-    async listWithCursor(options = {}) {
-      // Use basic list since digital-objects doesn't have cursor pagination natively
-      const items = await this.list(options)
-      return {
-        items,
-        nextCursor: undefined,
-        prevCursor: undefined,
-        hasMore: false
-      }
-    },
-
-    async bulkCreate<D extends Partial<StorableData> & { $type: string }>(items: D[]): Promise<(Thing & D)[]> {
-      const results: (Thing & D)[] = []
-      for (const data of items) {
-        const result = await this.create(data)
-        results.push(result as Thing & D)
-      }
-      return results
-    },
-
-    async bulkUpdate(items: Array<{ id: string; data: Record<string, unknown> }>): Promise<Thing[]> {
-      const results: Thing[] = []
-      for (const { id, data } of items) {
-        const result = await this.update(id, data as Partial<Omit<StorableData, '$id' | '$type'>>)
-        results.push(result)
-      }
-      return results
-    },
-
-    async bulkDelete(ids: string[]): Promise<void> {
-      for (const id of ids) {
-        await this.delete(id)
-      }
+      return doThings.map(mapToDbThing)
     },
 
     // Additional digital-objects features
@@ -328,7 +209,7 @@ export const TypeMapping = {
         tsType = 'unknown'
         break
       case 'object':
-        tsType = 'StorableData'
+        tsType = 'Record<string, unknown>'
         break
       case 'array':
         tsType = 'unknown[]'
@@ -381,7 +262,7 @@ export const TypeMapping = {
 export async function validateSchema(
   provider: DigitalObjectsProvider,
   nounName: string,
-  data: StorableData
+  data: Record<string, unknown>
 ): Promise<{ valid: boolean; errors: Array<{ field: string; message: string }> }> {
   const noun = await provider.getNoun(nounName)
   if (!noun) {
@@ -395,25 +276,27 @@ export async function validateSchema(
     return { valid: true, errors: [] }
   }
 
-  // Simple schema validation - check required fields and types
-  const errors: Array<{ field: string; message: string }> = []
+  try {
+    // Use digital-objects validation
+    const { validateOnly } = await import('../primitives/packages/digital-objects/src/schema-validation.js')
+    const result = validateOnly(data, noun.schema)
 
-  for (const [fieldName, fieldDef] of Object.entries(noun.schema)) {
-    const isRequired = typeof fieldDef === 'object'
-      ? fieldDef.required === true
-      : !fieldDef.endsWith('?')
-
-    const value = (data as Record<string, unknown>)[fieldName]
-
-    if (isRequired && (value === undefined || value === null)) {
-      errors.push({ field: fieldName, message: `${fieldName} is required` })
+    return {
+      valid: result.valid,
+      errors: result.errors.map(e => ({
+        field: e.field,
+        message: e.message,
+      })),
     }
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors
+  } catch (error) {
+    return {
+      valid: false,
+      errors: [{ field: 'unknown', message: String(error) }],
+    }
   }
 }
 
-// Note: Noun and DOValidationOptions are now exported from the local type definitions above
+/**
+ * Re-export digital-objects types for convenience
+ */
+export type { Noun, ValidationOptions as DOValidationOptions } from '../primitives/packages/digital-objects/src/types.js'
