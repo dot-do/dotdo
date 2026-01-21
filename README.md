@@ -457,6 +457,43 @@ const api = createAPI({
 })
 ```
 
+#### `@dotdo/observability`
+
+Comprehensive observability with structured logging, distributed tracing, and metrics.
+
+```typescript
+import {
+  createStructuredLogger,
+  createTracer,
+  observability,
+  createDOObservability
+} from '@dotdo/observability'
+
+// Structured logging
+const logger = createStructuredLogger({ service: 'my-service' })
+logger.info('User created', { userId: '123' })
+
+// Distributed tracing (W3C Trace Context compatible)
+const tracer = createTracer({ name: 'my-service' })
+tracer.startActiveSpan('processOrder', (span) => {
+  span.setAttribute('order.id', orderId)
+  // ... process order
+})
+
+// Hono middleware
+app.use('/*', observability({ service: 'my-api' }))
+
+// DO integration
+const obs = createDOObservability({ service: 'my-do' })
+```
+
+**Subpath imports** for tree-shaking:
+- `@dotdo/observability/logger` - Structured logging only
+- `@dotdo/observability/tracing` - Distributed tracing only
+- `@dotdo/observability/metrics` - Metrics collection only
+- `@dotdo/observability/middleware` - Hono middleware only
+- `@dotdo/observability/context` - Context propagation only
+
 ---
 
 ## Key Concepts
