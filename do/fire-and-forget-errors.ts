@@ -111,7 +111,7 @@ export interface FireAndForgetErrorStore {
   /**
    * Get a specific error by ID
    */
-  get(id: string): FireAndForgetError | null | Promise<FireAndForgetError | null>
+  get(id: string): FireAndForgetError | null
 
   /**
    * Mark an error as recovered
@@ -737,7 +737,7 @@ export interface RetryQueue {
   /**
    * Get a specific retry item
    */
-  get(id: string): RetryQueueItem | null
+  get(id: string): RetryQueueItem | null | Promise<RetryQueueItem | null>
 
   /**
    * Query items in the retry queue
