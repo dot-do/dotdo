@@ -14,6 +14,7 @@ export enum RPCErrorCode {
   AUTHORIZATION_ERROR = 'AUTHORIZATION_ERROR',
   CONFLICT = 'CONFLICT',
   RATE_LIMIT = 'RATE_LIMIT',
+  PAYLOAD_TOO_LARGE = 'PAYLOAD_TOO_LARGE',
   INVALID_PARAMS = 'INVALID_PARAMS', // Alias for VALIDATION_ERROR (backward compat)
 
   // Server errors (5xx)
@@ -34,6 +35,7 @@ const ERROR_CODE_TO_HTTP_STATUS: Record<RPCErrorCode, ContentfulStatusCode> = {
   [RPCErrorCode.AUTHORIZATION_ERROR]: 403,
   [RPCErrorCode.CONFLICT]: 409,
   [RPCErrorCode.RATE_LIMIT]: 429,
+  [RPCErrorCode.PAYLOAD_TOO_LARGE]: 413,
   [RPCErrorCode.INVALID_PARAMS]: 400,
   [RPCErrorCode.INTERNAL_ERROR]: 500,
   [RPCErrorCode.TIMEOUT]: 504,
@@ -220,6 +222,46 @@ export class RateLimitError extends RPCError {
 }
 
 /**
+ * Payload too large error (413)
+ */
+export class PayloadTooLargeError extends RPCError {
+  constructor(message = 'Request payload too large', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+    super(RPCErrorCode.PAYLOAD_TOO_LARGE, message, details, options)
+    this.name = 'PayloadTooLargeError'
+  }
+
+  /**
+   * Create a PayloadTooLargeError with size information
+   */
+  static exceeded(info: { size: number; maxSize: number; unit?: string }): PayloadTooLargeError {
+    const unit = info.unit ?? 'bytes'
+    return new PayloadTooLargeError(
+      `Request payload size (${info.size} ${unit}) exceeds maximum allowed size (${info.maxSize} ${unit})`,
+      { size: info.size, maxSize: info.maxSize, unit }
+    )
+  }
+
+  /**
+   * Create a PayloadTooLargeError with human-readable size information
+   */
+  static exceededReadable(info: { sizeBytes: number; maxSizeBytes: number }): PayloadTooLargeError {
+    const formatSize = (bytes: number): string => {
+      if (bytes >= 1024 * 1024) {
+        return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+      }
+      if (bytes >= 1024) {
+        return `${(bytes / 1024).toFixed(2)} KB`
+      }
+      return `${bytes} bytes`
+    }
+    return new PayloadTooLargeError(
+      `Request payload size (${formatSize(info.sizeBytes)}) exceeds maximum allowed size (${formatSize(info.maxSizeBytes)})`,
+      { sizeBytes: info.sizeBytes, maxSizeBytes: info.maxSizeBytes }
+    )
+  }
+}
+
+/**
  * Timeout error (504)
  */
 export class TimeoutError extends RPCError {
@@ -364,6 +406,20 @@ export class TransportError extends RPCError {
   static stubFailed(error: Error): TransportError {
     return TransportError.fromError(error, 'do-stub')
   }
+
+  /**
+   * Create a TransportError when a circuit breaker is open
+   */
+  static circuitOpen(circuitName: string): TransportError {
+    return new TransportError(
+      `Circuit breaker "${circuitName}" is open - requests are being rejected`,
+      {
+        transport: 'circuit-breaker',
+        reason: 'circuit_open',
+        circuitName,
+      }
+    )
+  }
 }
 
 /**
@@ -438,6 +494,13 @@ export function isAuthenticationError(error: unknown): error is AuthenticationEr
  */
 export function isAuthorizationError(error: unknown): error is AuthorizationError {
   return error instanceof AuthorizationError
+}
+
+/**
+ * Check if an error is a PayloadTooLargeError
+ */
+export function isPayloadTooLargeError(error: unknown): error is PayloadTooLargeError {
+  return error instanceof PayloadTooLargeError
 }
 
 /**
@@ -549,6 +612,7 @@ const ERROR_REGISTRY: Record<string, RPCErrorSubclassConstructor> = {
   AuthorizationError,
   ConflictError,
   RateLimitError,
+  PayloadTooLargeError,
   TimeoutError,
   NetworkError,
   InternalError,

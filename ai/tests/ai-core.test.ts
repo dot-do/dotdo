@@ -10,12 +10,18 @@ import {
   configureProvider,
   getProvider,
   clearProviders,
+  configureMockModel,
+  getMockConfig,
+  resetMockConfig,
+  MockModelNotAllowedError,
 } from '../ai-core'
 
 describe('ai-core integration', () => {
   beforeEach(() => {
     // Clear providers before each test
     clearProviders()
+    // Reset mock config to defaults
+    resetMockConfig()
   })
 
   describe('generateText', () => {
@@ -426,6 +432,130 @@ describe('ai-core integration', () => {
       // Different text should produce different embeddings
       const emb3 = await embedText('Different text') as number[]
       expect(emb1).not.toEqual(emb3)
+    })
+  })
+
+  /**
+   * Tests for mock model configuration (do-yr0f)
+   *
+   * Ensures that mock models:
+   * - Are only used in test/development environments by default
+   * - Can be explicitly enabled or disabled
+   * - Emit warnings when used
+   * - Throw errors in production when not explicitly enabled
+   */
+  describe('mock model configuration (do-yr0f)', () => {
+    beforeEach(() => {
+      resetMockConfig()
+    })
+
+    it('should have default configuration', () => {
+      const config = getMockConfig()
+      expect(config.allowMock).toBe('auto')
+      expect(config.warnOnMock).toBe(true)
+    })
+
+    it('should allow configuring mock model behavior', () => {
+      configureMockModel({ allowMock: true, warnOnMock: false })
+      const config = getMockConfig()
+      expect(config.allowMock).toBe(true)
+      expect(config.warnOnMock).toBe(false)
+    })
+
+    it('should reset configuration to defaults', () => {
+      configureMockModel({ allowMock: false, warnOnMock: false })
+      resetMockConfig()
+      const config = getMockConfig()
+      expect(config.allowMock).toBe('auto')
+      expect(config.warnOnMock).toBe(true)
+    })
+
+    it('should allow explicitly enabling mock models', async () => {
+      configureMockModel({ allowMock: true, warnOnMock: false })
+
+      // Should work without throwing
+      const result = await generateText({
+        model: 'sonnet',
+        prompt: 'Test',
+      })
+      expect(result.text).toContain('Mock response')
+    })
+
+    it('should throw MockModelNotAllowedError when mock is disabled', async () => {
+      configureMockModel({ allowMock: false })
+
+      // Should throw because mock is explicitly disabled
+      await expect(generateText({
+        model: 'sonnet',
+        prompt: 'Test',
+      })).rejects.toThrow(MockModelNotAllowedError)
+    })
+
+    it('should throw MockModelNotAllowedError for embeddings when mock is disabled', async () => {
+      configureMockModel({ allowMock: false })
+
+      // Should throw because mock is explicitly disabled
+      await expect(embedText('test')).rejects.toThrow(MockModelNotAllowedError)
+    })
+
+    it('should call custom warning handler when mock is used', async () => {
+      const warnings: Array<{ message: string; context: { model: string; operation: string } }> = []
+
+      configureMockModel({
+        allowMock: true,
+        warnOnMock: true,
+        onMockWarning: (message, context) => {
+          warnings.push({ message, context })
+        },
+      })
+
+      await generateText({ model: 'sonnet', prompt: 'Test' })
+
+      expect(warnings.length).toBe(1)
+      expect(warnings[0].message).toContain('MOCK model')
+      expect(warnings[0].context.model).toContain('sonnet')
+      expect(warnings[0].context.operation).toBe('resolve')
+    })
+
+    it('should not warn when warnOnMock is false', async () => {
+      const warnings: string[] = []
+
+      configureMockModel({
+        allowMock: true,
+        warnOnMock: false,
+        onMockWarning: (message) => {
+          warnings.push(message)
+        },
+      })
+
+      await generateText({ model: 'sonnet', prompt: 'Test' })
+
+      expect(warnings.length).toBe(0)
+    })
+
+    it('should work in test environment with auto setting', async () => {
+      // In test environment, 'auto' should allow mock models
+      configureMockModel({ allowMock: 'auto', warnOnMock: false })
+
+      const result = await generateText({
+        model: 'sonnet',
+        prompt: 'Test',
+      })
+      expect(result.text).toContain('Mock response')
+    })
+
+    it('MockModelNotAllowedError should have descriptive message', () => {
+      const error = new MockModelNotAllowedError('claude-sonnet')
+
+      expect(error.name).toBe('MockModelNotAllowedError')
+      expect(error.message).toContain('claude-sonnet')
+      expect(error.message).toContain('ai-providers')
+      expect(error.message).toContain('configureMockModel')
+    })
+
+    it('should export MockModelNotAllowedError for type checking', () => {
+      expect(MockModelNotAllowedError).toBeDefined()
+      expect(typeof MockModelNotAllowedError).toBe('function')
     })
   })
 })

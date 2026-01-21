@@ -121,3 +121,14 @@ export {
   type RateLimitTier,
   type RateLimitResult,
 } from './middleware/rate-limit'
+
+// Body size limit middleware
+export {
+  BodySizeValidator,
+  bodySizeLimitMiddleware,
+  createBodySizeValidator,
+  DEFAULT_MAX_BODY_SIZE,
+  MAX_ALLOWED_BODY_SIZE,
+  type BodySizeLimitConfig,
+  type BodySizeValidationResult,
+} from './middleware/body-size-limit'

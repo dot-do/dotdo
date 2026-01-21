@@ -6,6 +6,7 @@
  *
  * - Authentication (via @dotdo/auth)
  * - Rate limiting
+ * - Body size limits
  * - Request ID tracking
  * - Logging
  * - CORS
@@ -23,7 +24,7 @@
  *    - Route registration
  *
  * 2. Middleware Layer (api/middleware/)
- *    - Cross-cutting concerns (auth, rate limiting, logging)
+ *    - Cross-cutting concerns (auth, rate limiting, body size, logging)
  *    - Request/response transformation
  *    - Error handling
  *
@@ -61,3 +62,14 @@ export {
   type RateLimitCheckParams,
   type RateLimitCheckResult,
 } from './RateLimiterDO'
+
+// Body size limit middleware
+export {
+  BodySizeValidator,
+  bodySizeLimitMiddleware,
+  createBodySizeValidator,
+  DEFAULT_MAX_BODY_SIZE,
+  MAX_ALLOWED_BODY_SIZE,
+  type BodySizeLimitConfig,
+  type BodySizeValidationResult,
+} from './body-size-limit'

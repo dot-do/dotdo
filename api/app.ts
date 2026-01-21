@@ -43,6 +43,18 @@ export interface APIOptions {
     /** Window strategy: 'sliding' (default) or 'fixed' */
     windowStrategy?: 'sliding' | 'fixed'
   }
+  bodyLimit?: {
+    /** Enable body size limiting (default: true) */
+    enabled?: boolean
+    /** Maximum body size in bytes (default: 1MB) */
+    maxSize?: number
+    /** Paths to skip body size limiting */
+    skipPaths?: string[]
+    /** HTTP methods to skip body size limiting (default: ['GET', 'HEAD', 'OPTIONS']) */
+    skipMethods?: string[]
+    /** Per-method size limits */
+    methodLimits?: Record<string, number>
+  }
 }
 
 declare module 'hono' {
@@ -97,7 +109,7 @@ function loggingMiddleware(): MiddlewareHandler {
 }
 
 export function createAPI(options?: APIOptions) {
-  const { basePath = '', auth, rateLimit } = options || {}
+  const { basePath = '', auth, rateLimit, bodyLimit } = options || {}
 
   // Create services (business logic layer)
   const healthService = new HealthService({ serviceName: 'dotdo-api' })
@@ -155,6 +167,22 @@ export function createAPI(options?: APIOptions) {
       credentials: true
     })
   )
+
+  // Body size limit middleware (enabled by default)
+  if (bodyLimit?.enabled !== false) {
+    const defaultSkipPaths = ['/health', '/ready']
+    const skipPaths = [...defaultSkipPaths, ...(bodyLimit?.skipPaths || [])]
+
+    baseApp.use(
+      '*',
+      bodySizeLimitMiddleware({
+        maxSize: bodyLimit?.maxSize ?? DEFAULT_MAX_BODY_SIZE,
+        skipPaths,
+        skipMethods: bodyLimit?.skipMethods ?? ['GET', 'HEAD', 'OPTIONS'],
+        ...(bodyLimit?.methodLimits && { methodLimits: bodyLimit.methodLimits }),
+      })
+    )
+  }
 
   // Rate limiting middleware (optional)
   if (rateLimit?.enabled) {

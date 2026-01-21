@@ -99,6 +99,161 @@ export interface AIProviderConfig {
 const providers = new Map<Provider, AIProviderConfig>()
 let defaultProvider: Provider | null = null
 
+// ============================================================================
+// Mock Model Configuration
+// ============================================================================
+
+/**
+ * Configuration options for mock model behavior
+ */
+export interface MockModelConfig {
+  /**
+   * Whether mock models are allowed. Defaults based on environment:
+   * - 'auto': Allow in test/development, disallow in production (default)
+   * - true: Always allow mock models (use with caution)
+   * - false: Never allow mock models (throws if ai-providers unavailable)
+   */
+  allowMock?: 'auto' | boolean
+
+  /**
+   * Whether to log warnings when mock model is used.
+   * Default: true
+   */
+  warnOnMock?: boolean
+
+  /**
+   * Custom warning handler. Defaults to console.warn.
+   */
+  onMockWarning?: (message: string, context: { model: string; operation: string }) => void
+}
+
+// Global mock model configuration
+let mockConfig: MockModelConfig = {
+  allowMock: 'auto',
+  warnOnMock: true,
+}
+
+// Track if we've warned about mock usage (to avoid spamming)
+let mockWarningIssued = false
+
+/**
+ * Configure mock model behavior
+ *
+ * @example
+ * ```ts
+ * // Disable mock models entirely (fail if ai-providers unavailable)
+ * configureMockModel({ allowMock: false })
+ *
+ * // Enable mock models with custom warning handler
+ * configureMockModel({
+ *   allowMock: true,
+ *   warnOnMock: true,
+ *   onMockWarning: (msg, ctx) => logger.warn(msg, ctx),
+ * })
+ * ```
+ */
+export function configureMockModel(config: MockModelConfig): void {
+  mockConfig = { ...mockConfig, ...config }
+  // Reset warning flag when config changes
+  mockWarningIssued = false
+}
+
+/**
+ * Get current mock model configuration
+ */
+export function getMockConfig(): MockModelConfig {
+  return { ...mockConfig }
+}
+
+/**
+ * Reset mock model configuration to defaults (useful for testing)
+ */
+export function resetMockConfig(): void {
+  mockConfig = {
+    allowMock: 'auto',
+    warnOnMock: true,
+  }
+  mockWarningIssued = false
+}
+
+/**
+ * Detect if we're running in a production environment
+ */
+function isProduction(): boolean {
+  // Check common environment variables
+  if (typeof process !== 'undefined' && process.env) {
+    const env = process.env['NODE_ENV'] || process.env['ENVIRONMENT'] || ''
+    if (env.toLowerCase() === 'production' || env.toLowerCase() === 'prod') {
+      return true
+    }
+  }
+  // Check Cloudflare Workers environment
+  if (typeof globalThis !== 'undefined' && (globalThis as any).ENVIRONMENT === 'production') {
+    return true
+  }
+  return false
+}
+
+/**
+ * Detect if we're running in a test environment
+ */
+function isTestEnvironment(): boolean {
+  // Check common test environment indicators
+  if (typeof process !== 'undefined' && process.env) {
+    // NODE_ENV=test
+    if (process.env['NODE_ENV'] === 'test') return true
+    // Vitest
+    if (process.env['VITEST'] === 'true') return true
+    // Jest
+    if (process.env['JEST_WORKER_ID'] !== undefined) return true
+    // CI environments often set this
+    if (process.env['CI'] === 'true') return true
+  }
+  // Check if vitest/jest globals are present
+  if (typeof globalThis !== 'undefined') {
+    if ((globalThis as any).__vitest_worker__) return true
+    if ((globalThis as any).jest) return true
+  }
+  return false
+}
+
+/**
+ * Check if mock models should be allowed based on configuration and environment
+ */
+function shouldAllowMock(): boolean {
+  if (mockConfig.allowMock === true) return true
+  if (mockConfig.allowMock === false) return false
+
+  // 'auto' mode: allow in test/dev, disallow in production
+  if (isTestEnvironment()) return true
+  if (isProduction()) return false
+
+  // Default to allowing in development
+  return true
+}
+
+/**
+ * Log a warning about mock model usage
+ */
+function warnMockUsage(model: string, operation: string): void {
+  if (!mockConfig.warnOnMock) return
+  if (mockWarningIssued && operation === 'resolve') return // Only warn once per session for model resolution
+
+  const message = `[dotdo/ai] Using MOCK model for "${model}" because ai-providers is not installed. ` +
+    `This returns fake responses and should NOT be used in production. ` +
+    `Install ai-providers or configure a real provider to use actual AI models.`
+
+  if (mockConfig.onMockWarning) {
+    mockConfig.onMockWarning(message, { model, operation })
+  } else {
+    console.warn(message)
+  }
+
+  if (operation === 'resolve') {
+    mockWarningIssued = true
+  }
+}
+
 /**
  * Configure a provider for AI operations
  */
@@ -203,13 +358,238 @@ function isModuleNotFoundError(error: unknown): boolean {
 }
 
 /**
+ * Error thrown when mock model is used but not allowed
+ */
+export class MockModelNotAllowedError extends Error {
+  constructor(modelId: string) {
+    super(
+      `Mock model not allowed for "${modelId}". ` +
+      `ai-providers module is not installed and mock models are disabled. ` +
+      `Either install ai-providers or set configureMockModel({ allowMock: true }) for testing.`
+    )
+    this.name = 'MockModelNotAllowedError'
+  }
+}
+
+// ============================================================================
+// Error Classes
+// ============================================================================
+
+/**
+ * Base error class for AI operations.
+ * All AI-related errors extend from this class.
+ */
+export class AIError extends Error {
+  /** The operation that was being performed */
+  readonly operation: string
+  /** The model being used (if applicable) */
+  readonly model?: string
+  /** The underlying cause of the error */
+  readonly cause?: Error
+
+  constructor(message: string, options: { operation: string; model?: string; cause?: Error }) {
+    super(message)
+    this.name = 'AIError'
+    this.operation = options.operation
+    if (options.model !== undefined) {
+      this.model = options.model
+    }
+    if (options.cause !== undefined) {
+      this.cause = options.cause
+    }
+    // Maintain proper stack trace (only in V8)
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, AIError)
+    }
+  }
+}
+
+/**
+ * Error thrown when a model cannot be resolved.
+ */
+export class AIModelResolutionError extends AIError {
+  constructor(modelId: string, cause?: Error) {
+    super(
+      `Failed to resolve model "${modelId}"${cause ? `: ${cause.message}` : ''}`,
+      { operation: 'resolveModel', model: modelId, cause }
+    )
+    this.name = 'AIModelResolutionError'
+  }
+}
+
+/**
+ * Error thrown when the AI provider returns an error.
+ */
+export class AIProviderError extends AIError {
+  /** HTTP status code from the provider (if applicable) */
+  readonly status?: number
+  /** Error code from the provider (if applicable) */
+  readonly code?: string
+  /** Whether this error is retryable */
+  readonly retryable: boolean
+
+  constructor(
+    message: string,
+    options: {
+      operation: string
+      model?: string
+      cause?: Error
+      status?: number
+      code?: string
+      retryable?: boolean
+    }
+  ) {
+    super(message, options)
+    this.name = 'AIProviderError'
+    if (options.status !== undefined) {
+      this.status = options.status
+    }
+    if (options.code !== undefined) {
+      this.code = options.code
+    }
+    this.retryable = options.retryable ?? false
+  }
+
+  /**
+   * Check if an error from the provider is retryable.
+   */
+  static isRetryable(error: Error & { status?: number; code?: string }): boolean {
+    // Rate limit errors are retryable
+    if (error.status === 429) return true
+
+    // Server errors are generally retryable
+    if (error.status !== undefined && error.status >= 500 && error.status < 600) return true
+
+    // Check error codes
+    const code = error.code?.toLowerCase()
+    if (code === 'rate_limit_exceeded' || code === 'overloaded' || code === 'server_error') {
+      return true
+    }
+
+    // Check error message for transient conditions
+    const message = error.message?.toLowerCase() || ''
+    const transientPatterns = [
+      'rate limit',
+      'too many requests',
+      'overloaded',
+      'timeout',
+      'econnreset',
+      'socket hang up',
+      'network error',
+    ]
+    return transientPatterns.some(p => message.includes(p))
+  }
+}
+
+/**
+ * Error thrown when text generation fails.
+ */
+export class AIGenerationError extends AIProviderError {
+  constructor(
+    message: string,
+    options: {
+      model?: string
+      cause?: Error
+      status?: number
+      code?: string
+      retryable?: boolean
+    }
+  ) {
+    super(message, { ...options, operation: 'generateText' })
+    this.name = 'AIGenerationError'
+  }
+}
+
+/**
+ * Error thrown when object generation fails.
+ */
+export class AIObjectGenerationError extends AIProviderError {
+  constructor(
+    message: string,
+    options: {
+      model?: string
+      cause?: Error
+      status?: number
+      code?: string
+      retryable?: boolean
+    }
+  ) {
+    super(message, { ...options, operation: 'generateObject' })
+    this.name = 'AIObjectGenerationError'
+  }
+}
+
+/**
+ * Error thrown when embedding generation fails.
+ */
+export class AIEmbeddingError extends AIProviderError {
+  constructor(
+    message: string,
+    options: {
+      model?: string
+      cause?: Error
+      status?: number
+      code?: string
+      retryable?: boolean
+    }
+  ) {
+    super(message, { ...options, operation: 'embedText' })
+    this.name = 'AIEmbeddingError'
+  }
+}
+
+/**
+ * Error thrown when streaming fails.
+ */
+export class AIStreamError extends AIProviderError {
+  constructor(
+    message: string,
+    options: {
+      model?: string
+      cause?: Error
+      status?: number
+      code?: string
+      retryable?: boolean
+    }
+  ) {
+    super(message, { ...options, operation: 'streamText' })
+    this.name = 'AIStreamError'
+  }
+}
+
+/**
+ * Extract error details from a provider error.
+ */
+function extractErrorDetails(error: unknown): { status?: number; code?: string; message: string } {
+  if (error instanceof Error) {
+    const err = error as Error & { status?: number; code?: string; statusCode?: number }
+    return {
+      status: err.status ?? err.statusCode,
+      code: err.code,
+      message: err.message,
+    }
+  }
+  return { message: String(error) }
+}
+
+/**
  * Create a mock LanguageModel for testing when ai-providers is not installed.
  *
  * IMPORTANT: This should only be used when the ai-providers module is genuinely
  * not available (development/testing without the optional dependency).
  * Real errors from ai-providers should propagate to the caller.
+ *
+ * @throws {MockModelNotAllowedError} If mock models are not allowed in current environment
  */
 function createMockModel(modelId: string): LanguageModel {
+  // Check if mock models are allowed
+  if (!shouldAllowMock()) {
+    throw new MockModelNotAllowedError(modelId)
+  }
+
+  // Warn about mock usage
+  warnMockUsage(modelId, 'resolve')
+
   return {
     provider: 'mock',
     modelId,
@@ -236,7 +616,11 @@ function createMockModel(modelId: string): LanguageModel {
  * Resolve model string to LanguageModel instance
  *
  * Uses ai-providers when available, falls back to mock only when the module
- * is not installed. Real errors (auth failures, API errors, etc.) are propagated.
+ * is not installed. Real errors (auth failures, API errors, etc.) are propagated
+ * wrapped in AIModelResolutionError for better error handling.
+ *
+ * @throws {AIModelResolutionError} When model resolution fails (wraps the original error)
+ * @throws {MockModelNotAllowedError} When mock is needed but not allowed
  */
 async function resolveModel(modelArg: string | LanguageModel): Promise<LanguageModel> {
   // Already a LanguageModel instance
@@ -258,9 +642,10 @@ async function resolveModel(modelArg: string | LanguageModel): Promise<LanguageM
     if (isModuleNotFoundError(e)) {
       return createMockModel(resolvedModel)
     }
-    // Re-throw real errors (authentication, configuration, API errors, etc.)
-    // These should not be masked by the mock fallback
-    throw e
+    // Wrap real errors (authentication, configuration, API errors, etc.)
+    // in AIModelResolutionError for better error handling
+    const cause = e instanceof Error ? e : new Error(String(e))
+    throw new AIModelResolutionError(resolvedModel, cause)
   }
 }
 
@@ -313,10 +698,16 @@ export interface GenerateTextResult {
  * })
  * console.log(result.text)
  * ```
+ *
+ * @throws {AIModelResolutionError} When the model cannot be resolved
+ * @throws {AIGenerationError} When text generation fails
  */
 export async function generateText(
   options: GenerateTextOptions
 ): Promise<GenerateTextResult> {
+  const modelName = typeof options.model === 'string' ? options.model : 'unknown'
+
+  // Resolve model - may throw AIModelResolutionError
   const model = await resolveModel(options.model)
 
   // Check if we're using the mock (ai-providers not available)
@@ -335,21 +726,42 @@ export async function generateText(
   }
 
   // Use real AI SDK for actual models
-  const { generateText: aiGenerateText } = await import('ai')
+  try {
+    const { generateText: aiGenerateText } = await import('ai')
 
-  const result = await aiGenerateText({
-    ...options,
-    model,
-  })
+    const result = await aiGenerateText({
+      ...options,
+      model,
+    })
 
-  return {
-    text: result.text,
-    usage: {
-      promptTokens: result.usage?.promptTokens || 0,
-      completionTokens: result.usage?.completionTokens || 0,
-      totalTokens: result.usage?.totalTokens || 0,
-    },
-    finishReason: result.finishReason,
+    return {
+      text: result.text,
+      usage: {
+        promptTokens: result.usage?.promptTokens || 0,
+        completionTokens: result.usage?.completionTokens || 0,
+        totalTokens: result.usage?.totalTokens || 0,
+      },
+      finishReason: result.finishReason,
+    }
+  } catch (e) {
+    // Don't wrap our own errors
+    if (e instanceof AIError) {
+      throw e
+    }
+
+    // Wrap provider errors with context
+    const details = extractErrorDetails(e)
+    const cause = e instanceof Error ? e : new Error(String(e))
+    throw new AIGenerationError(
+      `Text generation failed for model "${modelName}": ${details.message}`,
+      {
+        model: modelName,
+        cause,
+        status: details.status,
+        code: details.code,
+        retryable: AIProviderError.isRetryable(cause as Error & { status?: number; code?: string }),
+      }
+    )
   }
 }
 
@@ -398,10 +810,16 @@ export interface GenerateObjectResult<T = unknown> {
  * })
  * console.log(result.object.colors)
  * ```
+ *
+ * @throws {AIModelResolutionError} When the model cannot be resolved
+ * @throws {AIObjectGenerationError} When object generation fails
  */
 export async function generateObject<T>(
   options: GenerateObjectOptions<T>
 ): Promise<GenerateObjectResult<T>> {
+  const modelName = typeof options.model === 'string' ? options.model : 'unknown'
+
+  // Resolve model - may throw AIModelResolutionError
   const model = await resolveModel(options.model)
 
   // Check if we're using the mock (ai-providers not available)
@@ -419,22 +837,43 @@ export async function generateObject<T>(
   }
 
   // Use real AI SDK for actual models
-  const { generateObject: aiGenerateObject } = await import('ai')
+  try {
+    const { generateObject: aiGenerateObject } = await import('ai')
 
-  const result = await aiGenerateObject({
-    ...options,
-    model,
-    output: 'object',
-  } as any)
+    const result = await aiGenerateObject({
+      ...options,
+      model,
+      output: 'object',
+    } as any)
 
-  return {
-    object: result.object as T,
-    usage: {
-      promptTokens: result.usage?.promptTokens || 0,
-      completionTokens: result.usage?.completionTokens || 0,
-      totalTokens: result.usage?.totalTokens || 0,
-    },
-    finishReason: result.finishReason,
+    return {
+      object: result.object as T,
+      usage: {
+        promptTokens: result.usage?.promptTokens || 0,
+        completionTokens: result.usage?.completionTokens || 0,
+        totalTokens: result.usage?.totalTokens || 0,
+      },
+      finishReason: result.finishReason,
+    }
+  } catch (e) {
+    // Don't wrap our own errors
+    if (e instanceof AIError) {
+      throw e
+    }
+
+    // Wrap provider errors with context
+    const details = extractErrorDetails(e)
+    const cause = e instanceof Error ? e : new Error(String(e))
+    throw new AIObjectGenerationError(
+      `Object generation failed for model "${modelName}": ${details.message}`,
+      {
+        model: modelName,
+        cause,
+        status: details.status,
+        code: details.code,
+        retryable: AIProviderError.isRetryable(cause as Error & { status?: number; code?: string }),
+      }
+    )
   }
 }
 
@@ -469,30 +908,57 @@ export interface StreamTextResult {
  *   process.stdout.write(chunk)
  * }
  * ```
+ *
+ * @throws {AIModelResolutionError} When the model cannot be resolved
+ * @throws {AIStreamError} When streaming fails
  */
 export async function streamText(
   options: StreamTextOptions
 ): Promise<StreamTextResult> {
-  // Import from ai package (not the local ai folder)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const aiModule = await import('ai') as any
+  const modelName = typeof options.model === 'string' ? options.model : 'unknown'
 
-  const model = await resolveModel(options.model)
+  try {
+    // Import from ai package (not the local ai folder)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const aiModule = await import('ai') as any
 
-  // streamText returns an object with async properties, not a Promise
-  const result = aiModule.streamText({
-    ...options,
-    model,
-  })
+    // Resolve model - may throw AIModelResolutionError
+    const model = await resolveModel(options.model)
 
-  return {
-    textStream: result.textStream,
-    fullStream: result.fullStream,
-    usage: result.usage.then((u: { promptTokens?: number; completionTokens?: number; totalTokens?: number }) => ({
-      promptTokens: u?.promptTokens || 0,
-      completionTokens: u?.completionTokens || 0,
-      totalTokens: u?.totalTokens || 0,
-    })),
+    // streamText returns an object with async properties, not a Promise
+    const result = aiModule.streamText({
+      ...options,
+      model,
+    })
+
+    return {
+      textStream: result.textStream,
+      fullStream: result.fullStream,
+      usage: result.usage.then((u: { promptTokens?: number; completionTokens?: number; totalTokens?: number }) => ({
+        promptTokens: u?.promptTokens || 0,
+        completionTokens: u?.completionTokens || 0,
+        totalTokens: u?.totalTokens || 0,
+      })),
+    }
+  } catch (e) {
+    // Don't wrap our own errors
+    if (e instanceof AIError) {
+      throw e
+    }
+
+    // Wrap provider errors with context
+    const details = extractErrorDetails(e)
+    const cause = e instanceof Error ? e : new Error(String(e))
+    throw new AIStreamError(
+      `Streaming failed for model "${modelName}": ${details.message}`,
+      {
+        model: modelName,
+        cause,
+        status: details.status,
+        code: details.code,
+        retryable: AIProviderError.isRetryable(cause as Error & { status?: number; code?: string }),
+      }
+    )
   }
 }
 
@@ -529,6 +995,10 @@ function generateMockEmbedding(text: string, dimensions: number = 1536): number[
  * // Multiple texts
  * const embeddings = await embedText(['hello', 'world'])
  * ```
+ *
+ * @throws {AIModelResolutionError} When the embedding model cannot be resolved
+ * @throws {AIEmbeddingError} When embedding generation fails
+ * @throws {MockModelNotAllowedError} When mock is needed but not allowed
  */
 export async function embedText(
   text: string | string[],
@@ -540,7 +1010,7 @@ export async function embedText(
   let model: EmbeddingModel | null = null
   try {
     const aiProviders = await import('ai-providers')
-    // This may throw errors (auth, config, etc.) - let them propagate!
+    // This may throw errors (auth, config, etc.) - wrap them!
     model = await aiProviders.embeddingModel(modelName)
   } catch (e) {
     // Only use mock embeddings if ai-providers module is not installed
@@ -548,14 +1018,23 @@ export async function embedText(
     if (isModuleNotFoundError(e)) {
       model = null
     } else {
-      // Re-throw real errors (authentication, configuration, API errors, etc.)
-      // These should not be masked by the mock fallback
-      throw e
+      // Wrap real errors (authentication, configuration, API errors, etc.)
+      // in AIModelResolutionError for better error handling
+      const cause = e instanceof Error ? e : new Error(String(e))
+      throw new AIModelResolutionError(modelName, cause)
     }
   }
 
   // If ai-providers is not available (module not installed), return mock embeddings
   if (model === null) {
+    // Check if mock is allowed
+    if (!shouldAllowMock()) {
+      throw new MockModelNotAllowedError(modelName)
+    }
+
+    // Warn about mock usage
+    warnMockUsage(modelName, 'embedding')
+
     if (typeof text === 'string') {
       return generateMockEmbedding(text, options?.dimensions)
     }
@@ -563,28 +1042,49 @@ export async function embedText(
   }
 
   // Use real AI SDK with the model
-  // Import embed from ai package (not the local ai folder)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const aiModule = await import('ai') as any
-  const embed = aiModule.embed as (options: { model: unknown; value: string }) => Promise<{ embedding: number[] }>
+  try {
+    // Import embed from ai package (not the local ai folder)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const aiModule = await import('ai') as any
+    const embed = aiModule.embed as (options: { model: unknown; value: string }) => Promise<{ embedding: number[] }>
 
-  if (typeof text === 'string') {
-    const result = await embed({
-      model,
-      value: text,
-    })
-    return result.embedding
+    if (typeof text === 'string') {
+      const result = await embed({
+        model,
+        value: text,
+      })
+      return result.embedding
+    }
+
+    // Multiple texts
+    const results = await Promise.all(
+      text.map(t => embed({
+        model,
+        value: t,
+      }))
+    )
+
+    return results.map((r: { embedding: number[] }) => r.embedding)
+  } catch (e) {
+    // Don't wrap our own errors
+    if (e instanceof AIError) {
+      throw e
+    }
+
+    // Wrap provider errors with context
+    const details = extractErrorDetails(e)
+    const cause = e instanceof Error ? e : new Error(String(e))
+    throw new AIEmbeddingError(
+      `Embedding generation failed for model "${modelName}": ${details.message}`,
+      {
+        model: modelName,
+        cause,
+        status: details.status,
+        code: details.code,
+        retryable: AIProviderError.isRetryable(cause as Error & { status?: number; code?: string }),
+      }
+    )
   }
-
-  // Multiple texts
-  const results = await Promise.all(
-    text.map(t => embed({
-      model,
-      value: t,
-    }))
-  )
-
-  return results.map((r: { embedding: number[] }) => r.embedding)
 }
 
 // ============================================================================
