@@ -77,7 +77,7 @@ interface AuthOptions {
 ```typescript
 app.use('/*', authMiddleware({
   issuer: 'https://auth.example.com',
-  audience: 'api.example.com',
+  audience: 'api.example.com.ai',
   skipPaths: ['/public', '/health']
 }))
 ```

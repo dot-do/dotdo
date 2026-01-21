@@ -3,7 +3,7 @@
 // Key patterns: $.on.Noun.verb event handlers, $.every scheduling, $.do durable actions
 
 import { Hono } from 'hono'
-import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
+import { DO, type DOEnv, createContext, type WorkflowContext } from '@dotdo/do'
 import type {
   Product,
   Cart,
@@ -20,8 +20,6 @@ import type {
 const TAX_RATE = 0.08 // 8% tax
 
 export class EcommerceDO extends DO {
-  private $: WorkflowContext
-
   constructor(state: DurableObjectState, env: DOEnv) {
     super(state, env)
 
@@ -35,49 +33,35 @@ export class EcommerceDO extends DO {
 
     // Handle order creation - send confirmation email
     this.$.on.Order.created(async (event) => {
-      const { orderId, customerId, total } = event.payload as {
-        orderId: string
-        customerId: string
-        total: number
-      }
+      const { orderId, customerId, total } = (event as { type: string; payload: { orderId: string; customerId: string; total: number } }).payload
       console.log(`[Event] Order created: ${orderId} for customer ${customerId}, total: $${total}`)
       // In production: send order confirmation email via $.do for durability
     })
 
     // Handle payment completion - update inventory and notify
     this.$.on.Payment.completed(async (event) => {
-      const { orderId, paymentId } = event.payload as {
-        orderId: string
-        paymentId: string
-      }
+      const { orderId, paymentId } = (event as { type: string; payload: { orderId: string; paymentId: string } }).payload
       console.log(`[Event] Payment completed for order ${orderId}, payment: ${paymentId}`)
       // In production: trigger fulfillment workflow
     })
 
     // Handle payment failure - notify customer
     this.$.on.Payment.failed(async (event) => {
-      const { orderId, reason } = event.payload as {
-        orderId: string
-        paymentId: string
-        reason: string
-      }
+      const { orderId, reason } = (event as { type: string; payload: { orderId: string; paymentId: string; reason: string } }).payload
       console.log(`[Event] Payment failed for order ${orderId}: ${reason}`)
       // In production: send payment failure notification
     })
 
     // Handle cart item added - track analytics
     this.$.on.Cart.itemAdded(async (event) => {
-      const { cartId, productId, quantity } = event.payload as {
-        cartId: string
-        productId: string
-        quantity: number
-      }
+      const { cartId, productId, quantity } = (event as { type: string; payload: { cartId: string; productId: string; quantity: number } }).payload
       console.log(`[Event] Item added to cart ${cartId}: ${productId} x${quantity}`)
     })
 
     // Wildcard handler - log all events for debugging
     this.$.on['*']['*'](async (event) => {
-      console.log(`[Audit] Event: ${event.type}`, event.payload)
+      const e = event as { type: string; payload: unknown }
+      console.log(`[Audit] Event: ${e.type}`, e.payload)
     })
 
     // ========================================================================

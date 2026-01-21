@@ -486,3 +486,444 @@ describe('Audit Logging (do-xebw)', () => {
 
 // Note: Automatic audit logging integration tests are in do/tests/audit.test.ts
 // as they require the EntityManager from @dotdo/do
+
+// ============================================================================
+// maskSensitiveFields Tests (do-0unq)
+// ============================================================================
+
+import { maskSensitiveFields, defaultAuditConfig } from '../audit'
+
+describe('maskSensitiveFields (do-0unq)', () => {
+  const REDACTED = '***REDACTED***'
+
+  describe('Basic Field Masking', () => {
+    it('should mask fields matching exact names', () => {
+      const data = {
+        password: 'secret123',
+        username: 'alice'
+      }
+
+      const result = maskSensitiveFields(data, ['password'])
+
+      expect(result.password).toBe(REDACTED)
+      expect(result.username).toBe('alice')
+    })
+
+    it('should mask fields with case-insensitive matching', () => {
+      const data = {
+        Password: 'secret123',
+        PASSWORD: 'secret456',
+        passWORD: 'secret789'
+      }
+
+      const result = maskSensitiveFields(data, ['password'])
+
+      expect(result.Password).toBe(REDACTED)
+      expect(result.PASSWORD).toBe(REDACTED)
+      expect(result.passWORD).toBe(REDACTED)
+    })
+
+    it('should mask fields containing sensitive substrings', () => {
+      const data = {
+        userPassword: 'secret123',
+        passwordHash: 'abc123',
+        oldPassword: 'old123',
+        newPassword: 'new123'
+      }
+
+      const result = maskSensitiveFields(data, ['password'])
+
+      expect(result.userPassword).toBe(REDACTED)
+      expect(result.passwordHash).toBe(REDACTED)
+      expect(result.oldPassword).toBe(REDACTED)
+      expect(result.newPassword).toBe(REDACTED)
+    })
+
+    it('should not mask unrelated fields', () => {
+      const data = {
+        name: 'Alice',
+        email: 'alice@example.com',
+        status: 'active'
+      }
+
+      const result = maskSensitiveFields(data, ['password', 'secret'])
+
+      expect(result.name).toBe('Alice')
+      expect(result.email).toBe('alice@example.com')
+      expect(result.status).toBe('active')
+    })
+  })
+
+  describe('Nested Object Masking', () => {
+    it('should recursively mask nested objects', () => {
+      const data = {
+        user: {
+          name: 'Alice',
+          credentials: {
+            password: 'secret123',
+            token: 'abc123'
+          }
+        }
+      }
+
+      const result = maskSensitiveFields(data, ['password', 'token'])
+
+      expect(result.user).toEqual({
+        name: 'Alice',
+        credentials: {
+          password: REDACTED,
+          token: REDACTED
+        }
+      })
+    })
+
+    it('should handle deeply nested structures', () => {
+      const data = {
+        level1: {
+          level2: {
+            level3: {
+              apiKey: 'key123',
+              data: 'safe'
+            }
+          }
+        }
+      }
+
+      const result = maskSensitiveFields(data, ['apikey'])
+
+      expect(result.level1.level2.level3.apiKey).toBe(REDACTED)
+      expect(result.level1.level2.level3.data).toBe('safe')
+    })
+  })
+
+  describe('Edge Cases', () => {
+    it('should handle null values', () => {
+      const data = {
+        password: null,
+        name: 'Alice'
+      }
+
+      const result = maskSensitiveFields(data, ['password'])
+
+      // null is not an object, so it passes through but field name still matches
+      expect(result.password).toBe(REDACTED)
+      expect(result.name).toBe('Alice')
+    })
+
+    it('should handle arrays without masking array elements', () => {
+      const data = {
+        tags: ['admin', 'user'],
+        password: 'secret'
+      }
+
+      const result = maskSensitiveFields(data, ['password'])
+
+      expect(result.tags).toEqual(['admin', 'user'])
+      expect(result.password).toBe(REDACTED)
+    })
+
+    it('should handle empty objects', () => {
+      const data = {}
+
+      const result = maskSensitiveFields(data, ['password'])
+
+      expect(result).toEqual({})
+    })
+
+    it('should handle numeric and boolean values', () => {
+      const data = {
+        count: 42,
+        active: true,
+        secretCount: 100,
+        password: 'abc'
+      }
+
+      const result = maskSensitiveFields(data, ['password', 'secret'])
+
+      expect(result.count).toBe(42)
+      expect(result.active).toBe(true)
+      expect(result.secretCount).toBe(REDACTED)
+      expect(result.password).toBe(REDACTED)
+    })
+  })
+
+  describe('Default Config Coverage', () => {
+    it('should mask password variations', () => {
+      const data = {
+        password: 'pass1',
+        passwd: 'pass2',
+        userPwd: 'pass3',
+        oldPassword: 'pass4'
+      }
+
+      const result = maskSensitiveFields(data, defaultAuditConfig.maskFields)
+
+      expect(result.password).toBe(REDACTED)
+      expect(result.passwd).toBe(REDACTED)
+      expect(result.userPwd).toBe(REDACTED)
+      expect(result.oldPassword).toBe(REDACTED)
+    })
+
+    it('should mask token variations', () => {
+      const data = {
+        token: 'tok1',
+        accessToken: 'tok2',
+        refreshToken: 'tok3',
+        bearerToken: 'tok4',
+        jwtToken: 'tok5',
+        oauthToken: 'tok6'
+      }
+
+      const result = maskSensitiveFields(data, defaultAuditConfig.maskFields)
+
+      expect(result.token).toBe(REDACTED)
+      expect(result.accessToken).toBe(REDACTED)
+      expect(result.refreshToken).toBe(REDACTED)
+      expect(result.bearerToken).toBe(REDACTED)
+      expect(result.jwtToken).toBe(REDACTED)
+      expect(result.oauthToken).toBe(REDACTED)
+    })
+
+    it('should mask API keys', () => {
+      const data = {
+        apiKey: 'key1',
+        api_key: 'key2',
+        clientSecret: 'sec1',
+        client_secret: 'sec2',
+        consumerKey: 'key3'
+      }
+
+      const result = maskSensitiveFields(data, defaultAuditConfig.maskFields)
+
+      expect(result.apiKey).toBe(REDACTED)
+      expect(result.api_key).toBe(REDACTED)
+      expect(result.clientSecret).toBe(REDACTED)
+      expect(result.client_secret).toBe(REDACTED)
+      expect(result.consumerKey).toBe(REDACTED)
+    })
+
+    it('should mask PII fields', () => {
+      const data = {
+        ssn: '123-45-6789',
+        socialSecurityNumber: '987-65-4321',
+        taxId: 'TX123',
+        driversLicense: 'DL456',
+        passportNumber: 'P789',
+        dateOfBirth: '1990-01-01'
+      }
+
+      const result = maskSensitiveFields(data, defaultAuditConfig.maskFields)
+
+      expect(result.ssn).toBe(REDACTED)
+      expect(result.socialSecurityNumber).toBe(REDACTED)
+      expect(result.taxId).toBe(REDACTED)
+      expect(result.driversLicense).toBe(REDACTED)
+      expect(result.passportNumber).toBe(REDACTED)
+      expect(result.dateOfBirth).toBe(REDACTED)
+    })
+
+    it('should mask financial data', () => {
+      const data = {
+        creditCard: '4111111111111111',
+        cardNumber: '5500000000000004',
+        cvv: '123',
+        cvc: '456',
+        securityCode: '789',
+        bankAccount: 'ACC123',
+        accountNumber: '000123456789',
+        routingNumber: '021000021',
+        iban: 'DE89370400440532013000',
+        pin: '1234'
+      }
+
+      const result = maskSensitiveFields(data, defaultAuditConfig.maskFields)
+
+      expect(result.creditCard).toBe(REDACTED)
+      expect(result.cardNumber).toBe(REDACTED)
+      expect(result.cvv).toBe(REDACTED)
+      expect(result.cvc).toBe(REDACTED)
+      expect(result.securityCode).toBe(REDACTED)
+      expect(result.bankAccount).toBe(REDACTED)
+      expect(result.accountNumber).toBe(REDACTED)
+      expect(result.routingNumber).toBe(REDACTED)
+      expect(result.iban).toBe(REDACTED)
+      expect(result.pin).toBe(REDACTED)
+    })
+
+    it('should mask encryption keys', () => {
+      const data = {
+        privateKey: 'priv123',
+        private_key: 'priv456',
+        publicKey: 'pub123',
+        signingKey: 'sign123',
+        encryptionKey: 'enc123',
+        masterKey: 'master123'
+      }
+
+      const result = maskSensitiveFields(data, defaultAuditConfig.maskFields)
+
+      expect(result.privateKey).toBe(REDACTED)
+      expect(result.private_key).toBe(REDACTED)
+      expect(result.publicKey).toBe(REDACTED)
+      expect(result.signingKey).toBe(REDACTED)
+      expect(result.encryptionKey).toBe(REDACTED)
+      expect(result.masterKey).toBe(REDACTED)
+    })
+
+    it('should mask healthcare data (HIPAA)', () => {
+      const data = {
+        healthRecord: 'HR123',
+        medicalRecord: 'MR456',
+        diagnosis: 'D789',
+        prescription: 'RX101',
+        patientId: 'PAT123'
+      }
+
+      const result = maskSensitiveFields(data, defaultAuditConfig.maskFields)
+
+      expect(result.healthRecord).toBe(REDACTED)
+      expect(result.medicalRecord).toBe(REDACTED)
+      expect(result.diagnosis).toBe(REDACTED)
+      expect(result.prescription).toBe(REDACTED)
+      expect(result.patientId).toBe(REDACTED)
+    })
+
+    it('should mask connection strings', () => {
+      const data = {
+        connectionString: 'Server=localhost;Database=db;User=user;Password=pass',
+        dbPassword: 'dbpass123',
+        db_password: 'dbpass456'
+      }
+
+      const result = maskSensitiveFields(data, defaultAuditConfig.maskFields)
+
+      expect(result.connectionString).toBe(REDACTED)
+      expect(result.dbPassword).toBe(REDACTED)
+      expect(result.db_password).toBe(REDACTED)
+    })
+
+    it('should mask session and auth data', () => {
+      const data = {
+        sessionId: 'sess123',
+        sessionToken: 'sesstok456',
+        authHeader: 'Bearer abc123',
+        authorization: 'Basic xyz789',
+        cookie: 'sid=abc123'
+      }
+
+      const result = maskSensitiveFields(data, defaultAuditConfig.maskFields)
+
+      expect(result.sessionId).toBe(REDACTED)
+      expect(result.sessionToken).toBe(REDACTED)
+      expect(result.authHeader).toBe(REDACTED)
+      expect(result.authorization).toBe(REDACTED)
+      expect(result.cookie).toBe(REDACTED)
+    })
+
+    it('should mask contact information', () => {
+      const data = {
+        phone: '555-1234',
+        mobile: '555-5678',
+        cellphone: '555-9012',
+        email: 'alice@example.com'
+      }
+
+      const result = maskSensitiveFields(data, defaultAuditConfig.maskFields)
+
+      expect(result.phone).toBe(REDACTED)
+      expect(result.mobile).toBe(REDACTED)
+      expect(result.cellphone).toBe(REDACTED)
+      expect(result.email).toBe(REDACTED)
+    })
+  })
+
+  describe('Real-world Scenarios', () => {
+    it('should mask user registration payload', () => {
+      const data = {
+        username: 'alice',
+        email: 'alice@example.com',
+        password: 'SecureP@ss123',
+        confirmPassword: 'SecureP@ss123',
+        phone: '+1-555-1234',
+        dateOfBirth: '1990-05-15'
+      }
+
+      const result = maskSensitiveFields(data, defaultAuditConfig.maskFields)
+
+      expect(result.username).toBe('alice')
+      expect(result.email).toBe(REDACTED)
+      expect(result.password).toBe(REDACTED)
+      expect(result.confirmPassword).toBe(REDACTED)
+      expect(result.phone).toBe(REDACTED)
+      expect(result.dateOfBirth).toBe(REDACTED)
+    })
+
+    it('should mask payment processing payload', () => {
+      const data = {
+        orderId: 'ORD-123',
+        amount: 99.99,
+        currency: 'USD',
+        cardNumber: '4111111111111111',
+        cvv: '123',
+        expiryMonth: '12',
+        expiryYear: '2025',
+        billingAddress: '123 Main St'
+      }
+
+      const result = maskSensitiveFields(data, defaultAuditConfig.maskFields)
+
+      expect(result.orderId).toBe('ORD-123')
+      expect(result.amount).toBe(99.99)
+      expect(result.currency).toBe('USD')
+      expect(result.cardNumber).toBe(REDACTED)
+      expect(result.cvv).toBe(REDACTED)
+      expect(result.expiryMonth).toBe(REDACTED)
+      expect(result.expiryYear).toBe(REDACTED)
+      expect(result.billingAddress).toBe('123 Main St')
+    })
+
+    it('should mask OAuth callback payload', () => {
+      const data = {
+        code: 'auth_code_123',
+        state: 'state_456',
+        accessToken: 'at_789',
+        refreshToken: 'rt_012',
+        tokenType: 'Bearer',
+        expiresIn: 3600,
+        scope: 'read write'
+      }
+
+      const result = maskSensitiveFields(data, defaultAuditConfig.maskFields)
+
+      expect(result.code).toBe('auth_code_123')
+      expect(result.state).toBe('state_456')
+      expect(result.accessToken).toBe(REDACTED)
+      expect(result.refreshToken).toBe(REDACTED)
+      expect(result.tokenType).toBe(REDACTED) // Contains 'token'
+      expect(result.expiresIn).toBe(3600)
+      expect(result.scope).toBe('read write')
+    })
+
+    it('should mask database connection config', () => {
+      const data = {
+        host: 'db.example.com',
+        port: 5432,
+        database: 'myapp',
+        user: 'dbuser',
+        password: 'dbpass123',
+        connectionString: 'postgresql://user:pass@host:5432/db',
+        ssl: true
+      }
+
+      const result = maskSensitiveFields(data, defaultAuditConfig.maskFields)
+
+      expect(result.host).toBe('db.example.com')
+      expect(result.port).toBe(5432)
+      expect(result.database).toBe('myapp')
+      expect(result.user).toBe('dbuser')
+      expect(result.password).toBe(REDACTED)
+      expect(result.connectionString).toBe(REDACTED)
+      expect(result.ssl).toBe(true)
+    })
+  })
+})

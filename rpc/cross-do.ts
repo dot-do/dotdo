@@ -1,31 +1,81 @@
 // Cross-DO RPC - Durable Object to Durable Object communication
 // Provides typed RPC between DOs with stub caching and connection pooling
+// Integrates with observability context for automatic correlation ID propagation
 
-import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
-import { RPCError, RPCErrorCode, isSerializedError, deserializeError } from './errors'
+import { RPCError, RPCErrorCode, isSerializedError, deserializeError, TransportError, NotFoundError, ValidationError } from './errors'
+import { generateCorrelationId, CORRELATION_ID_HEADER, DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER } from './headers'
 
 // Re-export for convenience
 export { generateCorrelationId, CORRELATION_ID_HEADER }
+export { DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER }
 
-// DO auth headers (from do/auth.ts)
-const DO_SOURCE_HEADER = 'X-DO-Source'
-const DO_SOURCE_ID_HEADER = 'X-DO-Source-ID'
+// Note: Correlation ID propagation is handled via explicit options.correlationId parameter.
+// Callers with access to @dotdo/observability can pass getCorrelationId() directly:
+//
+//   import { getCorrelationId } from '@dotdo/observability'
+//   const client = createCrossDOClient<T>(binding, id, cache, {
+//     correlationId: getCorrelationId()
+//   })
+//
+// This design avoids:
+// 1. Dynamic require() in ESM modules (fragile at runtime)
+// 2. Implicit coupling between @dotdo/rpc and @dotdo/observability
+// 3. Silent failures that are hard to debug
+// 4. Tree-shaking issues with dynamic imports
 
 /**
  * Options for cross-DO RPC calls
  */
 export interface CrossDORPCOptions {
   /** Optional correlation ID to use for request tracing */
-  correlationId?: string
+  correlationId?: string | undefined
   /** Source DO ID for trust chain (do-nuwe) */
-  sourceDoId?: string
+  sourceDoId?: string | undefined
 }
 
 /**
- * Type guard to check if a value is a DurableObjectId
+ * Type guard to check if a value is a DurableObjectId.
+ *
+ * Uses multiple checks to ensure the value is a real DurableObjectId:
+ * 1. Must be a non-null object
+ * 2. Must have an `equals` method (unique to DurableObjectId)
+ * 3. Must have a `toString` method
+ * 4. Must have a `name` property (present on all DurableObjectIds)
+ * 5. The `toString()` result must be a non-empty string (real IDs return hex strings)
+ *
+ * This is more robust than just checking for method existence, which could be
+ * spoofed by any object with matching method signatures.
  */
 function isDurableObjectId(id: unknown): id is DurableObjectId {
-  return typeof id === 'object' && id !== null && 'toString' in id && typeof id !== 'string'
+  if (typeof id !== 'object' || id === null) {
+    return false
+  }
+
+  const candidate = id as DurableObjectId
+
+  // Check required methods exist
+  if (typeof candidate.equals !== 'function' || typeof candidate.toString !== 'function') {
+    return false
+  }
+
+  // Real DurableObjectIds have a 'name' property (may be undefined but property exists)
+  if (!('name' in candidate)) {
+    return false
+  }
+
+  // Additional validation: toString() should return a non-empty string
+  // Real DurableObjectIds return 64-character hex strings
+  try {
+    const str = candidate.toString()
+    if (typeof str !== 'string' || str.length === 0) {
+      return false
+    }
+  } catch {
+    // If toString() throws, it's not a valid DurableObjectId
+    return false
+  }
+
+  return true
 }
 
 /**
@@ -56,20 +106,53 @@ export class CrossDOStubCache {
   }
 
   /**
-   * Get or create a DO stub
+   * Get or create a DO stub.
+   *
+   * Uses a compute-if-absent pattern to prevent race conditions where multiple
+   * concurrent calls might create duplicate stubs for the same ID.
+   *
+   * In JavaScript's single-threaded execution model, the synchronous portion
+   * of this method (check + set) is atomic. However, since `binding.get()` is
+   * synchronous and the cache operations are synchronous, we can safely use
+   * a simple check-then-set pattern.
+   *
+   * The key insight is that even if multiple async operations call getStub()
+   * concurrently, each synchronous execution block completes atomically.
+   * The first call to complete will populate the cache, and subsequent calls
+   * will find the cached value.
    */
   getStub(binding: DurableObjectNamespace, id: string | DurableObjectId): DurableObjectStub {
     const cache = this.getNamespaceCache(binding)
     const idKey = this.getIdKey(id)
 
-    let stub = cache.get(idKey)
-    if (!stub) {
-      const doId = isDurableObjectId(id) ? id : binding.idFromName(id)
-      stub = binding.get(doId)
-      cache.set(idKey, stub)
+    // Check cache first - this is the fast path
+    let existingStub = cache.get(idKey)
+    if (existingStub !== undefined) {
+      return existingStub
     }
 
-    return stub
+    // Create new stub - binding.get() is synchronous
+    const doId = isDurableObjectId(id) ? id : binding.idFromName(id)
+    const newStub = binding.get(doId)
+
+    // Use Map's native set which is atomic in single-threaded JS
+    // If another call raced and set a value between our get and set,
+    // we'll overwrite it with our stub. This is safe because all stubs
+    // pointing to the same DO ID are functionally equivalent.
+    //
+    // However, for consistency (returning the same stub instance for the
+    // same ID within a cache lifetime), we do a final check and prefer
+    // any existing stub that may have been set by a racing call.
+    existingStub = cache.get(idKey)
+    if (existingStub !== undefined) {
+      // Another call won the race - return their stub for consistency
+      // Note: newStub will be garbage collected since it's not referenced
+      return existingStub
+    }
+
+    // We won the race - store and return our stub
+    cache.set(idKey, newStub)
+    return newStub
   }
 
   /**
@@ -156,7 +239,7 @@ export function createCrossDOClient<T extends object>(
       // Special method for raw fetch access
       if (prop === 'fetch') {
         return async (url: string, init?: RequestInit) => {
-          // Generate correlation ID for raw fetch too
+          // Use provided correlation ID or generate new one
           const correlationId = baseCorrelationId || generateCorrelationId()
           const headers = new Headers(init?.headers)
           headers.set(CORRELATION_ID_HEADER, correlationId)
@@ -167,10 +250,17 @@ export function createCrossDOClient<T extends object>(
             headers.set(DO_SOURCE_ID_HEADER, sourceDoId)
           }
 
-          const response = await stub.fetch(url, { ...init, headers })
+          let response: Response
+          try {
+            response = await stub.fetch(url, { ...init, headers })
+          } catch (error) {
+            // Handle transport-level errors (DO stub failures, network issues, etc.)
+            throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
+          }
+
           if (!response.ok) {
             const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
-            const errorBody = await response.json().catch(() => null)
+            const errorBody = await response.json().catch(() => null) as { message?: string } | null
 
             // If the response is a structured error, deserialize it
             if (errorBody && isSerializedError(errorBody)) {
@@ -199,7 +289,7 @@ export function createCrossDOClient<T extends object>(
 
       // Return method invoker
       return async (...args: unknown[]) => {
-        // Generate a correlation ID for each request, or use the provided base correlation ID
+        // Use provided correlation ID or generate new one
         const correlationId = baseCorrelationId || generateCorrelationId()
 
         // Build headers with DO source info for trust chain (do-nuwe)
@@ -213,15 +303,21 @@ export function createCrossDOClient<T extends object>(
           headers[DO_SOURCE_ID_HEADER] = sourceDoId
         }
 
-        const response = await stub.fetch('https://do/rpc', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ method: prop, args }),
-        })
+        let response: Response
+        try {
+          response = await stub.fetch('https://do/rpc', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ method: prop, args }),
+          })
+        } catch (error) {
+          // Handle transport-level errors (DO stub failures, network issues, etc.)
+          throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
+        }
 
         if (!response.ok) {
           const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
-          const errorBody = await response.json().catch(() => null)
+          const errorBody = await response.json().catch(() => null) as { message?: string } | null
 
           // If the response is a structured error, deserialize it
           if (errorBody && isSerializedError(errorBody)) {
@@ -296,8 +392,12 @@ export class CrossDOContext {
   constructor(env: Record<string, DurableObjectNamespace>, options?: CrossDOContextOptions) {
     this.env = env
     this.cache = new CrossDOStubCache()
-    this.correlationId = options?.correlationId
-    this.sourceDoId = options?.sourceDoId
+    if (options?.correlationId !== undefined) {
+      this.correlationId = options.correlationId
+    }
+    if (options?.sourceDoId !== undefined) {
+      this.sourceDoId = options.sourceDoId
+    }
 
     // Return proxy for namespace access
     return new Proxy(this, {
@@ -324,7 +424,7 @@ export class CrossDOContext {
     const binding = this.env[namespace]
 
     if (!binding) {
-      throw new Error(`DO namespace not found: ${namespace}`)
+      throw NotFoundError.forResource('DONamespace', namespace)
     }
 
     const cache = this.cache
@@ -353,7 +453,7 @@ export class CrossDOContext {
               // Access the method using keyof T - client is typed as T
               const methodFn = client[method]
               if (typeof methodFn !== 'function') {
-                throw new Error(`Method ${String(method)} is not a function`)
+                throw ValidationError.forField('method', `${String(method)} is not a function`)
               }
               // Cast to callable function type for proper invocation
               return (methodFn as (...args: unknown[]) => Promise<unknown>)(...args)

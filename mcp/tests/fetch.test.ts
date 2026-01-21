@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createFetchTool, isFetchParams } from '../tools/fetch'
-import { createThingsStore } from '../../db/things'
-import { createRelationshipsStore } from '../../db/relationships'
-import { createEventsStore } from '../../db/events'
+import { createThingsStore, createRelationshipsStore, createEventsStore } from '@dotdo/db'
 
 describe('isFetchParams type guard', () => {
   it('should return true for valid params with $id only', () => {
@@ -184,10 +182,10 @@ describe('Fetch Tool', () => {
 
       expect(result._relationships.length).toBe(2)
 
-      const placedRel = result._relationships.find((r: any) => r.predicate === 'placed')
+      const placedRel = result._relationships.find((r: unknown) => (r as { predicate: string }).predicate === 'placed')
       expect(placedRel.subject).toBe(customer.$id)
 
-      const employsRel = result._relationships.find((r: any) => r.predicate === 'employs')
+      const employsRel = result._relationships.find((r: unknown) => (r as { predicate: string }).predicate === 'employs')
       expect(employsRel.object).toBe(customer.$id)
     })
   })

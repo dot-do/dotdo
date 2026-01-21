@@ -1,14 +1,21 @@
 /**
  * @dotdo/testing - Test utilities and assertion helpers
  *
- * This module provides custom Vitest matchers for validating dotdo entities.
+ * This module provides custom Vitest matchers for validating dotdo entities
+ * and test isolation utilities to prevent shared state leaks.
  *
  * @example
  * ```typescript
- * import { setupEntityAssertions } from '@dotdo/testing'
+ * import { setupEntityAssertions, createIsolationHooks } from '@dotdo/testing'
+ * import { beforeEach, afterEach } from 'vitest'
  *
- * // Setup once (in vitest setup file or at start of test file)
+ * // Setup entity assertions once (in vitest setup file or at start of test file)
  * setupEntityAssertions()
+ *
+ * // Setup isolation hooks to verify no state leaks
+ * const { setupIsolation, verifyIsolation } = createIsolationHooks()
+ * beforeEach(setupIsolation)
+ * afterEach(verifyIsolation)
  *
  * // Use in tests
  * describe('My tests', () => {
@@ -34,6 +41,10 @@
  * @module testing
  */
 
+// ============================================================================
+// Entity Assertions
+// ============================================================================
+
 export {
   setupEntityAssertions,
   entityMatchers,
@@ -44,5 +55,31 @@ export {
   findRelationship
 } from './assertions'
 
-// Re-export types
+// Re-export assertion types
 export type { Thing, BaseThing, Relationship, Event } from './assertions'
+
+// ============================================================================
+// Test Isolation
+// ============================================================================
+
+export {
+  // Core isolation functions
+  takeGlobalStateSnapshot,
+  verifyIsolation,
+  resetGlobalState,
+
+  // Hooks for Vitest integration
+  createIsolationHooks,
+
+  // Utility functions
+  generateIsolatedTestId,
+  withIsolation,
+  trackStateChanges,
+} from './isolation'
+
+// Re-export isolation types
+export type {
+  GlobalStateSnapshot,
+  IsolationConfig,
+  IsolationViolation,
+} from './isolation'
