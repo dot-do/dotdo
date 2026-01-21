@@ -1,8 +1,9 @@
 // WebSocket Transport - Real-time bidirectional RPC transport
 // Used for long-lived connections with push capabilities
+// Supports event subscriptions for remote $.on handlers (do-9zknf)
 
 import { generateCorrelationId } from '../headers'
-import { type SerializedError } from '../errors'
+import { type SerializedError, ErrorCode } from '../errors'
 import type {
   Transport,
   TransportOptions,
@@ -11,13 +12,66 @@ import type {
   TransportState,
   TransportEvent,
   TransportEventListener,
+  ErrorInterceptor,
 } from './types'
+import {
+  createNetworkError,
+  createTimeoutError,
+  createErrorContext,
+  applyErrorInterceptor,
+  createNormalizedError,
+} from './error-utils'
 import {
   DEFAULT_RPC_TIMEOUT_MS,
   DEFAULT_RECONNECT_DELAY_MS,
   DEFAULT_MAX_RECONNECT_DELAY_MS,
   DEFAULT_MAX_RECONNECT_ATTEMPTS,
 } from '@dotdo/utils'
+
+/**
+ * Event handler type for remote event subscriptions
+ * Receives the event type and payload from the server
+ */
+export type RemoteEventHandler<T = unknown> = (event: { type: string; payload: T; $id: string; $timestamp: number }) => void | Promise<void>
+
+/**
+ * Event subscription message from client to server
+ */
+export interface EventSubscriptionMessage {
+  type: 'subscribe' | 'unsubscribe'
+  /** Event pattern to subscribe to (e.g., 'Customer.signup', 'Order.*', '*.created') */
+  event: string
+  /** Unique subscription ID for tracking */
+  subscriptionId: string
+}
+
+/**
+ * Event push message from server to client
+ */
+export interface EventPushMessage {
+  type: 'event'
+  /** Event type (e.g., 'Customer.signup') */
+  event: string
+  /** Event payload */
+  payload: unknown
+  /** Unique event ID */
+  $id: string
+  /** Event timestamp */
+  $timestamp: number
+}
+
+/**
+ * Subscription acknowledgment from server
+ */
+export interface SubscriptionAckMessage {
+  type: 'subscribed' | 'unsubscribed'
+  /** Subscription ID being acknowledged */
+  subscriptionId: string
+  /** Event pattern that was subscribed/unsubscribed */
+  event: string
+  /** Error if subscription failed */
+  error?: SerializedError
+}
 
 /**
  * Options for the WebSocket transport
@@ -51,7 +105,7 @@ interface PendingRequest {
 }
 
 /**
- * WebSocket message format
+ * WebSocket message format for RPC
  */
 interface WebSocketMessage {
   id: string
@@ -59,6 +113,20 @@ interface WebSocketMessage {
   args?: unknown[]
   result?: unknown
   error?: SerializedError
+}
+
+/**
+ * Combined message type for all WebSocket messages
+ */
+type WebSocketIncomingMessage = WebSocketMessage | EventPushMessage | SubscriptionAckMessage
+
+/**
+ * Tracked subscription for reconnection
+ */
+interface TrackedSubscription {
+  event: string
+  handler: RemoteEventHandler
+  subscriptionId: string
 }
 
 /**
@@ -111,6 +179,7 @@ export class WebSocketTransport implements Transport {
   private readonly WebSocketImpl: typeof WebSocket
   private readonly heartbeatInterval: number
   private readonly heartbeatTimeout: number
+  private readonly onError?: ErrorInterceptor
 
   private ws: WebSocket | null = null
   private state: TransportState = 'DISCONNECTED' as TransportState
@@ -122,6 +191,11 @@ export class WebSocketTransport implements Transport {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private heartbeatTimeoutTimer: ReturnType<typeof setTimeout> | null = null
   private lastPongTime: number = 0
+
+  // Event subscription tracking (do-9zknf)
+  private subscriptions = new Map<string, TrackedSubscription>()
+  private eventHandlers = new Map<string, Set<RemoteEventHandler>>()
+  private pendingSubscriptions = new Map<string, { resolve: () => void; reject: (error: Error) => void }>()
 
   constructor(options: WebSocketTransportOptions) {
     this.url = options.url
@@ -136,6 +210,7 @@ export class WebSocketTransport implements Transport {
     this.WebSocketImpl = options.WebSocket ?? globalThis.WebSocket
     this.heartbeatInterval = options.heartbeatInterval ?? 0
     this.heartbeatTimeout = options.heartbeatTimeout ?? (this.heartbeatInterval * 2)
+    this.onError = options.onError
   }
 
   /**
@@ -171,6 +246,14 @@ export class WebSocketTransport implements Transport {
         this.connectPromise = null
         this.startHeartbeat()
         this.emit({ type: 'connect' })
+
+        // Resubscribe to events after reconnection (do-9zknf)
+        if (this.subscriptions.size > 0) {
+          this.resubscribeAll().catch((err) => {
+            this.emit({ type: 'error', error: err instanceof Error ? err : new Error(String(err)) })
+          })
+        }
+
         resolve()
       }
 
@@ -233,12 +316,12 @@ export class WebSocketTransport implements Transport {
     for (const [id, request] of this.pendingRequests) {
       clearTimeout(request.timeout)
       // Use resolve with error response to be consistent with timeout behavior
+      const error = createNetworkError('WebSocket disconnected', 'websocket', {
+        endpoint: this.url,
+        reason: 'disconnected',
+      })
       request.resolve({
-        error: {
-          type: 'NetworkError',
-          code: 'NETWORK_ERROR',
-          message: 'WebSocket disconnected',
-        },
+        error,
         correlationId: id,
       })
     }
@@ -370,7 +453,7 @@ export class WebSocketTransport implements Transport {
    * Handle incoming WebSocket message
    */
   private handleMessage(data: string): void {
-    let message: WebSocketMessage
+    let message: WebSocketIncomingMessage
     try {
       message = JSON.parse(data)
     } catch {
@@ -378,22 +461,110 @@ export class WebSocketTransport implements Transport {
       return
     }
 
+    // Handle event push messages (do-9zknf)
+    if ('type' in message && message.type === 'event') {
+      this.handleEventPush(message as EventPushMessage)
+      return
+    }
+
+    // Handle subscription acknowledgments (do-9zknf)
+    if ('type' in message && (message.type === 'subscribed' || message.type === 'unsubscribed')) {
+      this.handleSubscriptionAck(message as SubscriptionAckMessage)
+      return
+    }
+
     // Handle response to pending request
-    const pending = this.pendingRequests.get(message.id)
+    const rpcMessage = message as WebSocketMessage
+    const pending = this.pendingRequests.get(rpcMessage.id)
     if (pending) {
       clearTimeout(pending.timeout)
-      this.pendingRequests.delete(message.id)
+      this.pendingRequests.delete(rpcMessage.id)
 
-      if (message.error) {
+      if (rpcMessage.error) {
         pending.resolve({
-          error: message.error,
-          correlationId: message.id,
+          error: rpcMessage.error,
+          correlationId: rpcMessage.id,
         })
       } else {
         pending.resolve({
-          result: message.result,
-          correlationId: message.id,
+          result: rpcMessage.result,
+          correlationId: rpcMessage.id,
         })
+      }
+    }
+  }
+
+  /**
+   * Handle incoming event push from server (do-9zknf)
+   */
+  private handleEventPush(message: EventPushMessage): void {
+    const eventType = message.event
+    const eventData = {
+      type: eventType,
+      payload: message.payload,
+      $id: message.$id,
+      $timestamp: message.$timestamp,
+    }
+
+    // Find all matching handlers (exact match and wildcards)
+    const handlersToInvoke: RemoteEventHandler[] = []
+
+    // Check exact match
+    const exactHandlers = this.eventHandlers.get(eventType)
+    if (exactHandlers) {
+      handlersToInvoke.push(...exactHandlers)
+    }
+
+    // Check noun wildcard (e.g., 'Customer.*' matches 'Customer.signup')
+    const [noun, verb] = eventType.split('.')
+    if (noun && verb) {
+      const nounWildHandlers = this.eventHandlers.get(`${noun}.*`)
+      if (nounWildHandlers) {
+        handlersToInvoke.push(...nounWildHandlers)
+      }
+
+      // Check verb wildcard (e.g., '*.signup' matches 'Customer.signup')
+      const verbWildHandlers = this.eventHandlers.get(`*.${verb}`)
+      if (verbWildHandlers) {
+        handlersToInvoke.push(...verbWildHandlers)
+      }
+    }
+
+    // Check global wildcard
+    const globalWildHandlers = this.eventHandlers.get('*.*')
+    if (globalWildHandlers) {
+      handlersToInvoke.push(...globalWildHandlers)
+    }
+
+    // Invoke all handlers
+    for (const handler of handlersToInvoke) {
+      try {
+        const result = handler(eventData)
+        // Handle async handlers - errors are logged but don't propagate
+        if (result instanceof Promise) {
+          result.catch((err) => {
+            // Silently handle handler errors - emit error event for debugging
+            this.emit({ type: 'error', error: err instanceof Error ? err : new Error(String(err)) })
+          })
+        }
+      } catch (err) {
+        // Silently handle handler errors - emit error event for debugging
+        this.emit({ type: 'error', error: err instanceof Error ? err : new Error(String(err)) })
+      }
+    }
+  }
+
+  /**
+   * Handle subscription acknowledgment from server (do-9zknf)
+   */
+  private handleSubscriptionAck(message: SubscriptionAckMessage): void {
+    const pending = this.pendingSubscriptions.get(message.subscriptionId)
+    if (pending) {
+      this.pendingSubscriptions.delete(message.subscriptionId)
+      if (message.error) {
+        pending.reject(new Error(message.error.message))
+      } else {
+        pending.resolve()
       }
     }
   }
@@ -415,41 +586,79 @@ export class WebSocketTransport implements Transport {
    * Send an RPC message via WebSocket
    */
   async send<T = unknown>(message: RPCMessage): Promise<RPCResponse<T>> {
+    const startTime = Date.now()
+
     // Ensure connected
     await this.connect()
 
+    const correlationId = message.correlationId ?? this.baseCorrelationId ?? generateCorrelationId()
+
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      const correlationId = message.correlationId ?? this.baseCorrelationId ?? generateCorrelationId()
+      const error = createNetworkError('WebSocket not connected', 'websocket', {
+        endpoint: this.url,
+        reason: 'not_connected',
+      })
+
+      // Apply error interceptor
+      const context = createErrorContext({
+        transportType: 'websocket',
+        message,
+        correlationId,
+        error,
+        endpoint: this.url,
+        startTime,
+      })
+      const finalError = applyErrorInterceptor(error, context, this.onError)
+
       return {
-        error: {
-          type: 'NetworkError',
-          code: 'NETWORK_ERROR',
-          message: 'WebSocket not connected',
-        },
+        error: finalError,
         correlationId,
       }
     }
 
-    const id = message.correlationId ?? this.baseCorrelationId ?? generateCorrelationId()
+    const id = correlationId
 
     return new Promise<RPCResponse<T>>((resolve, reject) => {
       // Set up timeout
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(id)
+
+        const error = createTimeoutError(this.timeout, 'websocket')
+
+        // Apply error interceptor
+        const context = createErrorContext({
+          transportType: 'websocket',
+          message,
+          correlationId: id,
+          error,
+          endpoint: this.url,
+          startTime,
+        })
+        const finalError = applyErrorInterceptor(error, context, this.onError)
+
         resolve({
-          error: {
-            type: 'TimeoutError',
-            code: 'TIMEOUT',
-            message: `Request timed out after ${this.timeout}ms`,
-            details: { timeout: this.timeout },
-          },
+          error: finalError,
           correlationId: id,
         })
       }, this.timeout)
 
-      // Store pending request - cast resolve to handle generic type covariance
+      // Store pending request - wrap resolve to apply error interceptor
       this.pendingRequests.set(id, {
-        resolve: resolve as (response: RPCResponse<unknown>) => void,
+        resolve: (response: RPCResponse<unknown>) => {
+          // Apply error interceptor for server errors
+          if (response.error && this.onError) {
+            const context = createErrorContext({
+              transportType: 'websocket',
+              message,
+              correlationId: id,
+              error: response.error,
+              endpoint: this.url,
+              startTime,
+            })
+            response.error = applyErrorInterceptor(response.error, context, this.onError)
+          }
+          resolve(response as RPCResponse<T>)
+        },
         reject,
         timeout,
       })
@@ -462,20 +671,34 @@ export class WebSocketTransport implements Transport {
       }
 
       try {
-        // ws is guaranteed to be non-null here because we checked at line 296
-        // and the connect() call at line 294 would have failed if ws was null
+        // ws is guaranteed to be non-null here because we checked above
+        // and the connect() call would have failed if ws was null
         if (this.ws) {
           this.ws.send(JSON.stringify(wsMessage))
         }
       } catch (error) {
         clearTimeout(timeout)
         this.pendingRequests.delete(id)
+
+        const networkError = createNetworkError('Failed to send WebSocket message', 'websocket', {
+          endpoint: this.url,
+          reason: 'send_failed',
+          originalError: error instanceof Error ? error.name : 'Unknown',
+        })
+
+        // Apply error interceptor
+        const context = createErrorContext({
+          transportType: 'websocket',
+          message,
+          correlationId: id,
+          error: networkError,
+          endpoint: this.url,
+          startTime,
+        })
+        const finalError = applyErrorInterceptor(networkError, context, this.onError)
+
         resolve({
-          error: {
-            type: 'NetworkError',
-            code: 'NETWORK_ERROR',
-            message: 'Failed to send WebSocket message',
-          },
+          error: finalError,
           correlationId: id,
         })
       }
@@ -503,6 +726,14 @@ export class WebSocketTransport implements Transport {
       request.reject(new Error('Transport closed'))
     }
     this.pendingRequests.clear()
+
+    // Clear subscriptions (do-9zknf)
+    this.subscriptions.clear()
+    this.eventHandlers.clear()
+    for (const pending of this.pendingSubscriptions.values()) {
+      pending.reject(new Error('Transport closed'))
+    }
+    this.pendingSubscriptions.clear()
 
     // Close WebSocket
     if (this.ws) {
@@ -534,6 +765,199 @@ export class WebSocketTransport implements Transport {
    */
   isConnected(): boolean {
     return this.state === ('CONNECTED' as TransportState) && this.ws?.readyState === WebSocket.OPEN
+  }
+
+  /**
+   * Subscribe to remote events (do-9zknf)
+   *
+   * Subscribes to events matching the given pattern. The handler will be called
+   * whenever a matching event is pushed from the server.
+   *
+   * @param eventPattern - Event pattern to subscribe to (e.g., 'Customer.signup', 'Order.*')
+   * @param handler - Handler function to call when matching events are received
+   * @returns Promise that resolves when subscription is acknowledged, with an unsubscribe function
+   *
+   * @example
+   * ```typescript
+   * const transport = new WebSocketTransport({ url: 'wss://api.example.com/ws' })
+   *
+   * // Subscribe to specific events
+   * const unsubscribe = await transport.subscribe('Customer.signup', (event) => {
+   *   console.log('Customer signed up:', event.payload)
+   * })
+   *
+   * // Subscribe to all Order events
+   * await transport.subscribe('Order.*', (event) => {
+   *   console.log('Order event:', event.type, event.payload)
+   * })
+   *
+   * // Later, unsubscribe
+   * await unsubscribe()
+   * ```
+   */
+  async subscribe<T = unknown>(
+    eventPattern: string,
+    handler: RemoteEventHandler<T>
+  ): Promise<() => Promise<void>> {
+    // Ensure connected
+    await this.connect()
+
+    const subscriptionId = generateCorrelationId()
+
+    // Track the subscription for reconnection
+    this.subscriptions.set(subscriptionId, {
+      event: eventPattern,
+      handler: handler as RemoteEventHandler,
+      subscriptionId,
+    })
+
+    // Track the handler for event dispatch
+    let handlers = this.eventHandlers.get(eventPattern)
+    if (!handlers) {
+      handlers = new Set()
+      this.eventHandlers.set(eventPattern, handlers)
+    }
+    handlers.add(handler as RemoteEventHandler)
+
+    // Send subscription message
+    const subscribeMessage: EventSubscriptionMessage = {
+      type: 'subscribe',
+      event: eventPattern,
+      subscriptionId,
+    }
+
+    // Wait for acknowledgment
+    await this.sendSubscriptionMessage(subscribeMessage, subscriptionId)
+
+    // Return unsubscribe function
+    return async () => {
+      await this.unsubscribe(subscriptionId)
+    }
+  }
+
+  /**
+   * Unsubscribe from remote events (do-9zknf)
+   *
+   * @param subscriptionId - The subscription ID to unsubscribe
+   */
+  private async unsubscribe(subscriptionId: string): Promise<void> {
+    const subscription = this.subscriptions.get(subscriptionId)
+    if (!subscription) {
+      return
+    }
+
+    // Remove from tracking
+    this.subscriptions.delete(subscriptionId)
+
+    // Remove handler
+    const handlers = this.eventHandlers.get(subscription.event)
+    if (handlers) {
+      handlers.delete(subscription.handler)
+      if (handlers.size === 0) {
+        this.eventHandlers.delete(subscription.event)
+      }
+    }
+
+    // Only send unsubscribe if still connected
+    if (!this.isConnected()) {
+      return
+    }
+
+    // Send unsubscribe message
+    const unsubscribeMessage: EventSubscriptionMessage = {
+      type: 'unsubscribe',
+      event: subscription.event,
+      subscriptionId,
+    }
+
+    try {
+      await this.sendSubscriptionMessage(unsubscribeMessage, subscriptionId)
+    } catch {
+      // Ignore errors during unsubscribe - connection may have closed
+    }
+  }
+
+  /**
+   * Send a subscription message and wait for acknowledgment (do-9zknf)
+   */
+  private sendSubscriptionMessage(
+    message: EventSubscriptionMessage,
+    subscriptionId: string
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        reject(new Error('WebSocket not connected'))
+        return
+      }
+
+      // Set up timeout
+      const timeout = setTimeout(() => {
+        this.pendingSubscriptions.delete(subscriptionId)
+        reject(new Error(`Subscription request timed out after ${this.timeout}ms`))
+      }, this.timeout)
+
+      // Track pending subscription
+      this.pendingSubscriptions.set(subscriptionId, {
+        resolve: () => {
+          clearTimeout(timeout)
+          resolve()
+        },
+        reject: (error) => {
+          clearTimeout(timeout)
+          reject(error)
+        },
+      })
+
+      // Send message
+      try {
+        this.ws.send(JSON.stringify(message))
+      } catch (error) {
+        clearTimeout(timeout)
+        this.pendingSubscriptions.delete(subscriptionId)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+    })
+  }
+
+  /**
+   * Resubscribe to all tracked subscriptions after reconnection (do-9zknf)
+   */
+  private async resubscribeAll(): Promise<void> {
+    const subscriptionsToRestore = Array.from(this.subscriptions.values())
+
+    for (const subscription of subscriptionsToRestore) {
+      const subscribeMessage: EventSubscriptionMessage = {
+        type: 'subscribe',
+        event: subscription.event,
+        subscriptionId: subscription.subscriptionId,
+      }
+
+      try {
+        await this.sendSubscriptionMessage(subscribeMessage, subscription.subscriptionId)
+      } catch (err) {
+        // Log but don't fail - subscription may succeed on next reconnect
+        this.emit({ type: 'error', error: err instanceof Error ? err : new Error(String(err)) })
+      }
+    }
+  }
+
+  /**
+   * Get all active subscriptions (do-9zknf)
+   *
+   * @returns Array of active subscription event patterns
+   */
+  getSubscriptions(): string[] {
+    return Array.from(this.subscriptions.values()).map((s) => s.event)
+  }
+
+  /**
+   * Check if subscribed to a specific event pattern (do-9zknf)
+   *
+   * @param eventPattern - Event pattern to check
+   * @returns True if subscribed to this pattern
+   */
+  isSubscribed(eventPattern: string): boolean {
+    return Array.from(this.subscriptions.values()).some((s) => s.event === eventPattern)
   }
 }
 

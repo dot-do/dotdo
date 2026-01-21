@@ -19,6 +19,19 @@ import type {
   DefineEntities,
   TypedWorkflowContextWithEntities,
 } from '../workflow/entity'
+import type {
+  InferEntity,
+  InferSchema,
+  TypedDB,
+  CreateInput,
+  UpdateInput,
+  InferFieldType,
+  InferRelationType,
+  TypedEntityAccessor as SchemaTypedEntityAccessor,
+  TypedEntityInstance as SchemaTypedEntityInstance,
+  TypedEntityProxy as SchemaTypedEntityProxy,
+} from '../schema/infer'
+import type { WorkflowContext } from '../workflow/types'
 
 // =============================================================================
 // ENTITY SCHEMA DEFINITIONS FOR TESTING
@@ -485,6 +498,336 @@ describe('Entity Type Narrowing (do-b1tuz)', () => {
       expect(order.items.length).toBe(2)
       expect(order.items[0].productId).toBe('prod-1')
       expect(order.items[0].quantity).toBe(2)
+    })
+  })
+
+  // =============================================================================
+  // SCHEMA-BASED TYPE INFERENCE TESTS (do-b1tuz GREEN phase)
+  // =============================================================================
+
+  describe('Schema-based type inference (TypedDB)', () => {
+    /**
+     * Define a schema using `as const` for literal type inference.
+     * This is the recommended pattern for type-safe entity definitions.
+     */
+    const productSchema = {
+      Product: {
+        sku: 'string!#',
+        name: 'string!',
+        price: 'decimal(10,2)!',
+        description: 'string?',
+        inStock: 'boolean!',
+        tags: 'string[]',
+      },
+      Vendor: {
+        name: 'string!',
+        email: 'string!#',
+        active: 'boolean!',
+      },
+    } as const
+
+    it('InferEntity should correctly infer entity types from schema', () => {
+      // InferEntity<typeof productSchema, 'Product'> should infer:
+      // {
+      //   $id: string
+      //   $type: 'Product'
+      //   sku: string       (required)
+      //   name: string      (required)
+      //   price: number     (required, decimal -> number)
+      //   description?: string (optional)
+      //   inStock: boolean  (required)
+      //   tags?: string[]   (optional array)
+      // }
+
+      type Product = InferEntity<typeof productSchema, 'Product'>
+
+      // Verify the inferred type has correct structure
+      const _product: Product = {
+        $id: 'prod-123',
+        $type: 'Product',
+        sku: 'SKU-001',
+        name: 'Widget',
+        price: 9.99,
+        inStock: true,
+        // description and tags are optional
+      }
+
+      // Type narrowing: verify property types
+      const _sku: string = _product.sku
+      const _name: string = _product.name
+      const _price: number = _product.price
+      const _inStock: boolean = _product.inStock
+
+      expect(_product.$id).toBe('prod-123')
+      expect(_product.$type).toBe('Product')
+      expect(_sku).toBe('SKU-001')
+      expect(_price).toBe(9.99)
+    })
+
+    it('InferSchema should infer all entity types', () => {
+      // InferSchema<typeof productSchema> should produce:
+      // {
+      //   Product: { $id, $type, sku, name, price, ... }
+      //   Vendor: { $id, $type, name, email, active }
+      // }
+
+      type Schema = InferSchema<typeof productSchema>
+      type Product = Schema['Product']
+      type Vendor = Schema['Vendor']
+
+      const _product: Product = {
+        $id: 'prod-1',
+        $type: 'Product',
+        sku: 'SKU',
+        name: 'Widget',
+        price: 10,
+        inStock: true,
+      }
+
+      const _vendor: Vendor = {
+        $id: 'vendor-1',
+        $type: 'Vendor',
+        name: 'Acme Corp',
+        email: 'contact@acme.com',
+        active: true,
+      }
+
+      expect(_product.$type).toBe('Product')
+      expect(_vendor.$type).toBe('Vendor')
+    })
+
+    it('TypedDB should create typed entity accessors from schema', () => {
+      // TypedDB<typeof productSchema> should produce:
+      // {
+      //   Product: TypedEntityProxy<InferEntity<Schema, 'Product'>>
+      //   Vendor: TypedEntityProxy<InferEntity<Schema, 'Vendor'>>
+      // }
+
+      type DB = TypedDB<typeof productSchema>
+
+      // Verify Product accessor type
+      type ProductProxy = DB['Product']
+      type ProductCreateParam = Parameters<ProductProxy['create']>[0]
+
+      // CreateInput<Product> omits $id, $type, timestamps
+      const _createData: ProductCreateParam = {
+        sku: 'SKU-001',
+        name: 'Widget',
+        price: 9.99,
+        inStock: true,
+      }
+
+      expect(_createData.sku).toBe('SKU-001')
+    })
+
+    it('CreateInput should omit system fields from entity type', () => {
+      type Product = InferEntity<typeof productSchema, 'Product'>
+      type ProductCreate = CreateInput<Product>
+
+      // ProductCreate should NOT have $id, $type, $createdAt, $updatedAt
+      // It should have all the data fields
+
+      const _create: ProductCreate = {
+        sku: 'SKU',
+        name: 'Name',
+        price: 10,
+        inStock: true,
+        // Optional fields can be omitted
+      }
+
+      // @ts-expect-error - $id should not be in CreateInput
+      const _withId: ProductCreate = {
+        $id: 'bad',
+        sku: 'SKU',
+        name: 'Name',
+        price: 10,
+        inStock: true,
+      }
+
+      expect(_create.sku).toBe('SKU')
+    })
+
+    it('UpdateInput should make all fields optional except system fields', () => {
+      type Product = InferEntity<typeof productSchema, 'Product'>
+      type ProductUpdate = UpdateInput<Product>
+
+      // UpdateInput<Product> should have all fields optional
+      const _update1: ProductUpdate = { price: 14.99 }
+      const _update2: ProductUpdate = { inStock: false, name: 'New Name' }
+      const _update3: ProductUpdate = {} // Empty update is valid
+
+      expect(_update1.price).toBe(14.99)
+      expect(_update2.inStock).toBe(false)
+    })
+
+    it('InferFieldType should correctly map field definition strings', () => {
+      // Test various field type inferences
+      type RequiredString = InferFieldType<'string!'>
+      type OptionalString = InferFieldType<'string?'>
+      type StringArray = InferFieldType<'string[]'>
+      type DecimalType = InferFieldType<'decimal(10,2)!'>
+      type BooleanType = InferFieldType<'boolean!'>
+      type DateType = InferFieldType<'datetime!'>
+
+      // These should all compile correctly
+      const _reqStr: RequiredString = 'hello'
+      const _optStr: OptionalString = undefined
+      const _strArr: StringArray = ['a', 'b']
+      const _decimal: DecimalType = 123.45
+      const _bool: BooleanType = true
+      const _date: DateType = new Date()
+
+      expect(_reqStr).toBe('hello')
+      expect(_optStr).toBeUndefined()
+      expect(_strArr).toEqual(['a', 'b'])
+    })
+
+    it('Combined WorkflowContext & TypedDB should provide full type safety', () => {
+      // This is the target usage pattern for $.Entity accessors
+      type TypedContext = WorkflowContext & TypedDB<typeof productSchema>
+
+      // Simulate the type of $ with typed entities
+      type ProductAccessor = TypedContext['Product']
+
+      // Verify create returns the correct type
+      type CreateReturn = Awaited<ReturnType<ProductAccessor['create']>>
+
+      const _created: CreateReturn = {
+        $id: 'prod-1',
+        $type: 'Product',
+        sku: 'SKU',
+        name: 'Widget',
+        price: 10,
+        inStock: true,
+      }
+
+      // Verify instance accessor returns correct type
+      type InstanceGet = Awaited<ReturnType<ReturnType<ProductAccessor>['get']>>
+
+      const _retrieved: NonNullable<InstanceGet> = {
+        $id: 'prod-1',
+        $type: 'Product',
+        sku: 'SKU',
+        name: 'Widget',
+        price: 10,
+        inStock: true,
+      }
+
+      expect(_created.$type).toBe('Product')
+      expect(_retrieved.sku).toBe('SKU')
+    })
+  })
+
+  describe('Relation type inference', () => {
+    const schemaWithRelations = {
+      Order: {
+        orderNumber: 'string!#',
+        total: 'decimal(10,2)!',
+        customer: '-> Customer!',
+        items: '<- OrderItem.order[]',
+      },
+      Customer: {
+        email: 'string!#',
+        name: 'string!',
+        orders: '<- Order.customer[]',
+      },
+      OrderItem: {
+        quantity: 'int!',
+        price: 'decimal(10,2)!',
+        order: '-> Order!',
+        product: '-> Product?',
+      },
+      Product: {
+        sku: 'string!#',
+        name: 'string!',
+      },
+    } as const
+
+    it('InferRelationType should resolve forward relations', () => {
+      // Forward relation: -> Customer! should resolve to Customer type
+      type CustomerRef = InferRelationType<typeof schemaWithRelations, '-> Customer!'>
+
+      // This should be the Customer entity type
+      const _customer: CustomerRef = {
+        $id: 'cust-1',
+        $type: 'Customer',
+        email: 'test@example.com',
+        name: 'Test User',
+      }
+
+      expect(_customer.email).toBe('test@example.com')
+    })
+
+    it('InferRelationType should handle optional relations', () => {
+      // Optional relation: -> Product? should resolve to Product | undefined
+      type ProductRef = InferRelationType<typeof schemaWithRelations, '-> Product?'>
+
+      const _withProduct: ProductRef = {
+        $id: 'prod-1',
+        $type: 'Product',
+        sku: 'SKU-001',
+        name: 'Widget',
+      }
+
+      const _withoutProduct: ProductRef = undefined
+
+      expect(_withProduct).toBeDefined()
+      expect(_withoutProduct).toBeUndefined()
+    })
+
+    it('InferRelationType should handle array relations', () => {
+      // Array relation: <- OrderItem.order[] should resolve to OrderItem[]
+      type OrderItems = InferRelationType<typeof schemaWithRelations, '<- OrderItem.order[]'>
+
+      const _items: OrderItems = [
+        {
+          $id: 'item-1',
+          $type: 'OrderItem',
+          quantity: 2,
+          price: 9.99,
+        },
+        {
+          $id: 'item-2',
+          $type: 'OrderItem',
+          quantity: 1,
+          price: 19.99,
+        },
+      ]
+
+      expect(_items.length).toBe(2)
+      expect(_items[0].quantity).toBe(2)
+    })
+
+    it('InferEntity should include relation fields with correct types', () => {
+      type Order = InferEntity<typeof schemaWithRelations, 'Order'>
+
+      // Order should have:
+      // - customer: Customer (required forward relation)
+      // - items: OrderItem[] (backward array relation)
+
+      const _order: Order = {
+        $id: 'order-1',
+        $type: 'Order',
+        orderNumber: 'ORD-001',
+        total: 99.99,
+        customer: {
+          $id: 'cust-1',
+          $type: 'Customer',
+          email: 'test@example.com',
+          name: 'Test',
+        },
+        items: [
+          {
+            $id: 'item-1',
+            $type: 'OrderItem',
+            quantity: 1,
+            price: 99.99,
+          },
+        ],
+      }
+
+      expect(_order.customer.email).toBe('test@example.com')
+      expect(_order.items?.[0]?.quantity).toBe(1)
     })
   })
 })

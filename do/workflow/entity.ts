@@ -13,6 +13,7 @@
  */
 
 import type { ThingsStore, Thing, StorableData } from '@dotdo/db'
+import type { EntitySchema as UnifiedEntitySchema } from '../schema/types'
 
 /**
  * Schema definition for an entity type.
@@ -80,8 +81,10 @@ export type EntityProxy<T extends StorableData = StorableData> =
 export interface EntityProxyConfig {
   /** The things store to delegate to */
   things: ThingsStore
-  /** Schema registry */
+  /** Schema registry (legacy format) */
   schemas: Map<string, EntitySchema>
+  /** Unified entity schemas with relation definitions and AI field support (optional) */
+  unifiedSchemas?: Map<string, UnifiedEntitySchema>
 }
 
 /**

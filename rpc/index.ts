@@ -111,3 +111,10 @@ export * from './headers'
  * Enables pluggable transports (fetch, WebSocket, etc.)
  */
 export * from './transport'
+
+/**
+ * WebSocket event streaming for remote $.on subscriptions.
+ * Enables real-time event push from server to client.
+ * @see do-9zknf
+ */
+export * from './websocket-events'
