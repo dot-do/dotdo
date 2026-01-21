@@ -8,6 +8,8 @@ export * from './providers'
 export * from './router'
 export * from './stream'
 export * from './tracking'
+export * from './fallback'
+
 // Export tokens module items that don't conflict with tracking
 export {
   countMessageTokens,

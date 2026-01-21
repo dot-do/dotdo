@@ -111,7 +111,7 @@ export interface FireAndForgetErrorStore {
   /**
    * Get a specific error by ID
    */
-  get(id: string): FireAndForgetError | null
+  get(id: string): FireAndForgetError | null | Promise<FireAndForgetError | null>
 
   /**
    * Mark an error as recovered
@@ -710,7 +710,7 @@ export interface RetryQueue {
   /**
    * Get a specific retry item
    */
-  get(id: string): RetryQueueItem | null
+  get(id: string): RetryQueueItem | null | Promise<RetryQueueItem | null>
 
   /**
    * Query items in the retry queue
@@ -737,12 +737,12 @@ export interface RetryQueue {
   /**
    * Mark an item as succeeded
    */
-  markSucceeded(id: string): void
+  markSucceeded(id: string): void | Promise<void>
 
   /**
    * Mark an item as failed (will be retried if attempts < maxAttempts)
    */
-  markFailed(id: string, error: string): void
+  markFailed(id: string, error: string): void | Promise<void>
 
   /**
    * Remove an item from the queue
@@ -868,7 +868,7 @@ export function createInMemoryRetryQueue(
     },
 
     async processItem(id) {
-      const item = items.get(id)
+      const item = await this.get(id)
       if (!item) return false
       if (item.status !== 'pending') return false
 
@@ -884,11 +884,11 @@ export function createInMemoryRetryQueue(
           throw new Error('No handler function available for retry')
         }
 
-        this.markSucceeded(id)
+        await this.markSucceeded(id)
         return true
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        this.markFailed(id, message)
+        await this.markFailed(id, message)
         return false
       }
     },
@@ -905,8 +905,8 @@ export function createInMemoryRetryQueue(
       return { processed: ready.length, succeeded }
     },
 
-    markSucceeded(id) {
-      const item = items.get(id)
+    async markSucceeded(id) {
+      const item = await this.get(id)
       if (!item) return
 
       item.status = 'succeeded'
@@ -915,8 +915,8 @@ export function createInMemoryRetryQueue(
       errorStore.markRecovered(item.errorId)
     },
 
-    markFailed(id, error) {
-      const item = items.get(id)
+    async markFailed(id, error) {
+      const item = await this.get(id)
       if (!item) return
 
       item.lastError = error
@@ -1135,7 +1135,7 @@ export function createSQLiteRetryQueue(
     },
 
     async processItem(id) {
-      const item = this.get(id)
+      const item = await this.get(id)
       if (!item) return false
       if (item.status !== 'pending') return false
 
@@ -1153,11 +1153,11 @@ export function createSQLiteRetryQueue(
           throw new Error('No handler function available for retry')
         }
 
-        this.markSucceeded(id)
+        await this.markSucceeded(id)
         return true
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        this.markFailed(id, message)
+        await this.markFailed(id, message)
         return false
       }
     },
@@ -1174,12 +1174,12 @@ export function createSQLiteRetryQueue(
       return { processed: ready.length, succeeded }
     },
 
-    markSucceeded(id) {
+    async markSucceeded(id) {
       sql.prepare(`UPDATE retry_queue SET status = 'succeeded' WHERE id = ?`)
         .bind(id)
         .run()
 
-      const item = this.get(id)
+      const item = await this.get(id)
       if (item) {
         errorStore.markRecovered(item.errorId)
       }
@@ -1188,12 +1188,12 @@ export function createSQLiteRetryQueue(
       handlerFns.delete(id)
     },
 
-    markFailed(id, error) {
-      const item = this.get(id)
+    async markFailed(id, error) {
+      const item = await this.get(id)
       if (!item) return
 
       // Get current attempts from DB (already incremented during processItem)
-      const row = sql.prepare('SELECT attempts FROM retry_queue WHERE id = ?').bind(id).first()
+      const row = sql.prepare('SELECT attempts FROM retry_queue WHERE id = ?').bind(id).first() as Record<string, unknown> | null
       const attempts = (row?.attempts as number) || item.attempts
 
       if (attempts >= item.maxAttempts) {
