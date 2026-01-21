@@ -290,7 +290,7 @@ function createClient(mf: Miniflare) {
     },
 
     async getThing(id: string) {
-      const response = await mf.dispatchFetch(\`http://localhost/things/\${id}\`)
+      const response = await mf.dispatchFetch(`http://localhost/things/${id}`)
       return { status: response.status, data: await response.json() }
     },
 
@@ -300,7 +300,7 @@ function createClient(mf: Miniflare) {
     },
 
     async deleteThing(id: string) {
-      const response = await mf.dispatchFetch(\`http://localhost/things/\${id}\`, {
+      const response = await mf.dispatchFetch(`http://localhost/things/${id}`, {
         method: 'DELETE',
       })
       return response.status
@@ -339,7 +339,7 @@ describe('E2E Storage Persistence Tests', () => {
 
   describe('Basic Storage Operations', () => {
     it('should store and retrieve values', async () => {
-      const key = \`test-key-\${Date.now()}\`
+      const key = `test-key-${Date.now()}`
       const value = { message: 'Hello, World!', timestamp: Date.now() }
 
       // Store
@@ -363,17 +363,17 @@ describe('E2E Storage Persistence Tests', () => {
       ]
 
       for (const { key, value } of testCases) {
-        await client.put(\`types-\${key}\`, value)
+        await client.put(`types-${key}`, value)
       }
 
       for (const { key, value } of testCases) {
-        const result = await client.get(\`types-\${key}\`)
+        const result = await client.get(`types-${key}`)
         expect(result.value).toEqual(value)
       }
     })
 
     it('should delete values', async () => {
-      const key = \`delete-test-\${Date.now()}\`
+      const key = `delete-test-${Date.now()}`
 
       // Store
       await client.put(key, { data: 'temporary' })
@@ -440,18 +440,18 @@ describe('E2E Storage Persistence Tests', () => {
     })
 
     it('should list all stored keys', async () => {
-      const prefix = \`list-test-\${Date.now()}\`
+      const prefix = `list-test-${Date.now()}`
 
       // Store some values
-      await client.put(\`\${prefix}-1\`, 'a')
-      await client.put(\`\${prefix}-2\`, 'b')
-      await client.put(\`\${prefix}-3\`, 'c')
+      await client.put(`${prefix}-1`, 'a')
+      await client.put(`${prefix}-2`, 'b')
+      await client.put(`${prefix}-3`, 'c')
 
       const list = await client.list()
 
-      expect(list[\`\${prefix}-1\`]).toBe('a')
-      expect(list[\`\${prefix}-2\`]).toBe('b')
-      expect(list[\`\${prefix}-3\`]).toBe('c')
+      expect(list[`${prefix}-1`]).toBe('a')
+      expect(list[`${prefix}-2`]).toBe('b')
+      expect(list[`${prefix}-3`]).toBe('c')
     })
   })
 
@@ -460,9 +460,9 @@ describe('E2E Storage Persistence Tests', () => {
       const txId = Date.now().toString(36)
 
       const operations = [
-        { type: 'put' as const, key: \`tx-\${txId}-1\`, value: 'value1' },
-        { type: 'put' as const, key: \`tx-\${txId}-2\`, value: 'value2' },
-        { type: 'put' as const, key: \`tx-\${txId}-3\`, value: 'value3' },
+        { type: 'put' as const, key: `tx-${txId}-1`, value: 'value1' },
+        { type: 'put' as const, key: `tx-${txId}-2`, value: 'value2' },
+        { type: 'put' as const, key: `tx-${txId}-3`, value: 'value3' },
       ]
 
       const result = await client.transaction(operations)
@@ -481,13 +481,13 @@ describe('E2E Storage Persistence Tests', () => {
       const txId = Date.now().toString(36)
 
       // Pre-populate some keys
-      await client.put(\`tx-del-\${txId}-1\`, 'old1')
-      await client.put(\`tx-del-\${txId}-2\`, 'old2')
+      await client.put(`tx-del-${txId}-1`, 'old1')
+      await client.put(`tx-del-${txId}-2`, 'old2')
 
       const operations = [
-        { type: 'delete' as const, key: \`tx-del-\${txId}-1\` },
-        { type: 'put' as const, key: \`tx-del-\${txId}-2\`, value: 'new2' },
-        { type: 'put' as const, key: \`tx-del-\${txId}-3\`, value: 'new3' },
+        { type: 'delete' as const, key: `tx-del-${txId}-1` },
+        { type: 'put' as const, key: `tx-del-${txId}-2`, value: 'new2' },
+        { type: 'put' as const, key: `tx-del-${txId}-3`, value: 'new3' },
       ]
 
       const result = await client.transaction(operations)
@@ -497,13 +497,13 @@ describe('E2E Storage Persistence Tests', () => {
       expect(result.deleted).toBe(1)
 
       // Verify state
-      const key1 = await client.get(\`tx-del-\${txId}-1\`)
+      const key1 = await client.get(`tx-del-${txId}-1`)
       expect(key1.exists).toBe(false)
 
-      const key2 = await client.get(\`tx-del-\${txId}-2\`)
+      const key2 = await client.get(`tx-del-${txId}-2`)
       expect(key2.value).toBe('new2')
 
-      const key3 = await client.get(\`tx-del-\${txId}-3\`)
+      const key3 = await client.get(`tx-del-${txId}-3`)
       expect(key3.value).toBe('new3')
     })
   })
@@ -546,7 +546,7 @@ describe('E2E Storage Persistence Tests', () => {
     it('should handle rapid index updates', async () => {
       // Create many things rapidly
       const promises = Array.from({ length: 20 }, (_, i) =>
-        client.createThing({ name: \`Rapid Thing \${i}\` })
+        client.createThing({ name: `Rapid Thing ${i}` })
       )
 
       const created = await Promise.all(promises)
@@ -564,7 +564,7 @@ describe('E2E Storage Persistence Tests', () => {
 
   describe('Data Persistence', () => {
     it('should persist data across multiple requests', async () => {
-      const key = \`persist-test-\${Date.now()}\`
+      const key = `persist-test-${Date.now()}`
       const value = { persistent: true, timestamp: Date.now() }
 
       // Store
@@ -578,11 +578,11 @@ describe('E2E Storage Persistence Tests', () => {
     })
 
     it('should handle large data payloads', async () => {
-      const key = \`large-data-\${Date.now()}\`
+      const key = `large-data-${Date.now()}`
       const largeValue = {
         items: Array.from({ length: 1000 }, (_, i) => ({
           id: i,
-          name: \`Item \${i}\`,
+          name: `Item ${i}`,
           data: 'x'.repeat(100),
         })),
       }
@@ -596,18 +596,18 @@ describe('E2E Storage Persistence Tests', () => {
     })
 
     it('should maintain data integrity under concurrent operations', async () => {
-      const prefix = \`concurrent-\${Date.now()}\`
+      const prefix = `concurrent-${Date.now()}`
 
       // Concurrent writes to different keys
       const writePromises = Array.from({ length: 10 }, (_, i) =>
-        client.put(\`\${prefix}-\${i}\`, { index: i, timestamp: Date.now() })
+        client.put(`${prefix}-${i}`, { index: i, timestamp: Date.now() })
       )
 
       await Promise.all(writePromises)
 
       // Concurrent reads
       const readPromises = Array.from({ length: 10 }, (_, i) =>
-        client.get(\`\${prefix}-\${i}\`)
+        client.get(`${prefix}-${i}`)
       )
 
       const results = await Promise.all(readPromises)
