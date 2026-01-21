@@ -23,6 +23,7 @@ export default defineConfig({
       'tests/persistence.test.ts',
       'tests/storage-persistence.test.ts',
       'tests/miniflare-integration.test.ts',
+      'tests/error-recovery-edge-cases.test.ts',
     ],
 
     // Standard exclusions
