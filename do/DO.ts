@@ -32,6 +32,9 @@ import { WebSocketHandler } from './handlers/websocket'
 import { AlarmHandler } from './handlers/alarm'
 import { DOHandlerRegistry } from './handlers/registry'
 
+// Import WebSocket event streaming (do-9zknf)
+import { WebSocketEventStreaming, createWebSocketEventStreaming } from './websocket-streaming'
+
 // Import type generation
 import { generateTypes, type TypeGenOptions, type TypeGenResult } from './types-gen'
 
@@ -98,6 +101,9 @@ export class DO implements DurableObject {
   private readonly websocketHandler: WebSocketHandler
   private readonly alarmHandler: AlarmHandler
 
+  // WebSocket event streaming for remote $ context subscriptions (do-9zknf)
+  private readonly wsEventStreaming: WebSocketEventStreaming
+
   // Integration registry
   private _integrations: IntegrationRegistry
 
@@ -146,6 +152,13 @@ export class DO implements DurableObject {
         })
       },
     })
+
+    // Initialize WebSocket event streaming for remote $ context subscriptions (do-9zknf)
+    // This connects the WebSocket manager to the events store for automatic event pushing
+    this.wsEventStreaming = createWebSocketEventStreaming(
+      this.websocketHandler.getManager(),
+      this.storageHandler.events
+    )
 
     // Setup CORS middleware with validation
     this.setupCORS(options.cors)
@@ -536,15 +549,26 @@ export class DO implements DurableObject {
 
   /**
    * Handle incoming WebSocket message
-   * By default, routes to WebSocketHandler
+   * By default, routes to WebSocketHandler.
+   * Also checks for event subscription messages (do-9zknf).
    */
   async webSocketMessage(ws: WebSocket, message: ArrayBuffer | string): Promise<void> {
-    if (this.observability) {
-      await this.observability.wrapMethod('webSocketMessage', async () => {
-        await this.websocketHandler.handleMessage(ws, message)
-      })
-    } else {
+    const handleMsg = async () => {
+      // Check if this is an event subscription message (do-9zknf)
+      // Only string messages can be subscription messages
+      if (typeof message === 'string' && this.wsEventStreaming.handleMessage(ws, message)) {
+        // Message was handled as subscription message, don't process further
+        return
+      }
+
+      // Otherwise, route to WebSocketHandler for normal message handling
       await this.websocketHandler.handleMessage(ws, message)
+    }
+
+    if (this.observability) {
+      await this.observability.wrapMethod('webSocketMessage', handleMsg)
+    } else {
+      await handleMsg()
     }
   }
 
@@ -614,5 +638,30 @@ export class DO implements DurableObject {
    */
   getMetrics(): ReturnType<ReturnType<typeof createDOObservability>['meter']['collect']> | undefined {
     return this.observability?.meter.collect()
+  }
+
+  /**
+   * Get the WebSocket event streaming manager (do-9zknf).
+   *
+   * This provides access to the event streaming system for:
+   * - Monitoring active subscriptions
+   * - Manually pushing events to WebSocket clients
+   * - Checking subscription status
+   *
+   * @returns WebSocketEventStreaming instance
+   *
+   * @example
+   * ```typescript
+   * // Get active subscription count
+   * const count = this.eventStreaming.getSubscriptionCount()
+   *
+   * // Check if an event pattern has subscribers
+   * if (this.eventStreaming.hasSubscribers('Customer.signup')) {
+   *   // Do something
+   * }
+   * ```
+   */
+  get eventStreaming(): WebSocketEventStreaming {
+    return this.wsEventStreaming
   }
 }

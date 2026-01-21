@@ -8,6 +8,7 @@
 
 import { deserializeError, isRPCError, TransportError, InternalError, type SerializedError } from './errors'
 import type { Transport, RPCMessage, RPCResponse } from './transport/types'
+import { AutoTransport, type AutoTransportOptions } from './transport/auto'
 import { PipelineBuilder, type PipelineRequest, type PipelineResponse } from './pipeline'
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
 import { createDeepRPCProxy, PROMISE_PROPS } from '@dotdo/utils'
@@ -62,6 +63,18 @@ export interface RPCClientOptions {
   timeout?: number
   /** Optional correlation ID to use for all requests (if not provided, one is generated per request) */
   correlationId?: string
+  /**
+   * Enable automatic transport upgrade from HTTP to WebSocket.
+   * When enabled, the client starts with FetchTransport and attempts
+   * to upgrade to WebSocketTransport if the endpoint supports it.
+   * @default false
+   */
+  autoUpgrade?: boolean
+  /**
+   * WebSocket endpoint path for auto-upgrade (relative to base URL)
+   * @default '/ws'
+   */
+  wsPath?: string
 }
 
 /**
@@ -155,6 +168,7 @@ function createNestedProxyForFetch<T = unknown>(
  * - Flat APIs: `client.greet('World')`
  * - Nested APIs: `client.users.create({ name: 'Alice' })`
  * - Configurable timeout via AbortSignal
+ * - Auto-upgrade from HTTP to WebSocket (optional)
  *
  * @example
  * ```typescript
@@ -168,14 +182,33 @@ function createNestedProxyForFetch<T = unknown>(
  * const client = createClient<MyAPI>({ url: 'https://api.example.com' })
  * const greeting = await client.greet('World')
  * const user = await client.users.create({ name: 'Alice' })
+ *
+ * // With auto-upgrade to WebSocket
+ * const wsClient = createClient<MyAPI>({
+ *   url: 'https://api.example.com',
+ *   autoUpgrade: true,
+ * })
  * ```
  *
  * @param options - Configuration options including URL and optional timeout
  * @returns A typed proxy that forwards method calls via RPC
  */
 export function createClient<T extends object>(options: RPCClientOptions): T {
-  const { url, timeout = 30000, correlationId } = options
+  const { url, timeout = 30000, correlationId, autoUpgrade, wsPath } = options
 
+  // If auto-upgrade is enabled, use AutoTransport
+  if (autoUpgrade) {
+    const transport = new AutoTransport({
+      url,
+      timeout,
+      correlationId,
+      autoUpgrade: true,
+      wsPath,
+    })
+    return createTransportNestedProxyWithShared(transport, correlationId) as T
+  }
+
+  // Default to simple fetch-based proxy
   return createNestedProxyForFetch(url, timeout, correlationId)
 }
 

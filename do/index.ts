@@ -478,6 +478,40 @@ export {
 } from './websocket'
 
 /**
+ * WebSocket Event Streaming for remote $ context subscriptions (do-9zknf).
+ *
+ * Provides server-side support for WebSocket event subscriptions and streaming.
+ * Clients can subscribe to event patterns (e.g., 'Customer.signup', 'Order.*')
+ * and receive events pushed in real-time when they fire.
+ *
+ * @example
+ * ```typescript
+ * import { WebSocketEventStreaming, createWebSocketEventStreaming } from '@dotdo/do'
+ *
+ * // Server side: events are automatically pushed to subscribers
+ * const streaming = createWebSocketEventStreaming(wsManager, eventsStore)
+ *
+ * // In webSocketMessage handler:
+ * if (streaming.handleMessage(ws, message)) {
+ *   // Message was a subscription message, handled automatically
+ *   return
+ * }
+ *
+ * // Client sends: { type: 'subscribe', event: 'Customer.signup', subscriptionId: 'sub-123' }
+ * // Client receives: { type: 'subscribed', subscriptionId: 'sub-123', event: 'Customer.signup' }
+ * // When event fires, client receives: { type: 'event', event: 'Customer.signup', payload: {...}, $id: '...', $timestamp: ... }
+ * ```
+ */
+export {
+  WebSocketEventStreaming,
+  createWebSocketEventStreaming,
+  isEventSubscriptionMessage,
+  type EventSubscriptionMessage,
+  type EventPushMessage,
+  type SubscriptionAckMessage,
+} from './websocket-streaming'
+
+/**
  * WebSocket hibernation for resource-efficient long-lived connections.
  *
  * Uses Cloudflare's WebSocket hibernation feature to reduce costs
