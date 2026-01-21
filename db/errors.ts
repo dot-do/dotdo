@@ -97,6 +97,30 @@ export function isRetryableCode(code: ErrorCodeType | string): boolean {
 // =============================================================================
 
 /**
+ * Type alias for error details/context.
+ *
+ * This is a legitimate use of Record<string, unknown> because error details
+ * are inherently open-ended - different error types may include different
+ * contextual information (field names, IDs, URLs, counts, etc.).
+ *
+ * Using Record<string, unknown> here provides:
+ * 1. Type safety (prevents `any`)
+ * 2. Flexibility for varying error contexts
+ * 3. JSON serializability guarantee
+ *
+ * @example
+ * ```typescript
+ * const details: ErrorDetails = {
+ *   resourceType: 'Customer',
+ *   resourceId: 'cust-123',
+ *   field: 'email',
+ *   attemptedValue: 'invalid'
+ * }
+ * ```
+ */
+export type ErrorDetails = Record<string, unknown>
+
+/**
  * Serialized error format for JSON transport across boundaries
  */
 export interface SerializedDotdoError {
@@ -109,7 +133,7 @@ export interface SerializedDotdoError {
   /** Human-readable error message */
   message: string
   /** Additional error details */
-  details?: Record<string, unknown>
+  details?: ErrorDetails
   /** HTTP status code */
   httpStatus?: number
   /** Stack trace (optional, excluded by default in production) */
@@ -137,7 +161,7 @@ export interface DotdoErrorOptions {
   /** Underlying cause of the error */
   cause?: Error | unknown
   /** Additional context/metadata */
-  details?: Record<string, unknown>
+  details?: ErrorDetails
 }
 
 /**
@@ -171,7 +195,7 @@ export class DotdoError extends Error {
   /** HTTP status code derived from error code */
   public readonly httpStatus: number
   /** Additional error details/context */
-  public readonly details?: Record<string, unknown>
+  public readonly details?: ErrorDetails
 
   constructor(
     code: ErrorCodeType | string,
@@ -284,7 +308,7 @@ export class DotdoError extends Error {
 export class DatabaseError extends DotdoError {
   constructor(
     message: string,
-    details?: Record<string, unknown>
+    details?: ErrorDetails
   ) {
     super(ErrorCode.DATABASE_ERROR, message, {
       ...(details !== undefined && { details }),
@@ -305,7 +329,7 @@ export class DbValidationError extends DatabaseError {
   public override readonly code = ErrorCode.VALIDATION_ERROR
   public override readonly httpStatus = 400
 
-  constructor(message = 'Validation failed', details?: Record<string, unknown>) {
+  constructor(message = 'Validation failed', details?: ErrorDetails) {
     super(message, details)
     this.name = 'DbValidationError'
   }
@@ -340,7 +364,7 @@ export class DbNotFoundError extends DatabaseError {
   public override readonly code = ErrorCode.NOT_FOUND
   public override readonly httpStatus = 404
 
-  constructor(message = 'Resource not found', details?: Record<string, unknown>) {
+  constructor(message = 'Resource not found', details?: ErrorDetails) {
     super(message, details)
     this.name = 'DbNotFoundError'
   }
@@ -363,7 +387,7 @@ export class TransactionError extends DotdoError {
   constructor(
     message: string,
     cause?: Error,
-    details?: Record<string, unknown>
+    details?: ErrorDetails
   ) {
     super(ErrorCode.TRANSACTION_ERROR, message, {
       ...(cause !== undefined && { cause }),
@@ -475,7 +499,7 @@ export function serializeUnknownAsDotdoError(
  * Note: DatabaseError and subclasses accept (message, details?) but are
  * compatible for basic deserialization through type widening.
  */
-type ErrorConstructorType = new (message: string, optionsOrDetails?: DotdoErrorOptions | Record<string, unknown>) => DotdoError
+type ErrorConstructorType = new (message: string, optionsOrDetails?: DotdoErrorOptions | ErrorDetails) => DotdoError
 const ERROR_REGISTRY: Record<string, ErrorConstructorType> = {
   DotdoError: DotdoError as unknown as ErrorConstructorType,
   DatabaseError: DatabaseError as unknown as ErrorConstructorType,

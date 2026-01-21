@@ -833,3 +833,217 @@ someFunction(incompatibleArg as any)
 - Example code (7 files) accounts for 130+ assertions - these should demonstrate best practices
 - Test file assertions (76.8% of total) are generally acceptable but high concentrations indicate mock infrastructure could be improved
 - The `as unknown as T` pattern is preferred over `as any` when type narrowing is intentional
+
+---
+
+# Record<string, unknown> Usage Audit
+
+## Summary
+
+This section audits the use of `Record<string, unknown>` across the dotdo codebase. While `Record<string, unknown>` is safer than `any`, overuse can indicate missing type definitions. This audit categorizes legitimate uses vs. opportunities for more specific typing.
+
+**Audit Date:** 2026-01-21
+**Issue:** do-jwte
+
+## Statistics
+
+### Overall Count
+
+| Category | Count | Notes |
+|----------|-------|-------|
+| **Total Usages** | 1000+ | Across entire codebase |
+| **Core packages (do, db, api, rpc, ai)** | ~180 | Primary focus of this audit |
+| **Test files** | ~200 | Generally acceptable |
+| **Primitives submodule** | ~350 | Separate lifecycle |
+| **dist/ directories** | ~100 | Generated, mirrors source |
+
+## Categories of Legitimate Use
+
+### Category 1: SQL Result Rows (LEGITIMATE)
+
+```typescript
+// Pattern: SqlStorage interface returns dynamic columns
+interface SqlStorage {
+  exec(sql: string): { results: Array<Record<string, unknown>> }
+  prepare(sql: string): {
+    bind(...values: unknown[]): {
+      first(): Record<string, unknown> | null
+      all(): { results: Array<Record<string, unknown>> }
+    }
+  }
+}
+```
+
+**Location:** `db/types.ts`
+
+**Assessment:** Raw SQL queries can return any column types. Callers should cast to appropriate types after retrieval. This is documented in db/types.ts.
+
+### Category 2: Error Details (LEGITIMATE - Now Typed)
+
+```typescript
+// Pattern: Error context/details are inherently open-ended
+export type ErrorDetails = Record<string, unknown>
+
+class DotdoError extends Error {
+  public readonly details?: ErrorDetails
+}
+```
+
+**Location:** `db/errors.ts`, `rpc/errors/base.ts`
+
+**Assessment:** Error details vary by error type - may include field names, IDs, URLs, counts, etc. A dedicated `ErrorDetails` type alias was created to document this legitimate use while providing a semantic type name.
+
+**Action Taken:** Created `ErrorDetails` type alias in `db/errors.ts` and updated all error classes to use it.
+
+### Category 3: Logger Context (LEGITIMATE)
+
+```typescript
+// Pattern: Log context is arbitrary metadata
+interface Logger {
+  debug(message: string, context?: Record<string, unknown>): void
+  info(message: string, context?: Record<string, unknown>): void
+  warn(message: string, context?: Record<string, unknown>): void
+  error(message: string, context?: Record<string, unknown>): void
+}
+```
+
+**Locations:** `observability/logger.ts`, `gitx/src/do/logger.ts`
+
+**Assessment:** Logging context is intentionally open-ended to support arbitrary metadata. This is a standard pattern across logging libraries.
+
+### Category 4: JSON Parsing / Type Guards (LEGITIMATE)
+
+```typescript
+// Pattern: Safe property access on unknown objects
+function isSerializedDotdoError(value: unknown): value is SerializedDotdoError {
+  const obj = value as Record<string, unknown>
+  return typeof obj['message'] === 'string'
+}
+```
+
+**Assessment:** When checking arbitrary JSON data, `Record<string, unknown>` provides safe property access without `any`. This is the recommended pattern.
+
+### Category 5: Metadata Fields (LEGITIMATE)
+
+```typescript
+// Pattern: Entity metadata is user-defined
+interface Thing {
+  $id: string
+  $type: string
+  metadata?: Record<string, unknown>
+}
+```
+
+**Assessment:** Metadata fields are intentionally schemaless to support arbitrary user data. This is a design decision, not a typing gap.
+
+### Category 6: MCP Tool Parameters (LEGITIMATE)
+
+```typescript
+// Pattern: MCP tools accept dynamic parameters
+type MCPToolHandler = (params: Record<string, unknown>) => Promise<MCPToolResult>
+```
+
+**Locations:** `mcp/tools.ts`, `fsx/core/mcp/tool-registry.ts`
+
+**Assessment:** MCP (Model Context Protocol) tools receive parameters from AI models. The shape varies per tool and is validated at runtime.
+
+## Categories Requiring Improvement
+
+### Category 1: Proxy Target Access (NEEDS REVIEW)
+
+```typescript
+// Pattern: Dynamic property access via proxy
+let current = target as Record<string, unknown>
+current = next as Record<string, unknown>
+```
+
+**Locations:** `rpc/server.ts`, `do/handlers/rpc.ts`
+
+**Assessment:** These support dynamic RPC method resolution. Could potentially use more specific interface types.
+
+### Category 2: Eval Interpreter Scope (NEEDS REVIEW)
+
+```typescript
+// Pattern: Dynamic expression evaluation
+evaluateSimpleExpression(expr: string, scope: Record<string, unknown>): unknown
+```
+
+**Location:** `do/eval/interpreter.ts`
+
+**Assessment:** The eval interpreter deals with dynamic scope objects. May benefit from a more specific `EvalScope` type.
+
+### Category 3: Workflow Event Payloads (COULD IMPROVE)
+
+```typescript
+// Pattern: Event payload in workflow context
+? payload as Record<string, unknown>
+```
+
+**Location:** `do/workflow/context.ts`
+
+**Assessment:** Could use the event schema types already defined in `do/types.ts`.
+
+## Type Aliases Created
+
+The following type aliases were created to provide semantic meaning to legitimate `Record<string, unknown>` uses:
+
+### db/types.ts (Pre-existing)
+
+```typescript
+// For database storage
+export type JsonValue = string | number | boolean | null | JsonArray | { [key: string]: JsonValue }
+export type JsonObject = { [key: string]: JsonValue }
+export type StorableData = Record<string, JsonValue>
+export type WhereConditions<T extends StorableData = StorableData> = Partial<T>
+```
+
+### db/errors.ts (Added in this audit)
+
+```typescript
+/**
+ * Type alias for error details/context.
+ * This is a legitimate use of Record<string, unknown> because error details
+ * are inherently open-ended.
+ */
+export type ErrorDetails = Record<string, unknown>
+```
+
+## Files Updated
+
+| File | Changes |
+|------|---------|
+| `db/errors.ts` | Added `ErrorDetails` type alias, updated 7 usages |
+| `rpc/errors/base.ts` | Imported and used `ErrorDetails`, updated 14 usages |
+
+## Recommendations
+
+### Do Use Record<string, unknown> For:
+
+1. **SQL query results** - Raw SQL returns arbitrary columns
+2. **Error details** - Error context varies by type (use `ErrorDetails` alias)
+3. **Logger context** - Logging metadata is open-ended
+4. **Type guards** - Safe property access on `unknown` values
+5. **Metadata fields** - User-defined schemaless data
+6. **External API responses** - When shape is unpredictable
+7. **MCP/RPC parameters** - Dynamic protocol data validated at runtime
+
+### Consider More Specific Types For:
+
+1. **Internal state objects** - Define explicit interfaces
+2. **Configuration objects** - Create typed config schemas
+3. **Event payloads** - Use the event schema system
+4. **Known API responses** - Define response interfaces
+
+### Migration Strategy
+
+1. **Don't bulk replace** - `Record<string, unknown>` is often correct
+2. **Add type aliases** - Create semantic names like `ErrorDetails`
+3. **Document legitimate uses** - Add JSDoc explaining why `Record<string, unknown>` is appropriate
+4. **Use bounded generics** - `StorableData = Record<string, JsonValue>` is more restrictive than `Record<string, unknown>`
+
+## Notes
+
+- The `primitives/` directory is a git submodule with ~350 usages (separate lifecycle)
+- Many usages in `dist/` directories mirror source files
+- Test files often use `Record<string, unknown>` for mock state (acceptable)
+- The existing `db/types.ts` provides good type infrastructure for data layer

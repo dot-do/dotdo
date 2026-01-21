@@ -6,6 +6,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import {
   DotdoError,
   type DotdoErrorOptions,
+  type ErrorDetails,
   ErrorCode,
   type ErrorCodeType,
   ERROR_CODE_TO_HTTP_STATUS,
@@ -29,6 +30,7 @@ import {
 export {
   ErrorCode,
   type ErrorCodeType,
+  type ErrorDetails,
   ERROR_CODE_TO_HTTP_STATUS,
   getHttpStatusForCode,
   isRetryableCode,
@@ -82,7 +84,7 @@ export class RPCError extends DotdoError {
   constructor(
     code: ErrorCodeType | string,
     message: string,
-    details?: Record<string, unknown>,
+    details?: ErrorDetails,
     options?: RPCErrorOptions
   ) {
     super(code, message, {
@@ -116,7 +118,7 @@ export class RPCError extends DotdoError {
  * Resource not found error (404)
  */
 export class NotFoundError extends RPCError {
-  constructor(message = 'Resource not found', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+  constructor(message = 'Resource not found', details?: ErrorDetails, options?: RPCErrorOptions) {
     super(ErrorCode.NOT_FOUND, message, details, options)
     this.name = 'NotFoundError'
   }
@@ -136,7 +138,7 @@ export class NotFoundError extends RPCError {
  * Validation error for invalid input (400)
  */
 export class ValidationError extends RPCError {
-  constructor(message = 'Validation failed', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+  constructor(message = 'Validation failed', details?: ErrorDetails, options?: RPCErrorOptions) {
     super(ErrorCode.VALIDATION_ERROR, message, details, options)
     this.name = 'ValidationError'
   }
@@ -164,7 +166,7 @@ export class ValidationError extends RPCError {
  * Authentication error (401)
  */
 export class AuthenticationError extends RPCError {
-  constructor(message = 'Authentication required', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+  constructor(message = 'Authentication required', details?: ErrorDetails, options?: RPCErrorOptions) {
     super(ErrorCode.AUTHENTICATION_ERROR, message, details, options)
     this.name = 'AuthenticationError'
   }
@@ -186,7 +188,7 @@ export class AuthenticationError extends RPCError {
  * Authorization error (403)
  */
 export class AuthorizationError extends RPCError {
-  constructor(message = 'Access denied', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+  constructor(message = 'Access denied', details?: ErrorDetails, options?: RPCErrorOptions) {
     super(ErrorCode.AUTHORIZATION_ERROR, message, details, options)
     this.name = 'AuthorizationError'
   }
@@ -203,7 +205,7 @@ export class AuthorizationError extends RPCError {
  * Conflict error for resource conflicts (409)
  */
 export class ConflictError extends RPCError {
-  constructor(message = 'Resource conflict', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+  constructor(message = 'Resource conflict', details?: ErrorDetails, options?: RPCErrorOptions) {
     super(ErrorCode.CONFLICT, message, details, options)
     this.name = 'ConflictError'
   }
@@ -232,7 +234,7 @@ export class ConflictError extends RPCError {
  * Rate limit exceeded error (429)
  */
 export class RateLimitError extends RPCError {
-  constructor(message = 'Rate limit exceeded', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+  constructor(message = 'Rate limit exceeded', details?: ErrorDetails, options?: RPCErrorOptions) {
     super(ErrorCode.RATE_LIMIT, message, details, options)
     this.name = 'RateLimitError'
   }
@@ -250,7 +252,7 @@ export class RateLimitError extends RPCError {
  * Payload too large error (413)
  */
 export class PayloadTooLargeError extends RPCError {
-  constructor(message = 'Request payload too large', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+  constructor(message = 'Request payload too large', details?: ErrorDetails, options?: RPCErrorOptions) {
     super(ErrorCode.PAYLOAD_TOO_LARGE, message, details, options)
     this.name = 'PayloadTooLargeError'
   }
@@ -290,7 +292,7 @@ export class PayloadTooLargeError extends RPCError {
  * Timeout error (504)
  */
 export class TimeoutError extends RPCError {
-  constructor(message = 'Request timed out', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+  constructor(message = 'Request timed out', details?: ErrorDetails, options?: RPCErrorOptions) {
     super(ErrorCode.TIMEOUT, message, details, options)
     this.name = 'TimeoutError'
   }
@@ -304,7 +306,7 @@ export class TimeoutError extends RPCError {
  * Network error (503)
  */
 export class NetworkError extends RPCError {
-  constructor(message = 'Network error', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+  constructor(message = 'Network error', details?: ErrorDetails, options?: RPCErrorOptions) {
     super(ErrorCode.NETWORK_ERROR, message, details, options)
     this.name = 'NetworkError'
   }
@@ -329,7 +331,7 @@ export class NetworkError extends RPCError {
  * Internal server error (500)
  */
 export class InternalError extends RPCError {
-  constructor(message = 'Internal error', details?: Record<string, unknown>, options?: RPCErrorOptions) {
+  constructor(message = 'Internal error', details?: ErrorDetails, options?: RPCErrorOptions) {
     super(ErrorCode.INTERNAL_ERROR, message, details, options)
     this.name = 'InternalError'
   }
@@ -348,7 +350,7 @@ export class InternalError extends RPCError {
 export class ServiceUnavailableError extends RPCError {
   constructor(
     message = 'Service temporarily unavailable',
-    details?: Record<string, unknown>,
+    details?: ErrorDetails,
     options?: RPCErrorOptions
   ) {
     super(ErrorCode.SERVICE_UNAVAILABLE, message, details, options)
@@ -371,7 +373,7 @@ export class ServiceUnavailableError extends RPCError {
 export class TransportError extends RPCError {
   constructor(
     message = 'Transport error',
-    details?: Record<string, unknown>,
+    details?: ErrorDetails,
     options?: RPCErrorOptions
   ) {
     super(ErrorCode.NETWORK_ERROR, message, details, options)
@@ -455,7 +457,7 @@ export class TransportError extends RPCError {
 export class CircuitOpenError extends RPCError {
   constructor(
     message = 'Circuit breaker is open',
-    details?: Record<string, unknown>,
+    details?: ErrorDetails,
     options?: RPCErrorOptions
   ) {
     super(ErrorCode.CIRCUIT_OPEN, message, details, options)
@@ -575,7 +577,7 @@ export type SerializeErrorOptions = DbSerializeErrorOptions
  */
 type RPCErrorSubclassConstructor = new (
   message: string,
-  details?: Record<string, unknown>,
+  details?: ErrorDetails,
   options?: RPCErrorOptions
 ) => RPCError
 
