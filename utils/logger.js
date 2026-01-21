@@ -44,143 +44,101 @@
  *
  * @see do-6eza - Request-scoped logger configuration
  */
-
 /**
  * Log levels in order of severity (lower = more verbose)
  */
-export enum LogLevel {
-  DEBUG = 0,
-  INFO = 1,
-  WARN = 2,
-  ERROR = 3,
-  SILENT = 4,
-}
-
-/**
- * Configuration for the logger
- */
-export interface LoggerConfig {
-  level: LogLevel
-  prefix: string
-}
-
-/**
- * Logger interface
- */
-export interface Logger {
-  debug(message: string, ...args: unknown[]): void
-  info(message: string, ...args: unknown[]): void
-  warn(message: string, ...args: unknown[]): void
-  error(message: string, ...args: unknown[]): void
-}
-
+export var LogLevel;
+(function (LogLevel) {
+    LogLevel[LogLevel["DEBUG"] = 0] = "DEBUG";
+    LogLevel[LogLevel["INFO"] = 1] = "INFO";
+    LogLevel[LogLevel["WARN"] = 2] = "WARN";
+    LogLevel[LogLevel["ERROR"] = 3] = "ERROR";
+    LogLevel[LogLevel["SILENT"] = 4] = "SILENT";
+})(LogLevel || (LogLevel = {}));
 // Default configuration
-let config: LoggerConfig = {
-  level: LogLevel.INFO,
-  prefix: '[dotdo]',
-}
-
+let config = {
+    level: LogLevel.INFO,
+    prefix: '[dotdo]',
+};
 /**
  * Set the global log level
  * @param level - The minimum log level to display
  * @deprecated Use `createScopedLogger()` or `runWithLogContext()` for request-scoped configuration.
  * Global config is problematic in Workers where module state is shared across requests.
  */
-export function setLogLevel(level: LogLevel): void {
-  config.level = level
+export function setLogLevel(level) {
+    config.level = level;
 }
-
 /**
  * Get the current log level
  * @deprecated Use `createScopedLogger()` or `runWithLogContext()` for request-scoped configuration.
  */
-export function getLogLevel(): LogLevel {
-  return config.level
+export function getLogLevel() {
+    return config.level;
 }
-
 /**
  * Set the log prefix
  * @param prefix - The prefix to use for all log messages
  * @deprecated Use `createScopedLogger()` or `runWithLogContext()` for request-scoped configuration.
  * Global config is problematic in Workers where module state is shared across requests.
  */
-export function setLogPrefix(prefix: string): void {
-  config.prefix = prefix
+export function setLogPrefix(prefix) {
+    config.prefix = prefix;
 }
-
 /**
  * Get the current log prefix
  * @deprecated Use `createScopedLogger()` or `runWithLogContext()` for request-scoped configuration.
  */
-export function getLogPrefix(): string {
-  return config.prefix
+export function getLogPrefix() {
+    return config.prefix;
 }
-
 /**
  * Configure the logger
  * @param newConfig - Partial configuration to merge
  * @deprecated Use `createScopedLogger()` or `runWithLogContext()` for request-scoped configuration.
  * Global config is problematic in Workers where module state is shared across requests.
  */
-export function configureLogger(newConfig: Partial<LoggerConfig>): void {
-  config = { ...config, ...newConfig }
+export function configureLogger(newConfig) {
+    config = { ...config, ...newConfig };
 }
-
 /**
  * Parse log level from string (for environment variables)
  * @param level - String representation of log level
  * @returns LogLevel enum value
  */
-export function parseLogLevel(level: string | undefined): LogLevel {
-  if (!level) return LogLevel.INFO
-
-  switch (level.toUpperCase()) {
-    case 'DEBUG':
-      return LogLevel.DEBUG
-    case 'INFO':
-      return LogLevel.INFO
-    case 'WARN':
-    case 'WARNING':
-      return LogLevel.WARN
-    case 'ERROR':
-      return LogLevel.ERROR
-    case 'SILENT':
-    case 'NONE':
-      return LogLevel.SILENT
-    default:
-      return LogLevel.INFO
-  }
+export function parseLogLevel(level) {
+    if (!level)
+        return LogLevel.INFO;
+    switch (level.toUpperCase()) {
+        case 'DEBUG':
+            return LogLevel.DEBUG;
+        case 'INFO':
+            return LogLevel.INFO;
+        case 'WARN':
+        case 'WARNING':
+            return LogLevel.WARN;
+        case 'ERROR':
+            return LogLevel.ERROR;
+        case 'SILENT':
+        case 'NONE':
+            return LogLevel.SILENT;
+        default:
+            return LogLevel.INFO;
+    }
 }
-
 /**
  * Initialize logger from environment variable
- *
- * @deprecated This function no longer accesses process.env to avoid `any` type casts.
- * Use `createScopedLogger()` with explicit config instead.
- *
- * For Workers/DO: Pass log level from your wrangler.toml env binding:
- * ```ts
- * const logger = createScopedLogger({
- *   level: parseLogLevel(env.DOTDO_LOG_LEVEL),
- *   prefix: '[MyService]'
- * })
- * ```
- *
- * For Node.js: Use explicit injection:
- * ```ts
- * const logger = createScopedLogger({
- *   level: parseLogLevel(process.env.DOTDO_LOG_LEVEL),
- *   prefix: '[MyService]'
- * })
- * ```
+ * Reads DOTDO_LOG_LEVEL environment variable if available
+ * @deprecated Use `createScopedLogger()` with explicit config for request-scoped configuration.
  */
-export function initLoggerFromEnv(): void {
-  // No-op: This function is deprecated.
-  // The previous implementation used (globalThis as any).process?.env which
-  // bypassed TypeScript's type safety. Use createScopedLogger() with explicit
-  // environment injection instead.
+export function initLoggerFromEnv() {
+    // Check for environment variable (works in Node.js)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const processEnv = globalThis.process?.env;
+    if (processEnv?.DOTDO_LOG_LEVEL) {
+        setLogLevel(parseLogLevel(processEnv.DOTDO_LOG_LEVEL));
+    }
 }
-
 /**
  * Create a logger with a custom prefix
  * Useful for creating module-specific loggers
@@ -194,35 +152,33 @@ export function initLoggerFromEnv(): void {
  *
  * @deprecated Use `createScopedLogger()` for fully isolated loggers with their own config.
  */
-export function createLogger(prefix: string): Logger {
-  return {
-    debug: (message: string, ...args: unknown[]) => {
-      if (config.level <= LogLevel.DEBUG) {
-        console.debug(prefix, message, ...args)
-      }
-    },
-    info: (message: string, ...args: unknown[]) => {
-      if (config.level <= LogLevel.INFO) {
-        console.info(prefix, message, ...args)
-      }
-    },
-    warn: (message: string, ...args: unknown[]) => {
-      if (config.level <= LogLevel.WARN) {
-        console.warn(prefix, message, ...args)
-      }
-    },
-    error: (message: string, ...args: unknown[]) => {
-      if (config.level <= LogLevel.ERROR) {
-        console.error(prefix, message, ...args)
-      }
-    },
-  }
+export function createLogger(prefix) {
+    return {
+        debug: (message, ...args) => {
+            if (config.level <= LogLevel.DEBUG) {
+                console.debug(prefix, message, ...args);
+            }
+        },
+        info: (message, ...args) => {
+            if (config.level <= LogLevel.INFO) {
+                console.info(prefix, message, ...args);
+            }
+        },
+        warn: (message, ...args) => {
+            if (config.level <= LogLevel.WARN) {
+                console.warn(prefix, message, ...args);
+            }
+        },
+        error: (message, ...args) => {
+            if (config.level <= LogLevel.ERROR) {
+                console.error(prefix, message, ...args);
+            }
+        },
+    };
 }
-
 // ============================================================================
 // Request-Scoped Logging (Recommended for Workers)
 // ============================================================================
-
 /**
  * Create a fully isolated logger with its own configuration.
  *
@@ -251,97 +207,77 @@ export function createLogger(prefix: string): Logger {
  *
  * @see do-6eza - Request-scoped logger configuration
  */
-export function createScopedLogger(scopedConfig: LoggerConfig): Logger {
-  // Capture config at creation time - fully isolated from global state
-  const loggerConfig = { ...scopedConfig }
-
-  return {
-    debug: (message: string, ...args: unknown[]) => {
-      if (loggerConfig.level <= LogLevel.DEBUG) {
-        console.debug(loggerConfig.prefix, message, ...args)
-      }
-    },
-    info: (message: string, ...args: unknown[]) => {
-      if (loggerConfig.level <= LogLevel.INFO) {
-        console.info(loggerConfig.prefix, message, ...args)
-      }
-    },
-    warn: (message: string, ...args: unknown[]) => {
-      if (loggerConfig.level <= LogLevel.WARN) {
-        console.warn(loggerConfig.prefix, message, ...args)
-      }
-    },
-    error: (message: string, ...args: unknown[]) => {
-      if (loggerConfig.level <= LogLevel.ERROR) {
-        console.error(loggerConfig.prefix, message, ...args)
-      }
-    },
-  }
+export function createScopedLogger(scopedConfig) {
+    // Capture config at creation time - fully isolated from global state
+    const loggerConfig = { ...scopedConfig };
+    return {
+        debug: (message, ...args) => {
+            if (loggerConfig.level <= LogLevel.DEBUG) {
+                console.debug(loggerConfig.prefix, message, ...args);
+            }
+        },
+        info: (message, ...args) => {
+            if (loggerConfig.level <= LogLevel.INFO) {
+                console.info(loggerConfig.prefix, message, ...args);
+            }
+        },
+        warn: (message, ...args) => {
+            if (loggerConfig.level <= LogLevel.WARN) {
+                console.warn(loggerConfig.prefix, message, ...args);
+            }
+        },
+        error: (message, ...args) => {
+            if (loggerConfig.level <= LogLevel.ERROR) {
+                console.error(loggerConfig.prefix, message, ...args);
+            }
+        },
+    };
 }
-
-/**
- * Minimal AsyncLocalStorage interface for type safety.
- * Compatible with Node.js AsyncLocalStorage and Cloudflare Workers.
- */
-interface AsyncLocalStorageInterface<T> {
-  run<R>(store: T, callback: () => R): R
-  getStore(): T | undefined
-}
-
 /**
  * AsyncLocalStorage instance for request-scoped logging config.
  * Lazily initialized to avoid issues in environments without AsyncLocalStorage.
  */
-let logAsyncLocalStorage: AsyncLocalStorageInterface<LoggerConfig> | null = null
-
+let logAsyncLocalStorage = null;
 /**
  * Lazy initialization of AsyncLocalStorage.
  * Works in Node.js, Cloudflare Workers, and other compatible runtimes.
  */
-async function getLogAsyncLocalStorage(): Promise<AsyncLocalStorageInterface<LoggerConfig>> {
-  if (!logAsyncLocalStorage) {
-    try {
-      // Try dynamic import for Node.js/Workers environments
-      const moduleName = 'node:async_hooks'
-      const asyncHooks = await (import(moduleName) as Promise<{
-        AsyncLocalStorage: new <T>() => AsyncLocalStorageInterface<T>
-      }>)
-      logAsyncLocalStorage = new asyncHooks.AsyncLocalStorage<LoggerConfig>()
-    } catch {
-      // Fallback: Stack-based implementation for non-ALS environments
-      const contextStack: LoggerConfig[] = []
-
-      logAsyncLocalStorage = {
-        run<R>(store: LoggerConfig, callback: () => R): R {
-          contextStack.push(store)
-
-          const result = callback()
-
-          // Handle async callbacks
-          const isPromiseLike = (val: unknown): val is PromiseLike<unknown> =>
-            val !== null &&
-            typeof val === 'object' &&
-            typeof (val as PromiseLike<unknown>).then === 'function'
-
-          if (isPromiseLike(result)) {
-            const resultPromise = Promise.resolve(result).finally(() => {
-              contextStack.pop()
-            })
-            return resultPromise as unknown as R
-          }
-
-          contextStack.pop()
-          return result
-        },
-        getStore(): LoggerConfig | undefined {
-          return contextStack[contextStack.length - 1]
-        },
-      }
+async function getLogAsyncLocalStorage() {
+    if (!logAsyncLocalStorage) {
+        try {
+            // Try dynamic import for Node.js/Workers environments
+            const moduleName = 'node:async_hooks';
+            const asyncHooks = await import(moduleName);
+            logAsyncLocalStorage = new asyncHooks.AsyncLocalStorage();
+        }
+        catch {
+            // Fallback: Stack-based implementation for non-ALS environments
+            const contextStack = [];
+            logAsyncLocalStorage = {
+                run(store, callback) {
+                    contextStack.push(store);
+                    const result = callback();
+                    // Handle async callbacks
+                    const isPromiseLike = (val) => val !== null &&
+                        typeof val === 'object' &&
+                        typeof val.then === 'function';
+                    if (isPromiseLike(result)) {
+                        const resultPromise = Promise.resolve(result).finally(() => {
+                            contextStack.pop();
+                        });
+                        return resultPromise;
+                    }
+                    contextStack.pop();
+                    return result;
+                },
+                getStore() {
+                    return contextStack[contextStack.length - 1];
+                },
+            };
+        }
     }
-  }
-  return logAsyncLocalStorage!
+    return logAsyncLocalStorage;
 }
-
 /**
  * Run a function with request-scoped logging configuration.
  *
@@ -367,14 +303,10 @@ async function getLogAsyncLocalStorage(): Promise<AsyncLocalStorageInterface<Log
  *
  * @see do-6eza - Request-scoped logger configuration
  */
-export async function runWithLogContext<T>(
-  logConfig: LoggerConfig,
-  fn: () => Promise<T>
-): Promise<T> {
-  const als = await getLogAsyncLocalStorage()
-  return als.run(logConfig, fn)
+export async function runWithLogContext(logConfig, fn) {
+    const als = await getLogAsyncLocalStorage();
+    return als.run(logConfig, fn);
 }
-
 /**
  * Get a logger using the current request-scoped configuration.
  *
@@ -398,18 +330,15 @@ export async function runWithLogContext<T>(
  *
  * @see do-6eza - Request-scoped logger configuration
  */
-export function getContextLogger(): Logger {
-  const scopedConfig = logAsyncLocalStorage?.getStore()
-
-  if (scopedConfig) {
-    // Return a logger using the request-scoped config
-    return createScopedLogger(scopedConfig)
-  }
-
-  // Fallback to global logger for backward compatibility
-  return logger
+export function getContextLogger() {
+    const scopedConfig = logAsyncLocalStorage?.getStore();
+    if (scopedConfig) {
+        // Return a logger using the request-scoped config
+        return createScopedLogger(scopedConfig);
+    }
+    // Fallback to global logger for backward compatibility
+    return logger;
 }
-
 /**
  * Get the current request-scoped logging configuration, if any.
  *
@@ -423,10 +352,9 @@ export function getContextLogger(): Logger {
  * })
  * ```
  */
-export function getLogContext(): LoggerConfig | undefined {
-  return logAsyncLocalStorage?.getStore()
+export function getLogContext() {
+    return logAsyncLocalStorage?.getStore();
 }
-
 /**
  * Default logger instance with [dotdo] prefix
  * Uses the global configuration for log level
@@ -435,28 +363,28 @@ export function getLogContext(): LoggerConfig | undefined {
  * to avoid configuration leakage between requests. The global logger shares
  * mutable state across all requests in the same isolate.
  */
-export const logger: Logger = {
-  debug: (message: string, ...args: unknown[]) => {
-    if (config.level <= LogLevel.DEBUG) {
-      console.debug(config.prefix, message, ...args)
-    }
-  },
-  info: (message: string, ...args: unknown[]) => {
-    if (config.level <= LogLevel.INFO) {
-      console.info(config.prefix, message, ...args)
-    }
-  },
-  warn: (message: string, ...args: unknown[]) => {
-    if (config.level <= LogLevel.WARN) {
-      console.warn(config.prefix, message, ...args)
-    }
-  },
-  error: (message: string, ...args: unknown[]) => {
-    if (config.level <= LogLevel.ERROR) {
-      console.error(config.prefix, message, ...args)
-    }
-  },
-}
-
+export const logger = {
+    debug: (message, ...args) => {
+        if (config.level <= LogLevel.DEBUG) {
+            console.debug(config.prefix, message, ...args);
+        }
+    },
+    info: (message, ...args) => {
+        if (config.level <= LogLevel.INFO) {
+            console.info(config.prefix, message, ...args);
+        }
+    },
+    warn: (message, ...args) => {
+        if (config.level <= LogLevel.WARN) {
+            console.warn(config.prefix, message, ...args);
+        }
+    },
+    error: (message, ...args) => {
+        if (config.level <= LogLevel.ERROR) {
+            console.error(config.prefix, message, ...args);
+        }
+    },
+};
 // Initialize from environment on module load
-initLoggerFromEnv()
+initLoggerFromEnv();
+//# sourceMappingURL=logger.js.map
