@@ -14,101 +14,74 @@
  * - Model configuration and routing
  * - Completion API compatibility
  * - Chat API support
+ *
+ * Error handling, mock model support, and model resolution are
+ * extracted to separate modules for maintainability:
+ * - ./errors.ts - Error class hierarchy
+ * - ./mock.ts - Mock model configuration and creation
+ * - ./models.ts - Model aliases and resolution
  */
 
 import type { ZodTypeAny } from 'zod'
-import { createLogger } from '../utils/logger'
 
-const logger = createLogger('[ai-core]')
+// Import from extracted modules
+import {
+  AIError,
+  AIModelResolutionError,
+  AIProviderError,
+  AIGenerationError,
+  AIObjectGenerationError,
+  AIEmbeddingError,
+  AIStreamError,
+  MockModelNotAllowedError,
+  extractErrorDetails,
+  buildErrorOptions,
+} from './errors'
+
+import {
+  type MockModelConfig,
+  configureMockModel,
+  getMockConfig,
+  resetMockConfig,
+  isMockModel,
+  shouldAllowMock,
+  warnMockUsage,
+  generateMockEmbedding,
+} from './mock'
+
+import {
+  type LanguageModel,
+  type EmbeddingModel,
+  resolveModel,
+  resolveEmbeddingModel,
+} from './models'
+
+// Re-export error classes and utilities for backward compatibility
+export {
+  AIError,
+  AIModelResolutionError,
+  AIProviderError,
+  AIGenerationError,
+  AIObjectGenerationError,
+  AIEmbeddingError,
+  AIStreamError,
+  MockModelNotAllowedError,
+}
+
+// Re-export mock configuration functions for backward compatibility
+export {
+  type MockModelConfig,
+  configureMockModel,
+  getMockConfig,
+  resetMockConfig,
+}
+
+// Import Provider from router (don't re-export to avoid duplicate exports in index.ts)
+import type { Provider } from './router'
 
 // ============================================================================
-// Internal Type Definitions for AI SDK Compatibility
+// Core Type Definitions
 // ============================================================================
-
-/**
- * Type for global environment variables in different runtimes.
- * Cloudflare Workers use globalThis.ENVIRONMENT, Node.js uses process.env.
- */
-interface GlobalWithEnv {
-  ENVIRONMENT?: string
-  __vitest_worker__?: unknown
-  jest?: unknown
-}
-
-/**
- * Minimal interface for mock model generate options.
- * The actual AI SDK uses complex types, but our mock only needs basic compatibility.
- */
-interface MockGenerateOptions {
-  prompt?: string
-  messages?: Array<{ role: string; content: string }>
-  maxTokens?: number
-  temperature?: number
-}
-
-/**
- * Minimal interface for mock model generate result.
- */
-interface MockGenerateResult {
-  text: string
-  finishReason: 'stop' | 'length' | 'error'
-  usage: { promptTokens: number; completionTokens: number }
-}
-
-/**
- * Minimal interface for mock model stream result.
- */
-interface MockStreamResult {
-  stream: AsyncGenerator<
-    | { type: 'text-delta'; textDelta: string }
-    | { type: 'finish'; finishReason: 'stop' | 'length' | 'error'; usage: { promptTokens: number; completionTokens: number } }
-  >
-}
-
-/**
- * Internal mock model interface for testing.
- * This is separate from the external LanguageModel type to avoid coupling.
- */
-interface MockLanguageModel {
-  provider: 'mock'
-  modelId: string
-  specificationVersion: string
-  doGenerate(options: MockGenerateOptions): Promise<MockGenerateResult>
-  doStream(options: MockGenerateOptions): Promise<MockStreamResult>
-}
-
-/**
- * Type guard to check if a model is our internal mock model.
- */
-function isMockModel(model: unknown): model is MockLanguageModel {
-  return (
-    typeof model === 'object' &&
-    model !== null &&
-    'provider' in model &&
-    (model as { provider: unknown }).provider === 'mock'
-  )
-}
-
-/**
- * Minimal interface for AI SDK stream chunk types.
- * The actual AI SDK has many chunk types; we only define what we need.
- */
-type StreamChunk =
-  | { type: 'text-delta'; textDelta: string }
-  | { type: 'tool-call'; toolCallId: string; toolName: string; args: unknown }
-  | { type: 'tool-result'; toolCallId: string; result: unknown }
-  | { type: 'error'; error: Error }
-  | { type: 'finish'; finishReason: string; usage?: { promptTokens?: number; completionTokens?: number } }
-  | { type: string; [key: string]: unknown }
-
-// Type aliases for AI SDK models.
-// The 'ai' package's type exports don't resolve correctly under moduleResolution: "bundler"
-// due to the complex GlobalProviderModelId type. We use 'unknown' for our internal type
-// but cast through 'unknown' when passing to the AI SDK functions which expect their own types.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type LanguageModel = any
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type EmbeddingModel = any
 
 // Core types (defined inline to avoid dependency on primitives submodule)
 export interface JSONSchema {
@@ -162,14 +135,21 @@ export interface SimpleSchema {
   [key: string]: string | string[] | SimpleSchema
 }
 
+/**
+ * Minimal interface for AI SDK stream chunk types.
+ * The actual AI SDK has many chunk types; we only define what we need.
+ */
+type StreamChunk =
+  | { type: 'text-delta'; textDelta: string }
+  | { type: 'tool-call'; toolCallId: string; toolName: string; args: unknown }
+  | { type: 'tool-result'; toolCallId: string; result: unknown }
+  | { type: 'error'; error: Error }
+  | { type: 'finish'; finishReason: string; usage?: { promptTokens?: number; completionTokens?: number } }
+  | { type: string; [key: string]: unknown }
+
 // ============================================================================
 // Provider Configuration
 // ============================================================================
-
-// Import Provider from router (don't re-export to avoid duplicate exports in index.ts)
-// Note: AIProviderConfig in router.ts has different fields (model vs accountId/defaultModel)
-// so we define AIProviderConfig here for ai-core specific configuration
-import type { Provider } from './router'
 
 export interface AIProviderConfig {
   provider: Provider
@@ -181,161 +161,6 @@ export interface AIProviderConfig {
 // Global provider registry
 const providers = new Map<Provider, AIProviderConfig>()
 let defaultProvider: Provider | null = null
-
-// ============================================================================
-// Mock Model Configuration
-// ============================================================================
-
-/**
- * Configuration options for mock model behavior
- */
-export interface MockModelConfig {
-  /**
-   * Whether mock models are allowed. Defaults based on environment:
-   * - 'auto': Allow in test/development, disallow in production (default)
-   * - true: Always allow mock models (use with caution)
-   * - false: Never allow mock models (throws if ai-providers unavailable)
-   */
-  allowMock?: 'auto' | boolean
-
-  /**
-   * Whether to log warnings when mock model is used.
-   * Default: true
-   */
-  warnOnMock?: boolean
-
-  /**
-   * Custom warning handler. Defaults to console.warn.
-   */
-  onMockWarning?: (message: string, context: { model: string; operation: string }) => void
-}
-
-// Global mock model configuration
-let mockConfig: MockModelConfig = {
-  allowMock: 'auto',
-  warnOnMock: true,
-}
-
-// Track if we've warned about mock usage (to avoid spamming)
-let mockWarningIssued = false
-
-/**
- * Configure mock model behavior
- *
- * @example
- * ```ts
- * // Disable mock models entirely (fail if ai-providers unavailable)
- * configureMockModel({ allowMock: false })
- *
- * // Enable mock models with custom warning handler
- * configureMockModel({
- *   allowMock: true,
- *   warnOnMock: true,
- *   onMockWarning: (msg, ctx) => logger.warn(msg, ctx),
- * })
- * ```
- */
-export function configureMockModel(config: MockModelConfig): void {
-  mockConfig = { ...mockConfig, ...config }
-  // Reset warning flag when config changes
-  mockWarningIssued = false
-}
-
-/**
- * Get current mock model configuration
- */
-export function getMockConfig(): MockModelConfig {
-  return { ...mockConfig }
-}
-
-/**
- * Reset mock model configuration to defaults (useful for testing)
- */
-export function resetMockConfig(): void {
-  mockConfig = {
-    allowMock: 'auto',
-    warnOnMock: true,
-  }
-  mockWarningIssued = false
-}
-
-/**
- * Detect if we're running in a production environment
- */
-function isProduction(): boolean {
-  // Check common environment variables
-  if (typeof process !== 'undefined' && process.env) {
-    const env = process.env['NODE_ENV'] || process.env['ENVIRONMENT'] || ''
-    if (env.toLowerCase() === 'production' || env.toLowerCase() === 'prod') {
-      return true
-    }
-  }
-  // Check Cloudflare Workers environment
-  if (typeof globalThis !== 'undefined' && (globalThis as GlobalWithEnv).ENVIRONMENT === 'production') {
-    return true
-  }
-  return false
-}
-
-/**
- * Detect if we're running in a test environment
- */
-function isTestEnvironment(): boolean {
-  // Check common test environment indicators
-  if (typeof process !== 'undefined' && process.env) {
-    // NODE_ENV=test
-    if (process.env['NODE_ENV'] === 'test') return true
-    // Vitest
-    if (process.env['VITEST'] === 'true') return true
-    // Jest
-    if (process.env['JEST_WORKER_ID'] !== undefined) return true
-    // CI environments often set this
-    if (process.env['CI'] === 'true') return true
-  }
-  // Check if vitest/jest globals are present
-  if (typeof globalThis !== 'undefined') {
-    if ((globalThis as GlobalWithEnv).__vitest_worker__) return true
-    if ((globalThis as GlobalWithEnv).jest) return true
-  }
-  return false
-}
-
-/**
- * Check if mock models should be allowed based on configuration and environment
- */
-function shouldAllowMock(): boolean {
-  if (mockConfig.allowMock === true) return true
-  if (mockConfig.allowMock === false) return false
-
-  // 'auto' mode: allow in test/dev, disallow in production
-  if (isTestEnvironment()) return true
-  if (isProduction()) return false
-
-  // Default to allowing in development
-  return true
-}
-
-/**
- * Log a warning about mock model usage
- */
-function warnMockUsage(model: string, operation: string): void {
-  if (!mockConfig.warnOnMock) return
-  if (mockWarningIssued && operation === 'resolve') return // Only warn once per session for model resolution
-
-  const message = `[dotdo/ai] Using MOCK model for "${model}" because ai-providers is not installed. ` +
-    `This returns fake responses and should NOT be used in production. ` +
-    `Install ai-providers or configure a real provider to use actual AI models.`
-
-  if (mockConfig.onMockWarning) {
-    mockConfig.onMockWarning(message, { model, operation })
-  } else {
-    logger.warn(message)
-  }
-
-  if (operation === 'resolve') {
-    mockWarningIssued = true
-  }
-}
 
 /**
  * Configure a provider for AI operations
@@ -370,416 +195,6 @@ export function getProvider(provider?: Provider): AIProviderConfig | undefined {
 export function clearProviders(): void {
   providers.clear()
   defaultProvider = null
-}
-
-// ============================================================================
-// Model Resolution
-// ============================================================================
-
-/**
- * Model aliases for common models
- */
-const MODEL_ALIASES: Record<string, string> = {
-  // Anthropic
-  'opus': 'claude-opus-4.5',
-  'sonnet': 'claude-sonnet-4.5',
-  'haiku': 'claude-3-5-haiku-20241022',
-
-  // OpenAI
-  'gpt-4o': 'gpt-4o',
-  'gpt-4': 'gpt-4-turbo',
-  'gpt-3.5': 'gpt-3.5-turbo',
-
-  // Google
-  'gemini': 'gemini-2.0-flash-exp',
-  'gemini-pro': 'gemini-1.5-pro',
-}
-
-/**
- * Resolve model alias to full model ID
- */
-function resolveModelAlias(model: string): string {
-  return MODEL_ALIASES[model] || model
-}
-
-/**
- * Get provider from model name
- */
-function getProviderFromModel(model: string): Provider {
-  const resolvedModel = resolveModelAlias(model)
-
-  if (resolvedModel.startsWith('claude')) return 'anthropic'
-  if (resolvedModel.startsWith('gpt')) return 'openai'
-  if (resolvedModel.startsWith('gemini')) return 'google'
-
-  // Default to configured provider
-  return defaultProvider || 'anthropic'
-}
-
-/**
- * Check if an error is a module not found error
- */
-function isModuleNotFoundError(error: unknown): boolean {
-  if (error instanceof Error) {
-    // Node.js/Vite MODULE_NOT_FOUND error codes
-    if ('code' in error && (
-      error.code === 'MODULE_NOT_FOUND' ||
-      error.code === 'ERR_MODULE_NOT_FOUND'
-    )) {
-      return true
-    }
-    // Bundler/ESM import errors - various message formats
-    if (error.message.includes('Cannot find module') ||
-        error.message.includes('Cannot find package') ||
-        error.message.includes('Failed to resolve') ||
-        error.message.includes('Cannot resolve module') ||
-        error.message.includes('Failed to load url')) {
-      return true
-    }
-  }
-  return false
-}
-
-/**
- * Error thrown when mock model is used but not allowed
- */
-export class MockModelNotAllowedError extends Error {
-  constructor(modelId: string) {
-    super(
-      `Mock model not allowed for "${modelId}". ` +
-      `ai-providers module is not installed and mock models are disabled. ` +
-      `Either install ai-providers or set configureMockModel({ allowMock: true }) for testing.`
-    )
-    this.name = 'MockModelNotAllowedError'
-  }
-}
-
-// ============================================================================
-// Error Classes
-// ============================================================================
-
-/**
- * Base error class for AI operations.
- * All AI-related errors extend from this class.
- */
-export class AIError extends Error {
-  /** The operation that was being performed */
-  readonly operation: string
-  /** The model being used (if applicable) */
-  readonly model?: string
-  /** The underlying cause of the error */
-  readonly cause?: Error
-
-  constructor(message: string, options: { operation: string; model?: string; cause?: Error }) {
-    super(message)
-    this.name = 'AIError'
-    this.operation = options.operation
-    if (options.model !== undefined) {
-      this.model = options.model
-    }
-    if (options.cause !== undefined) {
-      this.cause = options.cause
-    }
-    // Maintain proper stack trace (only in V8)
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, AIError)
-    }
-  }
-}
-
-/**
- * Error thrown when a model cannot be resolved.
- */
-export class AIModelResolutionError extends AIError {
-  constructor(modelId: string, cause?: Error) {
-    // Build options with only defined values to satisfy exactOptionalPropertyTypes
-    const opts: { operation: string; model: string; cause?: Error } = {
-      operation: 'resolveModel',
-      model: modelId,
-    }
-    if (cause !== undefined) {
-      opts.cause = cause
-    }
-    super(
-      `Failed to resolve model "${modelId}"${cause ? `: ${cause.message}` : ''}`,
-      opts
-    )
-    this.name = 'AIModelResolutionError'
-  }
-}
-
-/**
- * Error thrown when the AI provider returns an error.
- */
-export class AIProviderError extends AIError {
-  /** HTTP status code from the provider (if applicable) */
-  readonly status?: number
-  /** Error code from the provider (if applicable) */
-  readonly code?: string
-  /** Whether this error is retryable */
-  readonly retryable: boolean
-
-  constructor(
-    message: string,
-    options: {
-      operation: string
-      model?: string
-      cause?: Error
-      status?: number
-      code?: string
-      retryable?: boolean
-    }
-  ) {
-    super(message, options)
-    this.name = 'AIProviderError'
-    if (options.status !== undefined) {
-      this.status = options.status
-    }
-    if (options.code !== undefined) {
-      this.code = options.code
-    }
-    this.retryable = options.retryable ?? false
-  }
-
-  /**
-   * Check if an error from the provider is retryable.
-   */
-  static isRetryable(error: Error & { status?: number; code?: string }): boolean {
-    // Rate limit errors are retryable
-    if (error.status === 429) return true
-
-    // Server errors are generally retryable
-    if (error.status !== undefined && error.status >= 500 && error.status < 600) return true
-
-    // Check error codes
-    const code = error.code?.toLowerCase()
-    if (code === 'rate_limit_exceeded' || code === 'overloaded' || code === 'server_error') {
-      return true
-    }
-
-    // Check error message for transient conditions
-    const message = error.message?.toLowerCase() || ''
-    const transientPatterns = [
-      'rate limit',
-      'too many requests',
-      'overloaded',
-      'timeout',
-      'econnreset',
-      'socket hang up',
-      'network error',
-    ]
-    return transientPatterns.some(p => message.includes(p))
-  }
-}
-
-/**
- * Error thrown when text generation fails.
- */
-export class AIGenerationError extends AIProviderError {
-  constructor(
-    message: string,
-    options: {
-      model?: string
-      cause?: Error
-      status?: number
-      code?: string
-      retryable?: boolean
-    }
-  ) {
-    super(message, { ...options, operation: 'generateText' })
-    this.name = 'AIGenerationError'
-  }
-}
-
-/**
- * Error thrown when object generation fails.
- */
-export class AIObjectGenerationError extends AIProviderError {
-  constructor(
-    message: string,
-    options: {
-      model?: string
-      cause?: Error
-      status?: number
-      code?: string
-      retryable?: boolean
-    }
-  ) {
-    super(message, { ...options, operation: 'generateObject' })
-    this.name = 'AIObjectGenerationError'
-  }
-}
-
-/**
- * Error thrown when embedding generation fails.
- */
-export class AIEmbeddingError extends AIProviderError {
-  constructor(
-    message: string,
-    options: {
-      model?: string
-      cause?: Error
-      status?: number
-      code?: string
-      retryable?: boolean
-    }
-  ) {
-    super(message, { ...options, operation: 'embedText' })
-    this.name = 'AIEmbeddingError'
-  }
-}
-
-/**
- * Error thrown when streaming fails.
- */
-export class AIStreamError extends AIProviderError {
-  constructor(
-    message: string,
-    options: {
-      model?: string
-      cause?: Error
-      status?: number
-      code?: string
-      retryable?: boolean
-    }
-  ) {
-    super(message, { ...options, operation: 'streamText' })
-    this.name = 'AIStreamError'
-  }
-}
-
-/**
- * Extract error details from a provider error.
- * Returns an object that can be safely used with exactOptionalPropertyTypes.
- */
-function extractErrorDetails(error: unknown): { status?: number; code?: string; message: string } {
-  if (error instanceof Error) {
-    const err = error as Error & { status?: number; code?: string; statusCode?: number }
-    const result: { status?: number; code?: string; message: string } = {
-      message: err.message,
-    }
-    const status = err.status ?? err.statusCode
-    if (status !== undefined) {
-      result.status = status
-    }
-    if (err.code !== undefined) {
-      result.code = err.code
-    }
-    return result
-  }
-  return { message: String(error) }
-}
-
-/**
- * Build error options from extracted details for use with exactOptionalPropertyTypes.
- */
-function buildErrorOptions(
-  modelName: string,
-  cause: Error,
-  details: { status?: number; code?: string; message: string }
-): {
-  model: string
-  cause: Error
-  status?: number
-  code?: string
-  retryable: boolean
-} {
-  const opts: {
-    model: string
-    cause: Error
-    status?: number
-    code?: string
-    retryable: boolean
-  } = {
-    model: modelName,
-    cause,
-    retryable: AIProviderError.isRetryable(cause as Error & { status?: number; code?: string }),
-  }
-  if (details.status !== undefined) {
-    opts.status = details.status
-  }
-  if (details.code !== undefined) {
-    opts.code = details.code
-  }
-  return opts
-}
-
-/**
- * Create a mock LanguageModel for testing when ai-providers is not installed.
- *
- * IMPORTANT: This should only be used when the ai-providers module is genuinely
- * not available (development/testing without the optional dependency).
- * Real errors from ai-providers should propagate to the caller.
- *
- * @throws {MockModelNotAllowedError} If mock models are not allowed in current environment
- */
-function createMockModel(modelId: string): LanguageModel {
-  // Check if mock models are allowed
-  if (!shouldAllowMock()) {
-    throw new MockModelNotAllowedError(modelId)
-  }
-
-  // Warn about mock usage
-  warnMockUsage(modelId, 'resolve')
-
-  const mockModel: MockLanguageModel = {
-    provider: 'mock',
-    modelId,
-    specificationVersion: 'v1',
-    async doGenerate(_options: MockGenerateOptions): Promise<MockGenerateResult> {
-      return {
-        text: `Mock response for model: ${modelId}`,
-        finishReason: 'stop' as const,
-        usage: { promptTokens: 10, completionTokens: 20 },
-      }
-    },
-    async doStream(_options: MockGenerateOptions): Promise<MockStreamResult> {
-      return {
-        stream: (async function* () {
-          yield { type: 'text-delta' as const, textDelta: 'Mock response' }
-          yield { type: 'finish' as const, finishReason: 'stop' as const, usage: { promptTokens: 10, completionTokens: 20 } }
-        })(),
-      }
-    },
-  }
-  return mockModel as unknown as LanguageModel
-}
-
-/**
- * Resolve model string to LanguageModel instance
- *
- * Uses ai-providers when available, falls back to mock only when the module
- * is not installed. Real errors (auth failures, API errors, etc.) are propagated
- * wrapped in AIModelResolutionError for better error handling.
- *
- * @throws {AIModelResolutionError} When model resolution fails (wraps the original error)
- * @throws {MockModelNotAllowedError} When mock is needed but not allowed
- */
-async function resolveModel(modelArg: string | LanguageModel): Promise<LanguageModel> {
-  // Already a LanguageModel instance
-  if (typeof modelArg !== 'string') {
-    return modelArg
-  }
-
-  // Resolve alias
-  const resolvedModel = resolveModelAlias(modelArg)
-
-  // Try to use ai-providers if available
-  try {
-    const aiProviders = await import('ai-providers')
-    // This may throw errors (auth, config, etc.) - let them propagate!
-    return await aiProviders.model(resolvedModel)
-  } catch (e) {
-    // Only use mock model if ai-providers module is not installed
-    // This allows tests to run without the optional dependency
-    if (isModuleNotFoundError(e)) {
-      return createMockModel(resolvedModel)
-    }
-    // Wrap real errors (authentication, configuration, API errors, etc.)
-    // in AIModelResolutionError for better error handling
-    const cause = e instanceof Error ? e : new Error(String(e))
-    throw new AIModelResolutionError(resolvedModel, cause)
-  }
 }
 
 // ============================================================================
@@ -1096,19 +511,6 @@ export interface EmbedTextOptions {
 }
 
 /**
- * Generate mock embeddings for testing when ai-providers is not installed.
- * Returns deterministic mock embeddings based on text length.
- */
-function generateMockEmbedding(text: string, dimensions: number = 1536): number[] {
-  // Use a simple deterministic algorithm based on text
-  // This ensures tests get consistent results
-  const seed = text.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
-  return Array.from({ length: dimensions }, (_, i) =>
-    Math.sin(seed * (i + 1) * 0.001) * 0.5
-  )
-}
-
-/**
  * Generate embeddings for text
  *
  * @example
@@ -1131,23 +533,7 @@ export async function embedText(
   const modelName = options?.model || 'text-embedding-3-small'
 
   // Try to get embedding model from ai-providers
-  let model: EmbeddingModel | null = null
-  try {
-    const aiProviders = await import('ai-providers')
-    // This may throw errors (auth, config, etc.) - wrap them!
-    model = await aiProviders.embeddingModel(modelName)
-  } catch (e) {
-    // Only use mock embeddings if ai-providers module is not installed
-    // This allows tests to run without the optional dependency
-    if (isModuleNotFoundError(e)) {
-      model = null
-    } else {
-      // Wrap real errors (authentication, configuration, API errors, etc.)
-      // in AIModelResolutionError for better error handling
-      const cause = e instanceof Error ? e : new Error(String(e))
-      throw new AIModelResolutionError(modelName, cause)
-    }
-  }
+  const model = await resolveEmbeddingModel(modelName)
 
   // If ai-providers is not available (module not installed), return mock embeddings
   if (model === null) {

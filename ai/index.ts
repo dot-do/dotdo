@@ -101,3 +101,21 @@ export {
  * Low-level interface for direct AI calls.
  */
 export * from './ai-core'
+
+/**
+ * Error classes for AI operations.
+ * Provides typed errors with context for debugging.
+ */
+export * from './errors'
+
+/**
+ * Mock model support for testing.
+ * Allows tests to run without real AI providers.
+ */
+export * from './mock'
+
+/**
+ * Model resolution and aliases.
+ * Maps short names to full model identifiers.
+ */
+export * from './models'

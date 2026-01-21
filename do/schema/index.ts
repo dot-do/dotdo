@@ -10,6 +10,25 @@
 // Types
 export * from './types'
 
+// Type Inference (do-lekf.7)
+export type {
+  InferEntity,
+  InferSchema,
+  CreateInput,
+  UpdateInput,
+  TypedEntityAccessor,
+  TypedEntityInstance,
+  TypedEntityProxy,
+  TypedDB,
+  SchemaDefinition,
+  ValidateSchema,
+  EntityNames,
+  AnyEntity,
+  RelationFields,
+  DataFields,
+  ListOptions,
+} from './infer'
+
 // Parser
 export {
   parseSchema,
@@ -21,4 +40,21 @@ export {
   getEntityNames,
   getRelationFields,
   isGeneratedField,
+  // Relation operator helpers (do-lekf.5)
+  hasOne,
+  hasMany,
+  belongsTo,
+  manyToMany,
+  fuzzyRelation,
+  fuzzyBackref,
 } from './parser'
+
+// DDL Generator (do-lekf.3)
+export {
+  generateEntityDDL,
+  generateSchemaDDL,
+  generateTableExistsQuery,
+  generateMigrationDDL,
+  type DDLOptions,
+  type DDLResult,
+} from './ddl'
