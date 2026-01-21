@@ -12,6 +12,7 @@ import type {
   EventsStore,
   EventInput,
   EventQueryOptions,
+  EventCursorOptions,
   RetentionPolicy,
   DLQEntry,
   DLQCleanupOptions,
@@ -21,7 +22,7 @@ import type {
   RetryMetrics,
   DurabilityConfig
 } from './events'
-import type { Relationship, RelationshipsStore, BaseRelationship, RelationshipInput } from './relationships'
+import type { Relationship, RelationshipsStore, BaseRelationship, RelationshipInput, RelationshipCursorOptions } from './relationships'
 import {
   type QueryOptions,
   buildWhereClause,
@@ -773,11 +774,11 @@ export function createSQLiteEventsStore(adapter: SQLiteAdapter): EventsStore {
     },
 
     // queryWithCursor implementation for SQLite (do-8m4e)
-    async queryWithCursor(options: any = {}) {
-      const { type, source, correlationId, since, until, cursor, limit = 100, direction = 'forward' } = options
+    async queryWithCursor(options: EventCursorOptions = {}) {
+      const { cursor, limit = 100, direction = 'forward', ...queryOptions } = options
 
-      // Fetch events using query method
-      const events = await this.query({ type, source, correlationId, since, until, limit: limit + 1 })
+      // Fetch events using query method (pass through query options directly)
+      const events = await this.query({ ...queryOptions, limit: limit + 1 })
 
       // Handle cursor-based pagination logic
       let startIndex = 0
@@ -1507,11 +1508,11 @@ export function createSQLiteRelationshipsStore(
 
     // findWithCursor implementation for SQLite (do-8m4e)
     // Fixed: Uses opaque cursor tokens via applyCursorPagination (do-kdw9)
-    async findWithCursor(options: any = {}) {
-      const { subject, predicate, object, cursor, limit = 100, direction = 'forward' } = options
+    async findWithCursor(options: RelationshipCursorOptions = {}) {
+      const { cursor, limit = 100, direction = 'forward', ...findQuery } = options
 
-      // Fetch relationships using find method
-      const rels = await this.find({ subject, predicate, object })
+      // Fetch relationships using find method (pass through find query directly)
+      const rels = await this.find(findQuery)
 
       // Sort by createdAt descending, then by composite ID for stable ordering
       const getRelId = (rel: Relationship) => `${rel.subject}:${rel.predicate}:${rel.object}`

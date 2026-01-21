@@ -233,6 +233,24 @@ export interface EventQueryOptions {
   offset?: number
 }
 
+/**
+ * Options for cursor-based event pagination
+ */
+export interface EventCursorOptions extends EventQueryOptions {
+  cursor?: string
+  direction?: 'forward' | 'backward'
+}
+
+/**
+ * Cursor-based pagination result for events
+ */
+export interface EventCursorResult<P extends JsonValue = JsonValue> {
+  items: Event<P>[]
+  nextCursor?: string
+  prevCursor?: string
+  hasMore: boolean
+}
+
 // ID generation moved to ./id.ts (do-e3my)
 
 /**
@@ -253,6 +271,29 @@ const EVENTS_PREFIX = 'event:'
 // ============================================================================
 
 /**
+ * Bounds configuration for in-memory collections to prevent memory leaks
+ * See do-hmyi for context on why these limits are necessary
+ */
+interface CollectionBounds {
+  /** Maximum number of entries in the dead letter queue (default: 10000) */
+  maxDLQEntries: number
+  /** Maximum number of validation failures to keep (default: 10000) */
+  maxValidationFailures: number
+  /** Maximum number of event retry statuses to track (default: 50000) */
+  maxRetryStatuses: number
+  /** Maximum age in ms for retry status entries before cleanup (default: 24 hours) */
+  retryStatusMaxAge: number
+}
+
+/** Default bounds for in-memory collections */
+const DEFAULT_COLLECTION_BOUNDS: CollectionBounds = {
+  maxDLQEntries: 10000,
+  maxValidationFailures: 10000,
+  maxRetryStatuses: 50000,
+  retryStatusMaxAge: 24 * 60 * 60 * 1000 // 24 hours
+}
+
+/**
  * Shared state container for DLQ, validation failures, retry status, and metrics
  * Used by both createEventsStore and createEventsStoreWithAdapter
  */
@@ -265,12 +306,15 @@ interface SharedEventState<P extends JsonValue> {
   defaultDurabilityConfig: DurabilityConfig
   subscribers: Set<(event: Event<P>) => void>
   retentionPolicy: RetentionPolicy | undefined
+  /** Configurable bounds for in-memory collections */
+  bounds: CollectionBounds
 }
 
 /**
  * Creates shared state for an events store
+ * @param bounds - Optional custom bounds configuration (defaults to DEFAULT_COLLECTION_BOUNDS)
  */
-function createSharedEventState<P extends JsonValue>(): SharedEventState<P> {
+function createSharedEventState<P extends JsonValue>(bounds?: Partial<CollectionBounds>): SharedEventState<P> {
   return {
     deadLetterQueue: [],
     validationFailures: [],
@@ -279,7 +323,8 @@ function createSharedEventState<P extends JsonValue>(): SharedEventState<P> {
     durabilityConfig: {},
     defaultDurabilityConfig: { retries: 3, backoff: 'exponential' },
     subscribers: new Set(),
-    retentionPolicy: undefined
+    retentionPolicy: undefined,
+    bounds: { ...DEFAULT_COLLECTION_BOUNDS, ...bounds }
   }
 }
 
@@ -382,12 +427,20 @@ function createEventFromInput<P extends JsonValue>(data: EventInput<P>): Event<P
 }
 
 /**
- * Add entry to dead letter queue
+ * Add entry to dead letter queue with automatic cleanup when bounds exceeded
+ * Removes oldest entries (FIFO) when maxDLQEntries is reached
  */
 function addToDLQ<P extends JsonValue>(
   entry: Omit<DLQEntry<P>, 'timestamp'>,
   state: SharedEventState<P>
 ): void {
+  // Enforce bounds - remove oldest entries if at limit
+  // Remove 10% of entries when hitting limit to amortize cleanup cost
+  if (state.deadLetterQueue.length >= state.bounds.maxDLQEntries) {
+    const removeCount = Math.max(1, Math.floor(state.bounds.maxDLQEntries * 0.1))
+    state.deadLetterQueue.splice(0, removeCount)
+    logger.warn(`DLQ exceeded max entries (${state.bounds.maxDLQEntries}), removed ${removeCount} oldest entries`)
+  }
   state.deadLetterQueue.push({ ...entry, timestamp: Date.now() })
 }
 
@@ -503,12 +556,20 @@ function cleanupDLQ<P extends JsonValue>(
 }
 
 /**
- * Add validation failure
+ * Add validation failure with automatic cleanup when bounds exceeded
+ * Removes oldest entries (FIFO) when maxValidationFailures is reached
  */
 function addValidationFailureEntry<P extends JsonValue>(
   failure: Omit<ValidationFailure<P>, 'timestamp'>,
   state: SharedEventState<P>
 ): void {
+  // Enforce bounds - remove oldest entries if at limit
+  // Remove 10% of entries when hitting limit to amortize cleanup cost
+  if (state.validationFailures.length >= state.bounds.maxValidationFailures) {
+    const removeCount = Math.max(1, Math.floor(state.bounds.maxValidationFailures * 0.1))
+    state.validationFailures.splice(0, removeCount)
+    logger.warn(`Validation failures exceeded max entries (${state.bounds.maxValidationFailures}), removed ${removeCount} oldest entries`)
+  }
   state.validationFailures.push({ ...failure, timestamp: Date.now() })
 }
 

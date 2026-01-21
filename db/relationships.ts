@@ -50,6 +50,7 @@ export interface RelationshipCursorResult<M extends StorableData = StorableData>
 export interface RelationshipCursorOptions extends RelationshipQuery {
   cursor?: string
   limit?: number
+  direction?: 'forward' | 'backward'
 }
 
 /**

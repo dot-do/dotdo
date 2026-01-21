@@ -52,13 +52,23 @@ function mapToDbThing(doThing: DOThing<unknown>): Thing {
 }
 
 /**
+ * Metadata fields in a Thing that should be excluded when extracting data payload
+ */
+interface ThingMetadata {
+  $id?: unknown
+  $type?: unknown
+  $createdAt?: unknown
+  $updatedAt?: unknown
+}
+
+/**
  * Extract data payload from @dotdo/db Thing format
  *
  * Removes metadata fields ($id, $type, $createdAt, $updatedAt)
  * to get the data payload for digital-objects
  */
 function extractData<T extends Record<string, unknown>>(dbThing: Partial<T>): Record<string, unknown> {
-  const { $id, $type, $createdAt, $updatedAt, ...data } = dbThing as any
+  const { $id, $type, $createdAt, $updatedAt, ...data } = dbThing as Partial<T> & ThingMetadata
   return data
 }
 
@@ -99,7 +109,7 @@ export function createDigitalObjectsAdapter(
 ): DigitalObjectsThingsStore {
   return {
     async create(data, options?: ValidationOptions) {
-      const { $type, ...payload } = data as any
+      const { $type, ...payload } = data
 
       if (!$type) {
         throw new Error('$type is required')
