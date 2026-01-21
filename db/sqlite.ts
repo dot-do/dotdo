@@ -3,7 +3,7 @@
 
 import { createLogger } from '../utils/logger'
 import type { Thing, ThingsStore } from './things'
-import type { StorableData } from './types'
+import type { StorableData, SqlStorage, SqlRunResult } from './types'
 import type { EventId } from './branded-types'
 
 const logger = createLogger('[SQLite]')
@@ -32,39 +32,10 @@ import { applyCursorPagination, encodeCursor, decodeCursor } from './pagination'
 import { MigrationRunner, coreMigrations, type Migration } from './migrations'
 import { generateId, generateEventId } from './id'
 
-/**
- * SqlStorage interface from Cloudflare Workers
- * Uses Record<string, unknown> for SQL result rows since raw SQL queries
- * can return any column types. Callers should cast to appropriate types.
- *
- * Note: The actual CF SqlStorage API is synchronous. These methods return values directly,
- * not Promises. Code that awaits these will still work (awaiting a non-promise returns the value).
- */
-/**
- * Result of a run operation, potentially including metadata about changes
- */
-export interface SqlRunResult {
-  meta?: { changes?: number } | undefined
-}
-
-/**
- * SqlStorage interface from Cloudflare Workers
- * Uses Record<string, unknown> for SQL result rows since raw SQL queries
- * can return any column types. Callers should cast to appropriate types.
- *
- * Note: Methods can return either sync or async results.
- * The real CF API is sync, but test wrappers may return promises.
- */
-export interface SqlStorage {
-  exec(sql: string): { results: Array<Record<string, unknown>> }
-  prepare(sql: string): {
-    bind(...values: unknown[]): {
-      first(): (Record<string, unknown> | null) | Promise<Record<string, unknown> | null>
-      all(): { results: Array<Record<string, unknown>> } | Promise<{ results: Array<Record<string, unknown>> }>
-      run(): SqlRunResult | Promise<SqlRunResult>
-    }
-  }
-}
+// SqlStorage and SqlRunResult interfaces are now imported from ./types to break
+// circular dependency: sqlite.ts <-> migrations.ts (do-x6ft)
+// Re-export for backward compatibility with existing consumers
+export type { SqlStorage, SqlRunResult } from './types'
 
 // ID generation moved to ./id.ts (do-y5ko)
 

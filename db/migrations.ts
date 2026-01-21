@@ -1,7 +1,7 @@
 // SQLite Migration System for @dotdo/db
 // Provides versioned schema migrations with rollback support
 
-import type { SqlStorage } from './sqlite'
+import type { SqlStorage } from './types'
 
 /**
  * Represents a database migration

@@ -36,3 +36,29 @@ export type StorableData = Record<string, JsonValue>
  * Replaces Record<string, unknown> in query conditions
  */
 export type WhereConditions<T extends StorableData = StorableData> = Partial<T>
+
+/**
+ * Result of a SQL run operation, potentially including metadata about changes
+ */
+export interface SqlRunResult {
+  meta?: { changes?: number } | undefined
+}
+
+/**
+ * SqlStorage interface from Cloudflare Workers
+ * Uses Record<string, unknown> for SQL result rows since raw SQL queries
+ * can return any column types. Callers should cast to appropriate types.
+ *
+ * Note: Methods can return either sync or async results.
+ * The real CF API is sync, but test wrappers may return promises.
+ */
+export interface SqlStorage {
+  exec(sql: string): { results: Array<Record<string, unknown>> }
+  prepare(sql: string): {
+    bind(...values: unknown[]): {
+      first(): (Record<string, unknown> | null) | Promise<Record<string, unknown> | null>
+      all(): { results: Array<Record<string, unknown>> } | Promise<{ results: Array<Record<string, unknown>> }>
+      run(): SqlRunResult | Promise<SqlRunResult>
+    }
+  }
+}
