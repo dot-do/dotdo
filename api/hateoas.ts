@@ -505,14 +505,25 @@ export function createErrorResponse(
     healthPath?: string
   }
 ): ErrorResponse {
-  return {
+  // Build error links options, only including defined properties
+  const errorLinksOptions: { docsPath?: string; healthPath?: string } = {}
+  if (options?.docsPath) {
+    errorLinksOptions.docsPath = options.docsPath
+  }
+  if (options?.healthPath) {
+    errorLinksOptions.healthPath = options.healthPath
+  }
+
+  const response: ErrorResponse = {
     error,
     status,
-    requestId: options?.requestId,
-    details: options?.details,
-    _links: generateErrorLinks(baseUrl, {
-      docsPath: options?.docsPath,
-      healthPath: options?.healthPath
-    })
+    _links: generateErrorLinks(baseUrl, errorLinksOptions)
   }
+  if (options?.requestId !== undefined) {
+    response.requestId = options.requestId
+  }
+  if (options?.details !== undefined) {
+    response.details = options.details
+  }
+  return response
 }

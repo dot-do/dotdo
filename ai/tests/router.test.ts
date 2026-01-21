@@ -739,7 +739,7 @@ describe('Router', () => {
         fallback: ['anthropic'],
         maxRetries: 2,
         backoff: {
-          initialDelay: 500,
+          initialDelay: 25, // Small delay for fast tests
           multiplier: 2,
           jitter: false
         }
@@ -755,8 +755,8 @@ describe('Router', () => {
 
       await router.execute('test')
 
-      // First retry should use initial delay of 500ms
-      expect(delays[0]).toBe(500)
+      // First retry should use initial delay of 25ms
+      expect(delays[0]).toBe(25)
     })
 
     it('should respect max delay', async () => {
@@ -764,9 +764,9 @@ describe('Router', () => {
         fallback: ['anthropic'],
         maxRetries: 5,
         backoff: {
-          initialDelay: 1000,
+          initialDelay: 10, // Small delay for fast tests
           multiplier: 10, // Would grow very fast
-          maxDelay: 5000,
+          maxDelay: 50, // Capped at 50ms
           jitter: false
         }
       })
@@ -783,9 +783,10 @@ describe('Router', () => {
 
       await router.execute('test')
 
-      // All delays should be capped at maxDelay
+      // All delays should be capped at maxDelay (50ms)
+      expect(delays.length).toBe(3)
       delays.forEach(delay => {
-        expect(delay).toBeLessThanOrEqual(5000)
+        expect(delay).toBeLessThanOrEqual(50)
       })
     })
 
@@ -794,7 +795,7 @@ describe('Router', () => {
         fallback: ['anthropic'],
         maxRetries: 10,
         backoff: {
-          initialDelay: 1000,
+          initialDelay: 10, // Small delay for fast tests
           multiplier: 1, // Keep same base delay
           jitter: true
         }
@@ -813,7 +814,6 @@ describe('Router', () => {
       await router.execute('test')
 
       // With jitter, delays should vary slightly (within +/- 10%)
-      const uniqueDelays = new Set(delays)
       // Note: There's a small chance all random values could be the same
       // but with 3 retries this is very unlikely
       expect(delays.length).toBe(3)
