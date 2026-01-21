@@ -230,6 +230,26 @@ export type {
 } from '@dotdo/db'
 
 /**
+ * Dead Letter Queue (DLQ) types for monitoring failed event processing.
+ * Re-exported from @dotdo/db for convenience.
+ *
+ * Use EventsStore.getDLQStats() to monitor DLQ health:
+ * - Total failed events
+ * - Breakdown by event type and error type
+ * - Age of entries (oldest/newest timestamps)
+ * - Average retry attempts before failure
+ */
+export type {
+  DLQEntry,
+  DLQStats,
+  DLQQueryOptions,
+  DurabilityConfig,
+  EventRetryStatus,
+  RetryMetrics,
+  ValidationFailure
+} from '@dotdo/db'
+
+/**
  * WebSocket management for real-time communication in Durable Objects.
  *
  * Provides:

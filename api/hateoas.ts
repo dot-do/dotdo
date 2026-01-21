@@ -279,12 +279,17 @@ export function withCollectionLinks<T>(
   getId: (item: T) => string,
   options?: CollectionLinksOptions
 ): HATEOASResponse<Array<T & { _links: Record<string, Link> }>> {
+  // Build resource config conditionally to satisfy exactOptionalPropertyTypes
+  const resourceConfig: Partial<ResourceConfig> = {}
+  if (options?.mediaType !== undefined) {
+    resourceConfig.mediaType = options.mediaType
+  }
+  if (options?.schemaPath !== undefined) {
+    resourceConfig.schemaPath = options.schemaPath
+  }
   const itemsWithLinks = items.map(item => ({
     ...item,
-    _links: generateLinks(resource, getId(item), baseUrl, {
-      mediaType: options?.mediaType,
-      schemaPath: options?.schemaPath
-    })
+    _links: generateLinks(resource, getId(item), baseUrl, resourceConfig)
   }))
 
   return {

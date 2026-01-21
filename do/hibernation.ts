@@ -657,6 +657,263 @@ export class HibernationManager {
   }
 
   // ===========================================================================
+  // Reconnection Protocol
+  // ===========================================================================
+
+  /**
+   * Handle a new WebSocket connection with reconnection protocol support.
+   *
+   * This method creates a session for the connection and sends the initial
+   * session.init message with session ID and sequence number.
+   *
+   * @param ws - The WebSocket connection
+   * @param clientId - Optional client identifier for session tracking
+   * @param metadata - Optional session metadata
+   * @returns The created session state
+   */
+  handleNewConnection(
+    ws: WebSocket,
+    clientId?: string,
+    metadata?: Record<string, unknown>
+  ): SessionState | null {
+    if (!this.sessionManager) {
+      this.enableReconnection()
+    }
+
+    const session = this.sessionManager!.createSession(ws, clientId, metadata)
+    const initMessage = this.sessionManager!.createInitMessage(session)
+
+    // Send session.init message
+    this.send(ws, initMessage)
+
+    return session
+  }
+
+  /**
+   * Handle an incoming WebSocket message with reconnection protocol support.
+   *
+   * This method checks if the message is a protocol message (session.resume,
+   * heartbeat.ping, etc.) and handles it automatically. Returns true if the
+   * message was a protocol message and was handled, false otherwise.
+   *
+   * @param ws - The WebSocket connection
+   * @param message - The incoming message
+   * @returns true if handled as protocol message, false if regular message
+   */
+  async handleProtocolMessage(
+    ws: WebSocket,
+    message: string | ArrayBuffer
+  ): Promise<boolean> {
+    if (!this.sessionManager) {
+      return false
+    }
+
+    const parsed = parseProtocolMessage(message)
+    if (!parsed || !isProtocolMessage(parsed)) {
+      return false
+    }
+
+    // Handle different protocol message types
+    switch (parsed.type) {
+      case 'session.resume': {
+        await this.handleSessionResume(ws, parsed as SessionResumeMessage)
+        return true
+      }
+
+      case 'heartbeat.ping': {
+        this.send(ws, {
+          type: 'heartbeat.pong',
+          timestamp: Date.now(),
+          serverTime: Date.now(),
+        })
+        return true
+      }
+
+      case 'heartbeat.pong': {
+        // Client responding to our ping - update activity
+        const session = this.sessionManager.getSession(ws)
+        if (session) {
+          this.sessionManager.touchSession(ws)
+        }
+        return true
+      }
+
+      default:
+        // Unknown protocol message - don't handle
+        return false
+    }
+  }
+
+  /**
+   * Handle a session.resume message from a reconnecting client.
+   *
+   * @param ws - The new WebSocket connection
+   * @param message - The session.resume message
+   */
+  private async handleSessionResume(
+    ws: WebSocket,
+    message: SessionResumeMessage
+  ): Promise<void> {
+    if (!this.sessionManager) {
+      return
+    }
+
+    const result = await this.sessionManager.resumeSession(ws, message)
+
+    if (result.success) {
+      // Send session.resumed confirmation
+      const resumedMessage = this.sessionManager.createResumedMessage(
+        result.session,
+        result.missedEvents.length
+      )
+      this.send(ws, resumedMessage)
+
+      // Replay missed events
+      for (const event of result.missedEvents) {
+        const eventMessage: EventMessage = {
+          type: 'event',
+          seq: event.seq,
+          eventType: event.eventType,
+          payload: event.payload,
+          timestamp: event.timestamp,
+        }
+        this.send(ws, eventMessage)
+      }
+    } else {
+      // Send session.expired with new session info
+      const expiredMessage = this.sessionManager.createExpiredMessage(
+        result.newSession,
+        result.reason
+      )
+      this.send(ws, expiredMessage)
+    }
+  }
+
+  /**
+   * Handle WebSocket close with reconnection support.
+   *
+   * Preserves the session state for potential reconnection.
+   *
+   * @param ws - The WebSocket that closed
+   */
+  handleClose(ws: WebSocket): void {
+    if (this.sessionManager) {
+      this.sessionManager.handleDisconnect(ws)
+    }
+  }
+
+  /**
+   * Broadcast an event with sequence tracking for reconnection replay.
+   *
+   * This method wraps the event in the protocol format with a sequence number
+   * and buffers it for potential replay on client reconnection.
+   *
+   * @param eventType - The type of event
+   * @param payload - The event payload
+   * @param tag - Optional tag to filter recipients
+   * @returns Number of messages sent and failed
+   */
+  broadcastEvent(
+    eventType: string,
+    payload: unknown,
+    tag?: string
+  ): { sent: number; failed: number } {
+    const websockets = tag ? this.ctx.getWebSockets(tag) : this.ctx.getWebSockets()
+    let sent = 0
+    let failed = 0
+
+    for (const ws of websockets) {
+      try {
+        if (this.sessionManager) {
+          const session = this.sessionManager.getSession(ws)
+          if (session) {
+            const eventMessage = this.sessionManager.createEventMessage(
+              session,
+              eventType,
+              payload
+            )
+            ws.send(JSON.stringify(eventMessage))
+            sent++
+            continue
+          }
+        }
+
+        // Fallback to regular broadcast if no session
+        ws.send(JSON.stringify({ type: eventType, data: payload }))
+        sent++
+      } catch (error) {
+        failed++
+        logger.warn('Broadcast event failed', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    return { sent, failed }
+  }
+
+  /**
+   * Send an event to a specific WebSocket with sequence tracking.
+   *
+   * @param ws - The WebSocket to send to
+   * @param eventType - The type of event
+   * @param payload - The event payload
+   * @returns true if sent, false on error
+   */
+  sendEvent(ws: WebSocket, eventType: string, payload: unknown): boolean {
+    try {
+      if (this.sessionManager) {
+        const session = this.sessionManager.getSession(ws)
+        if (session) {
+          const eventMessage = this.sessionManager.createEventMessage(
+            session,
+            eventType,
+            payload
+          )
+          ws.send(JSON.stringify(eventMessage))
+          return true
+        }
+      }
+
+      // Fallback to regular send if no session
+      ws.send(JSON.stringify({ type: eventType, data: payload }))
+      return true
+    } catch (error) {
+      logger.warn('Send event failed', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return false
+    }
+  }
+
+  /**
+   * Get session statistics for monitoring.
+   */
+  getSessionStats(): {
+    activeSessions: number
+    totalBufferedEvents: number
+    oldestSessionAge: number
+  } | null {
+    if (!this.sessionManager) {
+      return null
+    }
+    return this.sessionManager.getStats()
+  }
+
+  /**
+   * Clean up expired sessions.
+   * Call this periodically (e.g., in alarm handler) to free memory.
+   *
+   * @returns Number of sessions cleaned up
+   */
+  async cleanupExpiredSessions(): Promise<number> {
+    if (!this.sessionManager) {
+      return 0
+    }
+    return this.sessionManager.cleanupExpiredSessions()
+  }
+
+  // ===========================================================================
   // Private Helpers
   // ===========================================================================
 

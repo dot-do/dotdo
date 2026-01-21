@@ -598,7 +598,7 @@ describe('HATEOAS E2E: Hypermedia Controls', () => {
     expect(body._links.create).toBeDefined()
     expect(body._links.create.href).toBe('http://localhost/users')
     expect(body._links.create.method).toBe('POST')
-    expect(body._links.create.rel).toBe('create')
+    expect(body._links.create.rel).toBe('create-form')  // RFC 8288 standard relation
   })
 
   it('should create resource via create link', async () => {
