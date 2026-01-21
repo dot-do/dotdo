@@ -421,13 +421,62 @@ it('should handle Pipeline-as-WAL correctly', async () => {
 })
 ```
 
-### Coverage Goals
+### Code Coverage
+
+Code coverage is tracked automatically in CI using [Codecov](https://codecov.io). Coverage reports help identify untested code paths and maintain test quality.
+
+#### Coverage Configuration
+
+Coverage is configured in each vitest.config.ts with these thresholds:
+
+| Metric | Threshold |
+|--------|-----------|
+| Statements | 65% |
+| Branches | 60% |
+| Functions | 60% |
+| Lines | 65% |
+
+**Builds will fail if coverage drops below these thresholds.**
+
+#### Running Coverage Locally
+
+```bash
+# Run tests with coverage (root-level Node tests)
+npm run test:coverage
+
+# Run coverage for specific packages
+npm run test:coverage:do      # Durable Object tests
+npm run test:coverage:db      # Database tests
+npm run test:coverage:api     # API tests
+npm run test:coverage:mcp     # MCP tools tests
+
+# Run all coverage reports
+npm run test:coverage:all
+```
+
+#### Coverage Reports
+
+After running coverage, reports are generated in the `coverage/` directory:
+
+- **Text**: Console summary output
+- **HTML**: Open `coverage/index.html` in a browser for detailed interactive report
+- **JSON**: Machine-readable `coverage/coverage-final.json`
+- **LCOV**: `coverage/lcov.info` for CI integration with Codecov
+
+#### Coverage Goals
 
 - **Unit tests**: All core utilities and helpers
 - **Integration tests**: DO lifecycle, RPC communication, storage operations
 - **E2E tests**: Full request/response cycles with real Workers
 
 Aim for >80% coverage on core packages, but focus on meaningful tests over coverage metrics.
+
+#### Best Practices
+
+1. **Write tests before code** (TDD) - ensures coverage is built-in
+2. **Test edge cases** - branches and error paths matter
+3. **Don't chase 100%** - some code (like catch blocks for impossible errors) doesn't need coverage
+4. **Review uncovered lines** - understand why code isn't covered before ignoring it
 
 ---
 
@@ -803,11 +852,9 @@ git branch  # Should show v3 or your feature branch
 
 ## Getting Help
 
-- **Questions & Help**: [GitHub Discussions Q&A](https://github.com/dot-do/dotdo/discussions/categories/q-a)
-- **Ideas & Features**: [GitHub Discussions Ideas](https://github.com/dot-do/dotdo/discussions/categories/ideas)
-- **Bug Reports**: [Open an issue](https://github.com/dot-do/dotdo/issues/new?template=bug_report.yml)
+- **Questions & Help**: [Open an issue](https://github.com/dot-do/dotdo/issues/new)
+- **Bug Reports**: [Open a bug report](https://github.com/dot-do/dotdo/issues/new?template=bug_report.yml)
 - **Feature Requests**: [Open a feature request](https://github.com/dot-do/dotdo/issues/new?template=feature_request.yml)
-- **Discord**: [Join the community](https://workers.do/discord)
 - **Security Issues**: [security@dotdo.dev](mailto:security@dotdo.dev) (do not open public issues)
 
 ---

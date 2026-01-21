@@ -13,10 +13,38 @@
  * @module do/fire-and-forget-errors
  */
 
-import type { SqlStorage } from '../db/sqlite'
-import { createLogger } from '../utils/logger'
+import type { SqlStorage, SqlRunResult } from '@dotdo/db'
+import { createScopedLogger, LogLevel } from '@dotdo/utils'
+import {
+  DEFAULT_MAX_STORE_ENTRIES,
+  DEFAULT_MAX_ERROR_AGE_MS,
+  DEFAULT_MAX_BACKOFF_MS,
+  DEFAULT_PROCESS_INTERVAL_MS,
+  DEFAULT_COMPLETED_ITEM_MAX_AGE_MS,
+  DEFAULT_RETRY_BASE_DELAY_MS,
+  DEFAULT_MAX_RETRY_ATTEMPTS,
+} from '@dotdo/utils'
 
-const logger = createLogger('[FireAndForget]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[FireAndForget]' })
+
+/**
+ * Sync-only SqlStorage interface for DO contexts where SQL is always sync.
+ * This is a subset of SqlStorage that returns values directly (not Promises).
+ */
+interface SyncSqlStorage {
+  exec(sql: string): { results: Array<Record<string, unknown>> }
+  prepare(sql: string): {
+    bind(...values: unknown[]): {
+      first(): Record<string, unknown> | null
+      all(): { results: Array<Record<string, unknown>> }
+      run(): SqlRunResult
+    }
+    // Direct calls without bind (when no parameters needed)
+    first(): Record<string, unknown> | null
+    all(): { results: Array<Record<string, unknown>> }
+    run(): SqlRunResult
+  }
+}
 
 /**
  * Represents a captured error from a fire-and-forget operation
@@ -27,27 +55,27 @@ export interface FireAndForgetError {
   /** Operation type (e.g., 'event.handler', 'workflow.send') */
   operation: string
   /** Event type if applicable (e.g., 'Order.placed') */
-  eventType?: string
+  eventType?: string | undefined
   /** Handler index if multiple handlers for same event */
-  handlerIndex?: number
+  handlerIndex?: number | undefined
   /** Error message */
   message: string
   /** Error stack trace if available */
-  stack?: string
+  stack?: string | undefined
   /** Error name/type (e.g., 'NetworkError', 'ValidationError') */
   errorType: string
   /** Whether the error is retriable */
   retriable: boolean
   /** Additional context data */
-  context?: Record<string, unknown>
+  context?: Record<string, unknown> | undefined
   /** Timestamp when error occurred */
   timestamp: number
   /** Number of attempts made before final failure */
-  attempts?: number
+  attempts?: number | undefined
   /** Whether error was recovered (retried successfully) */
   recovered: boolean
   /** Recovery timestamp if recovered */
-  recoveredAt?: number
+  recoveredAt?: number | undefined
 }
 
 /**
@@ -111,12 +139,13 @@ export interface FireAndForgetErrorStore {
   /**
    * Get a specific error by ID
    */
-  get(id: string): FireAndForgetError | null
+  get(id: string): FireAndForgetError | null | Promise<FireAndForgetError | null>
 
   /**
    * Mark an error as recovered
+   * Returns sync boolean for in-memory, Promise for SQLite
    */
-  markRecovered(id: string): boolean
+  markRecovered(id: string): boolean | Promise<boolean>
 
   /**
    * Get error statistics
@@ -151,7 +180,7 @@ function generateErrorId(): string {
  */
 export function extractErrorInfo(error: unknown): {
   message: string
-  stack?: string
+  stack?: string | undefined
   errorType: string
   retriable: boolean
 } {
@@ -180,9 +209,9 @@ export function extractErrorInfo(error: unknown): {
   if (error && typeof error === 'object') {
     const obj = error as Record<string, unknown>
     return {
-      message: obj.message ? String(obj.message) : JSON.stringify(error),
-      errorType: obj.name ? String(obj.name) : 'ObjectError',
-      retriable: 'retriable' in obj ? Boolean(obj.retriable) : false
+      message: obj['message'] ? String(obj['message']) : JSON.stringify(error),
+      errorType: obj['name'] ? String(obj['name']) : 'ObjectError',
+      retriable: 'retriable' in obj ? Boolean(obj['retriable']) : false
     }
   }
 
@@ -227,14 +256,65 @@ function isRetriableByType(error: Error): boolean {
 }
 
 /**
+ * Options for configuring in-memory error store bounds
+ * See do-hmyi for context on why these limits are necessary
+ */
+export interface InMemoryErrorStoreOptions {
+  /** Maximum number of errors to keep (default: 10000) */
+  maxErrors?: number
+  /** Maximum age in ms for errors before cleanup (default: 24 hours) */
+  maxErrorAge?: number
+}
+
+/** Default bounds for in-memory error store */
+const DEFAULT_ERROR_STORE_BOUNDS = {
+  maxErrors: DEFAULT_MAX_STORE_ENTRIES,
+  maxErrorAge: DEFAULT_MAX_ERROR_AGE_MS,
+}
+
+/**
  * Create an in-memory fire-and-forget error store
  * Used when SQLite is not available or for testing
+ *
+ * @param options - Optional configuration for memory bounds
  */
-export function createInMemoryErrorStore(): FireAndForgetErrorStore {
+export function createInMemoryErrorStore(options: InMemoryErrorStoreOptions = {}): FireAndForgetErrorStore {
+  const { maxErrors, maxErrorAge } = { ...DEFAULT_ERROR_STORE_BOUNDS, ...options }
   const errors: FireAndForgetError[] = []
+
+  /**
+   * Enforce bounds on the error array to prevent memory leaks.
+   * Removes oldest errors when at capacity, using FIFO with 10% batch removal.
+   */
+  function enforceBounds(): void {
+    // First pass: remove expired entries (older than maxErrorAge)
+    const now = Date.now()
+    let expiredCount = 0
+    for (let i = errors.length - 1; i >= 0; i--) {
+      const error = errors[i]
+      if (error && now - error.timestamp > maxErrorAge) {
+        errors.splice(i, 1)
+        expiredCount++
+      }
+    }
+
+    if (expiredCount > 0) {
+      logger.debug(`Error store cleanup: removed ${expiredCount} expired entries`)
+    }
+
+    // Second pass: if still over limit, remove oldest 10%
+    if (errors.length >= maxErrors) {
+      const removeCount = Math.max(1, Math.floor(maxErrors * 0.1))
+      errors.splice(0, removeCount)
+      logger.warn(`Error store exceeded max entries (${maxErrors}), removed ${removeCount} oldest entries`)
+    }
+  }
 
   return {
     track(data) {
+      // Enforce bounds before adding
+      enforceBounds()
+
       const error: FireAndForgetError = {
         ...data,
         id: generateErrorId(),
@@ -348,7 +428,7 @@ export function createInMemoryErrorStore(): FireAndForgetErrorStore {
 /**
  * Create a SQLite-backed fire-and-forget error store
  */
-export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore {
+export function createSQLiteErrorStore(sql: SyncSqlStorage): FireAndForgetErrorStore {
   // Initialize table if needed (assumes migration has been run)
   // Table schema is in the migration
 
@@ -426,15 +506,15 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
       return result.results.map(mapRowToError)
     },
 
-    get(id) {
-      const row = sql.prepare('SELECT * FROM fire_and_forget_errors WHERE id = ?')
+    async get(id) {
+      const row = await sql.prepare('SELECT * FROM fire_and_forget_errors WHERE id = ?')
         .bind(id)
         .first()
 
       return row ? mapRowToError(row) : null
     },
 
-    markRecovered(id) {
+    async markRecovered(id) {
       const result = sql.prepare(`
         UPDATE fire_and_forget_errors
         SET recovered = 1, recovered_at = ?
@@ -447,31 +527,31 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
     getStats() {
       // Total count
       const totalRow = sql.prepare('SELECT COUNT(*) as count FROM fire_and_forget_errors').first()
-      const total = (totalRow?.count as number) || 0
+      const total = (totalRow?.['count'] as number) || 0
 
       // Recovered count
       const recoveredRow = sql.prepare('SELECT COUNT(*) as count FROM fire_and_forget_errors WHERE recovered = 1').first()
-      const recovered = (recoveredRow?.count as number) || 0
+      const recovered = (recoveredRow?.['count'] as number) || 0
 
       // By operation
       const opResults = sql.prepare('SELECT operation, COUNT(*) as count FROM fire_and_forget_errors GROUP BY operation').all()
       const byOperation: Record<string, number> = {}
       for (const row of opResults.results) {
-        byOperation[row.operation as string] = row.count as number
+        byOperation[row['operation'] as string] = row['count'] as number
       }
 
       // By event type
       const etResults = sql.prepare('SELECT event_type, COUNT(*) as count FROM fire_and_forget_errors WHERE event_type IS NOT NULL GROUP BY event_type').all()
       const byEventType: Record<string, number> = {}
       for (const row of etResults.results) {
-        byEventType[row.event_type as string] = row.count as number
+        byEventType[row['event_type'] as string] = row['count'] as number
       }
 
       // By error type
       const errResults = sql.prepare('SELECT error_type, COUNT(*) as count FROM fire_and_forget_errors GROUP BY error_type').all()
       const byErrorType: Record<string, number> = {}
       for (const row of errResults.results) {
-        byErrorType[row.error_type as string] = row.count as number
+        byErrorType[row['error_type'] as string] = row['count'] as number
       }
 
       return {
@@ -531,7 +611,7 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
       }
 
       const result = sql.prepare(query).bind(...params).first()
-      return (result?.count as number) || 0
+      return (result?.['count'] as number) || 0
     }
   }
 }
@@ -541,19 +621,19 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
  */
 function mapRowToError(row: Record<string, unknown>): FireAndForgetError {
   return {
-    id: row.id as string,
-    operation: row.operation as string,
-    eventType: row.event_type as string | undefined,
-    handlerIndex: row.handler_index as number | undefined,
-    message: row.message as string,
-    stack: row.stack as string | undefined,
-    errorType: row.error_type as string,
-    retriable: (row.retriable as number) === 1,
-    context: row.context ? JSON.parse(row.context as string) : undefined,
-    timestamp: row.timestamp as number,
-    attempts: row.attempts as number | undefined,
-    recovered: (row.recovered as number) === 1,
-    recoveredAt: row.recovered_at as number | undefined
+    id: row['id'] as string,
+    operation: row['operation'] as string,
+    eventType: row['event_type'] as string | undefined,
+    handlerIndex: row['handler_index'] as number | undefined,
+    message: row['message'] as string,
+    stack: row['stack'] as string | undefined,
+    errorType: row['error_type'] as string,
+    retriable: (row['retriable'] as number) === 1,
+    context: row['context'] ? JSON.parse(row['context'] as string) : undefined,
+    timestamp: row['timestamp'] as number,
+    attempts: row['attempts'] as number | undefined,
+    recovered: (row['recovered'] as number) === 1,
+    recoveredAt: row['recovered_at'] as number | undefined
   }
 }
 
@@ -592,14 +672,14 @@ export function trackFireAndForget(
 
     store.track({
       operation,
-      eventType: options.eventType,
-      handlerIndex: options.handlerIndex,
+      ...(options.eventType !== undefined && { eventType: options.eventType }),
+      ...(options.handlerIndex !== undefined && { handlerIndex: options.handlerIndex }),
       message: errorInfo.message,
-      stack: errorInfo.stack,
+      ...(errorInfo.stack !== undefined && { stack: errorInfo.stack }),
       errorType: errorInfo.errorType,
       retriable: errorInfo.retriable,
-      context: options.context,
-      attempts: options.attempts
+      ...(options.context !== undefined && { context: options.context }),
+      ...(options.attempts !== undefined && { attempts: options.attempts }),
     })
 
     // Still log for visibility
@@ -624,7 +704,7 @@ export interface RetryQueueItem {
   /** Event payload to pass to handlers */
   payload: unknown
   /** Handler function to retry */
-  handlerFn?: () => Promise<void>
+  handlerFn?: (() => Promise<void>) | undefined
   /** Number of attempts so far */
   attempts: number
   /** Maximum retry attempts allowed */
@@ -638,7 +718,7 @@ export interface RetryQueueItem {
   /** Status of this retry item */
   status: 'pending' | 'processing' | 'succeeded' | 'failed' | 'abandoned'
   /** Last error message if failed */
-  lastError?: string
+  lastError?: string | undefined
 }
 
 /**
@@ -657,6 +737,10 @@ export interface RetryQueueOptions {
   autoProcess?: boolean
   /** Interval in ms to check for pending retries (default: 1000) */
   processInterval?: number
+  /** Maximum number of items in queue (default: 10000) - see do-hmyi */
+  maxQueueSize?: number
+  /** Maximum age in ms for completed/abandoned items before cleanup (default: 1 hour) */
+  completedItemMaxAge?: number
 }
 
 /**
@@ -710,7 +794,7 @@ export interface RetryQueue {
   /**
    * Get a specific retry item
    */
-  get(id: string): RetryQueueItem | null
+  get(id: string): RetryQueueItem | null | Promise<RetryQueueItem | null>
 
   /**
    * Query items in the retry queue
@@ -737,12 +821,12 @@ export interface RetryQueue {
   /**
    * Mark an item as succeeded
    */
-  markSucceeded(id: string): void
+  markSucceeded(id: string): void | Promise<void>
 
   /**
    * Mark an item as failed (will be retried if attempts < maxAttempts)
    */
-  markFailed(id: string, error: string): void
+  markFailed(id: string, error: string): void | Promise<void>
 
   /**
    * Remove an item from the queue
@@ -797,19 +881,71 @@ export function createInMemoryRetryQueue(
   options: RetryQueueOptions = {}
 ): RetryQueue {
   const {
-    maxAttempts = 5,
-    initialBackoff = 100,
-    maxBackoff = 60000,
+    maxAttempts = DEFAULT_MAX_RETRY_ATTEMPTS,
+    initialBackoff = DEFAULT_RETRY_BASE_DELAY_MS,
+    maxBackoff = DEFAULT_MAX_BACKOFF_MS,
     backoffMultiplier = 2,
     autoProcess = false,
-    processInterval = 1000
+    processInterval = DEFAULT_PROCESS_INTERVAL_MS,
+    maxQueueSize = DEFAULT_MAX_STORE_ENTRIES,
+    completedItemMaxAge = DEFAULT_COMPLETED_ITEM_MAX_AGE_MS
   } = options
 
   const items = new Map<string, RetryQueueItem>()
   let autoProcessTimer: ReturnType<typeof setInterval> | null = null
 
+  /**
+   * Enforce bounds on the retry queue to prevent memory leaks (do-hmyi).
+   * Removes completed/abandoned items older than completedItemMaxAge,
+   * then removes oldest pending items if still over maxQueueSize.
+   */
+  function enforceBounds(): void {
+    const now = Date.now()
+
+    // First pass: remove old completed/abandoned items
+    let cleanedCount = 0
+    for (const [id, item] of items) {
+      const isTerminal = item.status === 'succeeded' || item.status === 'abandoned' || item.status === 'failed'
+      if (isTerminal && now - item.addedAt > completedItemMaxAge) {
+        items.delete(id)
+        cleanedCount++
+      }
+    }
+
+    if (cleanedCount > 0) {
+      logger.debug(`Retry queue cleanup: removed ${cleanedCount} old completed/abandoned items`)
+    }
+
+    // Second pass: if still over limit, remove oldest pending items
+    if (items.size >= maxQueueSize) {
+      // Sort by addedAt (oldest first) and prioritize removing non-pending items
+      const sortedEntries = Array.from(items.entries())
+        .sort((a, b) => {
+          // Terminal items should be removed first
+          const aTerminal = a[1].status !== 'pending' && a[1].status !== 'processing'
+          const bTerminal = b[1].status !== 'pending' && b[1].status !== 'processing'
+          if (aTerminal && !bTerminal) return -1
+          if (!aTerminal && bTerminal) return 1
+          // Then by age
+          return a[1].addedAt - b[1].addedAt
+        })
+
+      const removeCount = Math.max(1, Math.floor(maxQueueSize * 0.1))
+      for (let i = 0; i < removeCount && i < sortedEntries.length; i++) {
+        const entry = sortedEntries[i]
+        if (entry) {
+          items.delete(entry[0])
+        }
+      }
+      logger.warn(`Retry queue exceeded max size (${maxQueueSize}), removed ${removeCount} entries`)
+    }
+  }
+
   const queue: RetryQueue = {
     add(data) {
+      // Enforce bounds before adding
+      enforceBounds()
+
       const id = generateRetryId()
       const now = Date.now()
 
@@ -868,7 +1004,7 @@ export function createInMemoryRetryQueue(
     },
 
     async processItem(id) {
-      const item = items.get(id)
+      const item = await this.get(id)
       if (!item) return false
       if (item.status !== 'pending') return false
 
@@ -884,11 +1020,11 @@ export function createInMemoryRetryQueue(
           throw new Error('No handler function available for retry')
         }
 
-        this.markSucceeded(id)
+        await this.markSucceeded(id)
         return true
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        this.markFailed(id, message)
+        await this.markFailed(id, message)
         return false
       }
     },
@@ -905,8 +1041,8 @@ export function createInMemoryRetryQueue(
       return { processed: ready.length, succeeded }
     },
 
-    markSucceeded(id) {
-      const item = items.get(id)
+    async markSucceeded(id) {
+      const item = await this.get(id)
       if (!item) return
 
       item.status = 'succeeded'
@@ -915,8 +1051,8 @@ export function createInMemoryRetryQueue(
       errorStore.markRecovered(item.errorId)
     },
 
-    markFailed(id, error) {
-      const item = items.get(id)
+    async markFailed(id, error) {
+      const item = await this.get(id)
       if (!item) return
 
       item.lastError = error
@@ -1009,7 +1145,7 @@ export function createInMemoryRetryQueue(
  * Create a SQLite-backed retry queue
  */
 export function createSQLiteRetryQueue(
-  sql: SqlStorage,
+  sql: SyncSqlStorage,
   errorStore: FireAndForgetErrorStore,
   options: RetryQueueOptions = {}
 ): RetryQueue {
@@ -1047,20 +1183,20 @@ export function createSQLiteRetryQueue(
   `)
 
   function mapRowToItem(row: Record<string, unknown>): RetryQueueItem {
-    const id = row.id as string
+    const id = row['id'] as string
     return {
       id,
-      errorId: row.error_id as string,
-      eventType: row.event_type as string,
-      payload: row.payload ? JSON.parse(row.payload as string) : undefined,
+      errorId: row['error_id'] as string,
+      eventType: row['event_type'] as string,
+      payload: row['payload'] ? JSON.parse(row['payload'] as string) : undefined,
       handlerFn: handlerFns.get(id),
-      attempts: row.attempts as number,
-      maxAttempts: row.max_attempts as number,
-      addedAt: row.added_at as number,
-      nextRetryAt: row.next_retry_at as number,
-      backoffDelay: row.backoff_delay as number,
-      status: row.status as RetryQueueItem['status'],
-      lastError: row.last_error as string | undefined
+      attempts: row['attempts'] as number,
+      maxAttempts: row['max_attempts'] as number,
+      addedAt: row['added_at'] as number,
+      nextRetryAt: row['next_retry_at'] as number,
+      backoffDelay: row['backoff_delay'] as number,
+      status: row['status'] as RetryQueueItem['status'],
+      lastError: row['last_error'] as string | undefined
     }
   }
 
@@ -1091,8 +1227,8 @@ export function createSQLiteRetryQueue(
       return id
     },
 
-    get(id) {
-      const row = sql.prepare('SELECT * FROM retry_queue WHERE id = ?')
+    async get(id) {
+      const row = await sql.prepare('SELECT * FROM retry_queue WHERE id = ?')
         .bind(id)
         .first()
 
@@ -1135,7 +1271,7 @@ export function createSQLiteRetryQueue(
     },
 
     async processItem(id) {
-      const item = this.get(id)
+      const item = await this.get(id)
       if (!item) return false
       if (item.status !== 'pending') return false
 
@@ -1153,11 +1289,11 @@ export function createSQLiteRetryQueue(
           throw new Error('No handler function available for retry')
         }
 
-        this.markSucceeded(id)
+        await this.markSucceeded(id)
         return true
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        this.markFailed(id, message)
+        await this.markFailed(id, message)
         return false
       }
     },
@@ -1174,12 +1310,12 @@ export function createSQLiteRetryQueue(
       return { processed: ready.length, succeeded }
     },
 
-    markSucceeded(id) {
+    async markSucceeded(id) {
       sql.prepare(`UPDATE retry_queue SET status = 'succeeded' WHERE id = ?`)
         .bind(id)
         .run()
 
-      const item = this.get(id)
+      const item = await this.get(id)
       if (item) {
         errorStore.markRecovered(item.errorId)
       }
@@ -1188,13 +1324,13 @@ export function createSQLiteRetryQueue(
       handlerFns.delete(id)
     },
 
-    markFailed(id, error) {
-      const item = this.get(id)
+    async markFailed(id, error) {
+      const item = await this.get(id)
       if (!item) return
 
       // Get current attempts from DB (already incremented during processItem)
-      const row = sql.prepare('SELECT attempts FROM retry_queue WHERE id = ?').bind(id).first()
-      const attempts = (row?.attempts as number) || item.attempts
+      const row = sql.prepare('SELECT attempts FROM retry_queue WHERE id = ?').bind(id).first() as Record<string, unknown> | null
+      const attempts = (row?.['attempts'] as number) || item.attempts
 
       if (attempts >= item.maxAttempts) {
         sql.prepare(`UPDATE retry_queue SET status = 'abandoned', last_error = ? WHERE id = ?`)
@@ -1237,15 +1373,15 @@ export function createSQLiteRetryQueue(
 
       // Count by status
       const totalRow = sql.prepare('SELECT COUNT(*) as count FROM retry_queue').first()
-      stats.total = (totalRow?.count as number) || 0
+      stats.total = (totalRow?.['count'] as number) || 0
 
       const statusCounts = sql.prepare(
         'SELECT status, COUNT(*) as count FROM retry_queue GROUP BY status'
       ).all()
 
       for (const row of statusCounts.results) {
-        const status = row.status as string
-        const count = row.count as number
+        const status = row['status'] as string
+        const count = row['count'] as number
 
         switch (status) {
           case 'pending':
@@ -1272,7 +1408,7 @@ export function createSQLiteRetryQueue(
       ).all()
 
       for (const row of typeCounts.results) {
-        stats.byEventType[row.event_type as string] = row.count as number
+        stats.byEventType[row['event_type'] as string] = row['count'] as number
       }
 
       return stats
@@ -1373,8 +1509,8 @@ export function createEnhancedErrorStore(
         retryId = retryQueue.add({
           errorId: trackedError.id,
           eventType: errorData.eventType || 'unknown',
-          payload: errorData.context,
-          handlerFn
+          payload: errorData.context ?? {},
+          ...(handlerFn !== undefined && { handlerFn }),
         })
       }
 
@@ -1384,16 +1520,17 @@ export function createEnhancedErrorStore(
       }
     },
 
-    queryFailedHandlers(options) {
+    queryFailedHandlers(options): Array<{ error: FireAndForgetError; retryStatus?: RetryQueueItem }> {
       const errors = baseStore.query(options)
       const retryItems = retryQueue.query()
 
       return errors.map(error => {
         const retryStatus = retryItems.find(item => item.errorId === error.id)
-        return {
-          error,
-          retryStatus
+        const result: { error: FireAndForgetError; retryStatus?: RetryQueueItem } = { error }
+        if (retryStatus) {
+          result.retryStatus = retryStatus
         }
+        return result
       })
     }
   }

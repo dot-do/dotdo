@@ -3,7 +3,7 @@
 // Key patterns: $.on.Noun.verb event handlers, $.every scheduling, $.do durable actions
 
 import { Hono } from 'hono'
-import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
+import { DO, type DOEnv, createContext, type WorkflowContext } from '@dotdo/do'
 import type {
   Conversation,
   Message,
@@ -97,7 +97,6 @@ interface AgentEnv extends DOEnv {
 }
 
 export class AgentDO extends DO {
-  private $: WorkflowContext
   private agentEnv: AgentEnv
 
   constructor(state: DurableObjectState, env: AgentEnv) {
@@ -113,65 +112,46 @@ export class AgentDO extends DO {
 
     // Track messages for analytics
     this.$.on.Message.sent(async (event) => {
-      const { conversationId, messageId, role } = event.payload as {
-        conversationId: string
-        messageId: string
-        role: string
-      }
+      const { conversationId, messageId, role } = (event as { type: string; payload: { conversationId: string; messageId: string; role: string } }).payload
       console.log(`[Event] Message sent in ${conversationId}: ${role} (${messageId})`)
     })
 
     this.$.on.Message.received(async (event) => {
-      const { conversationId, messageId, role } = event.payload as {
-        conversationId: string
-        messageId: string
-        role: string
-      }
+      const { conversationId, messageId, role } = (event as { type: string; payload: { conversationId: string; messageId: string; role: string } }).payload
       console.log(`[Event] Message received in ${conversationId}: ${role} (${messageId})`)
     })
 
     // Track tool executions
-    this.$.on.Tool.executed(async (event) => {
-      const { toolName, args, success } = event.payload as {
-        toolName: string
-        args: Record<string, unknown>
-        success: boolean
-      }
+    this.$.on['Tool']['executed'](async (event) => {
+      const { toolName, args, success } = (event as { type: string; payload: { toolName: string; args: Record<string, unknown>; success: boolean } }).payload
       console.log(`[Event] Tool ${toolName} executed (success: ${success})`, args)
     })
 
-    this.$.on.Tool.failed(async (event) => {
-      const { toolName, error } = event.payload as {
-        toolName: string
-        args: Record<string, unknown>
-        error: string
-      }
+    this.$.on['Tool'].failed(async (event) => {
+      const { toolName, error } = (event as { type: string; payload: { toolName: string; args: Record<string, unknown>; error: string } }).payload
       console.error(`[Event] Tool ${toolName} failed: ${error}`)
     })
 
     // Track task lifecycle
-    this.$.on.Task.started(async (event) => {
-      const { taskId, name } = event.payload as { taskId: string; name: string }
+    this.$.on.Task['started'](async (event) => {
+      const { taskId, name } = (event as { type: string; payload: { taskId: string; name: string } }).payload
       console.log(`[Event] Task started: ${name} (${taskId})`)
     })
 
     this.$.on.Task.completed(async (event) => {
-      const { taskId, name } = event.payload as { taskId: string; name: string }
+      const { taskId, name } = (event as { type: string; payload: { taskId: string; name: string } }).payload
       console.log(`[Event] Task completed: ${name} (${taskId})`)
     })
 
     this.$.on.Task.failed(async (event) => {
-      const { taskId, name, error } = event.payload as {
-        taskId: string
-        name: string
-        error: string
-      }
+      const { taskId, name, error } = (event as { type: string; payload: { taskId: string; name: string; error: string } }).payload
       console.error(`[Event] Task failed: ${name} (${taskId}): ${error}`)
     })
 
     // Audit log - catch all agent events
     this.$.on['*']['*'](async (event) => {
-      console.log(`[Audit] ${event.type}`, event.payload)
+      const e = event as { type: string; payload: unknown }
+      console.log(`[Audit] ${e.type}`, e.payload)
     })
 
     // ========================================================================
@@ -179,13 +159,13 @@ export class AgentDO extends DO {
     // ========================================================================
 
     // Every day at 6pm - summarize day's conversations
-    this.$.every.day.at6pm(async () => {
+    this.$.every['day']['at6pm'](async () => {
       console.log('[Scheduled] Generating daily conversation summary...')
       // In production: generate summary of day's conversations
     })
 
     // Every week on Monday - clean up old conversations
-    this.$.every.Monday.at9am(async () => {
+    this.$.every['Monday']['at9am'](async () => {
       console.log('[Scheduled] Cleaning up old conversations...')
       // In production: archive or delete old conversations
     })
@@ -692,22 +672,22 @@ export class AgentDO extends DO {
 
       switch (toolName) {
         case 'search':
-          result = await this.toolSearch(args.query as string, args.limit as number)
+          result = await this.toolSearch(args['query'] as string, args['limit'] as number)
           break
 
         case 'calculate':
-          result = this.toolCalculate(args.expression as string)
+          result = this.toolCalculate(args['expression'] as string)
           break
 
         case 'weather':
-          result = await this.toolWeather(args.location as string)
+          result = await this.toolWeather(args['location'] as string)
           break
 
         case 'remember':
           result = await this.toolRemember(
-            args.key as string,
-            args.value as string,
-            args.type as Memory['type']
+            args['key'] as string,
+            args['value'] as string,
+            args['type'] as Memory['type']
           )
           break
 
@@ -765,10 +745,15 @@ export class AgentDO extends DO {
   }
 
   private toolCalculate(expression: string): CalculatorResult {
-    // Safe math evaluation (basic operations only)
+    // SECURITY NOTE: new Function() is used for math expression evaluation.
+    // Input is sanitized to only allow: digits, +, -, *, /, (, ), ., %, and whitespace.
+    // This provides reasonable protection for a calculator tool.
+    //
+    // WARNING: This is example code. For production use, consider:
+    // 1. Using a proper math expression parser (e.g., mathjs)
+    // 2. Using worker_loaders (ai-evaluate) for full isolation
     const sanitized = expression.replace(/[^0-9+\-*/().%\s]/g, '')
     try {
-      // Using Function instead of eval for slightly better safety
       const result = new Function(`return ${sanitized}`)() as number
       return { expression, result }
     } catch (error) {
