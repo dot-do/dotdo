@@ -64,7 +64,7 @@ export interface RouterConfig {
 }
 
 export interface ExecuteOptions {
-  model?: string
+  model?: string | undefined
   provider?: Provider
   /** Capability hint for fallback chain selection */
   capability?: Capability

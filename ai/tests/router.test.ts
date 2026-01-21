@@ -474,10 +474,14 @@ describe('Router', () => {
           providers: [
             { provider: 'openai', apiKey: 'key1' },
             { provider: 'anthropic', apiKey: 'key2' }
-          ]
+          ],
+          circuitBreaker: {
+            failureThreshold: 1, // Single failure opens circuit
+            recoveryTimeout: 60000
+          }
         })
 
-        // Mark openai as unhealthy
+        // Mark openai as unhealthy - with threshold=1 this opens the circuit
         router._markUnhealthy('openai')
 
         const selectedProviders: string[] = []
@@ -492,7 +496,7 @@ describe('Router', () => {
         await router.execute('test 1')
         await router.execute('test 2')
 
-        // All requests should go to anthropic since openai is unhealthy
+        // All requests should go to anthropic since openai circuit is open
         expect(selectedProviders).toEqual(['anthropic', 'anthropic'])
       })
 
@@ -571,7 +575,13 @@ describe('Router', () => {
 
   describe('health checks', () => {
     it('should track provider health status', async () => {
-      const router = new Router({ fallback: ['anthropic'] }) // Only one provider, no fallback
+      const router = new Router({
+        fallback: ['anthropic'], // Only one provider, no fallback
+        circuitBreaker: {
+          failureThreshold: 1, // Single failure opens circuit
+          recoveryTimeout: 60000
+        }
+      })
 
       const mockExecute = vi.fn()
         .mockRejectedValue(new Error('Provider down'))
@@ -582,6 +592,7 @@ describe('Router', () => {
 
       const health = router.getHealth()
       expect(health.anthropic?.healthy).toBe(false)
+      expect(health.anthropic?.circuitState).toBe('open')
     })
 
     it('should skip unhealthy providers in rotation', async () => {
@@ -590,10 +601,14 @@ describe('Router', () => {
         providers: [
           { provider: 'openai', apiKey: 'key1' },
           { provider: 'anthropic', apiKey: 'key2' }
-        ]
+        ],
+        circuitBreaker: {
+          failureThreshold: 1, // Single failure opens circuit
+          recoveryTimeout: 60000
+        }
       })
 
-      // Mark one provider as unhealthy
+      // Mark one provider as unhealthy - with threshold=1 this opens the circuit
       router._markUnhealthy('openai')
 
       const mockExecute = vi.fn().mockImplementation((prompt, options) => {

@@ -268,7 +268,7 @@ function createMethodNotAllowedError(): AuthorizationError {
 export function createServer(options: RPCServerOptions): RPCServerApp {
   const { target, enablePipeline = true, pipeline: pipelineOptions } = options
   let currentWhitelist: string[] | undefined = options.whitelist
-  let currentSchemas: MethodSchemaRegistry | undefined = options.schemas
+  let currentSchemas: AnySchemaRegistry | undefined = options.schemas
   const app = new Hono() as RPCServerApp
 
   // Add updateWhitelist method to the app
@@ -277,7 +277,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
   }
 
   // Add updateSchemas method to the app
-  app.updateSchemas = (newSchemas: MethodSchemaRegistry) => {
+  app.updateSchemas = (newSchemas: AnySchemaRegistry) => {
     currentSchemas = newSchemas
   }
 
@@ -428,11 +428,16 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       }
 
       // Validate arguments if schema is defined for this method
+      // Supports both custom ArgSchema and Zod schemas
       if (currentSchemas) {
-        const methodSchema = getMethodSchema(currentSchemas, method)
+        const methodSchema = currentSchemas[method]
         if (methodSchema) {
-          // validateArgs throws ValidationError if validation fails
-          validateArgs(args, methodSchema)
+          // Check if it's a Zod schema or custom schema and validate accordingly
+          if (isZodMethodSchema(methodSchema)) {
+            validateZodArgs(args, methodSchema)
+          } else {
+            validateArgs(args, methodSchema)
+          }
         }
       }
 
