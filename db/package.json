@@ -10,9 +10,6 @@
     "test": "vitest",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "hono": "^4.7.0"
-  },
   "devDependencies": {
     "typescript": "^5.7.0"
   }
