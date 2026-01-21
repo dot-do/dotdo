@@ -1,5 +1,6 @@
 // RPC Server - exposes methods via HTTP/RPC
 // Includes Cap'n Proto-style promise pipelining support
+// Integrates with observability context for correlation ID propagation
 import { Hono } from 'hono'
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
 import {
@@ -25,6 +26,25 @@ import {
 // Re-export for convenience
 export { CORRELATION_ID_HEADER }
 
+/**
+ * RPC execution context passed to method handlers
+ * Contains correlation ID and other request-scoped metadata
+ */
+export interface RPCExecutionContext {
+  /** Correlation ID for request tracing */
+  correlationId: string
+  /** Source DO ID if this is a DO-to-DO call */
+  sourceDoId?: string
+  /** Whether this is an internal (trusted) request */
+  isInternal?: boolean
+}
+
+/**
+ * Symbol used to pass execution context to method handlers
+ * Methods can accept this as a parameter to access request context
+ */
+export const RPC_CONTEXT = Symbol('rpcContext')
+
 export interface RPCServerOptions {
   target: object
   /** Optional whitelist of allowed method names or glob patterns */
@@ -35,6 +55,8 @@ export interface RPCServerOptions {
   pipeline?: PipelineExecutorOptions
   /** Enable pipeline support (default: true) */
   enablePipeline?: boolean
+  /** Pass execution context to method handlers */
+  passContext?: boolean
 }
 
 /**
@@ -200,7 +222,7 @@ function createMethodNotAllowedError(): AuthorizationError {
 }
 
 export function createServer(options: RPCServerOptions): RPCServerApp {
-  const { target, enablePipeline = true, pipeline: pipelineOptions } = options
+  const { target, enablePipeline = true, pipeline: pipelineOptions, passContext = false } = options
   let currentWhitelist: string[] | undefined = options.whitelist
   let currentSchemas: MethodSchemaRegistry | undefined = options.schemas
   const app = new Hono() as RPCServerApp
@@ -370,8 +392,18 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
         }
       }
 
+      // Build execution context with correlation ID and other request metadata
+      const executionContext: RPCExecutionContext = {
+        correlationId,
+        sourceDoId: c.req.header('X-DO-Source-ID') || undefined,
+        isInternal: c.req.header('X-DO-Source') === 'true',
+      }
+
+      // Prepare arguments - optionally append execution context
+      const invokeArgs = passContext ? [...args, { [RPC_CONTEXT]: executionContext }] : args
+
       // fn is now known to be a function, cast to callable type for apply()
-      let result = await (fn as (...args: unknown[]) => unknown).apply(current, args)
+      let result = await (fn as (...args: unknown[]) => unknown).apply(current, invokeArgs)
 
       // Handle async generators by consuming them into an array
       if (result && typeof result === 'object' && Symbol.asyncIterator in result) {
@@ -414,4 +446,38 @@ export function createWorkerFromTarget(target: object) {
   return {
     fetch: app.fetch.bind(app)
   }
+}
+
+/**
+ * Extract execution context from method arguments.
+ * Use this in RPC methods when passContext is enabled.
+ *
+ * @example
+ * ```typescript
+ * class MyAPI {
+ *   async myMethod(arg1: string, arg2: number, ctxArg?: unknown) {
+ *     const ctx = getExecutionContext(ctxArg)
+ *     if (ctx) {
+ *       console.log('Correlation ID:', ctx.correlationId)
+ *     }
+ *     // ...
+ *   }
+ * }
+ * ```
+ */
+export function getExecutionContext(arg: unknown): RPCExecutionContext | undefined {
+  if (arg && typeof arg === 'object' && RPC_CONTEXT in arg) {
+    return (arg as { [RPC_CONTEXT]: RPCExecutionContext })[RPC_CONTEXT]
+  }
+  return undefined
+}
+
+/**
+ * Helper to get correlation ID from the last argument (for passContext mode)
+ */
+export function getCorrelationIdFromArgs(args: unknown[]): string | undefined {
+  if (args.length === 0) return undefined
+  const lastArg = args[args.length - 1]
+  const ctx = getExecutionContext(lastArg)
+  return ctx?.correlationId
 }

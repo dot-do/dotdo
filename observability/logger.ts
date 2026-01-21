@@ -268,11 +268,26 @@ export function createStructuredLogger(options: Partial<LoggerConfig> = {}): Str
   function log(level: LogLevel, message: string, context?: Record<string, unknown>): void {
     if (!shouldLog(level)) return
 
+    // Try to get correlation ID from observability context if not in boundContext
+    let correlationId: string | undefined
+    if (!boundContext.correlationId) {
+      try {
+        // Avoid circular dependency - use dynamic require
+        // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+        const ctxModule = require('./context')
+        correlationId = ctxModule.getCorrelationId?.() || undefined
+      } catch {
+        // Context module not available or getCorrelationId failed
+      }
+    }
+
     const entry: LogEntry = {
       timestamp: new Date().toISOString(),
       level: LEVEL_NAMES[level],
       message,
       service: config.service,
+      // Include correlation ID from context if available and not already in boundContext
+      ...(correlationId && { correlationId }),
       ...boundContext,
       ...redactSensitiveData(context || {}),
     }

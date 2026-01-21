@@ -263,8 +263,10 @@ export const BAGGAGE_HEADER = 'baggage'
 
 /**
  * Custom correlation ID header
+ * Note: Uses X-Correlation-ID (mixed case) for consistency with RPC layer
+ * HTTP headers are case-insensitive per RFC 7230, but we use consistent casing
  */
-export const CORRELATION_ID_HEADER = 'x-correlation-id'
+export const CORRELATION_ID_HEADER = 'X-Correlation-ID'
 
 /**
  * Parse W3C baggage header
