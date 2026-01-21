@@ -1,5 +1,44 @@
-// RPC Client - creates typed proxy clients for remote method invocation
-// Supports pluggable transports for different communication backends
+/**
+ * @module rpc.do/client
+ *
+ * RPC client creation and proxy utilities for rpc.do.
+ *
+ * This module provides:
+ *
+ * - {@link createClient} - Create a typed proxy client for remote method invocation
+ * - {@link createProxy} - Low-level utility for creating RPC-like proxies
+ *
+ * The client uses JavaScript Proxy to intercept property access and method calls,
+ * converting them into RPC requests. It supports:
+ *
+ * - Flat APIs: `client.greet('World')`
+ * - Nested APIs: `client.users.create({ name: 'Alice' })`
+ * - ID-based entity access: `$.Customer('id').notify()`
+ * - Event handlers: `$.on.Customer.signup(handler)`
+ * - Scheduling DSL: `$.every.Monday.at('9am')(handler)`
+ *
+ * @example Basic usage
+ * ```typescript
+ * import { createClient, FetchTransport } from 'rpc.do'
+ *
+ * interface MyAPI {
+ *   greet(name: string): Promise<string>
+ *   users: {
+ *     create(user: User): Promise<{ id: string }>
+ *     get(id: string): Promise<User>
+ *   }
+ * }
+ *
+ * const transport = new FetchTransport({ url: 'https://api.example.com' })
+ * const client = createClient<MyAPI>('https://api.example.com', { transport })
+ *
+ * // Flat API call
+ * const greeting = await client.greet('World')
+ *
+ * // Nested API call
+ * const user = await client.users.create({ name: 'Alice' })
+ * ```
+ */
 
 import type { RPCClientOptions, RPCResponse, SerializedError } from './types'
 import type { Transport } from './transport/types'

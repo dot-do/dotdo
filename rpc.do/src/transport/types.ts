@@ -1,5 +1,24 @@
-// Transport Layer Types for rpc.do
-// Defines the interface for all RPC transports
+/**
+ * @module rpc.do/transport/types
+ *
+ * Transport layer type definitions for rpc.do.
+ *
+ * This module defines the core {@link Transport} interface that all RPC
+ * transports must implement, along with supporting types for state management
+ * and events.
+ *
+ * @example Implementing a custom transport
+ * ```typescript
+ * import { Transport, RPCMessage, RPCResponse } from 'rpc.do'
+ *
+ * class MyCustomTransport implements Transport {
+ *   async send<T>(message: RPCMessage): Promise<RPCResponse<T>> {
+ *     // Your transport logic here
+ *     return { result: await myBackend.call(message) }
+ *   }
+ * }
+ * ```
+ */
 
 import type { RPCMessage, RPCResponse } from '../types'
 
@@ -96,21 +115,79 @@ export interface TransportOptions {
 }
 
 /**
- * Type guard to check if a transport supports close
+ * Type guard to check if a transport supports close.
+ *
+ * Use this to safely call `close()` on transports that may or may not
+ * support graceful shutdown.
+ *
+ * @param transport - The transport to check
+ * @returns True if the transport has a close method
+ *
+ * @example
+ * ```typescript
+ * import { isCloseable } from 'rpc.do'
+ *
+ * async function cleanup(transport: Transport) {
+ *   if (isCloseable(transport)) {
+ *     await transport.close()
+ *   }
+ * }
+ * ```
  */
 export function isCloseable(transport: Transport): transport is Transport & { close: () => Promise<void> } {
   return typeof transport.close === 'function'
 }
 
 /**
- * Type guard to check if a transport supports state tracking
+ * Type guard to check if a transport supports state tracking.
+ *
+ * Stateful transports (like WebSocket) have a connection state that
+ * changes over time. Stateless transports (like HTTP) are always "connected".
+ *
+ * @param transport - The transport to check
+ * @returns True if the transport has a getState method
+ *
+ * @example
+ * ```typescript
+ * import { isStateful, TransportState } from 'rpc.do'
+ *
+ * function checkConnection(transport: Transport) {
+ *   if (isStateful(transport)) {
+ *     const state = transport.getState()
+ *     if (state === TransportState.DISCONNECTED) {
+ *       console.log('Connection lost')
+ *     }
+ *   }
+ * }
+ * ```
  */
 export function isStateful(transport: Transport): transport is Transport & { getState: () => TransportState } {
   return typeof transport.getState === 'function'
 }
 
 /**
- * Type guard to check if a transport supports events
+ * Type guard to check if a transport supports events.
+ *
+ * Event-supporting transports emit notifications for connection state
+ * changes, errors, and reconnection attempts.
+ *
+ * @param transport - The transport to check
+ * @returns True if the transport has an addEventListener method
+ *
+ * @example
+ * ```typescript
+ * import { supportsEvents } from 'rpc.do'
+ *
+ * function setupEventHandlers(transport: Transport) {
+ *   if (supportsEvents(transport)) {
+ *     const unsubscribe = transport.addEventListener((event) => {
+ *       console.log(`Transport event: ${event.type}`)
+ *     })
+ *
+ *     // Later: unsubscribe()
+ *   }
+ * }
+ * ```
  */
 export function supportsEvents(transport: Transport): transport is Transport & { addEventListener: (listener: TransportEventListener) => () => void } {
   return typeof transport.addEventListener === 'function'

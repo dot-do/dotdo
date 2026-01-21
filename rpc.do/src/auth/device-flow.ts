@@ -1,5 +1,34 @@
-// Device Flow - OAuth 2.0 Device Authorization Grant (RFC 8628)
-// Implements the device flow for CLI authentication
+/**
+ * @module rpc.do/auth/device-flow
+ *
+ * OAuth 2.0 Device Authorization Grant (RFC 8628) implementation.
+ *
+ * This module provides the {@link DeviceFlow} class for CLI authentication
+ * where the user completes authorization in a browser while the CLI polls
+ * for the token.
+ *
+ * @see {@link https://datatracker.ietf.org/doc/html/rfc8628 | RFC 8628}
+ *
+ * @example
+ * ```typescript
+ * import { DeviceFlow } from 'rpc.do'
+ *
+ * const flow = new DeviceFlow({
+ *   clientId: 'my-cli',
+ *   oauthBaseUrl: 'https://oauth.do',
+ *   scope: 'read write',
+ * })
+ *
+ * // Step 1: Get device code
+ * const deviceCode = await flow.requestDeviceCode()
+ * console.log(`Go to ${deviceCode.verification_uri}`)
+ * console.log(`Enter code: ${deviceCode.user_code}`)
+ *
+ * // Step 2: Poll for token (blocks until user completes auth)
+ * const tokens = await flow.pollForToken(deviceCode.device_code)
+ * console.log(`Access token: ${tokens.access_token}`)
+ * ```
+ */
 
 /**
  * Device code response from the authorization server

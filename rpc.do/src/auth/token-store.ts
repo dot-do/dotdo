@@ -1,5 +1,34 @@
-// Token Store - Read/write OAuth tokens to ~/.do/tokens.json
-// Provides persistent storage for OAuth tokens in the local filesystem
+/**
+ * @module rpc.do/auth/token-store
+ *
+ * Persistent OAuth token storage for the local filesystem.
+ *
+ * This module provides the {@link TokenStore} class for reading and writing
+ * OAuth tokens to a JSON file (default: `~/.do/tokens.json`).
+ *
+ * @example
+ * ```typescript
+ * import { TokenStore } from 'rpc.do'
+ *
+ * const store = new TokenStore()
+ *
+ * // Save tokens after login
+ * await store.saveTokens({
+ *   access_token: 'eyJ...',
+ *   refresh_token: 'dGhp...',
+ *   expires_at: Date.now() + 3600000,
+ * })
+ *
+ * // Check if logged in
+ * const tokens = await store.getTokens()
+ * if (tokens && !await store.isTokenExpired()) {
+ *   console.log('Logged in!')
+ * }
+ *
+ * // Logout
+ * await store.deleteTokens()
+ * ```
+ */
 
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -28,7 +57,21 @@ export interface ITokenStore {
 }
 
 /**
- * Default path for token storage
+ * Get the default path for token storage.
+ *
+ * Returns `~/.do/tokens.json` where `~` is the user's home directory.
+ *
+ * @returns The default tokens file path
+ *
+ * @example
+ * ```typescript
+ * import { getDefaultTokensPath } from 'rpc.do'
+ *
+ * console.log(getDefaultTokensPath())
+ * // => "/home/user/.do/tokens.json" (Linux)
+ * // => "/Users/user/.do/tokens.json" (macOS)
+ * // => "C:\\Users\\user\\.do\\tokens.json" (Windows)
+ * ```
  */
 export function getDefaultTokensPath(): string {
   return path.join(os.homedir(), '.do', 'tokens.json')

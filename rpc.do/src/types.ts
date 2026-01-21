@@ -1,5 +1,37 @@
-// RPC Type Definitions for rpc.do
-// Core types for RPC communication
+/**
+ * @module rpc.do/types
+ *
+ * Core type definitions for rpc.do RPC communication.
+ *
+ * This module exports all the fundamental types used throughout rpc.do:
+ *
+ * - {@link RPCMessage} - Request format sent over any transport
+ * - {@link RPCResponse} - Response format from the server
+ * - {@link SerializedError} - Structured error format
+ * - {@link RPCClientOptions} - Options for creating clients
+ * - {@link RPCClient} - Type-safe client type mapping
+ * - {@link DOSchema} - API schema for reflection
+ *
+ * @example
+ * ```typescript
+ * import type { RPCMessage, RPCResponse, SerializedError } from 'rpc.do'
+ *
+ * // Create an RPC message
+ * const message: RPCMessage = {
+ *   method: 'users.create',
+ *   args: [{ name: 'Alice' }],
+ *   correlationId: 'abc-123',
+ * }
+ *
+ * // Handle a response
+ * function handleResponse<T>(response: RPCResponse<T>): T {
+ *   if (response.error) {
+ *     throw new Error(response.error.message)
+ *   }
+ *   return response.result!
+ * }
+ * ```
+ */
 
 /**
  * Standard RPC message format sent over any transport

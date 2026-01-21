@@ -1,5 +1,37 @@
-// Token Refresh - Exchange refresh token for new access token
-// OAuth 2.0 refresh token grant implementation
+/**
+ * @module rpc.do/auth/refresh
+ *
+ * OAuth 2.0 refresh token grant implementation.
+ *
+ * This module provides functions for exchanging refresh tokens for new
+ * access tokens using the OAuth 2.0 refresh token grant.
+ *
+ * @example Direct usage
+ * ```typescript
+ * import { refreshToken } from 'rpc.do'
+ *
+ * const newTokens = await refreshToken({
+ *   refreshToken: 'old-refresh-token',
+ *   clientId: 'my-app',
+ *   oauthBaseUrl: 'https://oauth.do',
+ * })
+ * console.log(`New access token: ${newTokens.access_token}`)
+ * ```
+ *
+ * @example With createRefreshFn for AuthTransport
+ * ```typescript
+ * import { AuthTransport, TokenStore, createRefreshFn } from 'rpc.do'
+ *
+ * const transport = new AuthTransport({
+ *   url: 'https://api.example.com',
+ *   tokenStore: new TokenStore(),
+ *   onRefreshToken: createRefreshFn({
+ *     clientId: 'my-app',
+ *     oauthBaseUrl: 'https://oauth.do',
+ *   }),
+ * })
+ * ```
+ */
 
 /**
  * Options for refreshing a token

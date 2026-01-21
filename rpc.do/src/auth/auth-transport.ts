@@ -1,5 +1,32 @@
-// Auth Transport - Transport wrapper that adds OAuth authentication headers
-// Automatically handles token refresh on 401 responses
+/**
+ * @module rpc.do/auth/auth-transport
+ *
+ * Authenticated transport wrapper for rpc.do.
+ *
+ * This module provides the {@link AuthTransport} class, which wraps any
+ * transport to add OAuth authentication headers. It automatically:
+ *
+ * - Attaches `Authorization: Bearer <token>` headers to requests
+ * - Proactively refreshes tokens that are about to expire
+ * - Retries requests on 401 responses with fresh tokens
+ *
+ * @example
+ * ```typescript
+ * import { createClient, AuthTransport, TokenStore, createRefreshFn } from 'rpc.do'
+ *
+ * const transport = new AuthTransport({
+ *   url: 'https://api.example.com',
+ *   tokenStore: new TokenStore(),
+ *   onRefreshToken: createRefreshFn({
+ *     clientId: 'my-app',
+ *     oauthBaseUrl: 'https://oauth.do',
+ *   }),
+ * })
+ *
+ * const client = createClient<MyAPI>('https://api.example.com', { transport })
+ * // Requests are automatically authenticated!
+ * ```
+ */
 
 import type { RPCMessage, RPCResponse } from '../types'
 import type { Transport, TransportState } from '../transport/types'
@@ -290,7 +317,29 @@ export class AuthTransport implements Transport {
 }
 
 /**
- * Create an auth transport (convenience function)
+ * Create an auth transport (convenience factory function).
+ *
+ * This is a convenience wrapper around `new AuthTransport(options)` for
+ * functional programming styles or dependency injection.
+ *
+ * @param options - Configuration options for the transport
+ * @returns A new AuthTransport instance
+ *
+ * @example
+ * ```typescript
+ * import { createAuthTransport, createClient, TokenStore, createRefreshFn } from 'rpc.do'
+ *
+ * const transport = createAuthTransport({
+ *   url: 'https://api.example.com',
+ *   tokenStore: new TokenStore(),
+ *   onRefreshToken: createRefreshFn({
+ *     clientId: 'my-app',
+ *     oauthBaseUrl: 'https://oauth.do',
+ *   }),
+ * })
+ *
+ * const client = createClient<MyAPI>('https://api.example.com', { transport })
+ * ```
  */
 export function createAuthTransport(options: AuthTransportOptions): AuthTransport {
   return new AuthTransport(options)

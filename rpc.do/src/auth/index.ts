@@ -1,5 +1,52 @@
-// Auth module - OAuth authentication for rpc.do
-// Provides device flow, token storage, and authenticated transport
+/**
+ * @module rpc.do/auth
+ *
+ * OAuth authentication module for rpc.do.
+ *
+ * This module provides a complete OAuth 2.0 authentication solution including:
+ *
+ * - {@link DeviceFlow} - OAuth 2.0 Device Authorization Grant (RFC 8628) for CLI authentication
+ * - {@link TokenStore} - Persistent token storage in the local filesystem
+ * - {@link AuthTransport} - Transport wrapper that adds authentication headers
+ * - {@link refreshToken} - Token refresh implementation
+ * - {@link ensureLoggedIn} - High-level helper for ensuring authentication
+ *
+ * @example CLI authentication flow
+ * ```typescript
+ * import { DeviceFlow, TokenStore, ensureLoggedIn } from 'rpc.do'
+ *
+ * const tokenStore = new TokenStore()
+ * const deviceFlow = new DeviceFlow({
+ *   clientId: 'my-cli',
+ *   oauthBaseUrl: 'https://oauth.do',
+ * })
+ *
+ * const loggedIn = await ensureLoggedIn({
+ *   tokenStore,
+ *   deviceFlow,
+ *   interactive: true,
+ *   onDisplayCode: ({ userCode, verificationUri }) => {
+ *     console.log(`Visit ${verificationUri} and enter: ${userCode}`)
+ *   },
+ * })
+ * ```
+ *
+ * @example Authenticated RPC client
+ * ```typescript
+ * import { createClient, AuthTransport, TokenStore, createRefreshFn } from 'rpc.do'
+ *
+ * const transport = new AuthTransport({
+ *   url: 'https://api.example.com',
+ *   tokenStore: new TokenStore(),
+ *   onRefreshToken: createRefreshFn({
+ *     clientId: 'my-app',
+ *     oauthBaseUrl: 'https://oauth.do',
+ *   }),
+ * })
+ *
+ * const client = createClient<MyAPI>('https://api.example.com', { transport })
+ * ```
+ */
 
 // Re-export all auth components
 export * from './token-store'
