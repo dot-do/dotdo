@@ -3,6 +3,7 @@
 
 import { generateCorrelationId, CORRELATION_ID_HEADER } from '../client'
 import { isSerializedError, type SerializedError } from '../errors'
+import { DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER } from '../headers'
 import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportState } from './types'
 
 /**
@@ -30,10 +31,6 @@ export interface StubTransportBindingOptions extends TransportOptions {
   /** Source DO ID for trust chain (do-nuwe) */
   sourceDoId?: string
 }
-
-// DO auth headers (matching cross-do.ts)
-const DO_SOURCE_HEADER = 'X-DO-Source'
-const DO_SOURCE_ID_HEADER = 'X-DO-Source-ID'
 
 /**
  * Type guard to check if a value is a DurableObjectId

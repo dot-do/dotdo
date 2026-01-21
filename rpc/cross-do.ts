@@ -3,13 +3,11 @@
 
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
 import { RPCError, RPCErrorCode, isSerializedError, deserializeError } from './errors'
+import { DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER } from './headers'
 
 // Re-export for convenience
 export { generateCorrelationId, CORRELATION_ID_HEADER }
-
-// DO auth headers (from do/auth.ts)
-const DO_SOURCE_HEADER = 'X-DO-Source'
-const DO_SOURCE_ID_HEADER = 'X-DO-Source-ID'
+export { DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER }
 
 /**
  * Options for cross-DO RPC calls

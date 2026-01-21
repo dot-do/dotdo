@@ -306,16 +306,18 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
     alias?: string,
     joinOptions?: JoinOptions
   ): void {
-    options.joins!.push({
-      predicate,
-      targetType,
-      conditions,
-      fromJoin,
-      alias,
-      options: joinOptions,
-      joinType,
-      direction
-    })
+    if (options.joins) {
+      options.joins.push({
+        predicate,
+        targetType,
+        conditions,
+        fromJoin,
+        alias,
+        options: joinOptions,
+        joinType,
+        direction
+      })
+    }
   }
 
   /**
@@ -458,22 +460,26 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
       if (typeof fieldOrConditions === 'string') {
         validateFieldName(fieldOrConditions)
         options.where = { ...options.where, [fieldOrConditions]: value }
-        options.whereConditions!.push({
-          field: fieldOrConditions,
-          operator: '=',
-          value: value ?? null
-        })
+        if (options.whereConditions) {
+          options.whereConditions.push({
+            field: fieldOrConditions,
+            operator: '=',
+            value: value ?? null
+          })
+        }
       } else {
         for (const field of Object.keys(fieldOrConditions)) {
           validateFieldName(field)
         }
         options.where = { ...options.where, ...fieldOrConditions }
         for (const [field, val] of Object.entries(fieldOrConditions)) {
-          options.whereConditions!.push({
-            field,
-            operator: '=',
-            value: val
-          })
+          if (options.whereConditions) {
+            options.whereConditions.push({
+              field,
+              operator: '=',
+              value: val
+            })
+          }
         }
       }
       return builder
@@ -481,7 +487,9 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
 
     whereOp(field: string, operator: WhereOperator, value: JsonValue | JsonValue[]) {
       validateFieldName(field)
-      options.whereConditions!.push({ field, operator, value })
+      if (options.whereConditions) {
+        options.whereConditions.push({ field, operator, value })
+      }
       return builder
     },
 
@@ -580,8 +588,9 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
 
         // Apply whereConditions
         if (options.whereConditions && options.whereConditions.length > 0) {
+          const whereConditions = options.whereConditions
           results = results.filter(thing => {
-            return options.whereConditions!.every(condition =>
+            return whereConditions.every(condition =>
               matchesCondition(thing, condition)
             )
           })

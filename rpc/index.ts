@@ -13,6 +13,7 @@ export * from './types'
 export * from './typed-client'
 export * from './validation'
 export * from './rate-limit'
+export * from './headers'
 
 // Transport layer
 export * from './transport'

@@ -17,6 +17,17 @@ import type { AuthUser } from '../auth/middleware'
 import { extractToken, verifyTokenSignature } from '../auth/token'
 import { verifyTokenWithJwks, type JwksClient } from '../auth/jwks'
 import { createLogger } from '../utils/logger'
+// Import shared header constants from @dotdo/rpc to avoid circular dependencies
+import {
+  DO_SOURCE_HEADER,
+  DO_SOURCE_ID_HEADER,
+  DO_SIGNATURE_HEADER,
+  DO_TIMESTAMP_HEADER,
+  CF_WORKER_HEADER,
+  WORKER_NAME_HEADER,
+  INTERNAL_TRUST_HEADER,
+} from '../rpc/headers'
+import { CORRELATION_ID_HEADER } from '../rpc/client'
 
 const logger = createLogger('[DOAuth]')
 
@@ -119,50 +130,22 @@ export interface DOAuthGuardConfig {
 }
 
 // ============================================================================
-// Headers
+// Headers - Re-exported from @dotdo/rpc to maintain backwards compatibility
 // ============================================================================
 
-/**
- * Header indicating the request is from a Cloudflare Worker
- * This is set by the Cloudflare runtime for internal requests
- */
-export const CF_WORKER_HEADER = 'cf-worker'
-
-/**
- * Header containing the worker name (set by us in the API layer)
- */
-export const WORKER_NAME_HEADER = 'X-Worker-Name'
-
-/**
- * Header indicating request is from another DO
- */
-export const DO_SOURCE_HEADER = 'X-DO-Source'
-
-/**
- * Header containing the source DO's ID
- */
-export const DO_SOURCE_ID_HEADER = 'X-DO-Source-ID'
-
-/**
- * Correlation ID header (from rpc/client.ts)
- */
-export const CORRELATION_ID_HEADER = 'X-Correlation-ID'
-
-/**
- * Header indicating internal trust chain
- */
-export const INTERNAL_TRUST_HEADER = 'X-Internal-Trust'
-
-/**
- * Header containing HMAC signature for DO-to-DO authentication
- * This prevents header spoofing by external clients
- */
-export const DO_SIGNATURE_HEADER = 'X-DO-Signature'
-
-/**
- * Header containing timestamp for signature validation (prevents replay attacks)
- */
-export const DO_TIMESTAMP_HEADER = 'X-DO-Timestamp'
+// Re-export header constants from @dotdo/rpc for backwards compatibility.
+// These were previously defined here but are now in @dotdo/rpc to avoid
+// circular dependencies (do -> rpc -> do).
+export {
+  DO_SOURCE_HEADER,
+  DO_SOURCE_ID_HEADER,
+  DO_SIGNATURE_HEADER,
+  DO_TIMESTAMP_HEADER,
+  CF_WORKER_HEADER,
+  WORKER_NAME_HEADER,
+  INTERNAL_TRUST_HEADER,
+  CORRELATION_ID_HEADER,
+}
 
 /**
  * Maximum age of a signature in milliseconds (5 minutes)
