@@ -88,7 +88,7 @@ describe('DO Class', () => {
       const response = await doInstance.fetch(request)
       expect(response.status).toBe(500)
       const json = await response.json()
-      expect(json.error).toBe('Test error')
+      expect(json.message).toBe('Internal error: Test error')
     })
 
     it('should handle nested methods via dot notation', async () => {

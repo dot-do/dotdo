@@ -306,7 +306,7 @@ export function apiKeyMiddleware(options: ApiKeyMiddlewareOptions): MiddlewareHa
     c.set('apiKey', apiKey)
     c.set('token', key)
     c.set('user', {
-      id: \`apikey:\${apiKey.id}\`,
+      id: `apikey:${apiKey.id}`,
       roles: ['api'],
       scopes: apiKey.scopes
     })
