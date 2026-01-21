@@ -6406,3 +6406,32 @@ time=2026-01-20T09:43:01.204-06:00 level=INFO msg="   Consider running 'bd sync'
 time=2026-01-20T09:43:01.614-06:00 level=INFO msg="Pulled from remote"
 time=2026-01-20T09:43:01.723-06:00 level=INFO msg="Imported from JSONL"
 time=2026-01-20T09:43:01.729-06:00 level=INFO msg="Auto-import complete"
+time=2026-01-20T20:14:12.903-06:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-01-20T20:14:12.903-06:00 level=INFO msg="using database" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db
+time=2026-01-20T20:14:12.920-06:00 level=INFO msg="database opened" path=/Users/nathanclevenger/projects/dotdo/.beads/beads.db freshness_checking=true
+time=2026-01-20T20:14:12.920-06:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-01-20T20:14:12.920-06:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-01-20T20:14:12.935-06:00 level=INFO msg="Repository fingerprint validated: %s" !BADKEY=b1d3ef9e
+time=2026-01-20T20:14:12.935-06:00 level=INFO msg="starting RPC server" socket=/Users/nathanclevenger/projects/dotdo/.beads/bd.sock
+time=2026-01-20T20:14:12.936-06:00 level=INFO msg="RPC server ready (socket listening)"
+time=2026-01-20T20:14:12.944-06:00 level=INFO msg="registered in global registry"
+time=2026-01-20T20:14:12.945-06:00 level=INFO msg="Starting %s..." !BADKEY="sync cycle"
+time=2026-01-20T20:14:13.024-06:00 level=INFO msg="Exported to JSONL"
+time=2026-01-20T20:14:13.653-06:00 level=INFO msg="Pull failed: %v" !BADKEY="git pull failed: exit status 128\nFrom https://github.com/dot-do/dotdo\n * branch              v3         -> FETCH_HEAD\nwarning: fetch updated the current branch head.\nfast-forwarding your working tree from\ncommit b3396fc20cd4a3a73f61f0c86f14d1c51c1e6113.\nerror: Your local changes to the following files would be overwritten by merge:\n\t.beads/issues.jsonl\nPlease commit your changes or stash them before you merge.\nAborting\nfatal: Cannot fast-forward your working tree.\nAfter making sure that you saved anything precious from\n$ git diff b3396fc20cd4a3a73f61f0c86f14d1c51c1e6113\noutput, run\n$ git reset --hard\nto recover.\n"
+time=2026-01-20T20:14:13.653-06:00 level=INFO msg="monitoring parent process" pid=0
+time=2026-01-20T20:14:13.653-06:00 level=INFO msg="using event-driven mode"
+time=2026-01-20T20:14:13.654-06:00 level=INFO msg="Auto-pull disabled: use 'git pull' manually to sync remote changes"
+time=2026-01-20T20:14:13.654-06:00 level=INFO msg="Mutation detected: %s %s" status=do-wcd1
+time=2026-01-20T20:14:14.156-06:00 level=INFO msg="Export triggered by mutation events"
+time=2026-01-20T20:14:14.156-06:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-01-20T20:14:14.157-06:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-01-20T20:14:14.804-06:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-01-20T20:14:14.856-06:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-01-20T20:14:14.856-06:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T20:14:15.858-06:00 level=INFO msg="Import triggered by file change"
+time=2026-01-20T20:14:15.859-06:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-01-20T20:14:15.860-06:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-01-20T20:14:15.881-06:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/nathanclevenger/projects/dotdo/.beads/issues.jsonl
+time=2026-01-20T20:14:15.882-06:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-01-20T20:14:15.882-06:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-01-20T20:14:16.315-06:00 level=INFO msg="Pulled from remote"
