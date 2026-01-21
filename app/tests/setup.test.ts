@@ -148,13 +148,7 @@ describe('TanStack Start Setup', () => {
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'))
 
       expect(pkg.scripts.dev).toContain('vinxi')
-      // build script may be skipped due to TanStack Start dependency issues (do-zab7.3)
-      // Check for either vinxi or the skip message
-      expect(
-        pkg.scripts.build.includes('vinxi') ||
-          pkg.scripts.build.includes('SKIPPED') ||
-          pkg.scripts['build:vinxi']?.includes('vinxi')
-      ).toBe(true)
+      expect(pkg.scripts.build).toContain('vinxi')
       expect(pkg.scripts.test).toContain('vitest')
     })
   })

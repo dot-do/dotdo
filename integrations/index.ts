@@ -22,7 +22,9 @@ export type {
 export {
   IntegrationRegistry,
   IntegrationRegistryError,
-  createIntegrationRegistry,
+  integrationRegistry,
+  registerIntegration,
+  getIntegration,
   successResult,
   errorResult,
   type ListIntegrationsOptions,
@@ -52,58 +54,3 @@ export {
   type EmailStats,
   type SendGridMethods,
 } from './sendgrid'
-
-// Twilio SMS/MMS integration (do-h3in)
-export {
-  TwilioIntegration,
-  createTwilioIntegration,
-  type TwilioConfig,
-  type SendSmsRequest,
-  type SendSmsResponse,
-  type TwilioMessage,
-  type TwilioMessageStatus,
-  type ListMessagesOptions,
-  type PhoneNumberLookup,
-  type TwilioMethods,
-} from './twilio'
-
-// AWS S3 storage integration (do-h3in)
-export {
-  S3Integration,
-  createS3Integration,
-  type S3Config,
-  type S3Object,
-  type S3Bucket,
-  type PutObjectRequest,
-  type PutObjectResponse,
-  type GetObjectResponse,
-  type HeadObjectResponse,
-  type CopyObjectResponse,
-  type ListObjectsOptions,
-  type ListObjectsResponse,
-  type S3Methods,
-} from './s3'
-
-// Redis database integration (do-h3in)
-export {
-  RedisIntegration,
-  createRedisIntegration,
-  type RedisConfig,
-  type RedisValue,
-  type SetOptions,
-  type ScanOptions,
-  type ScanResult,
-  type RedisMethods,
-} from './redis'
-
-// Circuit breaker for integration protection (do-j8ky)
-export {
-  CircuitBreakerIntegration,
-  IntegrationCircuitBreakerRegistry,
-  createCircuitBreakerIntegration,
-  createIntegrationCircuitBreakerRegistry,
-  DEFAULT_CIRCUIT_BREAKER_CONFIG,
-  type CircuitBreakerIntegrationConfig,
-  type CircuitState,
-  type CircuitStats,
-} from './circuit-breaker'

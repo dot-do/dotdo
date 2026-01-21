@@ -25,27 +25,18 @@ import { Miniflare } from 'miniflare'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
-import { generateTestId } from '../../test-utils'
 
 // ============================================================================
 // TYPE DEFINITIONS
 // ============================================================================
 
-/**
- * Base Thing interface with known system fields.
- * For things with custom properties, use ThingWithData.
- */
 interface Thing {
   $id: string
   $type: string
   $createdAt: number
   $updatedAt: number
+  [key: string]: unknown
 }
-
-/**
- * Thing with additional dynamic data properties.
- */
-type ThingWithData = Thing & Record<string, unknown>
 
 interface Event {
   $id: string
@@ -295,7 +286,9 @@ async function getEntityDOStub(mf: Miniflare, name: string = 'default') {
   return ns.get(id)
 }
 
-// generateTestId imported from test-utils
+function generateTestId(): string {
+  return `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
 
 // ============================================================================
 // TEST SUITES - Entity Persistence Across DO Restarts

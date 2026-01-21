@@ -3,7 +3,7 @@
 // Key patterns: $.on.Noun.verb event handlers, $.every scheduling, $.do durable actions
 
 import { Hono } from 'hono'
-import { DO, type DOEnv } from '../../do'
+import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
 import type {
   Product,
   Cart,
@@ -20,23 +20,22 @@ import type {
 const TAX_RATE = 0.08 // 8% tax
 
 export class EcommerceDO extends DO {
+  private $: WorkflowContext
+
   constructor(state: DurableObjectState, env: DOEnv) {
     super(state, env)
 
-    // $ is already initialized in the base DO class
+    // Initialize the WorkflowContext ($) for event handling and scheduling
+    this.$ = createContext(state, env)
 
     // ========================================================================
     // Event Handlers using $.on.Noun.verb pattern
     // These demonstrate the core dotdo event-driven architecture
     // ========================================================================
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const on = this.$.on as any
-
     // Handle order creation - send confirmation email
-    on.Order.created(async (event: unknown) => {
-      const e = event as { payload: unknown }
-      const { orderId, customerId, total } = e.payload as {
+    this.$.on.Order.created(async (event) => {
+      const { orderId, customerId, total } = event.payload as {
         orderId: string
         customerId: string
         total: number
@@ -46,9 +45,8 @@ export class EcommerceDO extends DO {
     })
 
     // Handle payment completion - update inventory and notify
-    on.Payment.completed(async (event: unknown) => {
-      const e = event as { payload: unknown }
-      const { orderId, paymentId } = e.payload as {
+    this.$.on.Payment.completed(async (event) => {
+      const { orderId, paymentId } = event.payload as {
         orderId: string
         paymentId: string
       }
@@ -57,9 +55,8 @@ export class EcommerceDO extends DO {
     })
 
     // Handle payment failure - notify customer
-    on.Payment.failed(async (event: unknown) => {
-      const e = event as { payload: unknown }
-      const { orderId, reason } = e.payload as {
+    this.$.on.Payment.failed(async (event) => {
+      const { orderId, reason } = event.payload as {
         orderId: string
         paymentId: string
         reason: string
@@ -69,9 +66,8 @@ export class EcommerceDO extends DO {
     })
 
     // Handle cart item added - track analytics
-    on.Cart.itemAdded(async (event: unknown) => {
-      const e = event as { payload: unknown }
-      const { cartId, productId, quantity } = e.payload as {
+    this.$.on.Cart.itemAdded(async (event) => {
+      const { cartId, productId, quantity } = event.payload as {
         cartId: string
         productId: string
         quantity: number
@@ -80,9 +76,8 @@ export class EcommerceDO extends DO {
     })
 
     // Wildcard handler - log all events for debugging
-    on['*']['*'](async (event: unknown) => {
-      const e = event as { type: string; payload: unknown }
-      console.log(`[Audit] Event: ${e.type}`, e.payload)
+    this.$.on['*']['*'](async (event) => {
+      console.log(`[Audit] Event: ${event.type}`, event.payload)
     })
 
     // ========================================================================
@@ -90,8 +85,7 @@ export class EcommerceDO extends DO {
     // ========================================================================
 
     // Every day at midnight - clean up abandoned carts
-    const everyDay = this.$.every.day as unknown as { atmidnight: (handler: () => Promise<void>) => void }
-    everyDay.atmidnight(async () => {
+    this.$.every.day.atmidnight(async () => {
       console.log('[Scheduled] Cleaning up abandoned carts...')
       const carts = await this.things.list({ type: 'Cart' })
       const now = Date.now()
@@ -107,8 +101,7 @@ export class EcommerceDO extends DO {
     })
 
     // Every hour - check for pending payment retries
-    const everyHour = this.$.every as unknown as { hour: (handler: () => Promise<void>) => void }
-    everyHour.hour(async () => {
+    this.$.every.hour(async () => {
       console.log('[Scheduled] Checking for payment retries...')
       const orders = await this.things.list({ type: 'Order' })
       for (const order of orders) {
@@ -248,7 +241,7 @@ export class EcommerceDO extends DO {
       )
 
       const updatedCart = await this.things.update(cart.$id, {
-        items: updatedItems as unknown as import('@dotdo/db').JsonValue,
+        items: updatedItems,
         total,
       })
 
@@ -289,7 +282,7 @@ export class EcommerceDO extends DO {
           0
         )
         const updatedCart = await this.things.update(cart.$id, {
-          items: updatedItems as unknown as import('@dotdo/db').JsonValue,
+          items: updatedItems,
           total,
         })
         return c.json(updatedCart)
@@ -310,7 +303,7 @@ export class EcommerceDO extends DO {
       )
 
       const updatedCart = await this.things.update(cart.$id, {
-        items: updatedItems as unknown as import('@dotdo/db').JsonValue,
+        items: updatedItems,
         total,
       })
 
@@ -342,7 +335,7 @@ export class EcommerceDO extends DO {
       )
 
       const updatedCart = await this.things.update(cart.$id, {
-        items: updatedItems as unknown as import('@dotdo/db').JsonValue,
+        items: updatedItems,
         total,
       })
 
@@ -414,12 +407,12 @@ export class EcommerceDO extends DO {
         $type: 'Order',
         customerId,
         cartId: cart.$id,
-        items: orderItems as unknown as import('@dotdo/db').JsonValue,
+        items: orderItems,
         subtotal,
         tax,
         total,
         status: 'pending' as OrderStatus,
-        shippingAddress: shippingAddress as unknown as import('@dotdo/db').JsonValue,
+        shippingAddress,
       })
 
       // Mark cart as checked out
@@ -592,15 +585,10 @@ export class EcommerceDO extends DO {
     // Create customer
     app.post('/customers', async (c) => {
       const data = await c.req.json<Omit<Customer, '$type'>>()
-      const customerData: Record<string, import('@dotdo/db').JsonValue> = {
+      const customer = await this.things.create({
         $type: 'Customer',
-        name: data.name,
-        email: data.email,
-      }
-      if (data.defaultShippingAddress) {
-        customerData.defaultShippingAddress = data.defaultShippingAddress as unknown as import('@dotdo/db').JsonValue
-      }
-      const customer = await this.things.create(customerData as { $type: string })
+        ...data,
+      })
       return c.json(customer, 201)
     })
 

@@ -181,9 +181,7 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
     }
     this.initialMethod = method
     this.initialArgs = args
-    if (options?.correlationId !== undefined) {
-      this.correlationId = options.correlationId
-    }
+    this.correlationId = options?.correlationId
     this.timeout = options?.timeout ?? 30000
   }
 
@@ -212,15 +210,11 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
    * Create a clone of this builder with the current state
    */
   private clone<U>(): PipelineBuilder<U> {
-    const options: { correlationId?: string; timeout?: number } = { timeout: this.timeout }
-    if (this.correlationId !== undefined) {
-      options.correlationId = this.correlationId
-    }
     const clone = new PipelineBuilder<U>(
       this.transport || this.baseUrl!,
       this.initialMethod,
       this.initialArgs,
-      options
+      { correlationId: this.correlationId, timeout: this.timeout }
     )
     clone.steps = [...this.steps]
     return clone
@@ -264,7 +258,7 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
         }
 
         // Send as a special pipeline message
-        const response = await this.transport.send<PipelineResponse<T>>({
+        const response = await this.transport.send<T>({
           method: '__pipeline__',
           args: [pipelineRequest],
           correlationId,
@@ -274,25 +268,15 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
           throw deserializeError(response.error)
         }
 
-        // Properly cast after narrowing the type
-        if (response.result === undefined) {
-          throw new Error('Pipeline response missing result field')
-        }
-
         return response.result as T
       }
 
       // No pipeline steps, just a regular call
-      const response = await this.transport.send<RPCResponse>(message)
+      const response = await this.transport.send<T>(message)
       if (response.error) {
         throw deserializeError(response.error)
       }
-      // Properly type-cast after narrowing
-      const typedResponse = response as { result: T }
-      if (typedResponse.result === undefined) {
-        throw new Error('RPC response missing result field')
-      }
-      return typedResponse.result
+      return response.result as T
     }
 
     // Fallback to fetch-based pipeline
@@ -314,27 +298,16 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
     })
 
     if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({})) as { message?: string }
-      throw new Error(errorBody.message ?? `Pipeline error: ${response.status}`)
+      const errorBody = await response.json().catch(() => ({}))
+      throw new Error(errorBody.message || `Pipeline error: ${response.status}`)
     }
 
-    const result = (await response.json()) as unknown
-
-    // Validate and type the response
-    if (!result || typeof result !== 'object') {
-      throw new Error('Pipeline response is not a valid object')
-    }
-    const typedResponse = result as PipelineResponse<T>
-
-    if (typedResponse.error) {
-      throw new Error(`Pipeline step ${typedResponse.error.stepIndex} failed: ${typedResponse.error.message}`)
+    const result = await response.json() as PipelineResponse<T>
+    if (result.error) {
+      throw new Error(`Pipeline step ${result.error.stepIndex} failed: ${result.error.message}`)
     }
 
-    if (typedResponse.result === undefined) {
-      throw new Error('Pipeline response missing result field')
-    }
-
-    return typedResponse.result
+    return result.result as T
   }
 }
 
@@ -424,15 +397,6 @@ export function createPipelineClient<T extends object>(options: PipelineClientOp
         return undefined
       }
 
-      // Build options object with only defined values
-      const buildOptions = (): { correlationId?: string; timeout?: number } => {
-        const opts: { correlationId?: string; timeout?: number } = { timeout }
-        if (correlationId !== undefined) {
-          opts.correlationId = correlationId
-        }
-        return opts
-      }
-
       // Special pipeline method
       if (prop === 'pipeline') {
         return <K extends keyof T>(method: K, ...args: unknown[]) => {
@@ -440,7 +404,7 @@ export function createPipelineClient<T extends object>(options: PipelineClientOp
             transport || url!,
             String(method),
             args,
-            buildOptions()
+            { correlationId, timeout }
           )
         }
       }
@@ -452,7 +416,7 @@ export function createPipelineClient<T extends object>(options: PipelineClientOp
             transport || url!,
             methodPath,
             args,
-            buildOptions()
+            { correlationId, timeout }
           )
         }
       }
@@ -463,7 +427,7 @@ export function createPipelineClient<T extends object>(options: PipelineClientOp
           transport || url!,
           String(prop),
           args,
-          buildOptions()
+          { correlationId, timeout }
         )
       }
     }
@@ -523,17 +487,14 @@ export async function executePipeline<T>(
 
   // Validate pipeline depth
   if (pipeline.length > maxDepth) {
-    const response: PipelineResponse<T> = {
+    return {
       error: {
         stepIndex: -1,
         message: `Pipeline exceeds maximum depth of ${maxDepth}`,
         code: 'PIPELINE_TOO_DEEP',
       },
+      correlationId,
     }
-    if (correlationId !== undefined) {
-      response.correlationId = correlationId
-    }
-    return response
   }
 
   // Create timeout promise
@@ -550,42 +511,30 @@ export async function executePipeline<T>(
       timeoutPromise,
     ])
 
-    const response: PipelineResponse<T> = { result: result as T }
-    if (correlationId !== undefined) {
-      response.correlationId = correlationId
-    }
-    return response
+    return { result: result as T, correlationId }
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
 
     // Check if it's a step error with index
     if ('stepIndex' in err) {
-      const errWithCode = err as Error & { stepIndex: number; code?: string }
-      const errorObj: PipelineResponse<T>['error'] = {
-        stepIndex: errWithCode.stepIndex,
-        message: err.message,
+      return {
+        error: {
+          stepIndex: (err as Error & { stepIndex: number }).stepIndex,
+          message: err.message,
+          code: (err as Error & { code?: string }).code,
+        },
+        correlationId,
       }
-      if (errWithCode.code !== undefined) {
-        errorObj.code = errWithCode.code
-      }
-      const response: PipelineResponse<T> = { error: errorObj }
-      if (correlationId !== undefined) {
-        response.correlationId = correlationId
-      }
-      return response
     }
 
-    const response: PipelineResponse<T> = {
+    return {
       error: {
         stepIndex: -1,
         message: err.message,
         code: 'INTERNAL_ERROR',
       },
+      correlationId,
     }
-    if (correlationId !== undefined) {
-      response.correlationId = correlationId
-    }
-    return response
   }
 }
 
@@ -605,7 +554,6 @@ async function executeSteps(
   // Navigate to the method
   for (let i = 0; i < methodParts.length - 1; i++) {
     const part = methodParts[i]
-    if (part === undefined) continue
     if (!current || typeof current !== 'object') {
       const error = new Error(`Cannot access ${part} on ${typeof current}`) as Error & { stepIndex: number }
       error.stepIndex = -1
@@ -616,11 +564,6 @@ async function executeSteps(
 
   // Get and execute the final method
   const methodName = methodParts[methodParts.length - 1]
-  if (methodName === undefined) {
-    const error = new Error(`Method ${method} not found`) as Error & { stepIndex: number }
-    error.stepIndex = -1
-    throw error
-  }
   if (!current || typeof current !== 'object') {
     const error = new Error(`Method ${method} not found`) as Error & { stepIndex: number }
     error.stepIndex = -1
@@ -640,54 +583,38 @@ async function executeSteps(
   // Execute pipeline steps
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i]
-    if (!step) continue
 
     try {
       switch (step.type) {
-        case 'get': {
+        case 'get':
           if (result === null || result === undefined) {
-            const error = new Error(`Cannot read property '${step.name ?? 'unknown'}' of ${result}`) as Error & { stepIndex: number }
+            const error = new Error(`Cannot read property '${step.name}' of ${result}`) as Error & { stepIndex: number }
             error.stepIndex = i
             throw error
           }
-          const propName = step.name
-          if (propName === undefined) {
-            const error = new Error('Get step missing property name') as Error & { stepIndex: number }
-            error.stepIndex = i
-            throw error
-          }
-          result = (result as Record<string, unknown>)[propName]
+          result = (result as Record<string, unknown>)[step.name!]
           break
-        }
 
-        case 'call': {
+        case 'call':
           if (result === null || result === undefined) {
-            const error = new Error(`Cannot call method '${step.name ?? 'unknown'}' on ${result}`) as Error & { stepIndex: number }
+            const error = new Error(`Cannot call method '${step.name}' on ${result}`) as Error & { stepIndex: number }
             error.stepIndex = i
             throw error
           }
-          const methodName = step.name
-          if (methodName === undefined) {
-            const error = new Error('Call step missing method name') as Error & { stepIndex: number }
+          const method = (result as Record<string, unknown>)[step.name!]
+          if (typeof method !== 'function') {
+            const error = new Error(`${step.name} is not a function`) as Error & { stepIndex: number }
             error.stepIndex = i
             throw error
           }
-          const methodFn = (result as Record<string, unknown>)[methodName]
-          if (typeof methodFn !== 'function') {
-            const error = new Error(`${methodName} is not a function`) as Error & { stepIndex: number }
-            error.stepIndex = i
-            throw error
-          }
-          result = await (methodFn as (...a: unknown[]) => unknown).apply(result, step.args ?? [])
+          result = await (method as (...a: unknown[]) => unknown).apply(result, step.args || [])
           break
-        }
 
-        case 'pipe': {
+        case 'pipe':
           // Pipe operations are client-side only
           const error = new Error('Pipe operations must be resolved client-side') as Error & { stepIndex: number }
           error.stepIndex = i
           throw error
-        }
       }
     } catch (err) {
       if (err && typeof err === 'object' && 'stepIndex' in err) {

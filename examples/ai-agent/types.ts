@@ -12,7 +12,7 @@ export interface Conversation {
   messageCount: number
   tokenCount: number
   createdAt: string
-  lastMessageAt?: string | undefined
+  lastMessageAt?: string
 }
 
 /**
@@ -23,11 +23,11 @@ export interface Message {
   conversationId: string
   role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
-  toolCall?: ToolCall | undefined
-  toolResult?: ToolResult | undefined
-  tokenCount?: number | undefined
-  model?: string | undefined
-  finishReason?: string | undefined
+  toolCall?: ToolCall
+  toolResult?: ToolResult
+  tokenCount?: number
+  model?: string
+  finishReason?: string
   createdAt: string
 }
 
@@ -50,7 +50,7 @@ export interface ToolParameter {
   type: 'string' | 'number' | 'boolean' | 'array' | 'object'
   description: string
   required: boolean
-  enum?: string[] | undefined
+  enum?: string[]
   default?: unknown
 }
 
@@ -70,7 +70,7 @@ export interface ToolResult {
   toolCallId: string
   success: boolean
   result?: unknown
-  error?: string | undefined
+  error?: string
 }
 
 /**
@@ -85,9 +85,9 @@ export interface Task {
   progress: number  // 0-100
   steps: TaskStep[]
   result?: unknown
-  error?: string | undefined
+  error?: string
   startedAt: string
-  completedAt?: string | undefined
+  completedAt?: string
 }
 
 /**
@@ -96,10 +96,10 @@ export interface Task {
 export interface TaskStep {
   name: string
   status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
-  startedAt?: string | undefined
-  completedAt?: string | undefined
+  startedAt?: string
+  completedAt?: string
   result?: unknown
-  error?: string | undefined
+  error?: string
 }
 
 /**
@@ -107,14 +107,14 @@ export interface TaskStep {
  */
 export interface Memory {
   $type: 'Memory'
-  conversationId?: string | undefined  // Optional - can be global or per-conversation
+  conversationId?: string  // Optional - can be global or per-conversation
   type: 'fact' | 'preference' | 'context' | 'instruction'
   key: string
   value: string
   confidence: number  // 0-1
   source: string
   createdAt: string
-  expiresAt?: string | undefined
+  expiresAt?: string
 }
 
 /**
@@ -141,11 +141,11 @@ export interface AgentConfig {
  */
 export interface ChatRequest {
   message: string
-  conversationId?: string | undefined
-  userId?: string | undefined
-  model?: string | undefined
-  tools?: string[] | undefined
-  stream?: boolean | undefined
+  conversationId?: string
+  userId?: string
+  model?: string
+  tools?: string[]
+  stream?: boolean
 }
 
 /**
@@ -155,13 +155,13 @@ export interface ChatResponse {
   conversationId: string
   messageId: string
   content: string
-  toolCalls?: ToolCall[] | undefined
+  toolCalls?: ToolCall[]
   finishReason: string
   usage?: {
     promptTokens: number
     completionTokens: number
     totalTokens: number
-  } | undefined
+  }
 }
 
 /**

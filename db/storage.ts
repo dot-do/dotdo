@@ -30,17 +30,6 @@ export interface ListResult<T = unknown> {
 }
 
 /**
- * Options for transaction execution
- */
-export interface TransactionOptions {
-  /**
-   * Name for nested transaction savepoint
-   * Only used when creating nested transactions
-   */
-  savepoint?: string
-}
-
-/**
  * Storage Adapter Interface
  *
  * Provides a key-value storage abstraction that can be backed by different
@@ -103,17 +92,10 @@ export interface StorageAdapter {
    * or all fail. Not all backends may support true transactions; they should
    * document their behavior.
    *
-   * Transaction Semantics:
-   * - All operations within fn are atomic
-   * - On error, all changes are rolled back
-   * - Supports nested transactions via savepoints (if backend supports it)
-   * - Nested transactions roll back to savepoint on error, not the entire transaction
-   *
    * @param fn The function to execute within the transaction
-   * @param options Optional transaction configuration (e.g., savepoint name for nested transactions)
    * @returns The result of the function
    */
-  transaction<T>(fn: () => Promise<T>, options?: TransactionOptions): Promise<T>
+  transaction<T>(fn: () => Promise<T>): Promise<T>
 
   /**
    * Check if a key exists without fetching its value
@@ -133,18 +115,6 @@ export interface StorageAdapter {
    * @param prefix Optional prefix to count keys matching
    */
   count(prefix?: string): Promise<number>
-
-  /**
-   * Check if currently inside a transaction
-   * @returns true if inside an active transaction
-   */
-  inTransaction?(): boolean
-
-  /**
-   * Check if the adapter supports nested transactions
-   * @returns true if nested transactions are supported via savepoints
-   */
-  supportsNestedTransactions?(): boolean
 }
 
 /**
@@ -181,12 +151,10 @@ export interface TypedStorageAdapter<T extends StorableData> {
   delete(key: string): Promise<void>
   deleteMany(keys: string[]): Promise<void>
   list(options?: ListOptions): Promise<ListResult<T>>
-  transaction<R>(fn: () => Promise<R>, options?: TransactionOptions): Promise<R>
+  transaction<R>(fn: () => Promise<R>): Promise<R>
   has(key: string): Promise<boolean>
   clear(): Promise<void>
   count(prefix?: string): Promise<number>
-  inTransaction?: (() => boolean) | undefined
-  supportsNestedTransactions?: (() => boolean) | undefined
 }
 
 /**
@@ -203,11 +171,9 @@ export function createTypedStorage<T extends StorableData>(
     delete: (key) => adapter.delete(key),
     deleteMany: (keys) => adapter.deleteMany(keys),
     list: (options) => adapter.list<T>(options),
-    transaction: (fn, options) => adapter.transaction(fn, options),
+    transaction: (fn) => adapter.transaction(fn),
     has: (key) => adapter.has(key),
     clear: () => adapter.clear(),
-    count: (prefix) => adapter.count(prefix),
-    inTransaction: adapter.inTransaction ? () => adapter.inTransaction!() : undefined,
-    supportsNestedTransactions: adapter.supportsNestedTransactions ? () => adapter.supportsNestedTransactions!() : undefined
+    count: (prefix) => adapter.count(prefix)
   }
 }

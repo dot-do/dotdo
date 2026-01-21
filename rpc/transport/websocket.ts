@@ -337,11 +337,7 @@ export class WebSocketTransport implements Transport {
       }
 
       try {
-        // ws is guaranteed to be non-null here because we checked at line 296
-        // and the connect() call at line 294 would have failed if ws was null
-        if (this.ws) {
-          this.ws.send(JSON.stringify(wsMessage))
-        }
+        this.ws!.send(JSON.stringify(wsMessage))
       } catch (error) {
         clearTimeout(timeout)
         this.pendingRequests.delete(id)

@@ -285,7 +285,7 @@ export async function expectHATEOASResponse<T = unknown>(
   expect(selfLink.href).toBeDefined()
   expect(typeof selfLink.href).toBe('string')
 
-  return hateoasBody as unknown as HATEOASResponse<T>
+  return hateoasBody as HATEOASResponse<T>
 }
 
 /**
@@ -318,16 +318,11 @@ export async function expectErrorResponse(
     const errorBody = body as Record<string, unknown>
     expect(errorBody.message || errorBody.error).toBeDefined()
 
-    const result: { code?: string; message: string; details?: unknown } = {
+    return {
+      code: errorBody.code as string | undefined,
       message: (errorBody.message || errorBody.error) as string,
+      details: errorBody.details
     }
-    if (errorBody.code !== undefined) {
-      result.code = errorBody.code as string
-    }
-    if (errorBody.details !== undefined) {
-      result.details = errorBody.details
-    }
-    return result
   }
 
   // Plain text error

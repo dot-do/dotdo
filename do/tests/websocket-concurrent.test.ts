@@ -9,71 +9,118 @@
  * 5. Multiple connections with same/different tags
  * 6. Concurrent message handling
  *
- * These tests use real implementations following the NO MOCKS philosophy.
- * Fake WebSocket objects are plain objects - not vi.fn() mocks.
+ * These tests run in the Cloudflare Workers runtime via miniflare.
+ * They use a helper to manually register connections since we can't
+ * do real WebSocket upgrades in unit tests.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { WebSocketManager, type ConnectionMetadata, type ConnectionHandler } from '../websocket'
 
 // ============================================================================
-// Test Helpers - Fake WebSocket (NOT mocks)
+// Test Helpers
 // ============================================================================
 
+interface MockWebSocketEvent {
+  code?: number
+  reason?: string
+  wasClean?: boolean
+  data?: string | ArrayBuffer
+}
+
+type MockWebSocketEventHandler = (event: MockWebSocketEvent) => void
+
 /**
- * Creates a fake WebSocket for testing.
- * Uses plain functions instead of vi.fn() mocks.
+ * Creates a mock WebSocket for testing
  */
-function createFakeWebSocket(): WebSocket & {
+function createMockWebSocket(): WebSocket & {
   _sentMessages: string[]
   closeCode?: number
   closeReason?: string
-  _closed: boolean
 } {
   let readyState = 1 // OPEN
   const sentMessages: string[] = []
   let closeCode: number | undefined
   let closeReason: string | undefined
 
-  const ws = {
+  return {
     get readyState() { return readyState },
-    send(data: string) {
+    send: vi.fn((data: string) => {
       if (readyState !== 1) {
         throw new Error('WebSocket is not open')
       }
       sentMessages.push(data)
-    },
-    close(code?: number, reason?: string) {
+    }),
+    close: vi.fn((code?: number, reason?: string) => {
       readyState = 3 // CLOSED
       closeCode = code
       closeReason = reason
-    },
-    addEventListener() {
-      // No-op for testing
-    },
-    removeEventListener() {
-      // No-op for testing
-    },
+    }),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
     // Expose for assertions
     _sentMessages: sentMessages,
     get closeCode() { return closeCode },
     get closeReason() { return closeReason },
-    get _closed() { return readyState === 3 },
   } as unknown as WebSocket & {
     _sentMessages: string[]
     closeCode?: number
     closeReason?: string
-    _closed: boolean
   }
+}
 
-  return ws
+/**
+ * Creates a mock DurableObjectState for testing
+ */
+function createMockState(): DurableObjectState {
+  const storage = new Map<string, unknown>()
+  const websockets = new Map<string, Set<WebSocket>>()
+  const allWebsockets = new Set<WebSocket>()
+
+  return {
+    id: { toString: () => 'test-concurrent-ws-id' } as DurableObjectId,
+    storage: {
+      get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+      put: vi.fn((key: string, value: unknown) => {
+        storage.set(key, value)
+        return Promise.resolve()
+      }),
+      delete: vi.fn((key: string) => {
+        storage.delete(key)
+        return Promise.resolve(true)
+      }),
+      list: vi.fn(() => Promise.resolve(storage)),
+      deleteAll: vi.fn(() => {
+        storage.clear()
+        return Promise.resolve()
+      }),
+    },
+    blockConcurrencyWhile: vi.fn((fn) => fn()),
+    waitUntil: vi.fn(),
+    acceptWebSocket: vi.fn((ws: WebSocket, tags?: string[]) => {
+      allWebsockets.add(ws)
+      const tagList = tags || []
+      for (const tag of tagList) {
+        if (!websockets.has(tag)) {
+          websockets.set(tag, new Set())
+        }
+        websockets.get(tag)!.add(ws)
+      }
+    }),
+    getWebSockets: vi.fn((tag?: string) => {
+      if (tag) {
+        return Array.from(websockets.get(tag) || [])
+      }
+      return Array.from(allWebsockets)
+    }),
+  } as unknown as DurableObjectState
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 /**
- * Helper to manually register a connection with the manager.
- * This simulates what handleWebSocketUpgrade does internally.
+ * Helper to manually register a connection with the manager
+ * This simulates what handleWebSocketUpgrade does internally
  */
 function registerConnection(
   manager: WebSocketManager,
@@ -109,15 +156,17 @@ function registerConnection(
 
 describe('State Isolation Between Connections', () => {
   let manager: WebSocketManager
+  let mockState: DurableObjectState
 
   beforeEach(() => {
+    mockState = createMockState()
     manager = new WebSocketManager()
   })
 
   it('should maintain separate metadata for each connection', () => {
-    const ws1 = createFakeWebSocket()
-    const ws2 = createFakeWebSocket()
-    const ws3 = createFakeWebSocket()
+    const ws1 = createMockWebSocket()
+    const ws2 = createMockWebSocket()
+    const ws3 = createMockWebSocket()
 
     registerConnection(manager, ws1, { tags: ['room:A'], hibernatable: false })
     registerConnection(manager, ws2, { tags: ['room:B'], hibernatable: true })
@@ -147,8 +196,8 @@ describe('State Isolation Between Connections', () => {
   })
 
   it('should not share state between connections', () => {
-    const ws1 = createFakeWebSocket()
-    const ws2 = createFakeWebSocket()
+    const ws1 = createMockWebSocket()
+    const ws2 = createMockWebSocket()
 
     registerConnection(manager, ws1, { tags: ['room:1'], clientId: 'client-1' })
     registerConnection(manager, ws2, { tags: ['room:2'], clientId: 'client-2' })
@@ -165,7 +214,7 @@ describe('State Isolation Between Connections', () => {
   })
 
   it('should track activity times separately per connection', async () => {
-    const ws1 = createFakeWebSocket()
+    const ws1 = createMockWebSocket()
     const now = Date.now()
 
     registerConnection(manager, ws1, {
@@ -176,7 +225,7 @@ describe('State Isolation Between Connections', () => {
 
     await delay(10)
 
-    const ws2 = createFakeWebSocket()
+    const ws2 = createMockWebSocket()
     const later = Date.now()
 
     registerConnection(manager, ws2, {
@@ -209,8 +258,10 @@ describe('State Isolation Between Connections', () => {
 
 describe('Connection Lifecycle Events', () => {
   let manager: WebSocketManager
+  let mockState: DurableObjectState
 
   beforeEach(() => {
+    mockState = createMockState()
     manager = new WebSocketManager()
   })
 
@@ -221,7 +272,7 @@ describe('Connection Lifecycle Events', () => {
       disconnectEvents.push({ connectionId, metadata: { ...metadata } })
     })
 
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     const metadata = registerConnection(manager, ws, { tags: ['test'] })
 
     manager.cleanupWebSocket(ws)
@@ -246,7 +297,7 @@ describe('Connection Lifecycle Events', () => {
     manager.onDisconnect(handler1)
     manager.onDisconnect(handler2)
 
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     const metadata = registerConnection(manager, ws, { tags: ['test'] })
 
     manager.cleanupWebSocket(ws)
@@ -267,7 +318,7 @@ describe('Connection Lifecycle Events', () => {
 
     manager.onDisconnect(handler)
 
-    const ws1 = createFakeWebSocket()
+    const ws1 = createMockWebSocket()
     registerConnection(manager, ws1, { tags: ['test1'] })
     manager.cleanupWebSocket(ws1)
     await delay(10)
@@ -277,7 +328,7 @@ describe('Connection Lifecycle Events', () => {
     // Remove handler
     manager.offDisconnect(handler)
 
-    const ws2 = createFakeWebSocket()
+    const ws2 = createMockWebSocket()
     registerConnection(manager, ws2, { tags: ['test2'] })
     manager.cleanupWebSocket(ws2)
     await delay(10)
@@ -287,11 +338,7 @@ describe('Connection Lifecycle Events', () => {
   })
 
   it('should handle errors in lifecycle handlers gracefully', async () => {
-    // Capture console.error calls
-    const errorLogs: unknown[] = []
-    const originalError = console.error
-    console.error = (...args: unknown[]) => errorLogs.push(args)
-
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const successCalls: string[] = []
 
     manager.onDisconnect(async () => {
@@ -301,17 +348,17 @@ describe('Connection Lifecycle Events', () => {
       successCalls.push(connectionId)
     })
 
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     registerConnection(manager, ws, { tags: ['test'] })
 
     manager.cleanupWebSocket(ws)
     await delay(10)
 
     // Both handlers should have been called, error should be logged
-    expect(errorLogs.length).toBeGreaterThan(0)
+    expect(consoleSpy).toHaveBeenCalled()
     expect(successCalls).toHaveLength(1)
 
-    console.error = originalError
+    consoleSpy.mockRestore()
   })
 })
 
@@ -321,14 +368,16 @@ describe('Connection Lifecycle Events', () => {
 
 describe('Reconnection Handling', () => {
   let manager: WebSocketManager
+  let mockState: DurableObjectState
 
   beforeEach(() => {
+    mockState = createMockState()
     manager = new WebSocketManager()
   })
 
   it('should track client connections for lookup', () => {
     const clientId = 'user-123'
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
 
     registerConnection(manager, ws, { tags: ['room:A'], clientId })
 
@@ -340,8 +389,8 @@ describe('Reconnection Handling', () => {
   })
 
   it('should maintain separate connections for different client IDs', () => {
-    const ws1 = createFakeWebSocket()
-    const ws2 = createFakeWebSocket()
+    const ws1 = createMockWebSocket()
+    const ws2 = createMockWebSocket()
 
     registerConnection(manager, ws1, { tags: ['room:A'], clientId: 'client-1' })
     registerConnection(manager, ws2, { tags: ['room:A'], clientId: 'client-2' })
@@ -355,7 +404,7 @@ describe('Reconnection Handling', () => {
   })
 
   it('should handle setting client ID after connection', () => {
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     registerConnection(manager, ws, { tags: ['room:A'] })
 
     expect(manager.getConnectionMetadata(ws)?.clientId).toBeUndefined()
@@ -376,7 +425,7 @@ describe('Reconnection Handling', () => {
     })
 
     const clientId = 'reconnect-test'
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     registerConnection(manager, ws, { tags: ['room:A'], clientId })
 
     manager.cleanupWebSocket(ws)
@@ -387,7 +436,7 @@ describe('Reconnection Handling', () => {
   })
 
   it('should handle setClientId when replacing existing clientId', () => {
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     registerConnection(manager, ws, { tags: ['test'], clientId: 'initial-id' })
 
     // Set new client ID
@@ -405,8 +454,10 @@ describe('Reconnection Handling', () => {
 
 describe('Concurrent Connection Management', () => {
   let manager: WebSocketManager
+  let mockState: DurableObjectState
 
   beforeEach(() => {
+    mockState = createMockState()
     manager = new WebSocketManager()
   })
 
@@ -415,7 +466,7 @@ describe('Concurrent Connection Management', () => {
     const websockets: WebSocket[] = []
 
     for (let i = 0; i < connectionCount; i++) {
-      const ws = createFakeWebSocket()
+      const ws = createMockWebSocket()
       websockets.push(ws)
       registerConnection(manager, ws, {
         tags: [`room:${i % 10}`],
@@ -434,15 +485,15 @@ describe('Concurrent Connection Management', () => {
   it('should correctly filter connections by tag', () => {
     // Create connections with various tags
     for (let i = 0; i < 10; i++) {
-      const ws = createFakeWebSocket()
+      const ws = createMockWebSocket()
       registerConnection(manager, ws, { tags: ['room:A'] })
     }
     for (let i = 0; i < 5; i++) {
-      const ws = createFakeWebSocket()
+      const ws = createMockWebSocket()
       registerConnection(manager, ws, { tags: ['room:B'] })
     }
     for (let i = 0; i < 3; i++) {
-      const ws = createFakeWebSocket()
+      const ws = createMockWebSocket()
       registerConnection(manager, ws, { tags: ['room:A', 'room:B'] })
     }
 
@@ -465,7 +516,7 @@ describe('Concurrent Connection Management', () => {
     // Create multiple connections
     const websockets: WebSocket[] = []
     for (let i = 0; i < 5; i++) {
-      const ws = createFakeWebSocket()
+      const ws = createMockWebSocket()
       websockets.push(ws)
       registerConnection(manager, ws, { tags: ['test'] })
     }
@@ -496,7 +547,7 @@ describe('Concurrent Connection Management', () => {
 
     // Rapidly create and destroy connections
     for (let i = 0; i < 20; i++) {
-      const ws = createFakeWebSocket()
+      const ws = createMockWebSocket()
       websockets.push(ws)
       registerConnection(manager, ws, { tags: ['rapid'] })
 
@@ -520,7 +571,7 @@ describe('Concurrent Connection Management', () => {
 
     // Create connections
     for (let i = 0; i < 10; i++) {
-      const ws = createFakeWebSocket()
+      const ws = createMockWebSocket()
       websockets.push(ws)
       registerConnection(manager, ws, { tags: ['cleanup-test'], clientId: `client-${i}` })
     }
@@ -550,13 +601,15 @@ describe('Concurrent Connection Management', () => {
 
 describe('Tag Management', () => {
   let manager: WebSocketManager
+  let mockState: DurableObjectState
 
   beforeEach(() => {
+    mockState = createMockState()
     manager = new WebSocketManager()
   })
 
   it('should support adding tags to existing connection', () => {
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     registerConnection(manager, ws, { tags: ['initial'] })
 
     manager.addConnectionTag(ws, 'added-tag')
@@ -567,7 +620,7 @@ describe('Tag Management', () => {
   })
 
   it('should support removing tags from existing connection', () => {
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     registerConnection(manager, ws, { tags: ['tag1', 'tag2', 'tag3'] })
 
     manager.removeConnectionTag(ws, 'tag2')
@@ -577,7 +630,7 @@ describe('Tag Management', () => {
   })
 
   it('should support replacing all tags', () => {
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     registerConnection(manager, ws, { tags: ['old1', 'old2'] })
 
     manager.updateConnectionTags(ws, ['new1', 'new2', 'new3'])
@@ -587,7 +640,7 @@ describe('Tag Management', () => {
   })
 
   it('should not duplicate tags when adding existing tag', () => {
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     registerConnection(manager, ws, { tags: ['existing'] })
 
     manager.addConnectionTag(ws, 'existing')
@@ -597,7 +650,7 @@ describe('Tag Management', () => {
   })
 
   it('should return false when modifying non-existent connection', () => {
-    const fakeWs = createFakeWebSocket()
+    const fakeWs = createMockWebSocket()
 
     expect(manager.addConnectionTag(fakeWs, 'tag')).toBe(false)
     expect(manager.removeConnectionTag(fakeWs, 'tag')).toBe(false)
@@ -611,9 +664,11 @@ describe('Tag Management', () => {
 
 describe('Stale Connection Detection', () => {
   let manager: WebSocketManager
+  let mockState: DurableObjectState
 
   beforeEach(() => {
     vi.useFakeTimers()
+    mockState = createMockState()
     manager = new WebSocketManager()
   })
 
@@ -622,7 +677,7 @@ describe('Stale Connection Detection', () => {
   })
 
   it('should detect stale connections based on activity', () => {
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     registerConnection(manager, ws, { tags: ['test'] })
 
     // Initially not stale
@@ -635,7 +690,7 @@ describe('Stale Connection Detection', () => {
   })
 
   it('should update activity on message', async () => {
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     registerConnection(manager, ws, { tags: ['test'] })
 
     vi.advanceTimersByTime(30000)
@@ -654,15 +709,15 @@ describe('Stale Connection Detection', () => {
 
   it('should close all stale connections', () => {
     // Create multiple connections at different times
-    const ws1 = createFakeWebSocket()
+    const ws1 = createMockWebSocket()
     registerConnection(manager, ws1, { tags: ['test'] })
 
     vi.advanceTimersByTime(20000)
-    const ws2 = createFakeWebSocket()
+    const ws2 = createMockWebSocket()
     registerConnection(manager, ws2, { tags: ['test'] })
 
     vi.advanceTimersByTime(20000)
-    const ws3 = createFakeWebSocket()
+    const ws3 = createMockWebSocket()
     registerConnection(manager, ws3, { tags: ['test'] })
 
     expect(manager.getAllConnections()).toHaveLength(3)
@@ -685,13 +740,15 @@ describe('Stale Connection Detection', () => {
 
 describe('Edge Cases', () => {
   let manager: WebSocketManager
+  let mockState: DurableObjectState
 
   beforeEach(() => {
+    mockState = createMockState()
     manager = new WebSocketManager()
   })
 
   it('should handle cleanup of already cleaned up connection', () => {
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     registerConnection(manager, ws, { tags: ['test'] })
 
     // First cleanup
@@ -703,13 +760,13 @@ describe('Edge Cases', () => {
   })
 
   it('should return undefined for non-existent connection metadata', () => {
-    const fakeWs = createFakeWebSocket()
+    const fakeWs = createMockWebSocket()
     expect(manager.getConnectionMetadata(fakeWs)).toBeUndefined()
     expect(manager.getConnectionId(fakeWs)).toBeUndefined()
   })
 
   it('should handle empty message gracefully', async () => {
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     registerConnection(manager, ws, { tags: ['test'] })
 
     // Empty string
@@ -720,7 +777,7 @@ describe('Edge Cases', () => {
   })
 
   it('should handle WebSocket with no tags', () => {
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     registerConnection(manager, ws, { tags: [] })
 
     const metadata = manager.getConnectionMetadata(ws)
@@ -735,8 +792,8 @@ describe('Edge Cases', () => {
     const manager1 = new WebSocketManager()
     const manager2 = new WebSocketManager()
 
-    const ws1 = createFakeWebSocket()
-    const ws2 = createFakeWebSocket()
+    const ws1 = createMockWebSocket()
+    const ws2 = createMockWebSocket()
 
     const meta1 = registerConnection(manager1, ws1, { tags: ['test'] })
     const meta2 = registerConnection(manager2, ws2, { tags: ['test'] })
@@ -746,12 +803,12 @@ describe('Edge Cases', () => {
   })
 
   it('should handle getLastPong for unknown connection', () => {
-    const fakeWs = createFakeWebSocket()
+    const fakeWs = createMockWebSocket()
     expect(manager.getLastPong(fakeWs)).toBe(0)
   })
 
   it('should handle setLastPong for unknown connection', () => {
-    const fakeWs = createFakeWebSocket()
+    const fakeWs = createMockWebSocket()
     // Should not throw
     expect(() => manager.setLastPong(fakeWs, Date.now())).not.toThrow()
   })
@@ -763,14 +820,16 @@ describe('Edge Cases', () => {
 
 describe('Legacy Compatibility', () => {
   let manager: WebSocketManager
+  let mockState: DurableObjectState
 
   beforeEach(() => {
+    mockState = createMockState()
     manager = new WebSocketManager()
   })
 
   it('should support getWebSocketTags with WebSocket argument', () => {
-    const ws1 = createFakeWebSocket()
-    const ws2 = createFakeWebSocket()
+    const ws1 = createMockWebSocket()
+    const ws2 = createMockWebSocket()
 
     registerConnection(manager, ws1, { tags: ['tag1'] })
     registerConnection(manager, ws2, { tags: ['tag2'] })
@@ -780,8 +839,8 @@ describe('Legacy Compatibility', () => {
   })
 
   it('should support isWebSocketHibernatable with WebSocket argument', () => {
-    const ws1 = createFakeWebSocket()
-    const ws2 = createFakeWebSocket()
+    const ws1 = createMockWebSocket()
+    const ws2 = createMockWebSocket()
 
     registerConnection(manager, ws1, { tags: ['test1'], hibernatable: false })
     registerConnection(manager, ws2, { tags: ['test2'], hibernatable: true })
@@ -791,14 +850,14 @@ describe('Legacy Compatibility', () => {
   })
 
   it('should support getTagsForWebSocket (alias for proper isolation)', () => {
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     registerConnection(manager, ws, { tags: ['proper-tag'] })
 
     expect(manager.getTagsForWebSocket(ws)).toEqual(['proper-tag'])
   })
 
   it('should support isHibernatable method', () => {
-    const ws = createFakeWebSocket()
+    const ws = createMockWebSocket()
     registerConnection(manager, ws, { tags: ['test'], hibernatable: true })
 
     expect(manager.isHibernatable(ws)).toBe(true)

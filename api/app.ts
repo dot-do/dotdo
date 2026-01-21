@@ -1,29 +1,13 @@
 // Hono app setup - see do-7rf.7.1
-// Route handlers are thin - they delegate to services for business logic
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import type { MiddlewareHandler } from 'hono'
-import { authMiddleware } from '@dotdo/auth'
-import { getErrorMessage } from '@dotdo/rpc'
-import { createLogger } from '../utils/logger'
-import { HealthService, DiscoveryService } from './services'
-
-const logger = createLogger('[API]')
-
-export interface CORSOptions {
-  /**
-   * Allowed origins for CORS requests.
-   * - Provide an array of specific origins: ['https://app.example.com', 'https://dashboard.example.com']
-   * - Use ['*'] to allow all origins (not recommended for production)
-   * - Default: [] (no origins allowed - restrictive by default)
-   */
-  allowedOrigins?: string[]
-}
+import { authMiddleware } from '../auth/middleware'
+import { getErrorMessage } from '../rpc/errors'
 
 export interface APIOptions {
   basePath?: string
-  cors?: CORSOptions
   auth?: {
     enabled?: boolean
     skipPaths?: string[]
@@ -71,53 +55,22 @@ function loggingMiddleware(): MiddlewareHandler {
     const status = c.res.status
     const requestId = c.get('requestId')
 
-    // Structured request logging
-    logger.info(`${method} ${url} ${status} ${duration}ms`, {
-      requestId,
-      method,
-      url,
-      status,
-      duration,
-      timestamp: new Date().toISOString()
-    })
-  }
-}
-
-/**
- * Builds a CORS origin function that validates against allowed origins.
- * Returns the origin if allowed, or null if not allowed.
- */
-function buildCorsOrigin(allowedOrigins: string[]): string | ((origin: string) => string | null) {
-  // If wildcard is explicitly allowed, return '*'
-  if (allowedOrigins.includes('*')) {
-    return '*'
-  }
-
-  // If no origins specified, return a function that rejects all
-  if (allowedOrigins.length === 0) {
-    return () => null
-  }
-
-  // Return a function that validates against the allowed list
-  return (origin: string) => {
-    if (allowedOrigins.includes(origin)) {
-      return origin
-    }
-    return null
+    // Simple console logging (would be replaced with structured logging in production)
+    console.log(
+      JSON.stringify({
+        requestId,
+        method,
+        url,
+        status,
+        duration: `${duration}ms`,
+        timestamp: new Date().toISOString()
+      })
+    )
   }
 }
 
 export function createAPI(options?: APIOptions) {
-  const { basePath = '', cors: corsOptions, auth } = options || {}
-  const allowedOrigins = corsOptions?.allowedOrigins ?? []
-
-  // Create services (business logic layer)
-  const healthService = new HealthService({ serviceName: 'dotdo-api' })
-  const discoveryService = new DiscoveryService({
-    name: 'dotdo API',
-    version: '1.0.0',
-    description: 'Self-describing HATEOAS API'
-  })
+  const { basePath = '', auth } = options || {}
 
   // Create base app
   const baseApp = new Hono()
@@ -140,7 +93,7 @@ export function createAPI(options?: APIOptions) {
     }
 
     // Handle all other errors as 500
-    logger.error('Unhandled error:', error)
+    console.error('Unhandled error:', error)
     return c.json(
       {
         error: getErrorMessage(error),
@@ -155,11 +108,11 @@ export function createAPI(options?: APIOptions) {
   baseApp.use('*', requestIdMiddleware())
   baseApp.use('*', loggingMiddleware())
 
-  // CORS middleware with configurable origins
+  // CORS middleware
   baseApp.use(
     '*',
     cors({
-      origin: buildCorsOrigin(allowedOrigins),
+      origin: '*',
       allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-API-Key'],
       exposeHeaders: ['X-Request-ID'],
@@ -170,7 +123,7 @@ export function createAPI(options?: APIOptions) {
 
   // Auth middleware (optional)
   if (auth?.enabled) {
-    const defaultSkipPaths = ['/health', '/ready', '/']
+    const defaultSkipPaths = ['/health', '/']
     const skipPaths = [...defaultSkipPaths, ...(auth.skipPaths || [])]
 
     baseApp.use(
@@ -188,27 +141,37 @@ export function createAPI(options?: APIOptions) {
   // Create a route app (either with basePath or without)
   const routeApp = new Hono()
 
-  // Health check endpoint (liveness probe)
-  // Route handler is thin - delegates to HealthService for business logic
+  // Health check endpoint
   routeApp.get('/health', (c) => {
-    const health = healthService.getHealth()
-    return c.json(health)
-  })
-
-  // Readiness check endpoint (readiness probe)
-  // Route handler is thin - delegates to HealthService for business logic
-  routeApp.get('/ready', async (c) => {
-    const readiness = await healthService.getReadiness()
-    const statusCode = readiness.status === 'ready' ? 200 : 503
-    return c.json(readiness, statusCode)
+    return c.json({
+      status: 'ok',
+      service: 'dotdo-api',
+      timestamp: new Date().toISOString()
+    })
   })
 
   // Root endpoint with API discovery (HATEOAS)
-  // Route handler is thin - delegates to DiscoveryService for business logic
   routeApp.get('/', (c) => {
     const baseUrl = new URL(c.req.url).origin + basePath
-    const apiRoot = discoveryService.getAPIRoot(baseUrl)
-    return c.json(apiRoot)
+
+    return c.json({
+      name: 'dotdo API',
+      version: '1.0.0',
+      description: 'Self-describing HATEOAS API',
+      _links: {
+        self: {
+          href: `${baseUrl}/`,
+          rel: 'self',
+          method: 'GET'
+        },
+        health: {
+          href: `${baseUrl}/health`,
+          rel: 'health',
+          method: 'GET',
+          title: 'Health check endpoint'
+        }
+      }
+    })
   })
 
   // Mount routes (either at root or under basePath)
@@ -219,12 +182,17 @@ export function createAPI(options?: APIOptions) {
   }
 
   // 404 handler for the base app (handles all not found routes)
-  // Route handler is thin - delegates to DiscoveryService for business logic
   baseApp.notFound((c) => {
     const requestId = c.get('requestId') || 'unknown'
-    const baseUrl = new URL(c.req.url).origin + basePath
-    const errorResponse = discoveryService.getNotFoundError(baseUrl, c.req.path, requestId)
-    return c.json(errorResponse, 404)
+    return c.json(
+      {
+        error: 'Not Found',
+        status: 404,
+        path: c.req.path,
+        requestId
+      },
+      404
+    )
   })
 
   return baseApp

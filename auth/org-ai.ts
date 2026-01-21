@@ -10,89 +10,11 @@
 
 import type { MiddlewareHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
+// Import from primitives source (id.org.ai package)
+import type { User, Session, Credential } from '../primitives/packages/id.org.ai/src/index'
+import { isSession, isUser } from '../primitives/packages/id.org.ai/src/index'
 import type { AuthUser } from './middleware'
 import { createLogger } from '../utils/logger'
-
-// ============================================
-// Local type definitions for id.org.ai types
-// (Defined locally to avoid submodule import issues with tsconfig)
-// ============================================
-
-/**
- * User - Human user identity from id.org.ai
- */
-interface User {
-  $id: string
-  $type: 'https://schema.org.ai/User'
-  email: string
-  name: string
-  profile?: Record<string, unknown> | undefined
-  createdAt: string
-  updatedAt: string
-}
-
-/**
- * Credential types for authentication
- */
-type CredentialType = 'password' | 'oauth' | 'api_key' | 'sso'
-
-/**
- * Credential - Authentication credential from id.org.ai
- */
-interface Credential {
-  $id: string
-  $type: 'https://schema.org.ai/Credential'
-  identityId: string
-  credentialType: CredentialType
-  provider?: string
-  expiresAt?: string
-}
-
-/**
- * Session - Active authentication session from id.org.ai
- */
-interface Session {
-  $id: string
-  $type: 'https://schema.org.ai/Session'
-  identityId: string
-  token: string
-  expiresAt: string
-  metadata?: Record<string, unknown>
-}
-
-/**
- * Type guard to check if an object is a valid Session
- */
-function isSession(obj: unknown): obj is Session {
-  if (!obj || typeof obj !== 'object') return false
-  const s = obj as Record<string, unknown>
-  return (
-    typeof s.$id === 'string' &&
-    s.$type === 'https://schema.org.ai/Session' &&
-    typeof s.identityId === 'string' &&
-    typeof s.token === 'string' &&
-    typeof s.expiresAt === 'string'
-  )
-}
-
-/**
- * Type guard to check if an object is a valid User
- */
-function isUser(obj: unknown): obj is User {
-  if (!obj || typeof obj !== 'object') return false
-  const u = obj as Record<string, unknown>
-  return (
-    typeof u.$id === 'string' &&
-    u.$type === 'https://schema.org.ai/User' &&
-    typeof u.email === 'string' &&
-    typeof u.name === 'string' &&
-    typeof u.createdAt === 'string' &&
-    typeof u.updatedAt === 'string'
-  )
-}
-
-// Re-export types for external use (Session is not exported to avoid conflict with ./session module)
-export type { User, Credential }
 
 const logger = createLogger('[OrgAI]')
 
@@ -192,12 +114,10 @@ function setCacheEntry<T>(cache: Map<string, CacheEntry<T>>, key: string, value:
 function isMockModeEnabled(): boolean {
   if (globalConfig.mockMode === true) return true
   // Check environment variables (for both Node.js and Vite/Vitest)
-  // Note: globalThis.process is used to avoid direct Node.js dependency
   try {
-    const proc = globalThis.process as { env?: Record<string, string | undefined> } | undefined
-    if (proc?.env) {
-      if (proc.env['ORG_AI_MOCK'] === 'true') return true
-      if (proc.env['NODE_ENV'] === 'development') return true
+    if (typeof process !== 'undefined' && process.env) {
+      if (process.env.ORG_AI_MOCK === 'true') return true
+      if (process.env.NODE_ENV === 'development') return true
     }
   } catch {
     // process.env may not be available in all environments
@@ -238,9 +158,9 @@ export interface OrgAiUser extends AuthUser {
  */
 export interface OrgAiOrganization {
   $id: string
-  name?: string | undefined
+  name?: string
   role: string
-  joinedAt?: string | undefined
+  joinedAt?: string
 }
 
 /**
@@ -252,18 +172,6 @@ export interface OrgAiPermissions {
   admin: boolean
   delete: boolean
   [key: string]: boolean
-}
-
-/**
- * SSO telemetry event
- */
-export interface SSOTelemetryEvent {
-  $type: string
-  provider: string
-  redirectUri: string
-  state: string
-  usePKCE: boolean
-  timestamp: string
 }
 
 /**
@@ -281,7 +189,7 @@ export interface SSOFlowOptions {
   /** Use PKCE for enhanced security */
   usePKCE?: boolean
   /** Event handler for telemetry */
-  onEvent?: (event: SSOTelemetryEvent) => void
+  onEvent?: (event: any) => void
 }
 
 /**
@@ -295,11 +203,11 @@ export interface SSOFlowResult {
   /** State parameter for validation */
   state: string
   /** PKCE code verifier (if usePKCE is true) */
-  codeVerifier?: string | undefined
+  codeVerifier?: string
   /** PKCE code challenge (if usePKCE is true) */
-  codeChallenge?: string | undefined
+  codeChallenge?: string
   /** PKCE code challenge method */
-  codeChallengeMethod?: 'S256' | 'plain' | undefined
+  codeChallengeMethod?: 'S256' | 'plain'
 }
 
 /**
@@ -307,9 +215,9 @@ export interface SSOFlowResult {
  */
 export interface OrganizationMembership {
   isMember: boolean
-  role?: string | undefined
-  joinedAt?: string | undefined
-  organization?: OrgAiOrganization | undefined
+  role?: string
+  joinedAt?: string
+  organization?: OrgAiOrganization
 }
 
 // === Augment Hono context ===
@@ -354,13 +262,12 @@ export function orgAiAuthMiddleware(options: OrgAiAuthOptions = {}): MiddlewareH
     const authHeader = c.req.header('Authorization')
 
     if (!sessionHeader && !authHeader) {
-      throw new HTTPException(401, {
-        message: 'org.ai session required',
-        res: new Response(JSON.stringify({ error: 'org.ai session required' }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' }
-        })
+      const error = new HTTPException(401, { message: 'org.ai session required' })
+      error.res = new Response(JSON.stringify({ error: 'org.ai session required' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
       })
+      throw error
     }
 
     let session: Session | null = null
@@ -384,13 +291,12 @@ export function orgAiAuthMiddleware(options: OrgAiAuthOptions = {}): MiddlewareH
 
     // Check if session is expired
     if (isSessionExpired(session)) {
-      throw new HTTPException(401, {
-        message: 'org.ai session expired',
-        res: new Response(JSON.stringify({ error: 'org.ai session expired' }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' }
-        })
+      const error = new HTTPException(401, { message: 'org.ai session expired' })
+      error.res = new Response(JSON.stringify({ error: 'org.ai session expired' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
       })
+      throw error
     }
 
     // Custom session validation
@@ -414,15 +320,16 @@ export function orgAiAuthMiddleware(options: OrgAiAuthOptions = {}): MiddlewareH
     if (requireOrganization) {
       const isMember = organizations.some(org => org.$id === requireOrganization)
       if (!isMember) {
-        throw new HTTPException(403, {
-          message: `Organization membership required: ${requireOrganization}`,
-          res: new Response(JSON.stringify({
-            error: `Organization membership required: ${requireOrganization}`
-          }), {
-            status: 403,
-            headers: { 'Content-Type': 'application/json' }
-          })
+        const error = new HTTPException(403, {
+          message: `Organization membership required: ${requireOrganization}`
         })
+        error.res = new Response(JSON.stringify({
+          error: `Organization membership required: ${requireOrganization}`
+        }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' }
+        })
+        throw error
       }
     }
 
@@ -580,7 +487,7 @@ export async function lookupUserByOrgAiId(
 function extractIdFromUri(uri: string, expectedType: string): string | null {
   // Handle full URIs like https://schema.org.ai/users/user-123
   const match = uri.match(new RegExp(`https://schema\\.org\\.ai/${expectedType}/(.+)$`))
-  if (match && match[1]) {
+  if (match) {
     return match[1]
   }
   // Handle short IDs (already extracted)
@@ -591,52 +498,27 @@ function extractIdFromUri(uri: string, expectedType: string): string | null {
 }
 
 /**
- * Raw user response shape from various org.ai API formats
- * @internal
- */
-interface RawUserResponse {
-  $id?: string
-  id?: string
-  email?: string
-  primaryEmail?: string
-  emails?: Array<{ value?: string }>
-  name?: string
-  displayName?: string
-  fullName?: string
-  firstName?: string
-  lastName?: string
-  profile?: Record<string, unknown>
-  metadata?: Record<string, unknown>
-  createdAt?: string
-  created?: string
-  updatedAt?: string
-  updated?: string
-}
-
-/**
  * Normalize user response from org.ai API to standard User type
  * @internal
  */
-function normalizeUserResponse(data: unknown, originalId: string): User | null {
+function normalizeUserResponse(data: any, originalId: string): User | null {
   if (!data || typeof data !== 'object') return null
 
-  const userData = data as RawUserResponse
-
   // Try to extract required fields from various API response formats
-  const email = userData.email || userData.primaryEmail || userData.emails?.[0]?.value
-  const name = userData.name || userData.displayName || userData.fullName ||
-    (userData.firstName && userData.lastName ? `${userData.firstName} ${userData.lastName}` : undefined)
+  const email = data.email || data.primaryEmail || data.emails?.[0]?.value
+  const name = data.name || data.displayName || data.fullName ||
+    (data.firstName && data.lastName ? `${data.firstName} ${data.lastName}` : undefined)
 
   if (!email || !name) return null
 
   return {
-    $id: userData.$id || userData.id || originalId,
+    $id: data.$id || data.id || originalId,
     $type: 'https://schema.org.ai/User',
     email,
     name,
-    profile: userData.profile || userData.metadata,
-    createdAt: userData.createdAt || userData.created || new Date().toISOString(),
-    updatedAt: userData.updatedAt || userData.updated || new Date().toISOString(),
+    profile: data.profile || data.metadata,
+    createdAt: data.createdAt || data.created || new Date().toISOString(),
+    updatedAt: data.updatedAt || data.updated || new Date().toISOString(),
   }
 }
 
@@ -764,57 +646,31 @@ export async function checkOrganizationMembership(
 }
 
 /**
- * Raw membership response shape from various org.ai API formats
- * @internal
- */
-interface RawMembershipResponse {
-  isMember?: boolean
-  member?: boolean
-  active?: boolean
-  role?: string
-  memberRole?: string
-  permission?: string
-  joinedAt?: string
-  createdAt?: string
-  memberSince?: string
-  organizationName?: string
-  orgName?: string
-  organization?: {
-    $id?: string
-    id?: string
-    name?: string
-    displayName?: string
-  }
-}
-
-/**
  * Normalize membership response from org.ai API to standard OrganizationMembership type
  * @internal
  */
-function normalizeMembershipResponse(data: unknown, orgId: string): OrganizationMembership {
+function normalizeMembershipResponse(data: any, orgId: string): OrganizationMembership {
   if (!data || typeof data !== 'object') {
     return { isMember: false }
   }
 
-  const memberData = data as RawMembershipResponse
-
   // Handle various API response formats
-  const isMember = memberData.isMember ?? memberData.member ?? memberData.active ?? true
-  const role = memberData.role || memberData.memberRole || memberData.permission || 'member'
-  const joinedAt = memberData.joinedAt || memberData.createdAt || memberData.memberSince
+  const isMember = data.isMember ?? data.member ?? data.active ?? true
+  const role = data.role || data.memberRole || data.permission || 'member'
+  const joinedAt = data.joinedAt || data.createdAt || data.memberSince
 
   return {
     isMember,
     role,
     joinedAt,
-    organization: memberData.organization ? {
-      $id: memberData.organization.$id || memberData.organization.id || orgId,
-      name: memberData.organization.name || memberData.organization.displayName,
+    organization: data.organization ? {
+      $id: data.organization.$id || data.organization.id || orgId,
+      name: data.organization.name || data.organization.displayName,
       role,
       joinedAt,
     } : {
       $id: orgId,
-      name: memberData.organizationName || memberData.orgName,
+      name: data.organizationName || data.orgName,
       role,
       joinedAt,
     },
@@ -976,18 +832,6 @@ function isSessionExpired(session: Session): boolean {
 }
 
 /**
- * Raw organization shape from session metadata
- * @internal
- */
-interface RawSessionOrganization {
-  $id?: string
-  id?: string
-  name?: string
-  role?: string
-  joinedAt?: string
-}
-
-/**
  * Extract organizations from session metadata
  */
 function extractOrganizations(session: Session): OrgAiOrganization[] {
@@ -995,16 +839,13 @@ function extractOrganizations(session: Session): OrgAiOrganization[] {
     return []
   }
 
-  const orgs = session.metadata.organizations as RawSessionOrganization[]
-  return orgs.map(org => {
-    const result: OrgAiOrganization = {
-      $id: org.$id || org.id || '',
-      role: org.role || 'member',
-    }
-    if (org.name) result.name = org.name
-    if (org.joinedAt) result.joinedAt = org.joinedAt
-    return result
-  })
+  const orgs = session.metadata.organizations as any[]
+  return orgs.map(org => ({
+    $id: org.$id || org.id,
+    name: org.name,
+    role: org.role || 'member',
+    joinedAt: org.joinedAt
+  }))
 }
 
 /**
@@ -1072,8 +913,8 @@ function buildAuthUrl(
     redirectUri: string
     state: string
     scopes: string[]
-    codeChallenge?: string | undefined
-    codeChallengeMethod?: 'S256' | 'plain' | undefined
+    codeChallenge?: string
+    codeChallengeMethod?: 'S256' | 'plain'
   }
 ): string {
   // Provider base URLs
@@ -1084,7 +925,7 @@ function buildAuthUrl(
     'microsoft': 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize'
   }
 
-  const baseUrl = providerUrls[provider] ?? providerUrls['org.ai']!
+  const baseUrl = providerUrls[provider] || providerUrls['org.ai']
   const url = new URL(baseUrl)
 
   // Standard OAuth parameters

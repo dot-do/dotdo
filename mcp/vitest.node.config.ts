@@ -23,14 +23,6 @@ export default defineConfig({
     root: resolve(__dirname),
     include: [
       'tests/sandbox*.test.ts',
-      'tests/global-state.test.ts',
-      'tests/cli.test.ts',
-      'tests/store-adapters.test.ts',
-      'tests/search.test.ts',
-      'tests/fetch.test.ts',
-      'tests/discovery.test.ts',
-      'tests/server.test.ts',
-      'tests/do.test.ts',
     ],
     exclude: [
       '**/node_modules/**',

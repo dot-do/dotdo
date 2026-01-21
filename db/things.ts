@@ -1,20 +1,13 @@
-/**
- * @dotdo/db - Things Store
- *
- * ThingsStore provides CRUD operations for typed entities with automatic
- * ID generation, timestamps, and type safety through branded types.
- *
- * @module @dotdo/db/things
- */
+// Things CRUD - see do-7rf.4.1
+// Generic types added per do-jqrj
+// Storage abstraction added per do-68rr
+// Branded types added per do-e3my
 
 import type { StorableData, JsonValue } from './types'
 import type { StorageAdapter } from './storage'
 import type { ThingId } from './branded-types'
-import { toThingId, isThingId } from './branded-types'
+import { toThingId } from './branded-types'
 import { generateId } from './id'
-import type { CursorPaginationOptions, CursorPaginatedResult } from './pagination'
-import { applyCursorPagination } from './pagination'
-import { DbValidationError, DbNotFoundError } from './errors'
 
 /**
  * Base Thing interface with system fields
@@ -56,132 +49,18 @@ export interface BulkUpdateItem<T extends StorableData = StorableData> {
 }
 
 /**
- * Options for listing things with offset-based pagination
- */
-export interface ThingListOptions {
-  type?: string | undefined
-  limit?: number
-  offset?: number
-}
-
-/**
- * Options for listing things with cursor-based pagination
- */
-export interface ThingCursorListOptions extends CursorPaginationOptions {
-  type?: string
-}
-
-/**
- * ThingsStore interface for entity CRUD operations.
- *
- * Provides typed operations for creating, reading, updating, and deleting entities.
- * Supports both individual and bulk operations, with offset and cursor-based pagination.
- *
- * @template T - The entity data type, defaults to StorableData for flexibility
- *
- * @example
- * ```typescript
- * // Create a customer
- * const customer = await things.create({
- *   $type: 'Customer',
- *   name: 'Alice',
- *   email: 'alice@example.com'
- * })
- *
- * // Get by ID
- * const found = await things.get(customer.$id)
- *
- * // Update
- * await things.update(customer.$id, { name: 'Alice Smith' })
- *
- * // List with pagination
- * const page = await things.listWithCursor({
- *   type: 'Customer',
- *   limit: 10
- * })
- *
- * // Bulk operations
- * await things.bulkCreate([
- *   { $type: 'Customer', name: 'Bob' },
- *   { $type: 'Customer', name: 'Carol' }
- * ])
- * ```
+ * ThingsStore interface with generic type parameter
+ * T defaults to StorableData for backward compatibility
  */
 export interface ThingsStore<T extends StorableData = StorableData> {
-  /**
-   * Create a new entity with auto-generated ID and timestamps.
-   * @param data - Entity data with required $type field
-   * @returns The created entity with $id, $createdAt, and $updatedAt
-   * @throws ValidationError if $type is missing or invalid
-   */
   create<D extends Partial<T> & { $type: string }>(data: D): Promise<Thing<T> & D>
-
-  /**
-   * Get an entity by ID.
-   * @param id - The entity ID (accepts ThingId or string for backward compatibility)
-   * @returns The entity or null if not found
-   */
-  get(id: ThingId | string): Promise<Thing<T> | null>
-
-  /**
-   * Get multiple entities by their IDs in a single operation.
-   * @param ids - Array of entity IDs (accepts ThingId or string for backward compatibility)
-   * @returns Map of ID to entity (missing IDs are not included)
-   */
-  getMany(ids: (ThingId | string)[]): Promise<Map<string, Thing<T>>>
-
-  /**
-   * Update an existing entity.
-   * @param id - The entity ID (accepts ThingId or string for backward compatibility)
-   * @param data - Fields to update (cannot change $id or $type)
-   * @returns The updated entity
-   * @throws NotFoundError if entity does not exist
-   */
-  update<U extends ThingUpdate<T>>(id: ThingId | string, data: U): Promise<Thing<T>>
-
-  /**
-   * Delete an entity by ID.
-   * @param id - The entity ID (accepts ThingId or string for backward compatibility)
-   * @throws NotFoundError if entity does not exist
-   */
-  delete(id: ThingId | string): Promise<void>
-
-  /**
-   * List entities with optional filtering and offset pagination.
-   * @param options - Filter and pagination options
-   * @returns Array of entities sorted by createdAt descending
-   */
-  list(options?: ThingListOptions): Promise<Thing<T>[]>
-
-  /**
-   * List entities with cursor-based pagination for efficient paging.
-   * @param options - Filter and cursor pagination options
-   * @returns Paginated result with items and cursor info
-   */
-  listWithCursor(options?: ThingCursorListOptions): Promise<CursorPaginatedResult<Thing<T>>>
-
-  /**
-   * Create multiple entities in a single atomic operation.
-   * @param things - Array of entity data to create
-   * @returns Array of created entities
-   * @throws ValidationError if any entity fails validation
-   */
+  get(id: string): Promise<Thing<T> | null>
+  update<U extends ThingUpdate<T>>(id: string, data: U): Promise<Thing<T>>
+  delete(id: string): Promise<void>
+  list(options?: { type?: string; limit?: number; offset?: number }): Promise<Thing<T>[]>
   bulkCreate<D extends Partial<T> & { $type: string }>(things: D[]): Promise<(Thing<T> & D)[]>
-
-  /**
-   * Update multiple entities in a single atomic operation.
-   * @param items - Array of {id, data} pairs
-   * @returns Array of updated entities
-   * @throws NotFoundError if any entity does not exist
-   */
   bulkUpdate(items: BulkUpdateItem<T>[]): Promise<Thing<T>[]>
-
-  /**
-   * Delete multiple entities in a single atomic operation.
-   * @param ids - Array of entity IDs to delete (accepts ThingId or string for backward compatibility)
-   * @throws NotFoundError if any entity does not exist
-   */
-  bulkDelete(ids: (ThingId | string)[]): Promise<void>
+  bulkDelete(ids: string[]): Promise<void>
 }
 
 // ID generation moved to ./id.ts (do-y5ko)
@@ -192,43 +71,16 @@ export interface ThingsStore<T extends StorableData = StorableData> {
 const THINGS_PREFIX = 'thing:'
 
 /**
- * Create a ThingsStore backed by a StorageAdapter.
- *
- * This factory function creates a ThingsStore that can use any storage backend
- * (SQLite, memory, etc.) via the adapter pattern.
- *
- * @template T - The entity data type
- * @param adapter - The storage adapter to use for persistence
- * @returns A fully-functional ThingsStore instance
- *
- * @example
- * ```typescript
- * import { createThingsStoreWithAdapter, createSQLiteAdapter } from '@dotdo/db'
- *
- * const adapter = createSQLiteAdapter(sql)
- * const things = createThingsStoreWithAdapter(adapter)
- *
- * const customer = await things.create({
- *   $type: 'Customer',
- *   name: 'Alice'
- * })
- * ```
+ * Create a ThingsStore backed by a StorageAdapter
+ * This allows using any storage backend (SQLite, memory, etc.)
  */
 export function createThingsStoreWithAdapter<T extends StorableData = StorableData>(
   adapter: StorageAdapter
 ): ThingsStore<T> {
   return {
-    async create<D extends Partial<T> & { $type: string }>(data: D): Promise<Thing<T> & D> {
+    async create(data) {
       if (!data.$type) {
-        throw DbValidationError.forField('$type', 'is required', undefined)
-      }
-
-      if (typeof data.$type !== 'string') {
-        throw DbValidationError.forField('$type', 'must be a string', typeof data.$type)
-      }
-
-      if (data.$type.trim() === '') {
-        throw DbValidationError.forField('$type', 'cannot be empty', data.$type)
+        throw new Error('$type is required')
       }
 
       const now = Date.now()
@@ -239,10 +91,10 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
         $id: id,
         $createdAt: now,
         $updatedAt: now,
-      } as unknown as Thing<T> & D
+      } as Thing<T>
 
       await adapter.put(`${THINGS_PREFIX}${id}`, thing)
-      return thing
+      return thing as Thing<T> & typeof data
     },
 
     async get(id) {
@@ -250,27 +102,10 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
       return thing ?? null
     },
 
-    async getMany(ids) {
-      if (ids.length === 0) {
-        return new Map<string, Thing<T>>()
-      }
-
-      const keys = ids.map(id => `${THINGS_PREFIX}${id}`)
-      const adapterResult = await adapter.getMany<Thing<T>>(keys)
-
-      // Convert from prefixed keys back to plain IDs
-      const result = new Map<string, Thing<T>>()
-      for (const [key, value] of adapterResult) {
-        const id = key.slice(THINGS_PREFIX.length)
-        result.set(id, value)
-      }
-      return result
-    },
-
     async update(id, data) {
       const existing = await adapter.get<Thing<T>>(`${THINGS_PREFIX}${id}`)
       if (!existing) {
-        throw DbNotFoundError.forResource('Thing', id)
+        throw new Error(`Thing not found: ${id}`)
       }
 
       const updated: Thing<T> = {
@@ -289,7 +124,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
     async delete(id) {
       const exists = await adapter.has(`${THINGS_PREFIX}${id}`)
       if (!exists) {
-        throw DbNotFoundError.forResource('Thing', id)
+        throw new Error(`Thing not found: ${id}`)
       }
       await adapter.delete(`${THINGS_PREFIX}${id}`)
     },
@@ -310,48 +145,15 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
       return items.slice(offset, offset + limit)
     },
 
-    async listWithCursor(options = {}) {
-      const { type, cursor, limit = 100, direction = 'forward' } = options
-
-      const result = await adapter.list<Thing<T>>({ prefix: THINGS_PREFIX, includeValues: true })
-      let items = Array.from(result.entries.values()).filter((t): t is Thing<T> => t !== undefined)
-
-      if (type) {
-        items = items.filter(t => t.$type === type)
-      }
-
-      // Sort by createdAt descending, then by ID descending for stable ordering
-      items.sort((a, b) => {
-        const timeDiff = b.$createdAt - a.$createdAt
-        if (timeDiff !== 0) return timeDiff
-        return b.$id.localeCompare(a.$id)
-      })
-
-      return applyCursorPagination(
-        items,
-        { cursor, limit, direction },
-        '$createdAt',
-        'desc',
-        (item) => item.$id,
-        (item) => item.$createdAt
-      )
-    },
-
     async bulkCreate(items) {
       if (items.length === 0) {
         return []
       }
 
       // Validate all items first
-      for (const [i, data] of items.entries()) {
+      for (const data of items) {
         if (!data.$type) {
-          throw DbValidationError.forField(`items[${i}].$type`, 'is required', undefined)
-        }
-        if (typeof data.$type !== 'string') {
-          throw DbValidationError.forField(`items[${i}].$type`, 'must be a string', typeof data.$type)
-        }
-        if (data.$type.trim() === '') {
-          throw DbValidationError.forField(`items[${i}].$type`, 'cannot be empty', data.$type)
+          throw new Error('$type is required')
         }
       }
 
@@ -387,7 +189,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
       // Validate all items exist
       for (const { id } of items) {
         if (!existingMap.has(`${THINGS_PREFIX}${id}`)) {
-          throw DbNotFoundError.forResource('Thing', String(id))
+          throw new Error(`Thing not found: ${id}`)
         }
       }
 
@@ -424,7 +226,7 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
 
       for (const id of ids) {
         if (!existingMap.has(`${THINGS_PREFIX}${id}`)) {
-          throw DbNotFoundError.forResource('Thing', id)
+          throw new Error(`Thing not found: ${id}`)
         }
       }
 
@@ -433,50 +235,24 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
   }
 }
 
-/**
- * Create an in-memory ThingsStore for testing or simple use cases.
- *
- * This implementation stores all data in memory and does not persist across restarts.
- * For production use, prefer createThingsStoreWithAdapter with a SQLite adapter.
- *
- * @returns An in-memory ThingsStore instance
- *
- * @example
- * ```typescript
- * import { createThingsStore } from '@dotdo/db'
- *
- * // For testing
- * const things = createThingsStore()
- * const customer = await things.create({
- *   $type: 'Customer',
- *   name: 'Alice'
- * })
- * ```
- */
+// In-memory implementation (SQLite in do-7rf.4.6)
+// Kept for backward compatibility - uses internal Map
 export function createThingsStore(): ThingsStore {
   const things = new Map<ThingId, Thing>()
 
   return {
-    async create<D extends Partial<StorableData> & { $type: string }>(data: D): Promise<Thing & D> {
+    async create(data) {
       if (!data.$type) {
-        throw DbValidationError.forField('$type', 'is required', undefined)
-      }
-
-      if (typeof data.$type !== 'string') {
-        throw DbValidationError.forField('$type', 'must be a string', typeof data.$type)
-      }
-
-      if (data.$type.trim() === '') {
-        throw DbValidationError.forField('$type', 'cannot be empty', data.$type)
+        throw new Error('$type is required')
       }
 
       const now = Date.now()
-      const thing = {
+      const thing: Thing = {
         ...data,
         $id: generateId(),
         $createdAt: now,
         $updatedAt: now,
-      } as unknown as Thing & D
+      }
 
       things.set(thing.$id, thing)
       return thing
@@ -487,23 +263,11 @@ export function createThingsStore(): ThingsStore {
       return things.get(thingId) ?? null
     },
 
-    async getMany(ids) {
-      const result = new Map<string, Thing>()
-      for (const id of ids) {
-        const thingId = toThingId(id)
-        const thing = things.get(thingId)
-        if (thing) {
-          result.set(id, thing)
-        }
-      }
-      return result
-    },
-
     async update(id, data) {
       const thingId = toThingId(id)
       const existing = things.get(thingId)
       if (!existing) {
-        throw DbNotFoundError.forResource('Thing', id)
+        throw new Error(`Thing not found: ${id}`)
       }
 
       const updated: Thing = {
@@ -522,7 +286,7 @@ export function createThingsStore(): ThingsStore {
     async delete(id) {
       const thingId = toThingId(id)
       if (!things.has(thingId)) {
-        throw DbNotFoundError.forResource('Thing', id)
+        throw new Error(`Thing not found: ${id}`)
       }
       things.delete(thingId)
     },
@@ -542,61 +306,29 @@ export function createThingsStore(): ThingsStore {
       return results.slice(offset, offset + limit)
     },
 
-    async listWithCursor(options = {}) {
-      const { type, cursor, limit = 100, direction = 'forward' } = options
-
-      let results = Array.from(things.values())
-
-      if (type) {
-        results = results.filter(t => t.$type === type)
-      }
-
-      // Sort by createdAt descending, then by ID descending for stable ordering
-      results.sort((a, b) => {
-        const timeDiff = b.$createdAt - a.$createdAt
-        if (timeDiff !== 0) return timeDiff
-        return b.$id.localeCompare(a.$id)
-      })
-
-      return applyCursorPagination(
-        results,
-        { cursor, limit, direction },
-        '$createdAt',
-        'desc',
-        (item) => item.$id,
-        (item) => item.$createdAt
-      )
-    },
-
-    async bulkCreate<D extends Partial<StorableData> & { $type: string }>(items: D[]): Promise<(Thing & D)[]> {
+    async bulkCreate(items) {
       if (items.length === 0) {
         return []
       }
 
       // Validate all items first (atomic: fail before any changes)
-      for (const [i, data] of items.entries()) {
+      for (const data of items) {
         if (!data.$type) {
-          throw DbValidationError.forField(`items[${i}].$type`, 'is required', undefined)
-        }
-        if (typeof data.$type !== 'string') {
-          throw DbValidationError.forField(`items[${i}].$type`, 'must be a string', typeof data.$type)
-        }
-        if (data.$type.trim() === '') {
-          throw DbValidationError.forField(`items[${i}].$type`, 'cannot be empty', data.$type)
+          throw new Error('$type is required')
         }
       }
 
       // All valid, now create them
       const now = Date.now()
-      const created: (Thing & D)[] = []
+      const created: Thing[] = []
 
       for (const data of items) {
-        const thing = {
+        const thing: Thing = {
           ...data,
           $id: generateId(),
           $createdAt: now,
           $updatedAt: now,
-        } as unknown as Thing & D
+        }
         things.set(thing.$id, thing)
         created.push(thing)
       }
@@ -613,7 +345,7 @@ export function createThingsStore(): ThingsStore {
       for (const { id } of items) {
         const thingId = toThingId(id)
         if (!things.has(thingId)) {
-          throw DbNotFoundError.forResource('Thing', String(id))
+          throw new Error(`Thing not found: ${id}`)
         }
       }
 
@@ -648,7 +380,7 @@ export function createThingsStore(): ThingsStore {
       for (const id of ids) {
         const thingId = toThingId(id)
         if (!things.has(thingId)) {
-          throw DbNotFoundError.forResource('Thing', id)
+          throw new Error(`Thing not found: ${id}`)
         }
       }
 
