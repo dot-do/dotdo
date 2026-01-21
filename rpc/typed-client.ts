@@ -123,15 +123,30 @@ async function invokeViaFetch(
 }
 
 /**
- * Creates a nested proxy for property path tracking (for nested APIs)
+ * Type for a proxy handler that can be both accessed and called.
+ * The function signature uses `unknown` return type to accommodate both
+ * async and callable proxy targets.
  */
-function createNestedProxyForFetch(
+type ProxyableFunction = ((...args: unknown[]) => unknown) & Record<string, unknown>
+
+/**
+ * Creates a nested proxy for property path tracking (for nested APIs)
+ *
+ * @typeParam T - The expected type at this point in the path
+ */
+function createNestedProxyForFetch<T = unknown>(
   url: string,
   path: string[],
   options: TypedClientOptions
-): unknown {
-  return new Proxy(() => {}, {
-    get(_, prop: string | symbol) {
+): T {
+  // Use a typed proxy target that can be both accessed as an object and called as a function
+  const proxyTarget: ProxyableFunction = Object.assign(
+    () => {},
+    {}
+  )
+
+  return new Proxy(proxyTarget, {
+    get(_target: ProxyableFunction, prop: string | symbol): unknown {
       // Don't intercept symbols or promise methods
       if (typeof prop === 'symbol') return undefined
       if (prop === 'then' || prop === 'catch' || prop === 'finally') return undefined
@@ -139,14 +154,14 @@ function createNestedProxyForFetch(
       return createNestedProxyForFetch(url, [...path, prop], options)
     },
 
-    apply(_, __, args: unknown[]) {
+    apply(_target: ProxyableFunction, _thisArg: unknown, args: unknown[]): Promise<unknown> {
       // Build options object without undefined values (for exactOptionalPropertyTypes)
       const invokeOptions: { timeout?: number; correlationId?: string } = {}
       if (options.timeout !== undefined) invokeOptions.timeout = options.timeout
       if (options.correlationId !== undefined) invokeOptions.correlationId = options.correlationId
       return invokeViaFetch(url, path, args, invokeOptions)
     },
-  })
+  }) as T
 }
 
 /**
@@ -215,9 +230,11 @@ export function createTypedClient<T extends object>(
     >
   }
 
+  type ProxyHandlerTarget = Record<string, unknown>
+
   // Create the proxy for method calls
-  return new Proxy({} as RPCClientWithOptions<T>, {
-    get(_, prop: string | symbol) {
+  return new Proxy({} as ProxyHandlerTarget, {
+    get(_target: ProxyHandlerTarget, prop: string | symbol): unknown {
       // Don't intercept symbols or promise methods
       if (typeof prop === 'symbol') return undefined
       if (prop === 'then' || prop === 'catch' || prop === 'finally') return undefined
@@ -229,14 +246,14 @@ export function createTypedClient<T extends object>(
       if (prop === '$stub') return stub
 
       // Return method invoker
-      return async (...args: unknown[]) => {
+      return async (...args: unknown[]): Promise<unknown> => {
         // Build options object without undefined values (for exactOptionalPropertyTypes)
         const invokeOptions: { timeout?: number; correlationId?: string } = { timeout }
         if (baseCorrelationId !== undefined) invokeOptions.correlationId = baseCorrelationId
         return invokeViaStub(stub, prop as string, args, invokeOptions)
       }
     },
-  })
+  }) as RPCClientWithOptions<T>
 }
 
 /**

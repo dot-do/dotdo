@@ -61,15 +61,51 @@ export interface RPCClientOptions {
 }
 
 /**
- * Internal helper to create a method invoker function
+ * Type for a proxy handler that can be both accessed and called.
+ * The function signature uses `unknown` return type to accommodate both
+ * async and callable proxy targets.
  */
-function createMethodInvoker(
+type ProxyableFunction = ((...args: unknown[]) => unknown) & Record<string, unknown>
+
+/**
+ * Helper type that maps an interface to its RPC-callable methods.
+ * Preserves method signatures for proper type inference in proxies.
+ */
+type RPCMethods<T> = {
+  [K in keyof T as T[K] extends (...args: infer _A) => Promise<infer _R> ? K : never]:
+    T[K] extends (...args: infer A) => Promise<infer R>
+      ? (...args: A) => Promise<R>
+      : never
+}
+
+/**
+ * Helper type that extracts nested namespaces from an interface.
+ * Used for supporting nested API structures like client.users.create()
+ */
+type RPCNested<T> = {
+  [K in keyof T as T[K] extends (...args: unknown[]) => unknown
+    ? never
+    : T[K] extends object
+      ? K
+      : never]: T[K] extends object ? RPCMethods<T[K]> & RPCNested<T[K]> : never
+}
+
+/**
+ * Combined RPC client type that includes both methods and nested namespaces
+ */
+type RPCClientType<T> = RPCMethods<T> & RPCNested<T>
+
+/**
+ * Internal helper to create a method invoker function
+ * The generic parameter R allows the return type to flow through when known
+ */
+function createMethodInvoker<R = unknown>(
   url: string,
   timeout: number,
   methodPath: string[],
   baseCorrelationId?: string
-): (...args: unknown[]) => Promise<unknown> {
-  return async (...args: unknown[]) => {
+): (...args: unknown[]) => Promise<R> {
+  return async (...args: unknown[]): Promise<R> => {
     const method = methodPath.join('.')
     // Generate a correlation ID for each request, or use the provided base correlation ID
     const correlationId = baseCorrelationId || generateCorrelationId()
@@ -85,22 +121,30 @@ function createMethodInvoker(
     })
 
     await handleErrorResponse(response, correlationId)
-    return response.json()
+    return response.json() as Promise<R>
   }
 }
 
 /**
  * Create a nested proxy that tracks the property path
  * This supports both flat APIs (client.greet()) and nested APIs (client.users.create())
+ *
+ * @typeParam T - The expected type at this point in the path (used for type inference)
  */
-function createNestedProxy(
+function createNestedProxy<T = unknown>(
   url: string,
   timeout: number,
   path: string[] = [],
   correlationId?: string
-): unknown {
-  return new Proxy(() => {}, {
-    get(_, prop: string | symbol) {
+): T {
+  // Use a typed proxy target that can be both accessed as an object and called as a function
+  const proxyTarget: ProxyableFunction = Object.assign(
+    () => {},
+    {}
+  )
+
+  return new Proxy(proxyTarget, {
+    get(_target: ProxyableFunction, prop: string | symbol): unknown {
       // Don't intercept symbols or promise methods (client should not be thenable)
       if (typeof prop === 'symbol') {
         return undefined
@@ -114,11 +158,11 @@ function createNestedProxy(
       return createNestedProxy(url, timeout, [...path, prop], correlationId)
     },
 
-    apply(_, __, args: unknown[]) {
+    apply(_target: ProxyableFunction, _thisArg: unknown, args: unknown[]): Promise<unknown> {
       // When called as a function, invoke the RPC method
       return createMethodInvoker(url, timeout, path, correlationId)(...args)
     },
-  })
+  }) as T
 }
 
 /**
@@ -169,37 +213,46 @@ export interface TransportClientOptions {
 
 /**
  * Internal helper to create a method invoker for transport-based client
+ * The generic parameter R allows the return type to flow through when known
  */
-function createTransportMethodInvoker(
+function createTransportMethodInvoker<R = unknown>(
   transport: Transport,
   methodPath: string[],
   baseCorrelationId?: string
-): (...args: unknown[]) => Promise<unknown> {
-  return async (...args: unknown[]) => {
+): (...args: unknown[]) => Promise<R> {
+  return async (...args: unknown[]): Promise<R> => {
     const method = methodPath.join('.')
     const correlationId = baseCorrelationId || generateCorrelationId()
 
     const message: RPCMessage = { method, args, correlationId }
-    const response = await transport.send(message)
+    const response = await transport.send<R>(message)
 
     if (response.error) {
       throw deserializeError(response.error)
     }
 
-    return response.result
+    return response.result as R
   }
 }
 
 /**
  * Create a nested proxy that tracks the property path for transport-based client
+ *
+ * @typeParam T - The expected type at this point in the path (used for type inference)
  */
-function createTransportNestedProxy(
+function createTransportNestedProxy<T = unknown>(
   transport: Transport,
   path: string[] = [],
   correlationId?: string
-): unknown {
-  return new Proxy(() => {}, {
-    get(_, prop: string | symbol) {
+): T {
+  // Use a typed proxy target that can be both accessed as an object and called as a function
+  const proxyTarget: ProxyableFunction = Object.assign(
+    () => {},
+    {}
+  )
+
+  return new Proxy(proxyTarget, {
+    get(_target: ProxyableFunction, prop: string | symbol): unknown {
       // Don't intercept symbols or promise methods (client should not be thenable)
       if (typeof prop === 'symbol') {
         return undefined
@@ -218,11 +271,11 @@ function createTransportNestedProxy(
       return createTransportNestedProxy(transport, [...path, prop], correlationId)
     },
 
-    apply(_, __, args: unknown[]) {
+    apply(_target: ProxyableFunction, _thisArg: unknown, args: unknown[]): Promise<unknown> {
       // When called as a function, invoke the RPC method
       return createTransportMethodInvoker(transport, path, correlationId)(...args)
     },
-  })
+  }) as T
 }
 
 /**
@@ -318,13 +371,41 @@ export function createDOStub<T extends object>(
   binding: DurableObjectNamespace,
   id: string | DurableObjectId,
   options?: DOStubOptions
-): T {
+): RPCClientType<T> {
   const doId = isDurableObjectId(id) ? id : binding.idFromName(id)
   const stub = binding.get(doId)
   const baseCorrelationId = options?.correlationId
 
-  return new Proxy({} as T, {
-    get(_, prop: string | symbol) {
+  // Create a method invoker that preserves type inference
+  const createMethodProxy = <M>(methodName: string): M => {
+    return (async (...args: unknown[]): Promise<unknown> => {
+      // Generate a correlation ID for each request, or use the provided base correlation ID
+      const correlationId = baseCorrelationId || generateCorrelationId()
+
+      let response: Response
+      try {
+        response = await stub.fetch('https://do/rpc', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            [CORRELATION_ID_HEADER]: correlationId,
+          },
+          body: JSON.stringify({ method: methodName, args }),
+        })
+      } catch (error) {
+        // Handle transport-level errors (DO stub failures, network issues, etc.)
+        throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
+      }
+
+      await handleErrorResponse(response, correlationId, 'DO RPC error')
+      return response.json()
+    }) as M
+  }
+
+  type ProxyHandlerTarget = Record<string, unknown>
+
+  return new Proxy({} as ProxyHandlerTarget, {
+    get<K extends keyof T>(_target: ProxyHandlerTarget, prop: string | symbol): T[K] | undefined {
       // Don't intercept symbols or promise methods
       if (typeof prop === 'symbol') {
         return undefined
@@ -334,30 +415,9 @@ export function createDOStub<T extends object>(
         return undefined
       }
 
-      return async (...args: unknown[]) => {
-        // Generate a correlation ID for each request, or use the provided base correlation ID
-        const correlationId = baseCorrelationId || generateCorrelationId()
-
-        let response: Response
-        try {
-          response = await stub.fetch('https://do/rpc', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              [CORRELATION_ID_HEADER]: correlationId,
-            },
-            body: JSON.stringify({ method: prop, args }),
-          })
-        } catch (error) {
-          // Handle transport-level errors (DO stub failures, network issues, etc.)
-          throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
-        }
-
-        await handleErrorResponse(response, correlationId, 'DO RPC error')
-        return response.json()
-      }
+      return createMethodProxy<T[K]>(prop)
     }
-  })
+  }) as RPCClientType<T>
 }
 
 /**
@@ -395,7 +455,7 @@ export function createSecureDOStub<T extends object>(
   binding: DurableObjectNamespace,
   id: string | DurableObjectId,
   options: SecureDOStubOptions
-): T {
+): RPCClientType<T> {
   // Lazy import to avoid circular dependencies
   let createDOToDoHeaders: typeof import('../do/auth').createDOToDoHeaders | null = null
 
@@ -403,8 +463,42 @@ export function createSecureDOStub<T extends object>(
   const stub = binding.get(doId)
   const { correlationId: baseCorrelationId, sourceDoId } = options
 
-  return new Proxy({} as T, {
-    get(_, prop: string | symbol) {
+  // Create a method invoker that preserves type inference
+  const createMethodProxy = <M>(methodName: string): M => {
+    return (async (...args: unknown[]): Promise<unknown> => {
+      // Lazy load the auth module
+      if (!createDOToDoHeaders) {
+        const authModule = await import('../do/auth')
+        createDOToDoHeaders = authModule.createDOToDoHeaders
+      }
+
+      // Generate a correlation ID for each request, or use the provided base correlation ID
+      const correlationId = baseCorrelationId || generateCorrelationId()
+
+      // Create secure headers with HMAC signature
+      const headers = await createDOToDoHeaders(sourceDoId, '/rpc', correlationId)
+
+      let response: Response
+      try {
+        response = await stub.fetch('https://do/rpc', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ method: methodName, args }),
+        })
+      } catch (error) {
+        // Handle transport-level errors (DO stub failures, network issues, etc.)
+        throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
+      }
+
+      await handleErrorResponse(response, correlationId, 'DO RPC error')
+      return response.json()
+    }) as M
+  }
+
+  type ProxyHandlerTarget = Record<string, unknown>
+
+  return new Proxy({} as ProxyHandlerTarget, {
+    get<K extends keyof T>(_target: ProxyHandlerTarget, prop: string | symbol): T[K] | undefined {
       // Don't intercept symbols or promise methods
       if (typeof prop === 'symbol') {
         return undefined
@@ -414,36 +508,9 @@ export function createSecureDOStub<T extends object>(
         return undefined
       }
 
-      return async (...args: unknown[]) => {
-        // Lazy load the auth module
-        if (!createDOToDoHeaders) {
-          const authModule = await import('../do/auth')
-          createDOToDoHeaders = authModule.createDOToDoHeaders
-        }
-
-        // Generate a correlation ID for each request, or use the provided base correlation ID
-        const correlationId = baseCorrelationId || generateCorrelationId()
-
-        // Create secure headers with HMAC signature
-        const headers = await createDOToDoHeaders(sourceDoId, '/rpc', correlationId)
-
-        let response: Response
-        try {
-          response = await stub.fetch('https://do/rpc', {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ method: prop, args }),
-          })
-        } catch (error) {
-          // Handle transport-level errors (DO stub failures, network issues, etc.)
-          throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
-        }
-
-        await handleErrorResponse(response, correlationId, 'DO RPC error')
-        return response.json()
-      }
+      return createMethodProxy<T[K]>(prop)
     }
-  })
+  }) as RPCClientType<T>
 }
 
 // ============================================================================
@@ -528,8 +595,10 @@ export function createClientWithPipeline<T extends object>(
 ): ClientWithPipeline<T> {
   const { url, timeout = 30000, correlationId } = options
 
-  return new Proxy({} as ClientWithPipeline<T>, {
-    get(_, prop: string | symbol) {
+  type ProxyHandlerTarget = Record<string, unknown>
+
+  return new Proxy({} as ProxyHandlerTarget, {
+    get(_target: ProxyHandlerTarget, prop: string | symbol): unknown {
       if (typeof prop === 'symbol') {
         return undefined
       }
@@ -538,18 +607,21 @@ export function createClientWithPipeline<T extends object>(
         return undefined
       }
 
-      // Special pipeline method
+      // Special pipeline method - properly typed to return PipelineBuilder with correct generic
       if (prop === 'pipeline') {
-        return <K extends keyof T>(method: K, ...args: unknown[]) => {
-          const options: { correlationId?: string; timeout?: number } = { timeout }
+        return <K extends keyof T>(
+          method: K,
+          ...args: T[K] extends (...a: infer A) => unknown ? A : never[]
+        ): PipelineBuilder<T[K] extends (...a: unknown[]) => infer R ? Awaited<R> : never> => {
+          const pipelineOpts: { correlationId?: string; timeout?: number } = { timeout }
           if (correlationId) {
-            options.correlationId = correlationId
+            pipelineOpts.correlationId = correlationId
           }
           return new PipelineBuilder(
             url,
             String(method),
-            args,
-            options
+            args as unknown[],
+            pipelineOpts
           )
         }
       }
@@ -557,7 +629,7 @@ export function createClientWithPipeline<T extends object>(
       // Regular method - create method invoker
       return createMethodInvoker(url, timeout, [prop], correlationId)
     }
-  })
+  }) as ClientWithPipeline<T>
 }
 
 /**
@@ -655,7 +727,7 @@ export function createDOStubWithPipeline<T extends object>(
           if (errorBody.code && errorBody.message) {
             return { error: errorBody, correlationId: responseCorrelationId }
           }
-        } catch (e) {
+        } catch (_e) {
           // If JSON parsing fails, fall through to generic error
         }
         // Fallback to generic error
@@ -674,8 +746,35 @@ export function createDOStubWithPipeline<T extends object>(
     }
   }
 
-  return new Proxy({} as DOStubWithPipeline<T>, {
-    get(_, prop: string | symbol) {
+  // Create a method invoker that preserves type inference
+  const createMethodProxy = <M>(methodName: string): M => {
+    return (async (...args: unknown[]): Promise<unknown> => {
+      const correlationId = baseCorrelationId || generateCorrelationId()
+
+      let response: Response
+      try {
+        response = await stub.fetch('https://do/rpc', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            [CORRELATION_ID_HEADER]: correlationId,
+          },
+          body: JSON.stringify({ method: methodName, args }),
+        })
+      } catch (error) {
+        // Handle transport-level errors (DO stub failures, network issues, etc.)
+        throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
+      }
+
+      await handleErrorResponse(response, correlationId, 'DO RPC error')
+      return response.json()
+    }) as M
+  }
+
+  type ProxyHandlerTarget = Record<string, unknown>
+
+  return new Proxy({} as ProxyHandlerTarget, {
+    get<K extends keyof T>(_target: ProxyHandlerTarget, prop: string | symbol): unknown {
       if (typeof prop === 'symbol') {
         return undefined
       }
@@ -684,44 +783,27 @@ export function createDOStubWithPipeline<T extends object>(
         return undefined
       }
 
-      // Special pipeline method
+      // Special pipeline method - properly typed to return PipelineBuilder with correct generic
       if (prop === 'pipeline') {
-        return <K extends keyof T>(method: K, ...args: unknown[]) => {
-          const options: { correlationId?: string; timeout?: number } = { timeout }
+        return <PK extends keyof T>(
+          method: PK,
+          ...args: T[PK] extends (...a: infer A) => unknown ? A : never[]
+        ): PipelineBuilder<T[PK] extends (...a: unknown[]) => infer R ? Awaited<R> : never> => {
+          const pipelineOpts: { correlationId?: string; timeout?: number } = { timeout }
           if (baseCorrelationId) {
-            options.correlationId = baseCorrelationId
+            pipelineOpts.correlationId = baseCorrelationId
           }
           return new PipelineBuilder(
             doTransport,
             String(method),
-            args,
-            options
+            args as unknown[],
+            pipelineOpts
           )
         }
       }
 
-      // Regular method
-      return async (...args: unknown[]) => {
-        const correlationId = baseCorrelationId || generateCorrelationId()
-
-        let response: Response
-        try {
-          response = await stub.fetch('https://do/rpc', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              [CORRELATION_ID_HEADER]: correlationId,
-            },
-            body: JSON.stringify({ method: prop, args }),
-          })
-        } catch (error) {
-          // Handle transport-level errors (DO stub failures, network issues, etc.)
-          throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
-        }
-
-        await handleErrorResponse(response, correlationId, 'DO RPC error')
-        return response.json()
-      }
+      // Regular method - returns properly typed function
+      return createMethodProxy<T[K]>(prop as string)
     }
-  })
+  }) as DOStubWithPipeline<T>
 }
