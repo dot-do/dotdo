@@ -451,7 +451,7 @@ RPC call exceeded the timeout threshold (default 30s).
 1. Increase timeout for long operations:
    ```typescript
    const client = createClient<MyAPI>({
-     url: 'https://api.example.com.ai',
+     url: 'https://api.example.com',
      timeout: 60000 // 60 seconds
    })
    ```

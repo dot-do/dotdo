@@ -23,8 +23,7 @@ interface AdminState {
 function AdminPortal() {
   const params = useParams({ from: '/admin/$' })
   const navigate = useNavigate()
-  // TanStack Router uses _splat for splat route params
-  const path = params._splat || 'things'
+  const path = params['*'] || 'things'
 
   const [entityType, viewMode, entityId] = path.split('/') as [EntityType, ViewMode?, string?]
 
@@ -38,8 +37,7 @@ function AdminPortal() {
   })
 
   const [formData, setFormData] = useState<Record<string, unknown>>({})
-  // WebSocket state stored for potential future use (e.g., sending messages)
-  const [_websocket, setWebsocket] = useState<WebSocket | null>(null)
+  const [websocket, setWebsocket] = useState<WebSocket | null>(null)
 
   // Connect WebSocket for real-time updates
   useEffect(() => {
@@ -159,13 +157,13 @@ function AdminPortal() {
       const response = await fetch(`/api/admin/${type}/${id}`)
       if (!response.ok) throw new Error(`Failed to load ${type} ${id}`)
 
-      const data = await response.json() as Thing | Event | Relationship
+      const data = await response.json()
       setState(prev => ({
         ...prev,
         selectedEntity: data,
         loading: false,
       }))
-      setFormData(data as Record<string, unknown>)
+      setFormData(data)
     } catch (e) {
       setState(prev => ({
         ...prev,
@@ -544,7 +542,7 @@ function ThingForm({
           </label>
           <input
             type="text"
-            value={(data['$type'] as string) || ''}
+            value={(data.$type as string) || ''}
             onChange={e => handleFieldChange('$type', e.target.value)}
             disabled={isEdit}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100"
@@ -620,7 +618,7 @@ function RelationshipForm({
           </label>
           <input
             type="text"
-            value={(data['subject'] as string) || ''}
+            value={(data.subject as string) || ''}
             onChange={e => handleFieldChange('subject', e.target.value)}
             disabled={isEdit}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 font-mono"
@@ -634,7 +632,7 @@ function RelationshipForm({
           </label>
           <input
             type="text"
-            value={(data['predicate'] as string) || ''}
+            value={(data.predicate as string) || ''}
             onChange={e => handleFieldChange('predicate', e.target.value)}
             disabled={isEdit}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100"
@@ -651,7 +649,7 @@ function RelationshipForm({
           </label>
           <input
             type="text"
-            value={(data['object'] as string) || ''}
+            value={(data.object as string) || ''}
             onChange={e => handleFieldChange('object', e.target.value)}
             disabled={isEdit}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 font-mono"
