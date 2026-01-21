@@ -1,21 +1,28 @@
 {
   "name": "dotdo-db",
-  "main": "index.ts",
+  "main": "tests/fixtures/TransactionDO.ts",
   "compatibility_date": "2025-01-15",
 
   // Durable Object bindings for database tests
   // Allows tests to use real SQLite storage via state.storage.sql
   "durable_objects": {
     "bindings": [
-      { "name": "DO", "class_name": "DO" }
+      { "name": "DO", "class_name": "DO" },
+      { "name": "TX_DO", "class_name": "TransactionDO" }
     ]
   },
+
+  // R2 bucket for tiered storage tests (cold tier)
+  // Uses miniflare's in-memory R2 for testing
+  "r2_buckets": [
+    { "binding": "R2_STORAGE", "bucket_name": "dotdo-storage" }
+  ],
 
   // Migrations for DO classes with SQL storage
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["DO"]
+      "new_sqlite_classes": ["DO", "TransactionDO"]
     }
   ]
 }

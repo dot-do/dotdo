@@ -29,6 +29,115 @@ export interface ScheduleRegistration {
 }
 
 /**
+ * Handler registration function type
+ */
+export type HandlerRegistrar = (handler: ScheduleHandler) => void
+
+/**
+ * Time builder interface - returns a handler registrar
+ */
+export interface TimeBuilder {
+  (timeStr: string): HandlerRegistrar
+}
+
+/**
+ * Interval builder for $.every(n).minutes/hours/etc pattern
+ */
+export interface IntervalBuilder {
+  seconds: HandlerRegistrar
+  minutes: HandlerRegistrar
+  hours: HandlerRegistrar
+  days: HandlerRegistrar
+  weeks: HandlerRegistrar
+}
+
+/**
+ * Named time accessor interface (at9am, at5pm, etc.)
+ */
+export interface TimeAccessors {
+  at6am: HandlerRegistrar
+  at7am: HandlerRegistrar
+  at8am: HandlerRegistrar
+  at9am: HandlerRegistrar
+  at10am: HandlerRegistrar
+  at11am: HandlerRegistrar
+  at12pm: HandlerRegistrar
+  atnoon: HandlerRegistrar
+  at1pm: HandlerRegistrar
+  at2pm: HandlerRegistrar
+  at3pm: HandlerRegistrar
+  at4pm: HandlerRegistrar
+  at5pm: HandlerRegistrar
+  at6pm: HandlerRegistrar
+  at7pm: HandlerRegistrar
+  at8pm: HandlerRegistrar
+  at9pm: HandlerRegistrar
+  atmidnight: HandlerRegistrar
+}
+
+/**
+ * Day of week builder interface
+ */
+export interface DayBuilder extends TimeAccessors {
+  at: TimeBuilder
+}
+
+/**
+ * Days of week accessors
+ */
+export interface DayAccessors {
+  Monday: DayBuilder
+  Tuesday: DayBuilder
+  Wednesday: DayBuilder
+  Thursday: DayBuilder
+  Friday: DayBuilder
+  Saturday: DayBuilder
+  Sunday: DayBuilder
+}
+
+/**
+ * On builder for week.on.Friday pattern
+ */
+export interface OnBuilder extends DayAccessors {}
+
+/**
+ * Week builder with on accessor
+ */
+export interface WeekBuilder extends DayBuilder {
+  on: OnBuilder
+}
+
+/**
+ * Unit builder for time units (day, hour, etc.)
+ */
+export interface UnitBuilder extends DayBuilder {
+  (handler: ScheduleHandler): void
+}
+
+/**
+ * Main EveryProxy interface - the fluent scheduling DSL entry point
+ */
+export interface EveryProxy extends DayAccessors {
+  // Direct time unit accessors that can be called as handlers or chained
+  second: UnitBuilder
+  minute: UnitBuilder
+  hour: UnitBuilder
+  day: UnitBuilder
+  week: WeekBuilder
+  month: UnitBuilder
+  year: UnitBuilder
+
+  // Common patterns
+  weekday: UnitBuilder
+  weekend: UnitBuilder
+  midnight: UnitBuilder
+  noon: UnitBuilder
+
+  // Interval pattern: $.every(5).minutes(handler)
+  (value: number): IntervalBuilder
+}
+
+/**
  * Well-known cron patterns for common schedules
  */
 const KNOWN_PATTERNS = {
@@ -145,6 +254,17 @@ function combineWithTime(baseCron: string, time: { hour: number; minute: number 
 }
 
 /**
+ * Options for creating an EveryProxy
+ */
+export interface CreateEveryProxyOptions {
+  /**
+   * Callback invoked when a schedule is registered.
+   * Used to trigger alarm scheduling when schedules are added.
+   */
+  onScheduleRegistered?: (scheduleId: string, registration: ScheduleRegistration) => void
+}
+
+/**
  * Create the scheduling DSL proxy
  *
  * This creates a fluent API for scheduling that supports patterns like:
@@ -155,12 +275,17 @@ function combineWithTime(baseCron: string, time: { hour: number; minute: number 
  * - $.every.week.on.Friday.at('3pm')(handler)
  *
  * @param schedules - Schedule registry map
+ * @param options - Optional configuration including onScheduleRegistered callback
  * @returns EveryProxy for registering schedules
  *
  * @example
  * ```ts
  * const schedules = new Map()
- * const every = createEveryProxy(schedules)
+ * const every = createEveryProxy(schedules, {
+ *   onScheduleRegistered: (id, reg) => {
+ *     console.log(`Registered schedule ${id}: ${reg.interval.natural}`)
+ *   }
+ * })
  *
  * every.Monday.at9am(async () => {
  *   console.log('Monday 9am task')
@@ -176,8 +301,23 @@ function combineWithTime(baseCron: string, time: { hour: number; minute: number 
  * ```
  */
 export function createEveryProxy(
-  schedules: Map<string, ScheduleRegistration>
-): any {
+  schedules: Map<string, ScheduleRegistration>,
+  options?: CreateEveryProxyOptions
+): EveryProxy {
+  const onScheduleRegistered = options?.onScheduleRegistered
+
+  /**
+   * Helper function to register a schedule and invoke the callback
+   */
+  function registerSchedule(registration: ScheduleRegistration): void {
+    const id = `schedule-${schedules.size}`
+    schedules.set(id, registration)
+    // Invoke callback to trigger alarm scheduling
+    if (onScheduleRegistered) {
+      onScheduleRegistered(id, registration)
+    }
+  }
+
   /**
    * Builder state for chaining
    */
@@ -188,13 +328,15 @@ export function createEveryProxy(
   }
 
   /**
-   * Create a chainable proxy builder
+   * Create a chainable proxy builder.
+   * The actual runtime behavior is determined by the Proxy, but we cast to EveryProxy for type safety.
    */
-  function createBuilder(state: BuilderState): any {
-    const builder = function(arg?: any) {
+  function createBuilder(state: BuilderState): EveryProxy {
+    // Handler argument can be number, string, or function depending on DSL usage
+    const builder = function(arg?: number | string | ScheduleHandler): void | IntervalBuilder | HandlerRegistrar {
       // If called with a number: $.every(5).minutes(handler)
       if (typeof arg === 'number') {
-        return createIntervalProxy(arg, state)
+        return createIntervalProxy(arg)
       }
 
       // If called with a time string: $.every.day.at('6pm')(handler)
@@ -203,9 +345,8 @@ export function createEveryProxy(
         const cron = combineWithTime(state.baseCron!, time)
         const natural = [...state.path, `at(${arg})`].join('.')
 
-        return (handler: ScheduleHandler) => {
-          const id = `schedule-${schedules.size}`
-          schedules.set(id, {
+        return (handler: ScheduleHandler): void => {
+          registerSchedule({
             interval: { type: 'cron', expression: cron, natural },
             handler,
             source: handler.toString(),
@@ -216,10 +357,9 @@ export function createEveryProxy(
       // If called as a handler: $.every.hour(handler)
       if (typeof arg === 'function') {
         const handler = arg as ScheduleHandler
-        const id = `schedule-${schedules.size}`
         const natural = state.path.join('.')
 
-        schedules.set(id, {
+        registerSchedule({
           interval: { type: 'cron', expression: state.baseCron!, natural },
           handler,
           source: handler.toString(),
@@ -228,16 +368,15 @@ export function createEveryProxy(
     }
 
     return new Proxy(builder, {
-      get(_target, prop: string) {
+      get(_target, prop: string): HandlerRegistrar | TimeBuilder | EveryProxy | OnBuilder | undefined {
         // Handle named time accessors: at9am, at5pm, etc.
         if (TIME_PATTERNS[prop]) {
           const time = TIME_PATTERNS[prop]
           const cron = combineWithTime(state.baseCron!, time)
           const natural = [...state.path, prop].join('.')
 
-          return (handler: ScheduleHandler) => {
-            const id = `schedule-${schedules.size}`
-            schedules.set(id, {
+          return (handler: ScheduleHandler): void => {
+            registerSchedule({
               interval: { type: 'cron', expression: cron, natural },
               handler,
               source: handler.toString(),
@@ -247,14 +386,13 @@ export function createEveryProxy(
 
         // Handle 'at' for dynamic time: $.every.day.at('6pm')
         if (prop === 'at') {
-          return (timeStr: string) => {
+          return (timeStr: string): HandlerRegistrar => {
             const time = parseTimeString(timeStr)
             const cron = combineWithTime(state.baseCron!, time)
             const natural = [...state.path, `at(${timeStr})`].join('.')
 
-            return (handler: ScheduleHandler) => {
-              const id = `schedule-${schedules.size}`
-              schedules.set(id, {
+            return (handler: ScheduleHandler): void => {
+              registerSchedule({
                 interval: { type: 'cron', expression: cron, natural },
                 handler,
                 source: handler.toString(),
@@ -268,7 +406,7 @@ export function createEveryProxy(
           const newState: BuilderState = { path: [...state.path, 'on'] }
           if (state.baseCron !== undefined) newState.baseCron = state.baseCron
           if (state.dayOfWeek !== undefined) newState.dayOfWeek = state.dayOfWeek
-          return createBuilder(newState)
+          return createBuilder(newState) as OnBuilder
         }
 
         // Handle days of week
@@ -284,10 +422,10 @@ export function createEveryProxy(
         }
 
         // Handle known patterns
-        if (KNOWN_PATTERNS[prop]) {
+        if (KNOWN_PATTERNS[prop as keyof typeof KNOWN_PATTERNS]) {
           return createBuilder({
             path: [...state.path, prop],
-            baseCron: KNOWN_PATTERNS[prop],
+            baseCron: KNOWN_PATTERNS[prop as keyof typeof KNOWN_PATTERNS],
           })
         }
 
@@ -297,15 +435,15 @@ export function createEveryProxy(
         if (state.dayOfWeek !== undefined) unknownState.dayOfWeek = state.dayOfWeek
         return createBuilder(unknownState)
       },
-    })
+    }) as EveryProxy
   }
 
   /**
-   * Create a proxy for interval patterns: $.every(5).minutes(handler)
+   * Create a proxy for interval patterns: $.every(5).minutes(handler).
    */
-  function createIntervalProxy(value: number, _state: BuilderState): any {
-    return new Proxy({}, {
-      get(_target, prop: string) {
+  function createIntervalProxy(value: number): IntervalBuilder {
+    return new Proxy({} as IntervalBuilder, {
+      get(_target, prop: string): HandlerRegistrar | undefined {
         // Map plural forms to interval types
         const intervalMap: Record<string, ScheduleInterval['type']> = {
           seconds: 'second',
@@ -319,9 +457,8 @@ export function createEveryProxy(
         if (intervalType) {
           const natural = `${value} ${prop}`
 
-          return (handler: ScheduleHandler) => {
-            const id = `schedule-${schedules.size}`
-            schedules.set(id, {
+          return (handler: ScheduleHandler): void => {
+            registerSchedule({
               interval: { type: intervalType, value, natural },
               handler,
               source: handler.toString(),

@@ -2,6 +2,270 @@
 // Provides type-safe validation for RPC method parameters
 
 import { ValidationError } from './errors'
+import type { RPCMessage } from './transport/types'
+import type { z as ZodType } from 'zod'
+
+// Lazy-loaded zod module to avoid bundler issues with dynamic require
+let _zod: typeof ZodType | null = null
+let _zodPromise: Promise<typeof ZodType> | null = null
+
+/**
+ * Get the zod module asynchronously, importing it lazily on first use.
+ * Throws an error if zod is not installed.
+ */
+async function getZodAsync(): Promise<typeof ZodType> {
+  if (_zod !== null) {
+    return _zod
+  }
+  if (_zodPromise === null) {
+    _zodPromise = import('zod').then((mod) => {
+      _zod = mod.z
+      return mod.z
+    }).catch(() => {
+      throw new Error(
+        'zod is required for ZodArgSchemas. Install it with: npm install zod'
+      )
+    })
+  }
+  return _zodPromise
+}
+
+/**
+ * Get the zod module synchronously. Must call initZod() first or this will throw.
+ * For synchronous usage, prefer initZod() at app startup then use getZod().
+ */
+function getZod(): typeof ZodType {
+  if (_zod === null) {
+    throw new Error(
+      'zod not initialized. Call initZod() first or use async ZodArgSchemas methods. ' +
+      'Install zod with: npm install zod'
+    )
+  }
+  return _zod
+}
+
+/**
+ * Initialize zod module for synchronous usage.
+ * Call this at app startup if you need synchronous ZodArgSchemas methods.
+ *
+ * @example
+ * ```typescript
+ * // At app startup
+ * await initZod()
+ *
+ * // Now synchronous methods work
+ * const schema = ZodArgSchemas.string('name')
+ * ```
+ */
+export async function initZod(): Promise<void> {
+  await getZodAsync()
+}
+
+// ============================================================================
+// URL Validation
+// ============================================================================
+
+/**
+ * Options for URL validation
+ */
+export interface URLValidationOptions {
+  /**
+   * Strict mode requires HTTPS except for localhost/development hosts.
+   * @default false
+   */
+  strict?: boolean
+  /**
+   * Additional hosts to allow HTTP connections to (in strict mode).
+   * Localhost and 127.0.0.1 are always allowed.
+   */
+  allowedHosts?: string[]
+}
+
+/**
+ * Localhost patterns that are always allowed with HTTP
+ */
+const LOCALHOST_PATTERNS = [
+  'localhost',
+  '127.0.0.1',
+  '[::1]',
+]
+
+/**
+ * Validates an RPC endpoint URL.
+ *
+ * A valid RPC URL:
+ * - Must be a string
+ * - Must be a valid URL format
+ * - Must use http: or https: protocol
+ * - In strict mode, must use https: unless connecting to localhost
+ * - Must not contain path traversal sequences
+ *
+ * @param url - The URL to validate
+ * @param options - Validation options
+ * @returns True if the URL is valid for RPC communication
+ *
+ * @example
+ * ```typescript
+ * isValidRPCUrl('https://api.example.com')           // true
+ * isValidRPCUrl('http://api.example.com')            // true (default)
+ * isValidRPCUrl('http://api.example.com', { strict: true }) // false
+ * isValidRPCUrl('http://localhost:8787', { strict: true })  // true (localhost allowed)
+ * isValidRPCUrl('ftp://example.com')                 // false
+ * ```
+ */
+export function isValidRPCUrl(url: unknown, options: URLValidationOptions = {}): url is string {
+  // Must be a non-empty string
+  if (typeof url !== 'string' || url.length === 0) {
+    return false
+  }
+
+  let parsedUrl: URL
+  try {
+    parsedUrl = new URL(url)
+  } catch {
+    return false
+  }
+
+  // Only allow http: and https: protocols
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    return false
+  }
+
+  // Check for path traversal attempts
+  // Check the original URL string before parsing, as URL normalization may remove '..'
+  const lowerUrl = url.toLowerCase()
+  if (
+    lowerUrl.includes('..') ||
+    lowerUrl.includes('%2e%2e') ||
+    lowerUrl.includes('%2e.') ||
+    lowerUrl.includes('.%2e')
+  ) {
+    return false
+  }
+
+  // In strict mode, require HTTPS unless connecting to localhost
+  if (options.strict && parsedUrl.protocol === 'http:') {
+    const hostname = parsedUrl.hostname
+
+    // Check if it's a localhost pattern
+    const isLocalhost = LOCALHOST_PATTERNS.some(pattern =>
+      hostname === pattern || hostname.startsWith(`${pattern}:`)
+    )
+
+    // Check if it's in the allowed hosts list
+    const allowedHosts = options.allowedHosts ?? []
+    const isAllowedHost = allowedHosts.includes(hostname)
+
+    if (!isLocalhost && !isAllowedHost) {
+      return false
+    }
+  }
+
+  return true
+}
+
+// ============================================================================
+// Circular Reference Detection
+// ============================================================================
+
+/**
+ * Checks for circular references in an object graph.
+ * Throws an error if a circular reference is detected.
+ *
+ * This is important for RPC args validation because circular references
+ * will cause JSON.stringify to throw an error.
+ *
+ * @param value - The value to check for circular references
+ * @throws Error with 'circular' in the message if a circular reference is found
+ *
+ * @example
+ * ```typescript
+ * const obj = { a: 1 }
+ * checkCircularReferences(obj) // OK
+ *
+ * const circular = { a: 1 }
+ * circular.self = circular
+ * checkCircularReferences(circular) // throws "Detected circular reference"
+ * ```
+ */
+export function checkCircularReferences(value: unknown): void {
+  const seen = new Set<object>()
+
+  function check(current: unknown): void {
+    // Primitives cannot have circular references
+    if (current === null || typeof current !== 'object') {
+      return
+    }
+
+    // If we've seen this object before, it's a circular reference
+    if (seen.has(current)) {
+      throw new Error('Detected circular reference in RPC arguments')
+    }
+
+    // Mark as seen and recurse into children
+    seen.add(current)
+
+    if (Array.isArray(current)) {
+      for (const item of current) {
+        check(item)
+      }
+    } else {
+      for (const key in current) {
+        if (Object.prototype.hasOwnProperty.call(current, key)) {
+          check((current as Record<string, unknown>)[key])
+        }
+      }
+    }
+
+    // Note: We do NOT remove from 'seen' after recursion
+    // This ensures we detect multiple references to the same object,
+    // which while not strictly circular, still breaks JSON.stringify
+  }
+
+  check(value)
+}
+
+// ============================================================================
+// RPC Message Validation
+// ============================================================================
+
+/**
+ * Validates a complete RPC message before sending.
+ *
+ * Performs the following validations:
+ * 1. Method name is valid (no path traversal, injection, etc.)
+ * 2. Args array doesn't contain circular references
+ *
+ * @param message - The RPC message to validate
+ * @throws ValidationError if the message is invalid
+ *
+ * @example
+ * ```typescript
+ * validateRPCMessage({ method: 'users.create', args: [{ name: 'Alice' }] }) // OK
+ * validateRPCMessage({ method: '../etc/passwd', args: [] }) // throws
+ * ```
+ */
+export function validateRPCMessage(message: RPCMessage): void {
+  // Validate method name
+  if (!isValidRPCMethod(message.method)) {
+    throw ValidationError.forField(
+      'method',
+      'must start with a letter and contain only alphanumeric characters and dots',
+      message.method
+    )
+  }
+
+  // Validate args don't have circular references
+  for (let i = 0; i < message.args.length; i++) {
+    try {
+      checkCircularReferences(message.args[i])
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+      // Rethrow with 'circular' in the message for consistent error handling
+      throw new Error(`Detected circular reference at args[${i}]: ${errorMessage}`)
+    }
+  }
+}
 
 // ============================================================================
 // RPC Method Validation
@@ -351,4 +615,421 @@ export const ArgSchemas = {
       validate: (value) => Number.isInteger(value) || 'must be an integer'
     }
   }
+}
+
+// ============================================================================
+// Zod Schema Support (for typed validation with zod)
+// ============================================================================
+
+/**
+ * Marker interface for Zod-based method schemas
+ * Used to distinguish Zod schemas from regular MethodSchema
+ */
+export interface ZodMethodSchema {
+  /** Marker to identify Zod schemas */
+  __zodSchema: true
+  /** Array of Zod schemas for each argument position */
+  args: unknown[]
+}
+
+/**
+ * Registry of Zod-based method schemas
+ */
+export type ZodMethodSchemaRegistry = Record<string, ZodMethodSchema>
+
+/**
+ * Check if a schema is a Zod method schema
+ */
+export function isZodMethodSchema(schema: unknown): schema is ZodMethodSchema {
+  return (
+    typeof schema === 'object' &&
+    schema !== null &&
+    '__zodSchema' in schema &&
+    (schema as ZodMethodSchema).__zodSchema === true
+  )
+}
+
+/**
+ * Get a Zod method schema from a registry
+ */
+export function getZodMethodSchema(
+  registry: ZodMethodSchemaRegistry,
+  methodPath: string
+): ZodMethodSchema | undefined {
+  return registry[methodPath]
+}
+
+/**
+ * Validate arguments against a Zod method schema
+ * Requires zod to be installed and schemas to be actual Zod schemas
+ */
+export function validateZodArgs(args: unknown[], schema: ZodMethodSchema): void {
+  if (!schema.args || !Array.isArray(schema.args)) {
+    throw new ValidationError('Invalid Zod schema: missing args array')
+  }
+
+  const allErrors: Array<{ field: string; message: string }> = []
+
+  for (let i = 0; i < schema.args.length; i++) {
+    const argDef = schema.args[i] as ZodArgSchema | undefined
+    const argValue = args[i]
+
+    if (!argDef) continue
+
+    // Support both raw Zod schemas and ZodArgSchema objects
+    const zodSchema = 'schema' in argDef ? argDef.schema : argDef
+    const argName = 'name' in argDef ? argDef.name : `arg${i}`
+
+    // If the schema has a safeParse method, it's a Zod schema
+    if (zodSchema && typeof zodSchema === 'object' && 'safeParse' in zodSchema) {
+      const schema = zodSchema as { safeParse: (v: unknown) => { success: boolean; error?: { errors: Array<{ path: (string | number)[]; message: string }> } } }
+      const result = schema.safeParse(argValue)
+
+      if (!result.success && result.error) {
+        const errors = formatZodErrors(result.error, argName, i)
+        allErrors.push(...errors)
+      }
+    }
+  }
+
+  if (allErrors.length > 0) {
+    throw ValidationError.withErrors(allErrors)
+  }
+}
+
+/**
+ * Define a Zod method schema from an array of Zod schemas
+ */
+export function defineZodMethodSchema(args: ZodArgSchema[]): ZodMethodSchema {
+  return {
+    __zodSchema: true,
+    args,
+  }
+}
+
+/**
+ * Zod argument schema interface
+ */
+export interface ZodArgSchema {
+  /** Argument name for error messages */
+  name: string
+  /** The Zod schema for validation */
+  schema: unknown // z.ZodType - keeping as unknown to avoid zod dependency
+}
+
+/**
+ * Validation error for Zod schemas
+ */
+export interface ZodValidationError {
+  field: string
+  message: string
+}
+
+/**
+ * Format Zod errors into a consistent structure
+ */
+export function formatZodErrors(
+  error: { errors?: Array<{ path: (string | number)[]; message: string }> },
+  argName: string,
+  argIndex: number
+): ZodValidationError[] {
+  if (!error.errors || !Array.isArray(error.errors)) {
+    return [{ field: `args[${argIndex}] (${argName})`, message: 'Validation failed' }]
+  }
+
+  return error.errors.map((e) => {
+    const pathStr = e.path.length > 0 ? `.${e.path.join('.')}` : ''
+    return {
+      field: `args[${argIndex}] (${argName}${pathStr})`,
+      message: e.message,
+    }
+  })
+}
+
+/**
+ * Validate a single Zod argument and return errors
+ */
+export function validateZodArg(
+  value: unknown,
+  zodSchema: unknown,
+  argName: string,
+  argIndex: number
+): ZodValidationError[] {
+  if (!zodSchema || typeof zodSchema !== 'object') {
+    return []
+  }
+
+  // Check if it's a Zod schema (has safeParse method)
+  if (!('safeParse' in zodSchema)) {
+    return []
+  }
+
+  const schema = zodSchema as { safeParse: (v: unknown) => { success: boolean; error?: { errors: Array<{ path: (string | number)[]; message: string }> } } }
+  const result = schema.safeParse(value)
+
+  if (result.success) {
+    return []
+  }
+
+  return formatZodErrors(result.error || { errors: [] }, argName, argIndex)
+}
+
+/**
+ * Create a Zod schema registry for an RPC target
+ */
+export function createZodSchemaRegistry(schemas: Record<string, { args: ZodArgSchema[] }>): ZodMethodSchemaRegistry {
+  const registry: ZodMethodSchemaRegistry = {}
+
+  for (const [method, config] of Object.entries(schemas)) {
+    registry[method] = {
+      __zodSchema: true,
+      args: config.args,
+    }
+  }
+
+  return registry
+}
+
+/**
+ * Helper to create common Zod argument schemas
+ * These work with the zod library when imported by the consumer.
+ * Zod is lazily loaded on first use to avoid bundler issues.
+ */
+export const ZodArgSchemas = {
+  /** Required string argument */
+  string(name: string): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.string() }
+  },
+
+  /** Non-empty string argument */
+  nonEmptyString(name: string): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.string().min(1) }
+  },
+
+  /** Required number argument */
+  number(name: string): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.number() }
+  },
+
+  /** Finite number argument */
+  finiteNumber(name: string): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.number().finite() }
+  },
+
+  /** Integer argument */
+  integer(name: string): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.number().int() }
+  },
+
+  /** Positive integer argument */
+  positiveInt(name: string): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.number().int().positive() }
+  },
+
+  /** Non-negative integer argument */
+  nonNegativeInt(name: string): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.number().int().nonnegative() }
+  },
+
+  /** Required boolean argument */
+  boolean(name: string): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.boolean() }
+  },
+
+  /** Required object argument */
+  object(name: string): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.record(z.unknown()) }
+  },
+
+  /** Required array argument */
+  array(name: string): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.array(z.unknown()) }
+  },
+
+  /** Optional string argument */
+  optionalString(name: string): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.string().optional() }
+  },
+
+  /** Optional number argument */
+  optionalNumber(name: string): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.number().optional() }
+  },
+
+  /** ID argument (non-empty string) */
+  id(name: string = 'id'): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.string().min(1) }
+  },
+
+  /** Email argument with format validation */
+  email(name: string = 'email'): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.string().email() }
+  },
+
+  /** URL argument with format validation */
+  url(name: string = 'url'): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.string().url() }
+  },
+
+  /** UUID argument with format validation */
+  uuid(name: string = 'uuid'): ZodArgSchema {
+    const z = getZod()
+    return { name, schema: z.string().uuid() }
+  },
+
+  /** Custom schema argument */
+  custom<T>(name: string, schema: T): ZodArgSchema {
+    return { name, schema }
+  },
+
+  /** Nullable schema argument */
+  nullable(name: string, innerSchema: unknown): ZodArgSchema {
+    const z = getZod()
+    const inner = innerSchema as { nullable: () => unknown }
+    if (typeof inner.nullable === 'function') {
+      return { name, schema: inner.nullable() }
+    }
+    // Fallback: wrap with z.union
+    return { name, schema: z.union([innerSchema as never, z.null()]) }
+  },
+}
+
+/**
+ * Async helper to create common Zod argument schemas.
+ * Use this when you don't want to call initZod() at startup.
+ * Each method dynamically imports zod on first use.
+ *
+ * @example
+ * ```typescript
+ * // No initZod() needed
+ * const schema = await ZodArgSchemasAsync.string('name')
+ * ```
+ */
+export const ZodArgSchemasAsync = {
+  /** Required string argument */
+  async string(name: string): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.string() }
+  },
+
+  /** Non-empty string argument */
+  async nonEmptyString(name: string): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.string().min(1) }
+  },
+
+  /** Required number argument */
+  async number(name: string): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.number() }
+  },
+
+  /** Finite number argument */
+  async finiteNumber(name: string): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.number().finite() }
+  },
+
+  /** Integer argument */
+  async integer(name: string): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.number().int() }
+  },
+
+  /** Positive integer argument */
+  async positiveInt(name: string): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.number().int().positive() }
+  },
+
+  /** Non-negative integer argument */
+  async nonNegativeInt(name: string): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.number().int().nonnegative() }
+  },
+
+  /** Required boolean argument */
+  async boolean(name: string): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.boolean() }
+  },
+
+  /** Required object argument */
+  async object(name: string): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.record(z.unknown()) }
+  },
+
+  /** Required array argument */
+  async array(name: string): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.array(z.unknown()) }
+  },
+
+  /** Optional string argument */
+  async optionalString(name: string): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.string().optional() }
+  },
+
+  /** Optional number argument */
+  async optionalNumber(name: string): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.number().optional() }
+  },
+
+  /** ID argument (non-empty string) */
+  async id(name: string = 'id'): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.string().min(1) }
+  },
+
+  /** Email argument with format validation */
+  async email(name: string = 'email'): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.string().email() }
+  },
+
+  /** URL argument with format validation */
+  async url(name: string = 'url'): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.string().url() }
+  },
+
+  /** UUID argument with format validation */
+  async uuid(name: string = 'uuid'): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    return { name, schema: z.string().uuid() }
+  },
+
+  /** Custom schema argument (sync, doesn't need zod) */
+  custom<T>(name: string, schema: T): ZodArgSchema {
+    return { name, schema }
+  },
+
+  /** Nullable schema argument */
+  async nullable(name: string, innerSchema: unknown): Promise<ZodArgSchema> {
+    const z = await getZodAsync()
+    const inner = innerSchema as { nullable: () => unknown }
+    if (typeof inner.nullable === 'function') {
+      return { name, schema: inner.nullable() }
+    }
+    // Fallback: wrap with z.union
+    return { name, schema: z.union([innerSchema as never, z.null()]) }
+  },
 }

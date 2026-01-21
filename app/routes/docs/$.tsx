@@ -32,7 +32,8 @@ const docs: DocMeta[] = [
 export const Route = createFileRoute('/docs/$')({
   component: DocsPageComponent,
   loader: async ({ params }) => {
-    const slug = (params._ as string) || 'index'
+    // TanStack Router uses _splat for splat route params
+    const slug = params._splat || 'index'
 
     // In a real implementation, this would load MDX content at build time
     // using fumadocs-mdx loader
@@ -104,7 +105,7 @@ function DocsPageComponent() {
                   <Link
                     key={doc.slug}
                     to="/docs/$"
-                    params={{ _: doc.slug }}
+                    params={{ _splat: doc.slug }}
                     className={`block px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                       slug === doc.slug
                         ? 'bg-primary-100 text-primary-900'
