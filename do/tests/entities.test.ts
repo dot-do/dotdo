@@ -13,12 +13,12 @@
 
 import { describe, it, expect } from 'vitest'
 import { env } from 'cloudflare:test'
-import type { Thing, Event, Relationship } from '../../db'
+import type { Thing, Event, Relationship } from '@dotdo/db'
 import {
   expectValidEntity,
   expectValidEvent,
   expectValidRelationship,
-} from '../../test-utils'
+} from '@dotdo/test-utils'
 
 // ============================================================================
 // TYPE DEFINITIONS

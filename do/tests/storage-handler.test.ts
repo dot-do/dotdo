@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { env } from 'cloudflare:test'
-import type { Thing, Event, Relationship } from '../../db'
+import type { Thing, Event, Relationship } from '@dotdo/db'
 
 // ============================================================================
 // INLINE ASSERTION HELPERS (avoid importing from test-utils which causes node:os issues)

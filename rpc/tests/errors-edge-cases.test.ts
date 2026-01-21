@@ -819,6 +819,10 @@ describe('Timeout Scenarios', () => {
     it('should handle zero timeout with pending promise', async () => {
       // Use a never-resolving promise to test zero timeout
       const promise = withTimeout(new Promise(() => {}), 0)
+
+      // Prevent unhandled rejection during timer advancement
+      promise.catch(() => {})
+
       await vi.advanceTimersByTimeAsync(0)
 
       // Zero timeout should trigger immediately
@@ -866,6 +870,10 @@ describe('Timeout Scenarios', () => {
 
     it('should return TimeoutError with correct code and status', async () => {
       const promise = withTimeout(new Promise(() => {}), 1000)
+
+      // Prevent unhandled rejection during timer advancement
+      promise.catch(() => {})
+
       await vi.advanceTimersByTimeAsync(1000)
 
       try {
@@ -911,6 +919,9 @@ describe('Timeout Scenarios', () => {
         maxRetries: 3,
         initialDelay: 100,
       })
+
+      // Prevent unhandled rejection during timer advancement
+      promise.catch(() => {})
 
       await vi.runAllTimersAsync()
 

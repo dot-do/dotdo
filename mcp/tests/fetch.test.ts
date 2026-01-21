@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createFetchTool, isFetchParams } from '../tools/fetch'
-import { createThingsStore } from '../../db/things'
-import { createRelationshipsStore } from '../../db/relationships'
-import { createEventsStore } from '../../db/events'
+import { createThingsStore, createRelationshipsStore, createEventsStore } from '@dotdo/db'
 
 describe('isFetchParams type guard', () => {
   it('should return true for valid params with $id only', () => {

@@ -17,7 +17,7 @@ import {
   calculateJitteredDelay,
   type JitterStrategy,
 } from '../errors'
-import { expectRPCError, expectRPCErrorType } from '../../test-utils'
+import { expectRPCError, expectRPCErrorType } from '@dotdo/test-utils'
 
 describe('RPCError', () => {
   it('should create an error with code, message, and details', () => {

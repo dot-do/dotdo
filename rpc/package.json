@@ -24,6 +24,8 @@
     "hono": "^4.7.0"
   },
   "devDependencies": {
+    "@dotdo/do": "workspace:*",
+    "@dotdo/test-utils": "workspace:*",
     "typescript": "^5.7.0"
   }
 }

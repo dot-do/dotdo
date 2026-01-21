@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { createMCPServer, type MCPServer } from '../server'
 import { createSandboxTool } from '../tools/sandbox'
 import { ToolRegistry, ToolCategory } from '../discovery'
-import type { WorkflowContext } from '../../do/context'
+import type { WorkflowContext } from '@dotdo/do'
 import { createTestContext, createEventCapture } from './test-helpers'
 
 describe('Sandbox MCP Integration', () => {

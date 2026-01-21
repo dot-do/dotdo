@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createThingsStore, type ThingsStore } from '../../db/things'
+import { createThingsStore, type ThingsStore } from '@dotdo/db'
 import { createSearchTool } from '../search'
 import type { MCPTool } from '../server'
 

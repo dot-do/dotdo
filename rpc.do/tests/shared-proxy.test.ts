@@ -24,7 +24,7 @@ import {
   type EventProxyOptions,
   type ScheduleProxyOptions,
   type EntityProxyOptions,
-} from '../../do/utils/proxy'
+} from '@dotdo/do'
 
 // ============================================================================
 // PROMISE_PROPS Tests

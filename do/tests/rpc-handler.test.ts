@@ -25,7 +25,7 @@ import {
   AuthorizationError,
   InternalError,
   TimeoutError,
-} from '../../rpc/errors'
+} from '@dotdo/rpc'
 
 // ============================================================================
 // TEST HELPERS

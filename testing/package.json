@@ -37,5 +37,10 @@
   },
   "dependencies": {
     "@dotdo/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@dotdo/ai": "workspace:*",
+    "@dotdo/integrations": "workspace:*",
+    "typescript": "^5.7.0"
   }
 }

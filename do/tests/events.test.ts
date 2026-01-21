@@ -12,7 +12,7 @@ import {
   type HandlerResult,
   type InvokeHandlersResult,
 } from '../workflow/events'
-import { ValidationError, NetworkError, TimeoutError, RateLimitError } from '../../rpc/errors'
+import { ValidationError, NetworkError, TimeoutError, RateLimitError } from '@dotdo/rpc'
 
 describe('do/workflow/events.ts - Event Handler Functions', () => {
   let handlers: Map<string, EventHandler[]>

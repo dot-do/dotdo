@@ -35,8 +35,8 @@ import {
   createWriteQueue,
   createHealthChecker,
   type EnhancedGracefulDegradationHandler,
-} from '../../do/graceful-degradation'
-import { createCircuitBreaker, type CircuitBreaker } from '../../do/circuit-breaker'
+} from '@dotdo/do'
+import { createCircuitBreaker, type CircuitBreaker } from '@dotdo/do'
 
 // ============================================================================
 // Helper Functions

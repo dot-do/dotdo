@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest'
 import { DO } from '../DO'
 import { WebSocketManager } from '../websocket'
-import { createThingsStore, type ThingsStore } from '../../db/things'
+import { createThingsStore, type ThingsStore } from '@dotdo/db'
 
 // ============================================================================
 // Mock Setup

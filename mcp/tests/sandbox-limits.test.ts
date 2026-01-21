@@ -26,7 +26,7 @@ import {
   ConcurrencyLimiter,
   SandboxResourceEnforcer
 } from '../sandbox'
-import type { WorkflowContext } from '../../do/context'
+import type { WorkflowContext } from '@dotdo/do'
 import { createTestContext } from './test-helpers'
 
 describe('MCP Sandbox Resource Limits - RED Tests', () => {

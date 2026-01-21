@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createSandbox, DEFAULT_RESOURCE_LIMITS, type SandboxOptions } from '../sandbox'
-import type { WorkflowContext } from '../../do/context'
+import type { WorkflowContext } from '@dotdo/do'
 import { createTestContext, createEventCapture } from './test-helpers'
 
 describe('Sandbox with $ context', () => {

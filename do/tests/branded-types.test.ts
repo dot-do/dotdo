@@ -17,7 +17,7 @@ import {
   toThingId,
   toCorrelationId,
   isEventId
-} from '../../db'
+} from '@dotdo/db'
 
 // ============================================================================
 // TypedEvent Branded Type Tests

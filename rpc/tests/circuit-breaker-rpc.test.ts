@@ -17,7 +17,7 @@ import {
   DEFAULT_CIRCUIT_BREAKER_CONFIG,
   type WithCircuitBreaker,
 } from '../circuit-breaker'
-import { resetGlobalCircuitBreakerRegistry } from '../../do/circuit-breaker'
+import { resetGlobalCircuitBreakerRegistry } from '@dotdo/do'
 import { TransportError, RPCErrorCode } from '../errors'
 
 // ============================================================================

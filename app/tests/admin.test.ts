@@ -1,9 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MockAgent, setGlobalDispatcher, getGlobalDispatcher } from 'undici'
-import type { Thing } from '../../db/things'
-import type { Event } from '../../db/events'
-import type { Relationship } from '../../db/relationships'
+import type { Thing, Event, Relationship } from '@dotdo/db'
 
 // Store original dispatcher
 const originalDispatcher = getGlobalDispatcher()

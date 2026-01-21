@@ -17,7 +17,7 @@ import {
   createNestedProxy,
   createMethodProxy,
   PROMISE_PROPS,
-} from '../../do/utils/proxy'
+} from '@dotdo/do'
 
 // ============================================================================
 // createDeepRPCProxy Tests

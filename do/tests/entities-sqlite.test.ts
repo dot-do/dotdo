@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { env } from 'cloudflare:test'
 import { DO } from '../DO'
-import type { Thing, Event, Relationship } from '../../db'
+import type { Thing, Event, Relationship } from '@dotdo/db'
 
 // ============================================================================
 // TEST HELPER: Get DO stub with real SQLite storage

@@ -7,7 +7,7 @@
  * @module mcp/tests/test-helpers
  */
 
-import { createContext, type WorkflowContext } from '../../do/context'
+import { createContext, type WorkflowContext } from '@dotdo/do'
 
 /**
  * Create a Map-backed DurableObjectState for testing.

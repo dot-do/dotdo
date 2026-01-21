@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventSystem, createEventSystem, type EventPayload } from '../workflow/event-system'
-import { ValidationError } from '../../rpc/errors'
+import { ValidationError } from '@dotdo/rpc'
 
 describe('EventSystem - Standalone Event Handling Module', () => {
   let eventSystem: EventSystem

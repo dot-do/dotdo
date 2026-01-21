@@ -24,7 +24,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { env } from 'cloudflare:test'
-import type { Thing, Event, Relationship } from '../../db'
+import type { Thing, Event, Relationship } from '@dotdo/db'
 
 // Import digital-tasks types for type checking (not runtime - TDD style)
 import type {

@@ -17,7 +17,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { env } from 'cloudflare:test'
-import { createThingsStore, type ThingsStore } from '../../db/things'
+import { createThingsStore, type ThingsStore } from '@dotdo/db'
 
 // ============================================================================
 // Types and Interfaces

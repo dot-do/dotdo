@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { createEventsStore, type EventsStore, type Event } from '../../db'
+import { createEventsStore, type EventsStore, type Event } from '@dotdo/db'
 import { DO } from '../DO'
 
 // Mock DurableObjectState for DO tests

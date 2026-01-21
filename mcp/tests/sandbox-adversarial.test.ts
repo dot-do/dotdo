@@ -16,7 +16,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createSandbox, type SandboxResult } from '../sandbox'
-import type { WorkflowContext } from '../../do/context'
+import type { WorkflowContext } from '@dotdo/do'
 import { createTestContext } from './test-helpers'
 
 describe('MCP Sandbox Adversarial Security Tests (do-8wvd)', () => {

@@ -17,7 +17,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { env, runInDurableObject } from 'cloudflare:test'
 import { DO } from '../test-entry'
-import type { WorkflowContext } from '../../do/context'
+import type { WorkflowContext } from '@dotdo/do'
 
 // Re-export DO for vitest-pool-workers binding
 export { DO } from '../test-entry'

@@ -20,9 +20,9 @@ import {
   type IsolationViolation,
   type IsolationConfig,
 } from '../isolation'
-import { globalTracker, UsageTracker } from '../../ai/tracking'
-import { integrationRegistry } from '../../integrations/registry'
-import type { Integration, IntegrationConfig, IntegrationMetadata } from '../../integrations/types'
+import { globalTracker, UsageTracker } from '@dotdo/ai'
+import { integrationRegistry } from '@dotdo/integrations'
+import type { Integration, IntegrationConfig, IntegrationMetadata } from '@dotdo/integrations'
 
 // ============================================================================
 // TEST HELPERS

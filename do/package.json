@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@dotdo/auth": "workspace:*",
     "@dotdo/db": "workspace:*",
     "@dotdo/integrations": "workspace:*",
     "@dotdo/observability": "workspace:*",
@@ -21,6 +22,7 @@
     "language-models": "workspace:../primitives/packages/language-models"
   },
   "devDependencies": {
+    "@dotdo/test-utils": "workspace:*",
     "typescript": "^5.7.0"
   }
 }
