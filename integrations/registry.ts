@@ -1,11 +1,5 @@
 // Integration Registry - Central registry for third-party integrations
 // Part of the dotdo integration registry system (do-laux)
-//
-// IMPORTANT: This registry is designed for per-context/per-tenant isolation.
-// DO NOT create a global singleton - use createIntegrationRegistry() or
-// dependency injection via CreateContextOptions.integrationRegistry.
-// Each DO instance should have its own IntegrationRegistry to prevent
-// state leakage between tenants. (do-5fhw)
 
 import type {
   Integration,
@@ -59,36 +53,7 @@ export interface IntegrationSummary {
 
 /**
  * Integration Registry
- * Central registry for managing third-party integrations.
- *
- * IMPORTANT: This class should NOT be used as a global singleton.
- * Global singletons cause state leakage between tenants in multi-tenant
- * environments. Instead:
- *
- * 1. Use createIntegrationRegistry() factory for request-scoped instances
- * 2. Pass via dependency injection: createContext(state, env, { integrationRegistry })
- * 3. Each DO instance creates its own registry automatically
- *
- * @example Request-scoped isolation (recommended)
- * ```typescript
- * // Per-request or per-context
- * const registry = createIntegrationRegistry()
- * registry.register(stripeIntegration)
- *
- * // Pass to WorkflowContext for full isolation
- * const $ = createContext(state, env, { integrationRegistry: registry })
- * ```
- *
- * @example DO instance isolation (automatic)
- * ```typescript
- * // Each DO instance has its own integrations property
- * class MyDO extends DO {
- *   async handleRequest() {
- *     // this.integrations is already per-DO isolated
- *     this.integrations.register(stripeIntegration)
- *   }
- * }
- * ```
+ * Central registry for managing third-party integrations
  */
 export class IntegrationRegistry {
   private integrations: Map<string, RegisteredIntegration> = new Map()
@@ -353,9 +318,9 @@ export class IntegrationRegistry {
       if (entry?.integration.shutdown) {
         try {
           await entry.integration.shutdown()
-        } catch (error) {
+        } catch {
           // Log error but continue shutting down others
-          console.error(`Failed to shutdown integration "${name}":`, error)
+          console.error(`Failed to shutdown integration "${name}":`)
         }
       }
     }
@@ -395,42 +360,27 @@ export class IntegrationRegistry {
 }
 
 /**
- * Factory function to create a new IntegrationRegistry instance.
- *
- * ALWAYS use this instead of a global singleton to ensure proper tenant isolation.
- * Global singletons cause state leakage between requests/tenants because:
- * - Registered integrations persist across unrelated requests
- * - Configuration from one tenant can leak to another
- * - Shutdown operations affect all tenants simultaneously
- *
- * @returns A new IntegrationRegistry instance scoped to the caller
- *
- * @example Per-request isolation
- * ```typescript
- * // Create fresh registry for each request/context
- * const registry = createIntegrationRegistry()
- * registry.register(stripeIntegration, { autoInit: true })
- * await registry.init('stripe', { apiKey: tenantSpecificKey })
- * ```
- *
- * @example Dependency injection with WorkflowContext
- * ```typescript
- * // Pass registry to WorkflowContext for full isolation
- * const registry = createIntegrationRegistry()
- * const $ = createContext(state, env, { integrationRegistry: registry })
- * ```
- *
- * @example Testing isolation
- * ```typescript
- * beforeEach(() => {
- *   // Fresh registry for each test - no cross-test contamination
- *   const registry = createIntegrationRegistry()
- *   registry.register(mockIntegration)
- * })
- * ```
+ * Global integration registry instance
  */
-export function createIntegrationRegistry(): IntegrationRegistry {
-  return new IntegrationRegistry()
+export const integrationRegistry = new IntegrationRegistry()
+
+/**
+ * Convenience function to register an integration
+ */
+export function registerIntegration<TConfig extends IntegrationConfig>(
+  integration: Integration<TConfig> | IntegrationFactory<TConfig>,
+  options?: RegisterIntegrationOptions
+): void {
+  integrationRegistry.register(integration, options)
+}
+
+/**
+ * Convenience function to get an integration
+ */
+export function getIntegration<TConfig extends IntegrationConfig = IntegrationConfig>(
+  name: string
+): Integration<TConfig> | undefined {
+  return integrationRegistry.get<TConfig>(name)
 }
 
 /**

@@ -177,78 +177,17 @@ const orders = await client.v1.customers.orders.list('customer-123')
 
 ### Error Handling
 
-The RPC layer provides typed errors that are preserved across DO boundaries:
-
 ```typescript
-import {
-  RPCError,
-  RPCErrorCode,
-  NotFoundError,
-  ValidationError,
-  AuthenticationError,
-  AuthorizationError,
-  isNotFoundError,
-  isValidationError,
-  isRPCError,
-} from '@dotdo/rpc'
-
 try {
   await client.someMethod()
 } catch (error) {
-  // Type guards for specific error handling
-  if (isNotFoundError(error)) {
-    console.error(`Resource not found: ${error.details?.resourceId}`)
-  } else if (isValidationError(error)) {
-    console.error(`Validation failed: ${error.details?.errors}`)
-  } else if (isRPCError(error)) {
-    // Handle any RPC error
-    console.error(`RPC error [${error.code}]: ${error.message}`)
+  if (error.message.includes('RPC error: 404')) {
+    console.error('Method not found')
+  } else if (error.message.includes('RPC error: 500')) {
+    console.error('Server error')
   }
 }
 ```
-
-**Built-in Error Types:**
-
-| Error Type | Code | HTTP Status | Use Case |
-|------------|------|-------------|----------|
-| `NotFoundError` | `NOT_FOUND` | 404 | Resource not found |
-| `ValidationError` | `VALIDATION_ERROR` | 400 | Invalid input |
-| `AuthenticationError` | `AUTHENTICATION_ERROR` | 401 | Auth required |
-| `AuthorizationError` | `AUTHORIZATION_ERROR` | 403 | Access denied |
-| `ConflictError` | `CONFLICT` | 409 | Resource conflict |
-| `RateLimitError` | `RATE_LIMIT` | 429 | Rate limit exceeded |
-| `TimeoutError` | `TIMEOUT` | 504 | Request timeout |
-| `NetworkError` | `NETWORK_ERROR` | 503 | Network failure |
-| `InternalError` | `INTERNAL_ERROR` | 500 | Server error |
-| `CircuitOpenError` | `CIRCUIT_OPEN` | 503 | Circuit breaker open |
-
-**Creating Errors on the Server:**
-
-```typescript
-import { NotFoundError, ValidationError } from '@dotdo/rpc'
-
-async function getUser(id: string) {
-  const user = await db.users.get(id)
-  if (!user) {
-    throw NotFoundError.forResource('User', id)
-  }
-  return user
-}
-
-async function createUser(data: UserInput) {
-  const errors = validate(data)
-  if (errors.length > 0) {
-    throw ValidationError.withErrors(errors)
-  }
-  return db.users.create(data)
-}
-```
-
-**Known Limitations:**
-
-1. **Custom error subclasses**: Custom RPCError subclasses will fall back to base RPCError when crossing boundaries. Use built-in error types with rich `details` instead.
-
-2. **Error cause chains**: The `cause` property is not serialized. Include relevant cause info in the error message or `details` field.
 
 ### Custom Timeout
 

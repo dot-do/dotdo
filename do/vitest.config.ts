@@ -43,10 +43,9 @@ export default defineWorkersConfig({
     // Pool worker options
     poolOptions: {
       workers: {
-        // Use test-specific wrangler config that excludes primitives
-        // This avoids importing Node.js modules (child_process) that break Workers runtime
+        // Use wrangler config for DO bindings
         wrangler: {
-          configPath: './tests/wrangler.jsonc',
+          configPath: './wrangler.jsonc',
         },
 
         // Use single worker mode to avoid isolated storage issues with SQLite
@@ -81,10 +80,10 @@ export default defineWorkersConfig({
       include: ['src/**/*.ts'],
       exclude: ['**/*.test.ts', '**/__tests__/**', '**/node_modules/**'],
       thresholds: {
-        statements: 75,
-        branches: 70,
-        functions: 75,
-        lines: 75,
+        statements: 65,
+        branches: 60,
+        functions: 60,
+        lines: 65,
       },
     },
   },

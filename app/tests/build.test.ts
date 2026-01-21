@@ -349,21 +349,12 @@ describe('Static Build Configuration', () => {
 })
 
 describe('Build Process (Integration)', () => {
-  /**
-   * This test runs the actual build:static command.
-   *
-   * SKIPPED BY DEFAULT because:
-   * 1. TanStack Start has known dependency issues (do-zab7.3)
-   * 2. The build takes 2+ minutes and can timeout
-   * 3. Build failures from deps should not block other tests
-   *
-   * To enable: set RUN_BUILD_TEST=true
-   */
-  it.skip('should run build:static command successfully', () => {
-    // This test is permanently skipped via it.skip
-    // Run manually with: RUN_BUILD_TEST=true npm test app/tests/build.test.ts
-    if (process.env.RUN_BUILD_TEST !== 'true') {
-      console.log('ℹ️  Skipping build test (set RUN_BUILD_TEST=true to enable)')
+  it('should run build:static command successfully', () => {
+    // This test actually runs the build command
+    // Skip in CI if not explicitly enabled
+    if (process.env.SKIP_BUILD_TEST === 'true') {
+      console.log('ℹ️  Skipping build test (SKIP_BUILD_TEST=true)')
+      expect(true).toBe(true)
       return
     }
 
@@ -378,8 +369,7 @@ describe('Build Process (Integration)', () => {
       // Verify dist directory was created
       expect(existsSync(DIST_DIR)).toBe(true)
     } catch (error) {
-      // Build failures are expected due to TanStack Start dependency issues (do-zab7.3)
-      console.warn('⚠️  Build failed:', String(error).slice(0, 200))
+      console.error('Build failed:', error)
       throw error
     }
   }, 120000) // 2 minute timeout for the test

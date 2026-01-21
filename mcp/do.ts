@@ -1,5 +1,5 @@
 // do tool - Execute code in a secure sandbox with ai-evaluate
-import { evaluate } from 'ai-evaluate/node'
+import { evaluate } from '../primitives/packages/ai-evaluate/src/node.js'
 import type { MCPTool } from './server.js'
 
 export interface DoParams {
