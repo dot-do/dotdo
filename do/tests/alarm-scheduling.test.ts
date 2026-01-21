@@ -474,4 +474,149 @@ describe('Alarm-based scheduling (do-eo4t)', () => {
       expect(result).toBe(true)
     })
   })
+
+  describe('initial alarm scheduling (do-7td2u.1)', () => {
+    it('should automatically set alarm when $.every.day.at("6pm") is registered', async () => {
+      const stub = getTestDO()
+
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as any).$
+        const state = (instance as any).state as DurableObjectState
+
+        // Register a schedule - this should automatically trigger alarm scheduling
+        $.every.day.at('6pm')(async () => {})
+
+        // Wait a tick for the async alarm scheduling to complete
+        await new Promise(resolve => setTimeout(resolve, 10))
+
+        // Check if alarm was set without calling alarm()
+        const alarmTime = await state.storage.getAlarm()
+
+        return {
+          alarmSet: alarmTime !== null,
+          alarmInFuture: alarmTime !== null && alarmTime > Date.now(),
+        }
+      })
+
+      expect(result.alarmSet).toBe(true)
+      expect(result.alarmInFuture).toBe(true)
+    })
+
+    it('should automatically set alarm when $.every.hour is registered', async () => {
+      const stub = getTestDO()
+
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as any).$
+        const state = (instance as any).state as DurableObjectState
+
+        // Register a schedule - this should automatically trigger alarm scheduling
+        $.every.hour(async () => {})
+
+        // Wait a tick for the async alarm scheduling to complete
+        await new Promise(resolve => setTimeout(resolve, 10))
+
+        // Check if alarm was set without calling alarm()
+        const alarmTime = await state.storage.getAlarm()
+
+        return {
+          alarmSet: alarmTime !== null,
+          alarmInFuture: alarmTime !== null && alarmTime > Date.now(),
+          alarmWithinHour: alarmTime !== null && alarmTime <= Date.now() + 60 * 60 * 1000 + 1000,
+        }
+      })
+
+      expect(result.alarmSet).toBe(true)
+      expect(result.alarmInFuture).toBe(true)
+      expect(result.alarmWithinHour).toBe(true)
+    })
+
+    it('should automatically set alarm when $.every(5).minutes is registered', async () => {
+      const stub = getTestDO()
+
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as any).$
+        const state = (instance as any).state as DurableObjectState
+
+        // Register a schedule - this should automatically trigger alarm scheduling
+        $.every(5).minutes(async () => {})
+
+        // Wait a tick for the async alarm scheduling to complete
+        await new Promise(resolve => setTimeout(resolve, 10))
+
+        // Check if alarm was set without calling alarm()
+        const alarmTime = await state.storage.getAlarm()
+        const now = Date.now()
+
+        return {
+          alarmSet: alarmTime !== null,
+          alarmInFuture: alarmTime !== null && alarmTime > now,
+          alarmWithin5Minutes: alarmTime !== null && alarmTime <= now + 5 * 60 * 1000 + 1000,
+        }
+      })
+
+      expect(result.alarmSet).toBe(true)
+      expect(result.alarmInFuture).toBe(true)
+      expect(result.alarmWithin5Minutes).toBe(true)
+    })
+
+    it('should automatically set alarm when $.every.Monday.at9am is registered', async () => {
+      const stub = getTestDO()
+
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as any).$
+        const state = (instance as any).state as DurableObjectState
+
+        // Register a schedule - this should automatically trigger alarm scheduling
+        $.every.Monday.at9am(async () => {})
+
+        // Wait a tick for the async alarm scheduling to complete
+        await new Promise(resolve => setTimeout(resolve, 10))
+
+        // Check if alarm was set without calling alarm()
+        const alarmTime = await state.storage.getAlarm()
+        const now = Date.now()
+
+        return {
+          alarmSet: alarmTime !== null,
+          alarmInFuture: alarmTime !== null && alarmTime > now,
+          // Should be scheduled within the next week
+          alarmWithinWeek: alarmTime !== null && alarmTime <= now + 7 * 24 * 60 * 60 * 1000 + 1000,
+        }
+      })
+
+      expect(result.alarmSet).toBe(true)
+      expect(result.alarmInFuture).toBe(true)
+      expect(result.alarmWithinWeek).toBe(true)
+    })
+
+    it('should update alarm time when additional schedules are registered', async () => {
+      const stub = getTestDO()
+
+      const result = await runInDurableObject(stub, async (instance: DO) => {
+        const $ = (instance as any).$
+        const state = (instance as any).state as DurableObjectState
+
+        // Register a daily schedule
+        $.every.day(async () => {})
+        await new Promise(resolve => setTimeout(resolve, 10))
+        const firstAlarm = await state.storage.getAlarm()
+
+        // Register a more frequent schedule (every hour)
+        $.every.hour(async () => {})
+        await new Promise(resolve => setTimeout(resolve, 10))
+        const secondAlarm = await state.storage.getAlarm()
+
+        return {
+          firstAlarmSet: firstAlarm !== null,
+          secondAlarmSet: secondAlarm !== null,
+          // The alarm should have been updated to the earlier time (hourly is sooner than daily)
+          alarmUpdated: secondAlarm !== null && firstAlarm !== null && secondAlarm <= firstAlarm,
+        }
+      })
+
+      expect(result.firstAlarmSet).toBe(true)
+      expect(result.secondAlarmSet).toBe(true)
+      expect(result.alarmUpdated).toBe(true)
+    })
+  })
 })

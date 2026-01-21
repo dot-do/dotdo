@@ -254,6 +254,17 @@ function combineWithTime(baseCron: string, time: { hour: number; minute: number 
 }
 
 /**
+ * Options for creating an EveryProxy
+ */
+export interface CreateEveryProxyOptions {
+  /**
+   * Callback invoked when a schedule is registered.
+   * Used to trigger alarm scheduling when schedules are added.
+   */
+  onScheduleRegistered?: (scheduleId: string, registration: ScheduleRegistration) => void
+}
+
+/**
  * Create the scheduling DSL proxy
  *
  * This creates a fluent API for scheduling that supports patterns like:
@@ -264,12 +275,17 @@ function combineWithTime(baseCron: string, time: { hour: number; minute: number 
  * - $.every.week.on.Friday.at('3pm')(handler)
  *
  * @param schedules - Schedule registry map
+ * @param options - Optional configuration including onScheduleRegistered callback
  * @returns EveryProxy for registering schedules
  *
  * @example
  * ```ts
  * const schedules = new Map()
- * const every = createEveryProxy(schedules)
+ * const every = createEveryProxy(schedules, {
+ *   onScheduleRegistered: (id, reg) => {
+ *     console.log(`Registered schedule ${id}: ${reg.interval.natural}`)
+ *   }
+ * })
  *
  * every.Monday.at9am(async () => {
  *   console.log('Monday 9am task')
@@ -285,8 +301,23 @@ function combineWithTime(baseCron: string, time: { hour: number; minute: number 
  * ```
  */
 export function createEveryProxy(
-  schedules: Map<string, ScheduleRegistration>
+  schedules: Map<string, ScheduleRegistration>,
+  options?: CreateEveryProxyOptions
 ): EveryProxy {
+  const onScheduleRegistered = options?.onScheduleRegistered
+
+  /**
+   * Helper function to register a schedule and invoke the callback
+   */
+  function registerSchedule(registration: ScheduleRegistration): void {
+    const id = `schedule-${schedules.size}`
+    schedules.set(id, registration)
+    // Invoke callback to trigger alarm scheduling
+    if (onScheduleRegistered) {
+      onScheduleRegistered(id, registration)
+    }
+  }
+
   /**
    * Builder state for chaining
    */
@@ -315,8 +346,7 @@ export function createEveryProxy(
         const natural = [...state.path, `at(${arg})`].join('.')
 
         return (handler: ScheduleHandler): void => {
-          const id = `schedule-${schedules.size}`
-          schedules.set(id, {
+          registerSchedule({
             interval: { type: 'cron', expression: cron, natural },
             handler,
             source: handler.toString(),
@@ -327,10 +357,9 @@ export function createEveryProxy(
       // If called as a handler: $.every.hour(handler)
       if (typeof arg === 'function') {
         const handler = arg as ScheduleHandler
-        const id = `schedule-${schedules.size}`
         const natural = state.path.join('.')
 
-        schedules.set(id, {
+        registerSchedule({
           interval: { type: 'cron', expression: state.baseCron!, natural },
           handler,
           source: handler.toString(),
@@ -347,8 +376,7 @@ export function createEveryProxy(
           const natural = [...state.path, prop].join('.')
 
           return (handler: ScheduleHandler): void => {
-            const id = `schedule-${schedules.size}`
-            schedules.set(id, {
+            registerSchedule({
               interval: { type: 'cron', expression: cron, natural },
               handler,
               source: handler.toString(),
@@ -364,8 +392,7 @@ export function createEveryProxy(
             const natural = [...state.path, `at(${timeStr})`].join('.')
 
             return (handler: ScheduleHandler): void => {
-              const id = `schedule-${schedules.size}`
-              schedules.set(id, {
+              registerSchedule({
                 interval: { type: 'cron', expression: cron, natural },
                 handler,
                 source: handler.toString(),
@@ -431,8 +458,7 @@ export function createEveryProxy(
           const natural = `${value} ${prop}`
 
           return (handler: ScheduleHandler): void => {
-            const id = `schedule-${schedules.size}`
-            schedules.set(id, {
+            registerSchedule({
               interval: { type: intervalType, value, natural },
               handler,
               source: handler.toString(),

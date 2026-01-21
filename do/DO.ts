@@ -21,9 +21,9 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { createContext, type WorkflowContext } from './context'
-import type { ThingsStore, EventsStore, RelationshipsStore, AuditLogStore, AuditContext, QueryBuilder } from '../db'
+import type { ThingsStore, EventsStore, RelationshipsStore, AuditLogStore, AuditContext, QueryBuilder } from '@dotdo/db'
 import { IntegrationRegistry } from '@dotdo/integrations'
-import { createLogger } from '../utils/logger'
+import { createScopedLogger, LogLevel } from '@dotdo/utils'
 
 // Import handlers for composition
 import { StorageHandler } from './handlers/storage'
@@ -54,7 +54,7 @@ import {
 import {
   createDOObservability,
   extractDOContextFromHeaders,
-} from '../observability'
+} from '@dotdo/observability'
 
 // Import configuration types from dedicated module
 import type {
@@ -70,7 +70,7 @@ import type {
 // Re-export types for public API compatibility
 export type { EvalOptions, EvalLogEntry, EvalResult, DOEnv, CORSOptions, DOMetricsConfig, DOOptions }
 
-const logger = createLogger('[DO]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[DO]' })
 
 /**
  * The base DO class - THE Durable Object for Digital Objects.
@@ -136,7 +136,16 @@ export class DO implements DurableObject {
     this._integrations = new IntegrationRegistry()
 
     // Initialize WorkflowContext ($) for event handlers, scheduling, and cross-DO RPC
-    this.$ = createContext(state, env)
+    // Pass onScheduleRegistered callback to trigger alarm scheduling when schedules are registered (do-7td2u.1)
+    this.$ = createContext(state, env, {
+      onScheduleRegistered: () => {
+        // Schedule the next alarm when a schedule is registered
+        // This runs asynchronously to avoid blocking the constructor
+        this.alarmHandler.scheduleNextAlarm(this.$._schedules).catch((err) => {
+          logger.error('Failed to schedule initial alarm:', err)
+        })
+      },
+    })
 
     // Setup CORS middleware with validation
     this.setupCORS(options.cors)

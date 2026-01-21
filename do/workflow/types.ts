@@ -203,6 +203,12 @@ export interface PrimitivesConfig {
 }
 
 /**
+ * Callback function invoked when a schedule is registered via $.every DSL.
+ * Used by DO to trigger initial alarm scheduling.
+ */
+export type OnScheduleRegisteredCallback = (scheduleId: string, registration: unknown) => void
+
+/**
  * Options for creating a WorkflowContext
  */
 export interface CreateContextOptions extends PrimitivesConfig {
@@ -250,6 +256,21 @@ export interface CreateContextOptions extends PrimitivesConfig {
    * This should be the DurableObjectState.storage.sql instance.
    */
   sql?: SqlStorage
+
+  /**
+   * Callback invoked when a schedule is registered via $.every DSL.
+   * Used by DO to trigger initial alarm scheduling (do-7td2u.1).
+   *
+   * @example
+   * ```ts
+   * const $ = createContext(state, env, {
+   *   onScheduleRegistered: (id, registration) => {
+   *     alarmHandler.scheduleNextAlarm(schedules)
+   *   }
+   * })
+   * ```
+   */
+  onScheduleRegistered?: OnScheduleRegisteredCallback
 }
 
 /**

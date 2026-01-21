@@ -23,7 +23,7 @@ import {
   type FireAndForgetErrorStore,
 } from '../fire-and-forget-errors'
 import { IntegrationRegistry } from '@dotdo/integrations'
-import { createLogger } from '@dotdo/utils'
+import { createScopedLogger, LogLevel } from '@dotdo/utils'
 import {
   runWithWorkflowContextSync,
   getContextMetadata,
@@ -58,7 +58,7 @@ import type {
 } from './types'
 import type { EventHandler } from './events'
 
-const logger = createLogger('[WorkflowContext]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[WorkflowContext]' })
 
 // Import ScheduleRegistration for internal use
 import type { ScheduleRegistration } from './schedule'
@@ -398,8 +398,10 @@ function createBaseContext(
     // Event handlers - Proxy-based
     on: createOnProxy(handlers),
 
-    // Scheduling DSL
-    every: createEveryProxy(schedules),
+    // Scheduling DSL - with callback for alarm scheduling (do-7td2u.1)
+    every: createEveryProxy(schedules, {
+      onScheduleRegistered: options?.onScheduleRegistered,
+    }),
 
     // Integration registry for third-party services
     integrations,
