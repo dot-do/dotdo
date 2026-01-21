@@ -2,7 +2,7 @@
 // Provides typed RPC between DOs with stub caching and connection pooling
 // Integrates with observability context for automatic correlation ID propagation
 
-import { RPCError, RPCErrorCode, isSerializedError, deserializeError, TransportError } from './errors'
+import { RPCError, RPCErrorCode, isSerializedError, deserializeError, TransportError, NotFoundError, ValidationError } from './errors'
 import { generateCorrelationId, CORRELATION_ID_HEADER, DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER } from './headers'
 
 // Re-export for convenience
@@ -359,7 +359,7 @@ export class CrossDOContext {
     const binding = this.env[namespace]
 
     if (!binding) {
-      throw new Error(`DO namespace not found: ${namespace}`)
+      throw NotFoundError.forResource('DONamespace', namespace)
     }
 
     const cache = this.cache
@@ -388,7 +388,7 @@ export class CrossDOContext {
               // Access the method using keyof T - client is typed as T
               const methodFn = client[method]
               if (typeof methodFn !== 'function') {
-                throw new Error(`Method ${String(method)} is not a function`)
+                throw ValidationError.forField('method', `${String(method)} is not a function`)
               }
               // Cast to callable function type for proper invocation
               return (methodFn as (...args: unknown[]) => Promise<unknown>)(...args)

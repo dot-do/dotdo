@@ -2,7 +2,7 @@
 // Uses TypeScript utility types to infer methods, parameters, and return types from DO classes
 
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
-import { deserializeError, isRPCError, type SerializedError } from './errors'
+import { deserializeError, isRPCError, InternalError, type SerializedError } from './errors'
 import type {
   RPCClient,
   RPCClientWithOptions,
@@ -65,8 +65,8 @@ async function invokeViaStub(
           throw e
         }
       }
-      // Fallback to generic error
-      throw new Error(`DO RPC error: ${response.status} [${responseCorrelationId}]`)
+      // Fallback to typed error with correlation context
+      throw new InternalError(`DO RPC error: ${response.status}`, { correlationId: responseCorrelationId })
     }
 
     return response.json()
@@ -115,8 +115,8 @@ async function invokeViaFetch(
         throw e
       }
     }
-    // Fallback to generic error
-    throw new Error(`RPC error: ${response.status} [${responseCorrelationId}]`)
+    // Fallback to typed error with correlation context
+    throw new InternalError(`RPC error: ${response.status}`, { correlationId: responseCorrelationId })
   }
 
   return response.json()

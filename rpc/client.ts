@@ -3,14 +3,14 @@
 // Supports pluggable transports for different communication backends
 // Includes Cap'n Proto-style promise pipelining for efficient RPC chaining
 //
-// This module uses shared proxy utilities from @dotdo/do/utils/proxy for
+// This module uses shared proxy utilities from @dotdo/utils for
 // common patterns like deep nested RPC proxies.
 
-import { deserializeError, isRPCError, TransportError, type SerializedError } from './errors'
+import { deserializeError, isRPCError, TransportError, InternalError, type SerializedError } from './errors'
 import type { Transport, RPCMessage, RPCResponse } from './transport/types'
 import { PipelineBuilder, type PipelineRequest, type PipelineResponse } from './pipeline'
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
-import { createDeepRPCProxy, PROMISE_PROPS } from '../do/utils/proxy'
+import { createDeepRPCProxy, PROMISE_PROPS } from '@dotdo/utils'
 
 // Re-export for backward compatibility
 export { generateCorrelationId, CORRELATION_ID_HEADER }
@@ -44,8 +44,8 @@ async function handleErrorResponse(
         throw e
       }
     }
-    // Fallback to generic error
-    throw new Error(`${errorPrefix}: ${response.status} [${responseCorrelationId}]`)
+    // Fallback to typed error with correlation context
+    throw new InternalError(`${errorPrefix}: ${response.status}`, { correlationId: responseCorrelationId })
   }
 }
 

@@ -23,6 +23,8 @@
  * ```
  */
 
+import { NotFoundError } from '../rpc/errors'
+
 /**
  * Generic DurableObjectNamespace type that works with any type parameter.
  * This ensures compatibility with both typed and untyped DO namespaces.
@@ -144,7 +146,7 @@ export function createBindingAccessor<T extends DOBindingConstraint>(
     get<K extends BindingNames<T>>(name: K): T[K] {
       const binding = env[name]
       if (!binding) {
-        throw new Error(`Durable Object binding "${name}" not found in environment`)
+        throw NotFoundError.forResource('DOBinding', name)
       }
       return binding
     },
@@ -208,7 +210,7 @@ export function getBinding<
 >(name: K, env: T): T[K] {
   const binding = env[name]
   if (!binding) {
-    throw new Error(`Durable Object binding "${name}" not found in environment`)
+    throw NotFoundError.forResource('DOBinding', name)
   }
   return binding
 }
@@ -237,7 +239,7 @@ export function getStub<
 >(name: K, id: string | DurableObjectId, env: T): DurableObjectStub<undefined> {
   const namespace = env[name] as DurableObjectNamespace<undefined>
   if (!namespace) {
-    throw new Error(`Durable Object binding "${name}" not found in environment`)
+    throw NotFoundError.forResource('DOBinding', name)
   }
   const doId = typeof id === 'string' ? namespace.idFromName(id) : id
   return namespace.get(doId)

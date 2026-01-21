@@ -427,6 +427,66 @@ class CustomError extends Error {
 // isRetryableError checks this property first
 ```
 
+## When to Use Plain Error vs Typed Error
+
+### Use Typed Errors (Preferred)
+
+Use typed errors from `@dotdo/rpc` or `@dotdo/db` for all errors that:
+
+1. **Cross package/module boundaries** - Any error that might propagate outside the current module
+2. **Are user-facing** - Errors returned in API responses
+3. **Need retry handling** - Errors where retryability matters
+4. **Need HTTP status mapping** - Errors translated to HTTP responses
+5. **Represent domain conditions** - Not found, validation, auth errors
+
+```typescript
+// Good: Typed errors for cross-boundary operations
+import { NotFoundError, ValidationError } from '@dotdo/rpc'
+
+throw NotFoundError.forResource('Customer', customerId)
+throw ValidationError.forField('email', 'must be a valid email address')
+```
+
+### Acceptable Use of Plain Error
+
+Plain `throw new Error(...)` is acceptable ONLY for:
+
+1. **Internal invariant violations** - Programming errors that should never happen in production
+2. **Configuration errors at startup** - Environment setup failures before the app is running
+3. **Test code** - Simulating failures in test scenarios
+
+```typescript
+// Acceptable: Internal invariant (programming error)
+if (!this.state) {
+  throw new Error('AlarmHandler: state not set. Call setState() first.')
+}
+
+// Acceptable: Configuration error at startup
+if (secret.length < 32) {
+  throw new Error('DO_INTERNAL_SECRET must be at least 32 characters')
+}
+
+// Should be converted: Cross-boundary error
+// Bad:
+throw new Error(`DO namespace not found: ${namespace}`)
+// Good:
+throw NotFoundError.forResource('DONamespace', namespace)
+```
+
+### Migration Guide
+
+When converting plain errors to typed errors:
+
+| Plain Error Pattern | Typed Error Replacement |
+|---------------------|-------------------------|
+| `throw new Error('Not found')` | `throw NotFoundError.forResource(type, id)` |
+| `throw new Error('Invalid input')` | `throw ValidationError.forField(field, constraint)` |
+| `throw new Error('Unauthorized')` | `throw AuthenticationError.missingToken()` |
+| `throw new Error('Access denied')` | `throw AuthorizationError.insufficientPermissions(action, resource)` |
+| `throw new Error('Already exists')` | `throw ConflictError.resourceExists(type, field, value)` |
+| `throw new Error('Timeout')` | `throw TimeoutError.afterMs(timeout)` |
+| `throw new Error('Network error')` | `throw NetworkError.connectionRefused(host, port)` |
+
 ## Best Practices
 
 ### 1. Use Typed Errors
