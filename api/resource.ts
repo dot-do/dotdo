@@ -528,40 +528,221 @@ function generateRoutes(
   return routes
 }
 
-// Global Resource Registry
-const resourceRegistry: Map<string, ResourceDefinition<StorableData>> = new Map()
+// ============================================================================
+// Request-Scoped Resource Context (do-73qn)
+// ============================================================================
+// The global registry pattern causes state leakage between requests/tenants.
+// This module provides request-scoped contexts for proper isolation.
 
 /**
- * Register a resource in the global registry.
+ * Minimal AsyncLocalStorage interface for type safety.
+ * Compatible with Node.js AsyncLocalStorage and Cloudflare Workers.
+ */
+interface AsyncLocalStorageInterface<T> {
+  run<R>(store: T, callback: () => R): R
+  getStore(): T | undefined
+}
+
+/**
+ * AsyncLocalStorage instance for resource context - lazily initialized.
+ */
+let resourceContextALS: AsyncLocalStorageInterface<Map<string, ResourceDefinition<StorableData>>> | null = null
+
+/**
+ * Initialize the AsyncLocalStorage lazily to avoid issues in environments without it.
+ * Uses a stack-based fallback for non-ALS environments.
+ */
+function getResourceContextALS(): AsyncLocalStorageInterface<Map<string, ResourceDefinition<StorableData>>> {
+  if (!resourceContextALS) {
+    try {
+      // Try to use globalThis.AsyncLocalStorage (available in Node.js and Cloudflare Workers)
+      const ALS = (globalThis as { AsyncLocalStorage?: new <T>() => AsyncLocalStorageInterface<T> }).AsyncLocalStorage
+
+      if (typeof ALS === 'function') {
+        resourceContextALS = new ALS<Map<string, ResourceDefinition<StorableData>>>()
+      } else {
+        throw new Error('AsyncLocalStorage not available')
+      }
+    } catch {
+      // Fallback: Simple stack-based implementation for non-ALS environments
+      const contextStack: Map<string, ResourceDefinition<StorableData>>[] = []
+
+      resourceContextALS = {
+        run<R>(store: Map<string, ResourceDefinition<StorableData>>, callback: () => R): R {
+          contextStack.push(store)
+
+          try {
+            const result = callback()
+
+            // Handle promises
+            const isPromiseLike = (val: unknown): val is PromiseLike<unknown> =>
+              val !== null &&
+              typeof val === 'object' &&
+              typeof (val as PromiseLike<unknown>).then === 'function'
+
+            if (isPromiseLike(result)) {
+              const resultPromise = Promise.resolve(result).finally(() => {
+                contextStack.pop()
+              })
+              return resultPromise as unknown as R
+            }
+
+            contextStack.pop()
+            return result
+          } catch (error) {
+            contextStack.pop()
+            throw error
+          }
+        },
+        getStore(): Map<string, ResourceDefinition<StorableData>> | undefined {
+          return contextStack[contextStack.length - 1]
+        },
+      }
+    }
+  }
+  return resourceContextALS
+}
+
+/**
+ * Run a function with a resource registry scoped to this request.
+ *
+ * Resources defined within the context are isolated from other requests,
+ * preventing tenant data leakage in multi-tenant environments.
+ *
+ * @param fn - The async function to run with the scoped registry
+ * @returns The result of the function
+ *
+ * @example
+ * ```ts
+ * // In middleware - ensures tenant isolation
+ * app.use(async (c, next) => {
+ *   await runWithResourceContext(async () => {
+ *     await next()
+ *   })
+ * })
+ *
+ * // In handler - resources are isolated per request
+ * await runWithResourceContext(async () => {
+ *   const Customer = defineResource('Customer')
+ *     .fields({ name: { type: 'string' } })
+ *     .build()
+ *
+ *   // This Customer is only visible within this context
+ * })
+ * ```
+ */
+export function runWithResourceContext<T>(fn: () => T | Promise<T>): T | Promise<T> {
+  const als = getResourceContextALS()
+  return als.run(new Map(), fn)
+}
+
+/**
+ * Get the current resource context from the request scope.
+ * Returns undefined if not running within runWithResourceContext().
+ *
+ * @returns The current context Map or undefined
+ */
+export function getCurrentResourceContext(): Map<string, ResourceDefinition<StorableData>> | undefined {
+  if (!resourceContextALS) {
+    return undefined
+  }
+  return resourceContextALS.getStore()
+}
+
+/**
+ * Get the active resource registry - context-scoped if available, otherwise global.
+ *
+ * When running within runWithResourceContext(), returns the request-scoped registry.
+ * When running outside a context, falls back to the global registry (deprecated behavior).
+ *
+ * @returns The active resource registry Map
+ * @internal
+ */
+function getActiveRegistry(): Map<string, ResourceDefinition<StorableData>> {
+  const contextStore = resourceContextALS?.getStore()
+  return contextStore ?? globalResourceRegistry
+}
+
+// ============================================================================
+// Global Resource Registry (DEPRECATED - do-73qn)
+// ============================================================================
+// DEPRECATED: The global registry pattern causes state leakage between
+// requests/tenants. Use runWithResourceContext() for proper isolation.
+//
+// Migration guide:
+// 1. Wrap request handlers with runWithResourceContext()
+// 2. Resources defined within the context are automatically isolated
+// 3. Use getResource() and getAllResources() as before - they now
+//    respect the context when available
+//
+// Example migration:
+//   // Before (leaky global state)
+//   defineResource('Customer').fields({...}).build()
+//
+//   // After (isolated per request)
+//   await runWithResourceContext(async () => {
+//     defineResource('Customer').fields({...}).build()
+//   })
+
+/**
+ * @deprecated Global registry causes tenant state leakage. Use runWithResourceContext() instead.
+ * @internal
+ */
+const globalResourceRegistry: Map<string, ResourceDefinition<StorableData>> = new Map()
+
+/**
+ * Register a resource in the active registry (context-scoped or global).
  * @internal
  */
 function registerResource<T extends StorableData>(name: string, definition: ResourceDefinition<T>): void {
-  resourceRegistry.set(name, definition as unknown as ResourceDefinition<StorableData>)
+  getActiveRegistry().set(name, definition as unknown as ResourceDefinition<StorableData>)
 }
 
 /**
  * Get a resource definition by name.
+ *
+ * When running within runWithResourceContext(), only returns resources from that context.
+ * When running outside a context, returns resources from the global registry.
+ *
  * @param name - The resource name
  * @returns The resource definition or undefined
  */
 export function getResource(name: string): ResourceDefinition<StorableData> | undefined {
-  return resourceRegistry.get(name)
+  return getActiveRegistry().get(name)
 }
 
 /**
  * Get all registered resource definitions.
+ *
+ * When running within runWithResourceContext(), only returns resources from that context.
+ * When running outside a context, returns resources from the global registry.
+ *
  * @returns Record of resource name to definition
  */
 export function getAllResources(): Record<string, ResourceDefinition<StorableData>> {
-  return Object.fromEntries(resourceRegistry.entries())
+  return Object.fromEntries(getActiveRegistry().entries())
 }
 
 /**
- * Clear all registered resources.
- * Useful for testing or reloading configurations.
+ * Clear the active resource registry.
+ *
+ * When running within runWithResourceContext(), clears the context registry.
+ * When running outside a context, clears the global registry.
+ *
+ * @deprecated Use runWithResourceContext() instead - contexts auto-clear when they exit.
  */
 export function clearRegistry(): void {
-  resourceRegistry.clear()
+  getActiveRegistry().clear()
+}
+
+/**
+ * Clear the global resource registry.
+ * Useful for testing to reset global state between tests.
+ *
+ * @deprecated Global registry is deprecated. Use runWithResourceContext() for proper isolation.
+ */
+export function clearGlobalRegistry(): void {
+  globalResourceRegistry.clear()
 }
 
 /**

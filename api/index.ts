@@ -46,6 +46,10 @@ export {
   getResource,
   getAllResources,
   clearRegistry,
+  // Request-scoped resource context (do-73qn)
+  runWithResourceContext,
+  getCurrentResourceContext,
+  clearGlobalRegistry,
   type ResourceDefinition,
   type ResourceFields,
   type FieldDef,
