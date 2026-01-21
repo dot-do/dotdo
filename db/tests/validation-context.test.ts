@@ -9,6 +9,8 @@ import {
   DEFAULT_VALIDATION_CONFIG,
 } from '../validation'
 import { DbValidationError } from '../errors'
+import { createThingsStoreWithContext } from '../things'
+import { MemoryStorageAdapter } from '../adapters'
 
 describe('Context-based Validation', () => {
   describe('createValidationContext', () => {
@@ -247,6 +249,166 @@ describe('Context-based validation integration', () => {
 
       expect(childCtx.config.maxStringLength).toBe(50) // Overridden
       expect(childCtx.config.maxObjectDepth).toBe(5) // Inherited
+    })
+  })
+})
+
+describe('ThingsStore with ValidationContext', () => {
+  describe('createThingsStoreWithContext', () => {
+    it('should create store with explicit validation context', async () => {
+      const adapter = new MemoryStorageAdapter()
+      const ctx = createValidationContext({ maxStringLength: 50 })
+      const store = createThingsStoreWithContext(adapter, ctx)
+
+      // Should accept short strings
+      const thing = await store.create({ $type: 'Test', name: 'short' })
+      expect(thing.name).toBe('short')
+
+      // Should reject long strings based on context config
+      await expect(
+        store.create({ $type: 'Test', name: 'a'.repeat(51) })
+      ).rejects.toThrow(DbValidationError)
+    })
+
+    it('should isolate validation config between stores', async () => {
+      const adapter1 = new MemoryStorageAdapter()
+      const adapter2 = new MemoryStorageAdapter()
+
+      const strictCtx = createValidationContext({ maxStringLength: 10 })
+      const lenientCtx = createValidationContext({ maxStringLength: 1000 })
+
+      const strictStore = createThingsStoreWithContext(adapter1, strictCtx)
+      const lenientStore = createThingsStoreWithContext(adapter2, lenientCtx)
+
+      const mediumString = 'a'.repeat(50)
+
+      // Strict store rejects
+      await expect(
+        strictStore.create({ $type: 'Test', value: mediumString })
+      ).rejects.toThrow(DbValidationError)
+
+      // Lenient store accepts
+      const thing = await lenientStore.create({ $type: 'Test', value: mediumString })
+      expect(thing.value).toBe(mediumString)
+    })
+
+    it('should use default config when no context provided', async () => {
+      const adapter = new MemoryStorageAdapter()
+      const store = createThingsStoreWithContext(adapter)
+
+      // Default maxStringLength is 10000, so this should work
+      const thing = await store.create({
+        $type: 'Test',
+        longString: 'a'.repeat(5000)
+      })
+      expect(thing.longString).toHaveLength(5000)
+    })
+  })
+
+  describe('Test isolation (no global state leaks)', () => {
+    it('should not be affected by other test configurations - test A', async () => {
+      const adapter = new MemoryStorageAdapter()
+      // This test uses strict config
+      const ctx = createValidationContext({ maxStringLength: 10 })
+      const store = createThingsStoreWithContext(adapter, ctx)
+
+      await expect(
+        store.create({ $type: 'Test', value: 'a'.repeat(20) })
+      ).rejects.toThrow(DbValidationError)
+    })
+
+    it('should not be affected by other test configurations - test B', async () => {
+      const adapter = new MemoryStorageAdapter()
+      // This test uses lenient config - should not be affected by test A
+      const ctx = createValidationContext({ maxStringLength: 100 })
+      const store = createThingsStoreWithContext(adapter, ctx)
+
+      // This should work despite test A having stricter limits
+      const thing = await store.create({ $type: 'Test', value: 'a'.repeat(20) })
+      expect(thing.value).toHaveLength(20)
+    })
+
+    it('should support concurrent stores with different configs', async () => {
+      // Simulate concurrent requests to different DOs
+      const adapter1 = new MemoryStorageAdapter()
+      const adapter2 = new MemoryStorageAdapter()
+
+      const store1 = createThingsStoreWithContext(
+        adapter1,
+        createValidationContext({ maxStringLength: 10 })
+      )
+      const store2 = createThingsStoreWithContext(
+        adapter2,
+        createValidationContext({ maxStringLength: 100 })
+      )
+
+      // Run operations concurrently
+      const results = await Promise.allSettled([
+        store1.create({ $type: 'Test', value: 'a'.repeat(20) }), // Should fail
+        store2.create({ $type: 'Test', value: 'a'.repeat(20) }), // Should succeed
+      ])
+
+      expect(results[0].status).toBe('rejected')
+      expect(results[1].status).toBe('fulfilled')
+      if (results[1].status === 'fulfilled') {
+        expect(results[1].value.value).toHaveLength(20)
+      }
+    })
+  })
+
+  describe('Context-based validation for all operations', () => {
+    it('should use context for update validation', async () => {
+      const adapter = new MemoryStorageAdapter()
+      const ctx = createValidationContext({ maxStringLength: 20 })
+      const store = createThingsStoreWithContext(adapter, ctx)
+
+      // Create with short name
+      const thing = await store.create({ $type: 'Test', name: 'short' })
+
+      // Update with long name should fail based on context
+      await expect(
+        store.update(thing.$id, { name: 'a'.repeat(25) })
+      ).rejects.toThrow(DbValidationError)
+
+      // Update with acceptable name should succeed
+      const updated = await store.update(thing.$id, { name: 'a'.repeat(15) })
+      expect(updated.name).toHaveLength(15)
+    })
+
+    it('should use context for bulk operations', async () => {
+      const adapter = new MemoryStorageAdapter()
+      const ctx = createValidationContext({ maxStringLength: 20 })
+      const store = createThingsStoreWithContext(adapter, ctx)
+
+      // Bulk create should fail if any item exceeds context limits
+      await expect(
+        store.bulkCreate([
+          { $type: 'Test', name: 'ok' },
+          { $type: 'Test', name: 'a'.repeat(25) }, // Too long
+        ])
+      ).rejects.toThrow(DbValidationError)
+
+      // Nothing should be created (atomic behavior)
+      const all = await store.list({ type: 'Test' })
+      expect(all).toHaveLength(0)
+    })
+
+    it('should use context for strict ID validation', async () => {
+      const adapter = new MemoryStorageAdapter()
+      const ctx = createValidationContext({ strictIdValidation: true })
+      const store = createThingsStoreWithContext(adapter, ctx)
+
+      // Create a thing first
+      const thing = await store.create({ $type: 'Test', name: 'test' })
+
+      // Getting with valid ThingId format should work
+      const retrieved = await store.get(thing.$id)
+      expect(retrieved?.$id).toBe(thing.$id)
+
+      // Getting with invalid ID format should fail with strict validation
+      await expect(
+        store.get('invalid_format_id')
+      ).rejects.toThrow(DbValidationError)
     })
   })
 })

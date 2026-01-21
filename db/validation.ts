@@ -43,18 +43,8 @@ export interface ValidationConfig {
   strictIdValidation?: boolean
 }
 
-const DEFAULT_CONFIG: Required<ValidationConfig> = {
-  maxStringLength: DEFAULT_MAX_STRING_LENGTH,
-  maxObjectDepth: DEFAULT_MAX_OBJECT_DEPTH,
-  maxObjectKeys: DEFAULT_MAX_OBJECT_KEYS,
-  maxArrayLength: DEFAULT_MAX_ARRAY_LENGTH,
-  strictIdValidation: false
-}
-
-let validationConfig: ValidationConfig = {}
-
-// Track if deprecation warning has been shown to avoid spam
-let _deprecationWarningShown = false
+// Track if deprecation warning has been shown to avoid spam (per function)
+const _deprecationWarningsShown = new Set<string>()
 
 // Check if we're in a test environment (works in both Node.js and workers)
 function isTestEnvironment(): boolean {
@@ -71,13 +61,13 @@ function isTestEnvironment(): boolean {
 }
 
 function showDeprecationWarning(functionName: string): void {
-  if (!_deprecationWarningShown && typeof console !== 'undefined' && !isTestEnvironment()) {
+  if (!_deprecationWarningsShown.has(functionName) && typeof console !== 'undefined' && !isTestEnvironment()) {
     console.warn(
       `[DEPRECATION] ${functionName}() is deprecated. ` +
       `Use createValidationContext() for context-based validation instead. ` +
       `Global validation config will be removed in v4.0.0.`
     )
-    _deprecationWarningShown = true
+    _deprecationWarningsShown.add(functionName)
   }
 }
 
@@ -85,37 +75,38 @@ function showDeprecationWarning(functionName: string): void {
  * Configure global validation settings
  *
  * @deprecated Use createValidationContext() for context-based validation instead.
- * Global validation config causes test isolation issues and will be removed in v4.0.0.
+ * This function is now a no-op. Global validation config has been removed.
+ * All validation now uses context-based approach.
  */
-export function configureValidation(config: ValidationConfig): void {
+export function configureValidation(_config: ValidationConfig): void {
   showDeprecationWarning('configureValidation')
-  validationConfig = { ...validationConfig, ...config }
+  // No-op: Global config has been removed in favor of context-based validation
+  // This function exists only for backward compatibility during migration
 }
 
 /**
  * Get current validation configuration
  *
  * @deprecated Use createValidationContext().config for context-based validation instead.
- * Global validation config causes test isolation issues and will be removed in v4.0.0.
+ * This function now always returns the default configuration.
+ * Global validation config has been removed.
  */
 export function getValidationConfig(): Required<ValidationConfig> {
   showDeprecationWarning('getValidationConfig')
-  return {
-    ...DEFAULT_CONFIG,
-    ...validationConfig
-  }
+  // Always return defaults - global config has been removed
+  return { ...DEFAULT_VALIDATION_CONFIG }
 }
 
 /**
  * Reset validation configuration to defaults
  *
  * @deprecated Context-based validation does not require reset.
- * Global validation config causes test isolation issues and will be removed in v4.0.0.
+ * This function is now a no-op since global config has been removed.
  */
 export function resetValidationConfig(): void {
-  // Don't show warning for reset - it's often used in test cleanup
-  validationConfig = {}
-  _deprecationWarningShown = false
+  // No-op: Global config has been removed
+  // This function exists only for backward compatibility during migration
+  _deprecationWarningsShown.clear()
 }
 
 // =============================================================================
@@ -133,6 +124,16 @@ export const DEFAULT_VALIDATION_CONFIG: Readonly<Required<ValidationConfig>> = O
   maxArrayLength: DEFAULT_MAX_ARRAY_LENGTH,
   strictIdValidation: false
 })
+
+// Internal default context used by module-level validation functions
+// This ensures no global mutable state while maintaining backward compatibility
+let _defaultContext: ValidationContext | null = null
+function getDefaultContext(): ValidationContext {
+  if (!_defaultContext) {
+    _defaultContext = createValidationContext()
+  }
+  return _defaultContext
+}
 
 // =============================================================================
 // Context-Based Validation (Recommended)

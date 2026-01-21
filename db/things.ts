@@ -16,7 +16,10 @@ import {
   validateId,
   validateIds,
   validateListOptions,
-  validateBulkUpdateItems
+  validateBulkUpdateItems,
+  createValidationContext,
+  type ValidationContext,
+  type ValidationConfig,
 } from './validation'
 import { applyCursorPagination } from './pagination'
 import type { CursorPaginationOptions, CursorPaginatedResult } from './pagination'
@@ -275,6 +278,212 @@ export function createThingsStoreWithAdapter<T extends StorableData = StorableDa
 
       // Validate all IDs (do-c8s8)
       const validatedIds = validateIds(ids, 'ids')
+
+      // Validate all items exist first
+      const keys = validatedIds.map(id => `${THINGS_PREFIX}${id}`)
+      const existingMap = await adapter.getMany(keys)
+
+      for (const id of validatedIds) {
+        if (!existingMap.has(`${THINGS_PREFIX}${id}`)) {
+          throw DbNotFoundError.forResource('Thing', id)
+        }
+      }
+
+      await adapter.deleteMany(keys)
+    }
+  }
+}
+
+/**
+ * Create a ThingsStore with explicit ValidationContext.
+ * This is the recommended approach for context-based validation that avoids global state.
+ *
+ * @param adapter - The storage adapter to use
+ * @param validationContext - Optional validation context (uses default if not provided)
+ * @returns A ThingsStore instance with context-based validation
+ *
+ * @stable
+ * @since 3.0.0
+ *
+ * @example
+ * ```typescript
+ * import { createThingsStoreWithContext, MemoryStorageAdapter, createValidationContext } from '@dotdo/db'
+ *
+ * // Create store with custom validation limits
+ * const adapter = new MemoryStorageAdapter()
+ * const ctx = createValidationContext({
+ *   maxStringLength: 100,
+ *   maxObjectDepth: 3,
+ *   strictIdValidation: true,
+ * })
+ * const store = createThingsStoreWithContext(adapter, ctx)
+ *
+ * // Validation uses context-specific config
+ * const thing = await store.create({ $type: 'Test', name: 'Alice' })
+ * ```
+ */
+export function createThingsStoreWithContext<T extends StorableData = StorableData>(
+  adapter: StorageAdapter,
+  validationContext?: ValidationContext
+): ThingsStore<T> {
+  // Use provided context or create default
+  const ctx = validationContext ?? createValidationContext()
+
+  return {
+    async create(data) {
+      // Validate input data using context
+      ctx.validateThingInput(data)
+
+      const now = Date.now()
+      const id = generateId()
+
+      const thing = {
+        ...data,
+        $id: id,
+        $createdAt: now,
+        $updatedAt: now,
+      } as unknown as Thing<T>
+
+      await adapter.put(`${THINGS_PREFIX}${id}`, thing)
+      return thing as Thing<T> & typeof data
+    },
+
+    async get(id) {
+      // Validate ID using context
+      ctx.validateId(id, '$id')
+      const thing = await adapter.get<Thing<T>>(`${THINGS_PREFIX}${id}`)
+      return thing ?? null
+    },
+
+    async update(id, data) {
+      // Validate ID and update data using context
+      ctx.validateId(id, '$id')
+      ctx.validateThingUpdate(data)
+
+      const existing = await adapter.get<Thing<T>>(`${THINGS_PREFIX}${id}`)
+      if (!existing) {
+        throw DbNotFoundError.forResource('Thing', id)
+      }
+
+      const updated: Thing<T> = {
+        ...existing,
+        ...data,
+        $id: existing.$id,
+        $type: existing.$type,
+        $createdAt: existing.$createdAt,
+        $updatedAt: Date.now(),
+      }
+
+      await adapter.put(`${THINGS_PREFIX}${id}`, updated)
+      return updated
+    },
+
+    async delete(id) {
+      // Validate ID using context
+      ctx.validateId(id, '$id')
+      const exists = await adapter.has(`${THINGS_PREFIX}${id}`)
+      if (!exists) {
+        throw DbNotFoundError.forResource('Thing', id)
+      }
+      await adapter.delete(`${THINGS_PREFIX}${id}`)
+    },
+
+    async list(options = {}) {
+      // Validate list options using context
+      const validated = ctx.validateListOptions(options)
+      const { type, limit = 100, offset = 0 } = validated
+
+      const result = await adapter.list<Thing<T>>({ prefix: THINGS_PREFIX, includeValues: true })
+      let items = Array.from(result.entries.values()).filter((t): t is Thing<T> => t !== undefined)
+
+      if (type) {
+        items = items.filter(t => t.$type === type)
+      }
+
+      // Sort by createdAt descending
+      items.sort((a, b) => b.$createdAt - a.$createdAt)
+
+      return items.slice(offset, offset + limit)
+    },
+
+    async bulkCreate(items) {
+      if (items.length === 0) {
+        return []
+      }
+
+      // Validate all items first using context
+      for (const data of items) {
+        ctx.validateThingInput(data)
+      }
+
+      const now = Date.now()
+      const created: (Thing<T> & typeof items[number])[] = []
+      const entries = new Map<string, Thing<T>>()
+
+      for (const data of items) {
+        const id = generateId()
+        const thing = {
+          ...data,
+          $id: id,
+          $createdAt: now,
+          $updatedAt: now,
+        } as Thing<T> & typeof data
+        entries.set(`${THINGS_PREFIX}${id}`, thing)
+        created.push(thing)
+      }
+
+      await adapter.putMany(entries)
+      return created
+    },
+
+    async bulkUpdate(items) {
+      if (items.length === 0) {
+        return []
+      }
+
+      // Validate all items using context
+      const validatedItems = ctx.validateBulkUpdateItems<T>(items)
+
+      // Get all existing items first
+      const keys = validatedItems.map(({ id }) => `${THINGS_PREFIX}${id}`)
+      const existingMap = await adapter.getMany<Thing<T>>(keys)
+
+      // Validate all items exist
+      for (const { id } of validatedItems) {
+        if (!existingMap.has(`${THINGS_PREFIX}${id}`)) {
+          throw DbNotFoundError.forResource('Thing', id)
+        }
+      }
+
+      const now = Date.now()
+      const updated: Thing<T>[] = []
+      const entries = new Map<string, Thing<T>>()
+
+      for (const { id, data } of validatedItems) {
+        const existing = existingMap.get(`${THINGS_PREFIX}${id}`)!
+        const updatedThing: Thing<T> = {
+          ...existing,
+          ...data,
+          $id: existing.$id,
+          $type: existing.$type,
+          $createdAt: existing.$createdAt,
+          $updatedAt: now,
+        }
+        entries.set(`${THINGS_PREFIX}${id}`, updatedThing)
+        updated.push(updatedThing)
+      }
+
+      await adapter.putMany(entries)
+      return updated
+    },
+
+    async bulkDelete(ids) {
+      if (ids.length === 0) {
+        return
+      }
+
+      // Validate all IDs using context
+      const validatedIds = ctx.validateIds(ids, 'ids')
 
       // Validate all items exist first
       const keys = validatedIds.map(id => `${THINGS_PREFIX}${id}`)

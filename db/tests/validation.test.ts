@@ -1,5 +1,5 @@
 // Tests for input validation module - see do-c8s8
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import {
   validateJsonValue,
   validateId,
@@ -11,21 +11,14 @@ import {
   validateBulkUpdateItems,
   safeValidateThingInput,
   safeValidateThingUpdate,
-  configureValidation,
-  resetValidationConfig,
-  getValidationConfig
+  createValidationContext,
+  DEFAULT_VALIDATION_CONFIG,
 } from '../validation'
 import { DbValidationError } from '../errors'
-import { createThingsStore, type ThingsStore } from '../things'
+import { createThingsStoreWithContext, type ThingsStore } from '../things'
+import { MemoryStorageAdapter } from '../adapters'
 
 describe('Validation Module', () => {
-  beforeEach(() => {
-    resetValidationConfig()
-  })
-
-  afterEach(() => {
-    resetValidationConfig()
-  })
 
   describe('validateJsonValue', () => {
     it('should accept null', () => {
@@ -74,35 +67,35 @@ describe('Validation Module', () => {
       expect(() => validateJsonValue(NaN)).toThrow(DbValidationError)
     })
 
-    it('should reject strings exceeding max length', () => {
-      configureValidation({ maxStringLength: 100 })
+    it('should reject strings exceeding max length (context-based)', () => {
+      const ctx = createValidationContext({ maxStringLength: 100 })
       const longString = 'a'.repeat(101)
-      expect(() => validateJsonValue(longString)).toThrow(DbValidationError)
-      expect(() => validateJsonValue(longString)).toThrow('exceeds maximum')
+      expect(() => ctx.validateJsonValue(longString)).toThrow(DbValidationError)
+      expect(() => ctx.validateJsonValue(longString)).toThrow('exceeds maximum')
     })
 
-    it('should reject arrays exceeding max length', () => {
-      configureValidation({ maxArrayLength: 10 })
+    it('should reject arrays exceeding max length (context-based)', () => {
+      const ctx = createValidationContext({ maxArrayLength: 10 })
       const longArray = Array(11).fill(1)
-      expect(() => validateJsonValue(longArray)).toThrow(DbValidationError)
-      expect(() => validateJsonValue(longArray)).toThrow('exceeds maximum')
+      expect(() => ctx.validateJsonValue(longArray)).toThrow(DbValidationError)
+      expect(() => ctx.validateJsonValue(longArray)).toThrow('exceeds maximum')
     })
 
-    it('should reject objects with too many keys', () => {
-      configureValidation({ maxObjectKeys: 5 })
+    it('should reject objects with too many keys (context-based)', () => {
+      const ctx = createValidationContext({ maxObjectKeys: 5 })
       const bigObject: Record<string, number> = {}
       for (let i = 0; i < 10; i++) {
         bigObject[`key${i}`] = i
       }
-      expect(() => validateJsonValue(bigObject)).toThrow(DbValidationError)
-      expect(() => validateJsonValue(bigObject)).toThrow('exceeds maximum')
+      expect(() => ctx.validateJsonValue(bigObject)).toThrow(DbValidationError)
+      expect(() => ctx.validateJsonValue(bigObject)).toThrow('exceeds maximum')
     })
 
-    it('should reject deeply nested objects', () => {
-      configureValidation({ maxObjectDepth: 3 })
+    it('should reject deeply nested objects (context-based)', () => {
+      const ctx = createValidationContext({ maxObjectDepth: 3 })
       const deepObject = { a: { b: { c: { d: 'too deep' } } } }
-      expect(() => validateJsonValue(deepObject)).toThrow(DbValidationError)
-      expect(() => validateJsonValue(deepObject)).toThrow('exceeds maximum nesting depth')
+      expect(() => ctx.validateJsonValue(deepObject)).toThrow(DbValidationError)
+      expect(() => ctx.validateJsonValue(deepObject)).toThrow('exceeds maximum nesting depth')
     })
 
     it('should include path in error for nested validation failures', () => {
@@ -139,12 +132,12 @@ describe('Validation Module', () => {
       expect(() => validateId('', 'customField')).toThrow('customField')
     })
 
-    it('should enforce strict ID validation when enabled', () => {
-      configureValidation({ strictIdValidation: true })
+    it('should enforce strict ID validation when enabled (context-based)', () => {
+      const ctx = createValidationContext({ strictIdValidation: true })
       // Valid ThingId format: timestamp-random
-      expect(() => validateId('luhm21-xyz123')).not.toThrow()
+      expect(() => ctx.validateId('luhm21-xyz123')).not.toThrow()
       // Invalid format
-      expect(() => validateId('invalid_id')).toThrow('must match ThingId format')
+      expect(() => ctx.validateId('invalid_id')).toThrow('must match ThingId format')
     })
   })
 
@@ -373,44 +366,54 @@ describe('Validation Module', () => {
     })
   })
 
-  describe('Configuration', () => {
+  describe('Configuration (Context-Based)', () => {
     it('should use default config', () => {
-      const config = getValidationConfig()
-      expect(config.maxStringLength).toBe(10000)
-      expect(config.maxObjectDepth).toBe(10)
-      expect(config.maxObjectKeys).toBe(100)
-      expect(config.maxArrayLength).toBe(1000)
-      expect(config.strictIdValidation).toBe(false)
+      const ctx = createValidationContext()
+      expect(ctx.config.maxStringLength).toBe(10000)
+      expect(ctx.config.maxObjectDepth).toBe(10)
+      expect(ctx.config.maxObjectKeys).toBe(100)
+      expect(ctx.config.maxArrayLength).toBe(1000)
+      expect(ctx.config.strictIdValidation).toBe(false)
     })
 
-    it('should allow custom configuration', () => {
-      configureValidation({ maxStringLength: 500, strictIdValidation: true })
-      const config = getValidationConfig()
-      expect(config.maxStringLength).toBe(500)
-      expect(config.strictIdValidation).toBe(true)
+    it('should allow custom configuration via context', () => {
+      const ctx = createValidationContext({ maxStringLength: 500, strictIdValidation: true })
+      expect(ctx.config.maxStringLength).toBe(500)
+      expect(ctx.config.strictIdValidation).toBe(true)
       // Others should remain default
-      expect(config.maxObjectDepth).toBe(10)
+      expect(ctx.config.maxObjectDepth).toBe(10)
     })
 
-    it('should reset configuration', () => {
-      configureValidation({ maxStringLength: 500 })
-      resetValidationConfig()
-      const config = getValidationConfig()
-      expect(config.maxStringLength).toBe(10000)
+    it('should have DEFAULT_VALIDATION_CONFIG export', () => {
+      expect(DEFAULT_VALIDATION_CONFIG.maxStringLength).toBe(10000)
+      expect(DEFAULT_VALIDATION_CONFIG.maxObjectDepth).toBe(10)
+      expect(DEFAULT_VALIDATION_CONFIG.maxObjectKeys).toBe(100)
+      expect(DEFAULT_VALIDATION_CONFIG.maxArrayLength).toBe(1000)
+      expect(DEFAULT_VALIDATION_CONFIG.strictIdValidation).toBe(false)
+    })
+
+    it('should isolate configurations between contexts', () => {
+      const ctx1 = createValidationContext({ maxStringLength: 100 })
+      const ctx2 = createValidationContext({ maxStringLength: 1000 })
+
+      expect(ctx1.config.maxStringLength).toBe(100)
+      expect(ctx2.config.maxStringLength).toBe(1000)
+
+      // ctx1 config should not affect ctx2
+      const mediumString = 'a'.repeat(500)
+      expect(() => ctx1.validateJsonValue(mediumString)).toThrow(DbValidationError)
+      expect(() => ctx2.validateJsonValue(mediumString)).not.toThrow()
     })
   })
 })
 
 describe('ThingsStore with Validation', () => {
   let store: ThingsStore
+  let adapter: MemoryStorageAdapter
 
   beforeEach(() => {
-    store = createThingsStore()
-    resetValidationConfig()
-  })
-
-  afterEach(() => {
-    resetValidationConfig()
+    adapter = new MemoryStorageAdapter()
+    store = createThingsStoreWithContext(adapter)
   })
 
   describe('create', () => {

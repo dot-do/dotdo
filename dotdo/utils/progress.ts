@@ -75,6 +75,9 @@ export class Progress {
    * Update the progress message
    */
   update(message: string): this {
+    if (this.isSilent) {
+      return this
+    }
     if (this.ora) {
       this.ora.text = message
     } else if (!this.isInteractive) {
@@ -87,6 +90,10 @@ export class Progress {
    * Mark the current step as successful
    */
   succeed(message?: string): this {
+    if (this.isSilent) {
+      this.ora = null
+      return this
+    }
     if (this.ora) {
       this.ora.succeed(message)
     } else if (message) {
@@ -100,6 +107,10 @@ export class Progress {
    * Mark the current step as failed
    */
   fail(message?: string): this {
+    if (this.isSilent) {
+      this.ora = null
+      return this
+    }
     if (this.ora) {
       this.ora.fail(message)
     } else if (message) {
@@ -113,6 +124,10 @@ export class Progress {
    * Mark the current step with a warning
    */
   warn(message?: string): this {
+    if (this.isSilent) {
+      this.ora = null
+      return this
+    }
     if (this.ora) {
       this.ora.warn(message)
     } else if (message) {
@@ -126,6 +141,10 @@ export class Progress {
    * Mark the current step with info
    */
   info(message?: string): this {
+    if (this.isSilent) {
+      this.ora = null
+      return this
+    }
     if (this.ora) {
       this.ora.info(message)
     } else if (message) {
@@ -208,6 +227,7 @@ export async function withProgress<T>(
  */
 export function stepRunner(options: ProgressOptions = {}) {
   const progress = createProgress(options)
+  const isSilent = options.silent ?? false
   let completed = 0
   let failed = false
 
@@ -250,6 +270,7 @@ export function stepRunner(options: ProgressOptions = {}) {
      * Mark all steps as complete
      */
     complete(message: string): void {
+      if (isSilent) return
       console.log('')
       console.log(`\x1b[32m\u2713\x1b[0m ${message}`)
     },
