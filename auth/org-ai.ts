@@ -487,7 +487,7 @@ export async function lookupUserByOrgAiId(
 function extractIdFromUri(uri: string, expectedType: string): string | null {
   // Handle full URIs like https://schema.org.ai/users/user-123
   const match = uri.match(new RegExp(`https://schema\\.org\\.ai/${expectedType}/(.+)$`))
-  if (match) {
+  if (match && match[1] !== undefined) {
     return match[1]
   }
   // Handle short IDs (already extracted)
@@ -925,7 +925,7 @@ function buildAuthUrl(
     'microsoft': 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize'
   }
 
-  const baseUrl = providerUrls[provider] || providerUrls['org.ai']
+  const baseUrl = providerUrls[provider] ?? providerUrls['org.ai']!
   const url = new URL(baseUrl)
 
   // Standard OAuth parameters

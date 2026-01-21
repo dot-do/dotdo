@@ -6,6 +6,7 @@
 import type { Thing, ThingsStore } from './things'
 import type { RelationshipsStore } from './relationships'
 import type { JsonValue, StorableData } from './types'
+import { toThingId } from './branded-types'
 import { ValidationError } from '../rpc/errors'
 
 // ============================================================
@@ -258,10 +259,12 @@ function matchesCondition(thing: Thing, condition: WhereCondition): boolean {
     case 'IN':
       if (!Array.isArray(value)) return false
       if (value.length === 0) return false
+      if (thingValue === undefined) return false
       return value.includes(thingValue)
     case 'NOT IN':
       if (!Array.isArray(value)) return true
       if (value.length === 0) return true
+      if (thingValue === undefined) return true
       return !value.includes(thingValue)
     case 'IS NULL':
       return thingValue === null || thingValue === undefined
@@ -459,7 +462,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
     where(fieldOrConditions: string | StorableData, value?: JsonValue) {
       if (typeof fieldOrConditions === 'string') {
         validateFieldName(fieldOrConditions)
-        options.where = { ...options.where, [fieldOrConditions]: value }
+        options.where = { ...options.where, [fieldOrConditions]: value } as unknown as Partial<T>
         if (options.whereConditions) {
           options.whereConditions.push({
             field: fieldOrConditions,
@@ -471,7 +474,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
         for (const field of Object.keys(fieldOrConditions)) {
           validateFieldName(field)
         }
-        options.where = { ...options.where, ...fieldOrConditions }
+        options.where = { ...options.where, ...fieldOrConditions } as unknown as Partial<T>
         for (const [field, val] of Object.entries(fieldOrConditions)) {
           if (options.whereConditions) {
             options.whereConditions.push({
@@ -703,7 +706,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
                   // Create a "null" source entry with the unmatched target
                   const joinKey = rightJoin.alias || (rightJoin.direction === 'forward' ? rightJoin.predicate : `${rightJoin.predicate}By`)
                   const nullEntry: ThingWithJoins = {
-                    $id: '',
+                    $id: toThingId(''),
                     $type: options.type || '',
                     $createdAt: 0,
                     $updatedAt: 0,
@@ -745,7 +748,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
                 if (matchesJoinConditions(targetThing, fullJoin.conditions)) {
                   const joinKey = fullJoin.alias || (fullJoin.direction === 'forward' ? fullJoin.predicate : `${fullJoin.predicate}By`)
                   const nullEntry: ThingWithJoins = {
-                    $id: '',
+                    $id: toThingId(''),
                     $type: options.type || '',
                     $createdAt: 0,
                     $updatedAt: 0,

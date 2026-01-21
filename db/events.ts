@@ -194,26 +194,27 @@ export interface EventsStore<P extends JsonValue = JsonValue> {
   getStorageUsage(): Promise<StorageUsage>
 
   // Dead letter queue methods
-  addToDeadLetterQueue(entry: Omit<DLQEntry<P>, 'timestamp'>): void
-  getDeadLetterQueue(): DLQEntry<P>[]
-  queryDeadLetterQueue(options?: DLQQueryOptions): DLQEntry<P>[]
-  removeFromDeadLetterQueue(eventId: string): boolean
+  // Note: Methods support both sync (in-memory) and async (SQLite) implementations
+  addToDeadLetterQueue(entry: Omit<DLQEntry<P>, 'timestamp'>): void | Promise<void>
+  getDeadLetterQueue(): DLQEntry<P>[] | Promise<DLQEntry<P>[]>
+  queryDeadLetterQueue(options?: DLQQueryOptions): DLQEntry<P>[] | Promise<DLQEntry<P>[]>
+  removeFromDeadLetterQueue(eventId: string): boolean | Promise<boolean>
   replayDeadLetterQueue(options?: DLQQueryOptions): Promise<Event<P>[]>
-  getDLQEntry(eventId: string): DLQEntry<P> | null
-  getDLQStats(): DLQStats
-  cleanupDeadLetterQueue(options: DLQCleanupOptions): DLQCleanupResult
+  getDLQEntry(eventId: string): DLQEntry<P> | null | Promise<DLQEntry<P> | null>
+  getDLQStats(): DLQStats | Promise<DLQStats>
+  cleanupDeadLetterQueue(options: DLQCleanupOptions): DLQCleanupResult | Promise<DLQCleanupResult>
 
   // Validation failure tracking
-  addValidationFailure(failure: Omit<ValidationFailure<P>, 'timestamp'>): void
-  queryValidationFailures(options?: { type?: string }): ValidationFailure<P>[]
+  addValidationFailure(failure: Omit<ValidationFailure<P>, 'timestamp'>): void | Promise<void>
+  queryValidationFailures(options?: { type?: string }): ValidationFailure<P>[] | Promise<ValidationFailure<P>[]>
 
   // Retry status tracking
-  setEventRetryStatus(eventId: string, status: EventRetryStatus): void
-  getEventRetryStatus(eventId: string): EventRetryStatus | undefined
+  setEventRetryStatus(eventId: string, status: EventRetryStatus): void | Promise<void>
+  getEventRetryStatus(eventId: string): EventRetryStatus | undefined | Promise<EventRetryStatus | undefined>
 
   // Retry metrics
-  recordRetryAttempt(eventType: string, succeeded: boolean, retryCount: number): void
-  getRetryMetrics(): Record<string, RetryMetrics>
+  recordRetryAttempt(eventType: string, succeeded: boolean, retryCount: number): void | Promise<void>
+  getRetryMetrics(): Record<string, RetryMetrics> | Promise<Record<string, RetryMetrics>>
 
   // Durability configuration
   setDurabilityConfig(config: Record<string, DurabilityConfig>): void

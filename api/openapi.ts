@@ -140,6 +140,13 @@ export interface TagObject {
   description?: string
 }
 
+// Simplified operation configuration for user-facing API
+// Uses { schema: string } shorthand for requestBody instead of full RequestBodyObject
+type OperationConfig = Omit<Partial<OperationObject>, 'requestBody' | 'responses'> & {
+  requestBody?: { schema: string }
+  responses?: Record<string, { schema?: string; description?: string }>
+}
+
 // Generator configuration
 export interface GenerateOpenAPIOptions {
   app: Hono
@@ -147,10 +154,7 @@ export interface GenerateOpenAPIOptions {
   servers?: ServerObject[]
   schemas?: Record<string, ZodTypeAny>
   resources?: ResourceDefinition<any>[]
-  operations?: Record<string, Partial<OperationObject> & {
-    requestBody?: { schema: string }
-    responses?: Record<string, { schema?: string; description?: string }>
-  }>
+  operations?: Record<string, OperationConfig>
   security?: Record<string, Omit<SecuritySchemeObject, 'type'> & { type: SecuritySchemeObject['type'] }>
   tags?: TagObject[]
 }
@@ -285,12 +289,15 @@ export class OpenAPIGenerator {
     const matches = honoPath.matchAll(/:([^/]+)/g)
 
     for (const match of matches) {
-      params.push({
-        name: match[1],
-        in: 'path',
-        required: true,
-        schema: { type: 'string' }
-      })
+      const paramName = match[1]
+      if (paramName !== undefined) {
+        params.push({
+          name: paramName,
+          in: 'path',
+          required: true,
+          schema: { type: 'string' }
+        })
+      }
     }
 
     return params

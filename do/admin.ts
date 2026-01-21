@@ -46,6 +46,7 @@
 import type { Thing, ThingsStore } from '../db/things'
 import type { Event, EventsStore, EventQueryOptions } from '../db/events'
 import type { Relationship, RelationshipsStore } from '../db/relationships'
+import type { JsonValue } from '../db/types'
 
 export interface AdminStores {
   things: ThingsStore
@@ -94,7 +95,7 @@ export interface RelationshipListResult {
 
 export interface EmitEventOptions {
   type: string
-  payload?: unknown
+  payload?: JsonValue
   source?: string
   correlationId?: string
 }
@@ -240,7 +241,7 @@ export class AdminDO {
 
     return await this.stores.events.emit({
       type,
-      payload,
+      payload: payload ?? null,
       source,
       correlationId
     })

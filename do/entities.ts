@@ -20,6 +20,7 @@ import {
   type RelationshipInput,
   type QueryBuilder,
   type StorableData,
+  type JsonValue,
   defaultAuditConfig,
   maskSensitiveFields
 } from '../db'
@@ -112,18 +113,18 @@ export class EntityManager {
     const logAudit = this.logAudit.bind(this)
 
     return {
-      async create(data: Omit<Thing, '$id' | '$createdAt' | '$updatedAt'>): Promise<Thing> {
+      async create<D extends Partial<StorableData> & { $type: string }>(data: D) {
         const thing = await baseStore.create(data)
 
         // Emit Thing.created event
         await eventsStore.emit({
           type: 'Thing.created',
-          payload: thing,
+          payload: thing as unknown as JsonValue,
           source: thing.$id
         })
 
         // Audit log
-        await logAudit('create', thing.$type, thing.$id, { name: (thing as any).name })
+        await logAudit('create', thing.$type, thing.$id, { name: (thing as Record<string, unknown>).name as string })
 
         return thing
       },

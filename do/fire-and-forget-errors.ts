@@ -134,8 +134,9 @@ export interface FireAndForgetErrorStore {
 
   /**
    * Mark an error as recovered
+   * Returns sync boolean for in-memory, Promise for SQLite
    */
-  markRecovered(id: string): boolean
+  markRecovered(id: string): boolean | Promise<boolean>
 
   /**
    * Get error statistics

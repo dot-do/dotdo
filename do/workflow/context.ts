@@ -10,7 +10,7 @@
  * @module do/workflow/context
  */
 
-import { createEventsStore, type EventsStore, type Event } from '../../db'
+import { createEventsStore, type EventsStore, type Event, type JsonValue } from '../../db'
 import { createEveryProxy, type ScheduleRegistration } from './schedule'
 import { createOnProxy, matchHandlers, invokeHandlers, type OnProxy, type EventHandler, type RetryOptions } from './events'
 import { createDORPCProxy, type DOStubProxy } from './rpc'
@@ -297,14 +297,15 @@ export function createContext(
   // Create the base context object
   const baseContext = {
     // Fire-and-forget event emission with retry support
-    send(event: { type: string; payload?: unknown }) {
+    send(event: { type: string; payload?: JsonValue }) {
+      const payload = event.payload ?? null
       events.emit({
         type: event.type,
-        payload: event.payload,
+        payload,
         source: 'workflow'
       }).then(async (emitted) => {
         // Process handlers with retry logic
-        await processEvent(emitted, event.type, event.payload)
+        await processEvent(emitted, event.type, payload)
       }).catch((err: unknown) => {
         // Catch any errors from emit() or processEvent()
         logger.error(`Error processing event "${event.type}":`, err)

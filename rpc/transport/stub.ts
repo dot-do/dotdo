@@ -5,6 +5,7 @@ import { generateCorrelationId, CORRELATION_ID_HEADER } from '../client'
 import { isSerializedError, type SerializedError } from '../errors'
 import { DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER } from '../headers'
 import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportState } from './types'
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
 
 /**
  * Options for the stub transport
@@ -140,7 +141,7 @@ export class StubTransport implements Transport {
           type: 'RPCError',
           code: 'INTERNAL_ERROR',
           message: `DO RPC error: ${response.status}`,
-          httpStatus: response.status,
+          httpStatus: response.status as ContentfulStatusCode,
         },
         correlationId: responseCorrelationId,
       }

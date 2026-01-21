@@ -267,15 +267,15 @@ export function createThingsStore(): ThingsStore {
       }
 
       const now = Date.now()
-      const thing: Thing = {
+      const thing = {
         ...data,
         $id: generateId(),
         $createdAt: now,
         $updatedAt: now,
-      }
+      } as Thing
 
       things.set(thing.$id, thing)
-      return thing
+      return thing as Thing & typeof data
     },
 
     async get(id) {
@@ -343,17 +343,17 @@ export function createThingsStore(): ThingsStore {
       const created: Thing[] = []
 
       for (const data of items) {
-        const thing: Thing = {
+        const thing = {
           ...data,
           $id: generateId(),
           $createdAt: now,
           $updatedAt: now,
-        }
+        } as Thing
         things.set(thing.$id, thing)
         created.push(thing)
       }
 
-      return created
+      return created as (Thing & (typeof items)[number])[]
     },
 
     async bulkUpdate(items) {

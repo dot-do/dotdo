@@ -467,13 +467,16 @@ export function serializeUnknownAsDotdoError(
 }
 
 /**
- * Registry of error constructors for deserialization
+ * Registry of error constructors for deserialization.
+ * Note: DatabaseError and subclasses accept (message, details?) but are
+ * compatible for basic deserialization through type widening.
  */
-const ERROR_REGISTRY: Record<string, new (message: string, options?: DotdoErrorOptions) => DotdoError> = {
-  DotdoError: DotdoError as unknown as new (message: string, options?: DotdoErrorOptions) => DotdoError,
-  DatabaseError,
-  DbValidationError,
-  DbNotFoundError,
+type ErrorConstructorType = new (message: string, optionsOrDetails?: DotdoErrorOptions | Record<string, unknown>) => DotdoError
+const ERROR_REGISTRY: Record<string, ErrorConstructorType> = {
+  DotdoError: DotdoError as unknown as ErrorConstructorType,
+  DatabaseError: DatabaseError as unknown as ErrorConstructorType,
+  DbValidationError: DbValidationError as unknown as ErrorConstructorType,
+  DbNotFoundError: DbNotFoundError as unknown as ErrorConstructorType,
 }
 
 /**
@@ -481,7 +484,7 @@ const ERROR_REGISTRY: Record<string, new (message: string, options?: DotdoErrorO
  */
 export function registerErrorClass(
   name: string,
-  ErrorClass: new (message: string, options?: DotdoErrorOptions) => DotdoError
+  ErrorClass: ErrorConstructorType
 ): void {
   ERROR_REGISTRY[name] = ErrorClass
 }

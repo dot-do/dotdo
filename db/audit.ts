@@ -277,7 +277,7 @@ export function createSQLiteAuditLogStore(adapter: SQLiteAdapter): AuditLogStore
       return log
     },
 
-    async get(id: string) {
+    async get(id: string): Promise<AuditLog | null> {
       const row = await sql
         .prepare(
           `SELECT id, timestamp, actor, action, resource, resource_id, level, details, correlation_id
@@ -288,20 +288,21 @@ export function createSQLiteAuditLogStore(adapter: SQLiteAdapter): AuditLogStore
 
       if (!row) return null
 
-      return {
+      const log: AuditLog = {
         $id: row['id'] as string,
         $timestamp: row['timestamp'] as number,
         actor: row['actor'] as string,
         action: row['action'] as AuditAction,
         resource: row['resource'] as string,
-        resourceId: (row['resource_id'] as string) || undefined,
         level: row['level'] as AuditLogLevel,
-        details: row['details'] ? JSON.parse(row['details'] as string) : undefined,
-        correlationId: (row['correlation_id'] as string) || undefined
       }
+      if (row['resource_id']) log.resourceId = row['resource_id'] as string
+      if (row['details']) log.details = JSON.parse(row['details'] as string)
+      if (row['correlation_id']) log.correlationId = row['correlation_id'] as string
+      return log
     },
 
-    async query(options = {}) {
+    async query(options: AuditLogQueryOptions = {}): Promise<AuditLog[]> {
       const { actor, action, resource, resourceId, level, since, until, limit = 100, offset = 0 } = options
 
       let query = `
@@ -351,17 +352,20 @@ export function createSQLiteAuditLogStore(adapter: SQLiteAdapter): AuditLogStore
 
       const result = await sql.prepare(query).bind(...params).all()
 
-      return result.results.map((row) => ({
-        $id: row['id'] as string,
-        $timestamp: row['timestamp'] as number,
-        actor: row['actor'] as string,
-        action: row['action'] as AuditAction,
-        resource: row['resource'] as string,
-        resourceId: (row['resource_id'] as string) || undefined,
-        level: row['level'] as AuditLogLevel,
-        details: row['details'] ? JSON.parse(row['details'] as string) : undefined,
-        correlationId: (row['correlation_id'] as string) || undefined
-      }))
+      return result.results.map((row): AuditLog => {
+        const log: AuditLog = {
+          $id: row['id'] as string,
+          $timestamp: row['timestamp'] as number,
+          actor: row['actor'] as string,
+          action: row['action'] as AuditAction,
+          resource: row['resource'] as string,
+          level: row['level'] as AuditLogLevel,
+        }
+        if (row['resource_id']) log.resourceId = row['resource_id'] as string
+        if (row['details']) log.details = JSON.parse(row['details'] as string)
+        if (row['correlation_id']) log.correlationId = row['correlation_id'] as string
+        return log
+      })
     },
 
     async count(options = {}) {

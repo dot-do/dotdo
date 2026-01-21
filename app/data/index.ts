@@ -134,7 +134,7 @@ class RESTClient implements DataClient {
 
     const url = `${this.baseUrl}/${resource}/${id}`
     const response = await this.fetchWithTimeout(url, { method: 'GET' })
-    const data = await response.json()
+    const data = (await response.json()) as Thing
 
     if (this.cache) {
       this.cacheStore.set(cacheKey, data)
@@ -176,7 +176,7 @@ class RESTClient implements DataClient {
             method: 'POST',
             body: JSON.stringify(data),
           })
-          const realResult = await response.json()
+          const realResult = (await response.json()) as Thing
 
           // Notify listeners of the real result
           this.notifyListeners({
@@ -203,7 +203,7 @@ class RESTClient implements DataClient {
       method: 'POST',
       body: JSON.stringify(data),
     })
-    const result = await response.json()
+    const result = (await response.json()) as Thing
 
     if (this.cache) {
       const cacheKey = this.getCacheKey(resource, result.$id)
@@ -219,7 +219,7 @@ class RESTClient implements DataClient {
       method: 'PUT',
       body: JSON.stringify(data),
     })
-    const result = await response.json()
+    const result = (await response.json()) as Thing
 
     // Invalidate cache
     if (this.cache) {

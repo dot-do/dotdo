@@ -20,7 +20,7 @@ export interface MCPServer {
   tools: MCPTool[]
   registry?: ToolRegistry
   addTool(tool: MCPTool): void
-  fetch: (request: Request) => Promise<Response>
+  fetch: (request: Request, env?: unknown, ctx?: ExecutionContext) => Response | Promise<Response>
 }
 
 export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
