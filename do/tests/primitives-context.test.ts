@@ -5,9 +5,13 @@
  * 1. Primitives are accessible via $ context ($.fs, $.git, $.bash)
  * 2. Basic operations work through the $ context
  * 3. Primitives are properly typed
+ *
+ * Following NO MOCKS philosophy: Uses real in-memory implementations
+ * instead of vi.fn() mocks. The primitive capabilities are implemented
+ * as full in-memory test doubles matching the real interface.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import {
   createContext,
   type WorkflowContext,
@@ -16,18 +20,32 @@ import {
   type BashCapability,
 } from '../workflow/context'
 
-// Mock DurableObjectState
-const mockState = {
-  id: { toString: () => 'test-id' },
-  storage: {
-    get: vi.fn(),
-    put: vi.fn(),
-    list: vi.fn(() => Promise.resolve(new Map())),
-  },
-} as unknown as DurableObjectState
+/**
+ * Create a simulated DurableObjectState with real in-memory storage.
+ * This follows the pattern from context.test.ts - no vi.fn() mocks.
+ */
+function createSimulatedState(name: string = 'test-primitives'): DurableObjectState {
+  const storage = new Map<string, unknown>()
 
-// Mock FsCapability
-function createMockFsCapability(): FsCapability {
+  return {
+    id: { toString: () => name },
+    storage: {
+      get: async (key: string) => storage.get(key),
+      put: async (key: string, value: unknown) => { storage.set(key, value) },
+      list: async () => new Map(storage),
+      delete: async (key: string) => storage.delete(key),
+      deleteAll: async () => storage.clear(),
+    },
+    blockConcurrencyWhile: async (fn: () => Promise<void>) => fn(),
+    waitUntil: () => {},
+  } as unknown as DurableObjectState
+}
+
+/**
+ * Create an in-memory FsCapability for testing.
+ * This is a real implementation with Map-based storage, not a vi.fn() mock.
+ */
+function createInMemoryFsCapability(): FsCapability {
   const fileStore = new Map<string, string | Uint8Array>()
   const dirStore = new Set<string>(['/'])
 
@@ -127,8 +145,11 @@ function createMockFsCapability(): FsCapability {
   } as FsCapability
 }
 
-// Mock GitCapability
-function createMockGitCapability(): GitCapability {
+/**
+ * Create an in-memory GitCapability for testing.
+ * This is a real implementation with state tracking, not a vi.fn() mock.
+ */
+function createInMemoryGitCapability(): GitCapability {
   const stagedFiles = new Set<string>()
   let currentCommit: string | undefined
   let lastSync: Date | undefined
@@ -191,7 +212,7 @@ function createMockGitCapability(): GitCapability {
     },
 
     async diff() {
-      return 'diff --git a/ b/\n(mock diff)'
+      return 'diff --git a/ b/\n(simulated diff output)'
     },
 
     async log() {
@@ -207,8 +228,11 @@ function createMockGitCapability(): GitCapability {
   } as GitCapability
 }
 
-// Mock BashCapability
-function createMockBashCapability(): BashCapability {
+/**
+ * Create an in-memory BashCapability for testing.
+ * This is a real implementation with command parsing, not a vi.fn() mock.
+ */
+function createInMemoryBashCapability(): BashCapability {
   return {
     name: 'bash' as const,
 
@@ -218,7 +242,7 @@ function createMockBashCapability(): BashCapability {
     async exec(command: string, args?: string[], options?: { timeout?: number; cwd?: string }) {
       const fullCommand = args ? `${command} ${args.join(' ')}` : command
 
-      // Simple mock responses
+      // Simulated command responses
       if (command === 'echo') {
         return {
           command: fullCommand,
@@ -287,16 +311,17 @@ function createMockBashCapability(): BashCapability {
 describe('Primitives via $ Context (do-5ljl)', () => {
   describe('$.fs (FsCapability)', () => {
     let $: WorkflowContext
-    let mockFs: FsCapability
+    let fsCapability: FsCapability
 
     beforeEach(() => {
-      mockFs = createMockFsCapability()
-      $ = createContext(mockState, {}, { fs: mockFs })
+      fsCapability = createInMemoryFsCapability()
+      const state = createSimulatedState('fs-test-' + Date.now())
+      $ = createContext(state, {}, { fs: fsCapability })
     })
 
     it('should have $.fs available when wired', () => {
       expect($.fs).toBeDefined()
-      expect($.fs).toBe(mockFs)
+      expect($.fs).toBe(fsCapability)
     })
 
     it('should write and read files via $.fs', async () => {
@@ -343,16 +368,17 @@ describe('Primitives via $ Context (do-5ljl)', () => {
 
   describe('$.git (GitCapability)', () => {
     let $: WorkflowContext
-    let mockGit: GitCapability
+    let gitCapability: GitCapability
 
     beforeEach(() => {
-      mockGit = createMockGitCapability()
-      $ = createContext(mockState, {}, { git: mockGit })
+      gitCapability = createInMemoryGitCapability()
+      const state = createSimulatedState('git-test-' + Date.now())
+      $ = createContext(state, {}, { git: gitCapability })
     })
 
     it('should have $.git available when wired', () => {
       expect($.git).toBeDefined()
-      expect($.git).toBe(mockGit)
+      expect($.git).toBe(gitCapability)
     })
 
     it('should get repository binding via $.git', () => {
@@ -408,16 +434,17 @@ describe('Primitives via $ Context (do-5ljl)', () => {
 
   describe('$.bash (BashCapability)', () => {
     let $: WorkflowContext
-    let mockBash: BashCapability
+    let bashCapability: BashCapability
 
     beforeEach(() => {
-      mockBash = createMockBashCapability()
-      $ = createContext(mockState, {}, { bash: mockBash })
+      bashCapability = createInMemoryBashCapability()
+      const state = createSimulatedState('bash-test-' + Date.now())
+      $ = createContext(state, {}, { bash: bashCapability })
     })
 
     it('should have $.bash available when wired', () => {
       expect($.bash).toBeDefined()
-      expect($.bash).toBe(mockBash)
+      expect($.bash).toBe(bashCapability)
     })
 
     it('should execute simple commands via $.bash', async () => {
@@ -461,15 +488,16 @@ describe('Primitives via $ Context (do-5ljl)', () => {
 
   describe('Combined primitives', () => {
     let $: WorkflowContext
-    let mockFs: FsCapability
-    let mockGit: GitCapability
-    let mockBash: BashCapability
+    let fsCapability: FsCapability
+    let gitCapability: GitCapability
+    let bashCapability: BashCapability
 
     beforeEach(() => {
-      mockFs = createMockFsCapability()
-      mockGit = createMockGitCapability()
-      mockBash = createMockBashCapability()
-      $ = createContext(mockState, {}, { fs: mockFs, git: mockGit, bash: mockBash })
+      fsCapability = createInMemoryFsCapability()
+      gitCapability = createInMemoryGitCapability()
+      bashCapability = createInMemoryBashCapability()
+      const state = createSimulatedState('combined-test-' + Date.now())
+      $ = createContext(state, {}, { fs: fsCapability, git: gitCapability, bash: bashCapability })
     })
 
     it('should have all primitives available when wired together', () => {
@@ -497,7 +525,7 @@ describe('Primitives via $ Context (do-5ljl)', () => {
       await $.fs!.mkdir('/project', { recursive: true })
       await $.fs!.writeFile('/project/script.sh', '#!/bin/bash\necho "Hello"')
 
-      // Execute a command (mocked)
+      // Execute a command (in-memory implementation)
       const result = await $.bash!.exec('ls', [], { cwd: '/project' })
       expect(result.exitCode).toBe(0)
 
@@ -508,14 +536,16 @@ describe('Primitives via $ Context (do-5ljl)', () => {
 
   describe('Context without primitives', () => {
     it('should have undefined primitives when not wired', () => {
-      const $ = createContext(mockState, {})
+      const state = createSimulatedState('no-primitives-test-' + Date.now())
+      const $ = createContext(state, {})
       expect($.fs).toBeUndefined()
       expect($.git).toBeUndefined()
       expect($.bash).toBeUndefined()
     })
 
     it('should still have other context features without primitives', () => {
-      const $ = createContext(mockState, {})
+      const state = createSimulatedState('features-test-' + Date.now())
+      const $ = createContext(state, {})
       expect($.send).toBeDefined()
       expect($.try).toBeDefined()
       expect($.do).toBeDefined()
