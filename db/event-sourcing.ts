@@ -310,11 +310,16 @@ export function withEventSourcing<T extends StorableData = StorableData>(
         return store.listWithCursor(options)
       }
       // Fallback: implement using list with offset-based pagination
-      const items = await store.list({
-        type: options?.type,
-        limit: options?.limit,
+      const listOptions: { type?: string; limit?: number; offset: number } = {
         offset: 0 // cursor-based not supported in fallback
-      })
+      }
+      if (options?.type !== undefined) {
+        listOptions.type = options.type
+      }
+      if (options?.limit !== undefined) {
+        listOptions.limit = options.limit
+      }
+      const items = await store.list(listOptions)
       return { items, hasMore: false }
     },
 
@@ -465,11 +470,17 @@ export function withRelationshipEventSourcing<M extends StorableData = StorableD
         return store.findWithCursor(options)
       }
       // Fallback: implement using find
-      const items = await store.find({
-        subject: options?.subject,
-        predicate: options?.predicate,
-        object: options?.object
-      })
+      const findQuery: Partial<Pick<BaseRelationship, 'subject' | 'predicate' | 'object'>> = {}
+      if (options?.subject !== undefined) {
+        findQuery.subject = options.subject
+      }
+      if (options?.predicate !== undefined) {
+        findQuery.predicate = options.predicate
+      }
+      if (options?.object !== undefined) {
+        findQuery.object = options.object
+      }
+      const items = await store.find(findQuery)
       const limited = options?.limit ? items.slice(0, options.limit) : items
       return { items: limited, hasMore: false }
     },

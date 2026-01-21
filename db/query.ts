@@ -792,6 +792,8 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
       }
 
       // Save original options and set pagination
+      const hadLimit = 'limit' in options && options.limit !== undefined
+      const hadOffset = 'offset' in options && options.offset !== undefined
       const originalLimit = options.limit
       const originalOffset = options.offset
       options.limit = effectiveLimit + 1 // Fetch one extra to check for more
@@ -800,8 +802,16 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
       const results = await builder.execute()
 
       // Restore original options
-      options.limit = originalLimit
-      options.offset = originalOffset
+      if (hadLimit && originalLimit !== undefined) {
+        options.limit = originalLimit
+      } else {
+        delete options.limit
+      }
+      if (hadOffset && originalOffset !== undefined) {
+        options.offset = originalOffset
+      } else {
+        delete options.offset
+      }
 
       // Check if there are more results
       const hasMore = results.length > effectiveLimit
@@ -830,6 +840,7 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
       }
 
       // Use bounded max limit for count fallback (do-bgr1)
+      const hadLimit = 'limit' in options && options.limit !== undefined
       const originalLimit = options.limit
       const countLimit = clampAndWarnLimit(
         getQueryLimits().maxLimit,
@@ -838,7 +849,11 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
       )
       options.limit = countLimit
       const results = await builder.execute()
-      options.limit = originalLimit
+      if (hadLimit && originalLimit !== undefined) {
+        options.limit = originalLimit
+      } else {
+        delete options.limit
+      }
       return results.length
     }
   }

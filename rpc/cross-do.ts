@@ -327,8 +327,12 @@ export class CrossDOContext {
   constructor(env: Record<string, DurableObjectNamespace>, options?: CrossDOContextOptions) {
     this.env = env
     this.cache = new CrossDOStubCache()
-    this.correlationId = options?.correlationId
-    this.sourceDoId = options?.sourceDoId
+    if (options?.correlationId !== undefined) {
+      this.correlationId = options.correlationId
+    }
+    if (options?.sourceDoId !== undefined) {
+      this.sourceDoId = options.sourceDoId
+    }
 
     // Return proxy for namespace access
     return new Proxy(this, {

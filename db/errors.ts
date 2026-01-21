@@ -178,11 +178,13 @@ export class DotdoError extends Error {
     message: string,
     options?: DotdoErrorOptions
   ) {
-    super(message, { cause: options?.cause })
+    super(message, options?.cause !== undefined ? { cause: options.cause } : undefined)
     this.name = 'DotdoError'
     this.code = code
     this.httpStatus = getHttpStatusForCode(code)
-    this.details = options?.details
+    if (options?.details !== undefined) {
+      this.details = options.details
+    }
     Object.setPrototypeOf(this, new.target.prototype)
 
     // Capture stack trace properly for V8

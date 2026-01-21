@@ -86,8 +86,8 @@ export class RPCError extends DotdoError {
     options?: RPCErrorOptions
   ) {
     super(code, message, {
-      cause: options?.cause,
-      details,
+      ...(options?.cause !== undefined && { cause: options.cause }),
+      ...(details !== undefined && { details }),
     })
     this.name = 'RPCError'
     this.httpStatus = getHttpStatusForCode(code) as ContentfulStatusCode

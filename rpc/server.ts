@@ -393,10 +393,12 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       }
 
       // Build execution context with correlation ID and other request metadata
+      const sourceDoId = c.req.header('X-DO-Source-ID')
+      const isInternalHeader = c.req.header('X-DO-Source') === 'true'
       const executionContext: RPCExecutionContext = {
         correlationId,
-        sourceDoId: c.req.header('X-DO-Source-ID') || undefined,
-        isInternal: c.req.header('X-DO-Source') === 'true',
+        ...(sourceDoId && { sourceDoId }),
+        ...(isInternalHeader && { isInternal: isInternalHeader }),
       }
 
       // Prepare arguments - optionally append execution context

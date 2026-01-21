@@ -181,7 +181,9 @@ export class PipelineBuilder<T> implements PromiseLike<T> {
     }
     this.initialMethod = method
     this.initialArgs = args
-    this.correlationId = options?.correlationId
+    if (options?.correlationId !== undefined) {
+      this.correlationId = options.correlationId
+    }
     this.timeout = options?.timeout ?? 30000
   }
 
