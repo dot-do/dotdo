@@ -20,6 +20,7 @@ export {
   DEFAULT_CONCURRENCY_LIMIT,
   RateLimiter,
   ConcurrencyLimiter,
+  /** @deprecated Use createScopedResourceEnforcer() instead to prevent state leakage */
   SandboxResourceEnforcer,
   createScopedResourceEnforcer
 } from './sandbox'
@@ -40,5 +41,32 @@ export type {
 export { ToolRegistry, ToolCategory } from './discovery'
 export type { ToolMetadata } from './discovery'
 
-// Type exports (local definitions to avoid @dotdo/do dependency)
-export type { WorkflowContext, DoOptions } from './types'
+// Type exports and store abstractions (local definitions to avoid @dotdo/do dependency)
+// See types.ts for the store adapter pattern documentation (do-7jse)
+export type {
+  WorkflowContext,
+  DoOptions,
+  // Store interface types for dependency injection
+  ThingsStore,
+  RelationshipsStore,
+  EventsStore,
+  StoreAdapter,
+  // Data types
+  Thing,
+  Relationship,
+  Event,
+  JsonPrimitive,
+  JsonValue,
+  StorableData,
+  // Query builder types
+  QueryBuilder,
+  QueryFactory
+} from './types'
+
+// Mock store factories for testing (do-7jse)
+export {
+  createMockContext,
+  createMockThingsStore,
+  createMockRelationshipsStore,
+  createMockEventsStore
+} from './types'

@@ -15,7 +15,26 @@ export interface SandboxToolDeps {
   context: WorkflowContext
   defaultPermissions?: SandboxPermissions
   defaultResourceLimits?: ResourceLimits
-  /** Optional DO-scoped enforcer. Use createScopedResourceEnforcer() to create one. */
+  /**
+   * Optional DO-scoped enforcer for rate limiting and concurrency control.
+   *
+   * **IMPORTANT**: Use `createScopedResourceEnforcer()` to create one, NOT `new SandboxResourceEnforcer()`.
+   * The factory function ensures proper isolation between requests/DOs.
+   *
+   * @example
+   * import { createScopedResourceEnforcer } from '@dotdo/mcp'
+   *
+   * class MyDO {
+   *   private enforcer = createScopedResourceEnforcer()
+   *
+   *   createTool() {
+   *     return createSandboxTool({
+   *       context: this.context,
+   *       enforcer: this.enforcer
+   *     })
+   *   }
+   * }
+   */
   enforcer?: SandboxResourceEnforcer
 }
 

@@ -414,6 +414,17 @@ export class ConcurrencyLimiter {
 
 /**
  * Combined resource enforcer that handles rate limiting and concurrency
+ *
+ * @deprecated Direct instantiation is discouraged. Use {@link createScopedResourceEnforcer}
+ * instead to create request-scoped or DO-scoped enforcers that prevent state leakage
+ * between requests in a Workers environment.
+ *
+ * @example
+ * // WRONG: Global singleton (causes state leakage between requests)
+ * const globalEnforcer = new SandboxResourceEnforcer()
+ *
+ * // CORRECT: Create per-request or per-DO instance
+ * const enforcer = createScopedResourceEnforcer()
  */
 export class SandboxResourceEnforcer {
   private rateLimiter: RateLimiter
@@ -497,7 +508,32 @@ export class SandboxResourceEnforcer {
 
 /**
  * Create a new request-scoped or DO-scoped resource enforcer.
- * This is the preferred way to create enforcers in Workers to prevent state leakage.
+ *
+ * This is the **preferred** way to create enforcers in Workers to prevent state leakage
+ * between requests. Each call returns a fresh, isolated enforcer instance.
+ *
+ * @example
+ * // In a Durable Object constructor:
+ * class MyDO {
+ *   private enforcer: SandboxResourceEnforcer
+ *
+ *   constructor() {
+ *     this.enforcer = createScopedResourceEnforcer()
+ *   }
+ * }
+ *
+ * @example
+ * // Per-request in a Worker:
+ * export default {
+ *   async fetch(request: Request) {
+ *     const enforcer = createScopedResourceEnforcer()
+ *     // Use enforcer for this request only
+ *   }
+ * }
+ *
+ * @param rateLimitConfig - Optional rate limit configuration
+ * @param concurrencyConfig - Optional concurrency limit configuration
+ * @returns A new, isolated SandboxResourceEnforcer instance
  */
 export function createScopedResourceEnforcer(
   rateLimitConfig?: Partial<RateLimitConfig>,
@@ -625,6 +661,33 @@ __createTrackedArray.prototype = __OriginalArray.prototype;
 
 // Replace Array globally
 globalThis.Array = __createTrackedArray;
+
+// Hook Array.prototype.join to track memory when joining large arrays or strings
+// This prevents bypass via Array(n).fill(str).join('')
+const __origJoin = __OriginalArray.prototype.join;
+__OriginalArray.prototype.join = function(separator) {
+  const result = __origJoin.call(this, separator);
+  if (result.length > 1000) {
+    // Track string memory: 2 bytes per char
+    __resource__.trackAllocation(result.length * 2);
+  }
+  return result;
+};
+
+// Hook Array.prototype.fill to track when filling with large objects
+const __origFill = __OriginalArray.prototype.fill;
+__OriginalArray.prototype.fill = function(value, start, end) {
+  const result = __origFill.call(this, value, start, end);
+  // Estimate memory based on fill extent
+  const fillStart = start || 0;
+  const fillEnd = end !== undefined ? end : this.length;
+  const fillCount = fillEnd - fillStart;
+  if (typeof value === 'string' && value.length > 0) {
+    // Track memory for string fills
+    __resource__.trackAllocation(fillCount * value.length * 2);
+  }
+  return result;
+};
 
 // Track string length to catch exponential growth
 // Intercept String.prototype.concat and the + operator by watching string creation
@@ -840,8 +903,90 @@ function findMatchingParen(code: string, openIndex: number): number {
 }
 
 /**
+ * Check if code at given index starts with a control flow keyword
+ * Returns the keyword name and length if found, null otherwise
+ */
+function matchControlFlowKeyword(code: string, index: number): { keyword: string; length: number } | null {
+  const keywords = ['for', 'while', 'do', 'if', 'switch', 'with', 'try']
+  for (const kw of keywords) {
+    if (code.slice(index, index + kw.length) === kw) {
+      // Make sure it's a complete word (not part of identifier like "fortune")
+      const nextChar = code[index + kw.length]
+      if (!nextChar || /[\s(;{]/.test(nextChar)) {
+        return { keyword: kw, length: kw.length }
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * Find the end of a control flow statement body (handles both braced and braceless)
+ * Returns the index after the body ends
+ */
+function findControlFlowBodyEnd(code: string, startIndex: number): number {
+  let i = startIndex
+
+  // Skip whitespace
+  while (i < code.length && /\s/.test(code[i])) {
+    i++
+  }
+
+  if (i >= code.length) return i
+
+  // If body starts with brace, find matching close brace
+  if (code[i] === '{') {
+    let braceDepth = 1
+    i++
+    while (i < code.length && braceDepth > 0) {
+      // Skip string literals
+      if (code[i] === '"' || code[i] === "'" || code[i] === '`') {
+        const quote = code[i]
+        i++
+        while (i < code.length) {
+          if (code[i] === '\\' && i + 1 < code.length) {
+            i += 2
+          } else if (code[i] === quote) {
+            i++
+            break
+          } else if (quote === '`' && code[i] === '$' && code[i + 1] === '{') {
+            i += 2
+            let bd = 1
+            while (i < code.length && bd > 0) {
+              if (code[i] === '{') bd++
+              else if (code[i] === '}') bd--
+              i++
+            }
+          } else {
+            i++
+          }
+        }
+        continue
+      }
+      if (code[i] === '{') braceDepth++
+      else if (code[i] === '}') braceDepth--
+      i++
+    }
+    return i
+  }
+
+  // Empty statement (semicolon only)
+  if (code[i] === ';') {
+    return i + 1
+  }
+
+  // Braceless body - could be another control flow or a simple statement
+  // Recursively call findStatementEnd which handles control flow
+  return findStatementEnd(code, i)
+}
+
+/**
  * Find the end of a single statement (for braceless loops)
  * Returns the index after the statement ends (after semicolon or newline for single statements)
+ *
+ * SECURITY FIX (do-94il): This function now correctly handles nested control flow statements
+ * like `for (...) for (...) x++` by detecting control flow keywords and recursively
+ * finding their body ends.
  */
 function findStatementEnd(code: string, startIndex: number): number {
   let i = startIndex
@@ -864,7 +1009,115 @@ function findStatementEnd(code: string, startIndex: number): number {
     return i + 1
   }
 
-  // Find end of statement
+  // SECURITY FIX: Check if statement starts with a control flow keyword
+  // This handles nested braceless loops like: for (...) for (...) x++
+  const ctrlMatch = matchControlFlowKeyword(code, i)
+  if (ctrlMatch) {
+    const { keyword, length } = ctrlMatch
+    i += length
+
+    // Skip whitespace after keyword
+    while (i < code.length && /\s/.test(code[i])) {
+      i++
+    }
+
+    // Handle the control flow statement based on type
+    if (keyword === 'do') {
+      // do-while: do { body } while (cond);
+      const bodyEnd = findControlFlowBodyEnd(code, i)
+      i = bodyEnd
+      // Skip whitespace
+      while (i < code.length && /\s/.test(code[i])) {
+        i++
+      }
+      // Expect 'while'
+      if (code.slice(i, i + 5) === 'while') {
+        i += 5
+        // Skip whitespace
+        while (i < code.length && /\s/.test(code[i])) {
+          i++
+        }
+        // Find matching paren for condition
+        if (code[i] === '(') {
+          const closeParen = findMatchingParen(code, i)
+          if (closeParen !== -1) {
+            i = closeParen + 1
+            // Skip whitespace and optional semicolon
+            while (i < code.length && /\s/.test(code[i])) {
+              i++
+            }
+            if (code[i] === ';') i++
+          }
+        }
+      }
+      return i
+    } else if (keyword === 'if') {
+      // if (cond) body [else body]
+      if (code[i] === '(') {
+        const closeParen = findMatchingParen(code, i)
+        if (closeParen !== -1) {
+          i = closeParen + 1
+          // Find end of if body
+          i = findControlFlowBodyEnd(code, i)
+          // Check for else
+          let j = i
+          while (j < code.length && /\s/.test(code[j])) {
+            j++
+          }
+          if (code.slice(j, j + 4) === 'else') {
+            i = j + 4
+            // Find end of else body
+            i = findControlFlowBodyEnd(code, i)
+          }
+        }
+      }
+      return i
+    } else if (keyword === 'try') {
+      // try { body } catch/finally
+      const bodyEnd = findControlFlowBodyEnd(code, i)
+      i = bodyEnd
+      // Handle catch
+      while (i < code.length && /\s/.test(code[i])) {
+        i++
+      }
+      if (code.slice(i, i + 5) === 'catch') {
+        i += 5
+        while (i < code.length && /\s/.test(code[i])) {
+          i++
+        }
+        // Optional catch parameter
+        if (code[i] === '(') {
+          const closeParen = findMatchingParen(code, i)
+          if (closeParen !== -1) {
+            i = closeParen + 1
+          }
+        }
+        i = findControlFlowBodyEnd(code, i)
+      }
+      // Handle finally
+      while (i < code.length && /\s/.test(code[i])) {
+        i++
+      }
+      if (code.slice(i, i + 7) === 'finally') {
+        i += 7
+        i = findControlFlowBodyEnd(code, i)
+      }
+      return i
+    } else {
+      // for, while, switch, with: keyword (condition/expr) body
+      if (code[i] === '(') {
+        const closeParen = findMatchingParen(code, i)
+        if (closeParen !== -1) {
+          i = closeParen + 1
+          // Find end of body
+          i = findControlFlowBodyEnd(code, i)
+        }
+      }
+      return i
+    }
+  }
+
+  // Regular statement - find semicolon or appropriate end
   while (i < code.length) {
     const char = code[i]
 
@@ -1504,5 +1757,7 @@ export const _testUtils = {
   normalizeWhitespace,
   findMatchingParen,
   findStatementEnd,
+  findControlFlowBodyEnd,
+  matchControlFlowKeyword,
   processLoops
 }

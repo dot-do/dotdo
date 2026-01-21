@@ -249,6 +249,7 @@ export {
   createSandbox,
   RateLimiter as MCPRateLimiter,
   ConcurrencyLimiter,
+  /** @deprecated Use createScopedResourceEnforcer() instead to prevent state leakage */
   SandboxResourceEnforcer,
   createScopedResourceEnforcer,
   ToolRegistry,
