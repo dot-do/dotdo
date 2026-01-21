@@ -278,7 +278,37 @@ export class DO implements DurableObject {
       this.routes(this.app)
       this.routesInitialized = true
     }
-    return this.app.fetch(request)
+
+    // Get response from Hono app
+    const response = await this.app.fetch(request)
+
+    // Add telemetry headers
+    // X-DO-Colo: The Cloudflare colo where this DO instance is located
+    const colo = this.getColoFromRequest(request)
+    const headers = new Headers(response.headers)
+    headers.set('X-DO-Colo', colo)
+
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    })
+  }
+
+  /**
+   * Extract the Cloudflare colo from the request.
+   * In production, this comes from request.cf.colo.
+   * In local testing (miniflare), returns 'local'.
+   */
+  private getColoFromRequest(request: Request): string {
+    // Cloudflare's cf object contains colo information
+    // TypeScript needs the cf property to be typed
+    const cf = (request as Request & { cf?: { colo?: string } }).cf
+    if (cf?.colo) {
+      return cf.colo
+    }
+    // Fallback for local development/testing
+    return 'local'
   }
 
   // Alarm handler (for scheduling)

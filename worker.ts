@@ -75,6 +75,59 @@ function isGracefulDegradationEnabled(env: Env): boolean {
   return true
 }
 
+/**
+ * Extract the Cloudflare colo from the incoming request.
+ * In production, this comes from request.cf.colo (3-letter IATA code like 'SJC', 'LHR').
+ * In local testing (miniflare/wrangler dev), returns 'local'.
+ */
+function getWorkerColo(request: Request): string {
+  const cf = (request as Request & { cf?: { colo?: string } }).cf
+  if (cf?.colo) {
+    return cf.colo
+  }
+  return 'local'
+}
+
+/**
+ * Add telemetry headers to a response.
+ * - X-Worker-Colo: The Cloudflare colo where the worker runs
+ * - X-Latency-Ms: Round-trip time from worker to DO in milliseconds
+ * The response already includes X-DO-Colo from the DO itself.
+ */
+function addTelemetryHeaders(
+  response: Response,
+  workerColo: string,
+  latencyMs: number
+): Response {
+  const headers = new Headers(response.headers)
+  headers.set('X-Worker-Colo', workerColo)
+  headers.set('X-Latency-Ms', latencyMs.toFixed(2))
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
+/**
+ * Execute a DO request with telemetry capture.
+ * Measures latency and adds telemetry headers to the response.
+ */
+async function executeWithTelemetry(
+  request: Request,
+  doFetch: () => Promise<Response>
+): Promise<Response> {
+  const workerColo = getWorkerColo(request)
+  const start = performance.now()
+
+  const response = await doFetch()
+
+  const latencyMs = performance.now() - start
+
+  return addTelemetryHeaders(response, workerColo, latencyMs)
+}
+
 // Worker fetch handler - routes to DO based on hostname with graceful degradation
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -102,15 +155,17 @@ export default {
 
     // Check if graceful degradation is enabled
     if (!isGracefulDegradationEnabled(env)) {
-      // Direct passthrough without graceful degradation
-      return stub.fetch(request)
+      // Direct passthrough with telemetry capture
+      return executeWithTelemetry(request, () => stub.fetch(request))
     }
 
-    // Use graceful degradation handler
+    // Use graceful degradation handler with telemetry capture
     const handler = getGracefulDegradationHandler(env)
 
-    return handler.executeRequest(ns, request, async () => {
-      return stub.fetch(request)
+    return executeWithTelemetry(request, async () => {
+      return handler.executeRequest(ns, request, async () => {
+        return stub.fetch(request)
+      })
     })
   },
 }
