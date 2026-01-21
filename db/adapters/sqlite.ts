@@ -16,6 +16,28 @@ import type { SqlStorage } from '../sqlite'
 const DEFAULT_TABLE_NAME = 'kv_store'
 
 /**
+ * Regex for validating table names to prevent SQL injection.
+ * Only allows alphanumeric characters and underscores, must start with letter or underscore.
+ */
+const VALID_TABLE_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/
+
+/**
+ * Validates a table name to prevent SQL injection.
+ * Throws an error if the table name is invalid.
+ */
+function validateTableName(tableName: string): void {
+  if (!VALID_TABLE_NAME.test(tableName)) {
+    throw new Error(
+      `Invalid table name: "${tableName}". Table names must be alphanumeric (with underscores) and start with a letter or underscore.`
+    )
+  }
+  // Additional protection: limit length to prevent buffer issues
+  if (tableName.length > 128) {
+    throw new Error(`Table name too long: "${tableName}". Maximum length is 128 characters.`)
+  }
+}
+
+/**
  * SQLite-backed storage adapter
  *
  * Uses a simple key-value table structure with JSON serialization for values.
@@ -31,6 +53,9 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     this.sql = sql
     this.tableName = options.tableName || DEFAULT_TABLE_NAME
     this.namespace = options.namespace || ''
+
+    // Validate table name to prevent SQL injection (do-xdq7)
+    validateTableName(this.tableName)
   }
 
   /**

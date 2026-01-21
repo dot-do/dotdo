@@ -7,7 +7,7 @@ import type { Thing, ThingsStore } from './things'
 import type { RelationshipsStore } from './relationships'
 import type { JsonValue, StorableData } from './types'
 import { toThingId } from './branded-types'
-import { ValidationError } from '../rpc/errors'
+import { DbValidationError } from './errors'
 
 // ============================================================
 // Query Limits Configuration (do-bgr1)
@@ -214,12 +214,12 @@ export interface QueryBuilder<T extends StorableData = StorableData> {
 const VALID_FIELD_NAME = /^[$a-zA-Z_][a-zA-Z0-9_$]*$/
 
 /**
- * Validates a field name to prevent SQL injection
- * Throws a ValidationError if the field name is invalid
+ * Validates a field name to prevent SQL injection (do-xdq7)
+ * Throws a DbValidationError if the field name is invalid
  */
 function validateFieldName(field: string): void {
   if (!VALID_FIELD_NAME.test(field)) {
-    throw ValidationError.forField(
+    throw DbValidationError.forField(
       field,
       'must be alphanumeric (with underscores) and start with a letter, underscore, or $',
       field
@@ -863,7 +863,7 @@ export function query<T extends StorableData = StorableData>(store: ThingsStore,
  * Returns { clause: string, params: JsonValue[] }
  *
  * IMPORTANT: This uses parameterized queries to prevent SQL injection.
- * Field names are validated with VALID_FIELD_NAME regex.
+ * Field names are validated with VALID_FIELD_NAME regex (do-xdq7).
  * Values are bound as parameters, never interpolated into SQL.
  */
 export function buildWhereClause<T extends StorableData = StorableData>(options: QueryOptions<T>): {
@@ -883,6 +883,9 @@ export function buildWhereClause<T extends StorableData = StorableData>(options:
   if (options.whereConditions && options.whereConditions.length > 0) {
     for (const condition of options.whereConditions) {
       const { field, operator, value } = condition
+
+      // Validate field name to prevent SQL injection (do-xdq7)
+      validateFieldName(field)
 
       // Map field names - $type, $id etc. map to columns
       const sqlField = mapFieldToColumn(field)
@@ -993,11 +996,15 @@ function isJsonField(field: string): boolean {
 
 /**
  * Builds the ORDER BY clause
+ * Validates field names to prevent SQL injection (do-xdq7)
  */
 export function buildOrderByClause<T extends StorableData = StorableData>(options: QueryOptions<T>): string {
   if (!options.orderBy) {
     return 'ORDER BY created_at DESC'
   }
+
+  // Validate field name to prevent SQL injection (do-xdq7)
+  validateFieldName(options.orderBy)
 
   const sqlField = isJsonField(options.orderBy)
     ? `json_extract(data, '$.${options.orderBy}')`

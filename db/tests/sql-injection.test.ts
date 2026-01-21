@@ -1,8 +1,14 @@
 /**
- * SQL Injection Prevention Tests (do-2a0j)
+ * SQL Injection Prevention Tests (do-2a0j, do-xdq7)
  *
- * Tests to verify that field names are properly validated/whitelisted
- * to prevent SQL injection attacks via malicious field names.
+ * Tests to verify that field names and table names are properly validated/whitelisted
+ * to prevent SQL injection attacks via malicious field names or table names.
+ *
+ * Security measures tested:
+ * 1. Field name validation in QueryBuilder methods (where, whereOp, orderBy, select)
+ * 2. Field name validation in buildWhereClause and buildOrderByClause
+ * 3. Table name validation in SQLiteStorageAdapter
+ * 4. Parameterized queries for values
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -15,6 +21,8 @@ import {
   type QueryOptions,
 } from '../query'
 import { DbValidationError } from '../errors'
+import { SQLiteStorageAdapter } from '../adapters/sqlite'
+import type { SqlStorage } from '../sqlite'
 
 describe('SQL Injection Prevention (do-2a0j)', () => {
   let store: ThingsStore
@@ -351,6 +359,123 @@ describe('SQL Injection Prevention (do-2a0j)', () => {
       expect(() => {
         query(store).type('User').where('[name]', 'value')
       }).toThrow(DbValidationError)
+    })
+  })
+})
+
+describe('SQLiteStorageAdapter table name validation (do-xdq7)', () => {
+  /**
+   * Create a mock SqlStorage for testing
+   */
+  function createMockSqlStorage(): SqlStorage {
+    return {
+      exec: () => ({ results: [] }),
+      prepare: () => ({
+        bind: () => ({
+          first: () => null,
+          all: () => ({ results: [] }),
+          run: () => ({ meta: { changes: 0 } })
+        })
+      })
+    }
+  }
+
+  describe('table name injection prevention', () => {
+    it('should accept valid table names', () => {
+      const sql = createMockSqlStorage()
+
+      // Valid table names should not throw
+      expect(() => new SQLiteStorageAdapter(sql, { tableName: 'kv_store' })).not.toThrow()
+      expect(() => new SQLiteStorageAdapter(sql, { tableName: 'my_table' })).not.toThrow()
+      expect(() => new SQLiteStorageAdapter(sql, { tableName: 'Table123' })).not.toThrow()
+      expect(() => new SQLiteStorageAdapter(sql, { tableName: '_private' })).not.toThrow()
+      expect(() => new SQLiteStorageAdapter(sql, { tableName: 'A' })).not.toThrow()
+    })
+
+    it('should reject table names with SQL injection attempts', () => {
+      const sql = createMockSqlStorage()
+
+      expect(() => {
+        new SQLiteStorageAdapter(sql, { tableName: "users; DROP TABLE things; --" })
+      }).toThrow(/Invalid table name/)
+    })
+
+    it('should reject table names with semicolons', () => {
+      const sql = createMockSqlStorage()
+
+      expect(() => {
+        new SQLiteStorageAdapter(sql, { tableName: "table;" })
+      }).toThrow(/Invalid table name/)
+    })
+
+    it('should reject table names with quotes', () => {
+      const sql = createMockSqlStorage()
+
+      expect(() => {
+        new SQLiteStorageAdapter(sql, { tableName: "table'" })
+      }).toThrow(/Invalid table name/)
+
+      expect(() => {
+        new SQLiteStorageAdapter(sql, { tableName: 'table"' })
+      }).toThrow(/Invalid table name/)
+    })
+
+    it('should reject table names with parentheses', () => {
+      const sql = createMockSqlStorage()
+
+      expect(() => {
+        new SQLiteStorageAdapter(sql, { tableName: "table()" })
+      }).toThrow(/Invalid table name/)
+    })
+
+    it('should reject table names with spaces', () => {
+      const sql = createMockSqlStorage()
+
+      expect(() => {
+        new SQLiteStorageAdapter(sql, { tableName: "table name" })
+      }).toThrow(/Invalid table name/)
+    })
+
+    it('should reject table names starting with numbers', () => {
+      const sql = createMockSqlStorage()
+
+      expect(() => {
+        new SQLiteStorageAdapter(sql, { tableName: "123table" })
+      }).toThrow(/Invalid table name/)
+    })
+
+    it('should reject table names with dashes', () => {
+      const sql = createMockSqlStorage()
+
+      expect(() => {
+        new SQLiteStorageAdapter(sql, { tableName: "my-table" })
+      }).toThrow(/Invalid table name/)
+    })
+
+    it('should reject table names with UNION injection', () => {
+      const sql = createMockSqlStorage()
+
+      expect(() => {
+        new SQLiteStorageAdapter(sql, { tableName: "users UNION SELECT * FROM secrets" })
+      }).toThrow(/Invalid table name/)
+    })
+
+    it('should reject excessively long table names', () => {
+      const sql = createMockSqlStorage()
+      const longName = 'a'.repeat(129)
+
+      expect(() => {
+        new SQLiteStorageAdapter(sql, { tableName: longName })
+      }).toThrow(/Table name too long/)
+    })
+
+    it('should accept table names at maximum length (128 chars)', () => {
+      const sql = createMockSqlStorage()
+      const maxLengthName = 'a'.repeat(128)
+
+      expect(() => {
+        new SQLiteStorageAdapter(sql, { tableName: maxLengthName })
+      }).not.toThrow()
     })
   })
 })
