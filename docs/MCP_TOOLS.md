@@ -263,7 +263,123 @@ const config = generateMCPServerConfig(
 
 ### With Claude Desktop
 
-Create an MCP server configuration for Claude Desktop:
+The `@dotdo/mcp` package provides a standalone MCP server that can be used directly with Claude Desktop. This enables Claude to interact with your dotdo-based applications.
+
+#### Quick Setup
+
+1. **Configure Claude Desktop**
+
+   Edit your Claude Desktop configuration file:
+   - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+   - **Linux**: `~/.config/claude/claude_desktop_config.json`
+
+   Add the dotdo MCP server:
+
+   ```json
+   {
+     "mcpServers": {
+       "dotdo": {
+         "command": "npx",
+         "args": ["@dotdo/mcp"]
+       }
+     }
+   }
+   ```
+
+2. **Restart Claude Desktop**
+
+   After saving the configuration, restart Claude Desktop to load the MCP server.
+
+3. **Verify the Connection**
+
+   Ask Claude: "What MCP tools do you have available?" Claude should list the dotdo tools.
+
+#### Available Tools
+
+The `@dotdo/mcp` server exposes three core tools:
+
+| Tool | Description | Use Cases |
+|------|-------------|-----------|
+| **search** | Search Things in the Digital Object store | Find entities by type, filter by fields, full-text search |
+| **fetch** | Fetch content from web URLs | Get data from APIs, scrape web pages |
+| **do** | Execute code in a secure sandbox | Run JavaScript with timeout and memory limits |
+
+#### Tool Input Schemas
+
+**search tool:**
+```json
+{
+  "$type": "User",
+  "where": { "role": "admin" },
+  "query": "john",
+  "orderBy": "createdAt",
+  "order": "desc",
+  "limit": 10,
+  "offset": 0,
+  "select": ["name", "email"]
+}
+```
+
+**fetch tool:**
+```json
+{
+  "url": "https://api.example.com/users",
+  "method": "GET",
+  "headers": { "Authorization": "Bearer token" }
+}
+```
+
+**do tool:**
+```json
+{
+  "code": "const x = 1 + 1; return x;",
+  "timeout": 5000
+}
+```
+
+#### Example Conversation with Claude
+
+Here's an example of how Claude can use dotdo MCP tools:
+
+**User:** "Find all admin users in the system and show their emails"
+
+**Claude (internally calls):**
+```json
+{
+  "tool": "search",
+  "arguments": {
+    "$type": "User",
+    "where": { "role": "admin" },
+    "select": ["name", "email"]
+  }
+}
+```
+
+**Claude (response):** "I found 3 admin users:
+- Alice (alice@example.com)
+- Bob (bob@example.com)
+- Charlie (charlie@example.com)"
+
+---
+
+**User:** "Calculate the total order value for customer cust-123"
+
+**Claude (internally calls):**
+```json
+{
+  "tool": "do",
+  "arguments": {
+    "code": "const orders = await $.things.list({ type: 'Order', where: { customerId: 'cust-123' } }); return orders.reduce((sum, o) => sum + o.total, 0);"
+  }
+}
+```
+
+**Claude (response):** "The total order value for customer cust-123 is $1,547.50"
+
+#### Advanced: Custom MCP Server with Resources
+
+For full control, create a custom MCP server configuration:
 
 ```typescript
 // mcp-server.ts
@@ -285,7 +401,7 @@ export default {
     input_schema: tool.inputSchema,
     execute: async (params: Record<string, unknown>) => {
       // Connect to your actual API
-      const response = await fetch(`https://api.example.com.ai/${tool.name}`, {
+      const response = await fetch(`https://api.example.com/${tool.name}`, {
         method: 'POST',
         body: JSON.stringify(params)
       })
@@ -293,6 +409,41 @@ export default {
     }
   }))
 }
+```
+
+#### Running as HTTP Server
+
+For debugging or external access, run the MCP server in HTTP mode:
+
+```bash
+# Start HTTP server on default port 3000
+npx @dotdo/mcp --http
+
+# Start on custom port
+npx @dotdo/mcp --http --port 8080
+
+# With verbose logging
+npx @dotdo/mcp --http --verbose
+```
+
+HTTP endpoints:
+- `POST /mcp/initialize` - Initialize the MCP server
+- `GET /mcp/tools` - List available tools
+- `POST /mcp/tools/call` - Execute a tool
+- `GET /` - Health check
+
+Example HTTP call:
+```bash
+curl -X POST http://localhost:3000/mcp/tools/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "search",
+    "arguments": {
+      "$type": "User",
+      "limit": 5
+    }
+  }'
+```
 ```
 
 ### With Cloudflare Workers

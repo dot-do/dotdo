@@ -1094,8 +1094,7 @@ Congratulations! You now have a solid foundation for building with dotdo.
 
 ### Community
 
-- GitHub Issues: Report bugs and request features
-- Discord: Join the workers.do community
+- [GitHub Issues](https://github.com/dot-do/dotdo/issues): Report bugs and request features
 
 ---
 

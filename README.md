@@ -406,6 +406,53 @@ npx dotdo login         # OAuth login (future: via oauth.do)
 
 The CLI is included in the main `dotdo` package. No separate installation needed.
 
+### Code Generation
+
+dotdo follows the principle of **"Define once, generate everywhere"** - your resource definitions automatically produce SDKs, CLI commands, OpenAPI specs, and MCP tools.
+
+#### Using the Programmatic API
+
+```typescript
+import { defineResource, generateSDK, generateCLI, generateMCPTools, generateOpenAPI } from '@dotdo/api'
+
+// Define resources once
+const CustomerResource = defineResource('customers')
+  .fields({
+    name: { type: 'string', required: true },
+    email: { type: 'string', format: 'email', required: true }
+  })
+  .actions({
+    upgrade: { method: 'POST', handler: async (ctx) => ({}) }
+  })
+  .build()
+
+// Generate TypeScript SDK
+const sdkCode = generateSDK([CustomerResource])
+writeFileSync('sdk.ts', sdkCode)
+
+// Generate OpenAPI 3.0 spec
+const openApiSpec = generateOpenAPI([CustomerResource])
+writeFileSync('openapi.json', JSON.stringify(openApiSpec, null, 2))
+
+// Generate CLI command structure
+const cliCommands = generateCLI([CustomerResource])
+
+// Generate MCP tools for AI agents
+const mcpTools = generateMCPTools([CustomerResource])
+```
+
+#### Generated Artifacts
+
+| Generator | Output | Description |
+|-----------|--------|-------------|
+| `generateSDK()` | TypeScript SDK | Type-safe client with CRUD + custom actions |
+| `generateOpenAPI()` | OpenAPI 3.0 | JSON/YAML spec for documentation |
+| `generateCLI()` | CLI structure | Commander.js compatible commands |
+| `generateMCPTools()` | MCP tools | AI-agent compatible tool definitions |
+| `generateTypes()` | TypeScript types | Interfaces from resource definitions |
+
+See [SDK Generation documentation](./docs/SDK_GENERATION.md) for comprehensive examples.
+
 ### Middleware & Utilities
 
 #### `@dotdo/auth`
@@ -946,9 +993,8 @@ Use `npx vitest run` instead of watch mode for CI.
 
 - **Documentation** - Start with [CLAUDE.md](./CLAUDE.md) and package READMEs
 - **Examples** - Browse `.worktrees/v1/examples/` for working code
-- **Issues** - Check [GitHub Issues](https://github.com/dot-do/dotdo/issues)
-- **Discussions** - Ask questions in [GitHub Discussions](https://github.com/dot-do/dotdo/discussions)
-- **Discord** - Join the community at [workers.do/discord](https://workers.do/discord)
+- **Issues** - Report bugs and request features at [GitHub Issues](https://github.com/dot-do/dotdo/issues)
+- **Enterprise Support** - Contact [enterprise@dotdo.dev](mailto:enterprise@dotdo.dev)
 
 ## Development
 
@@ -1085,24 +1131,23 @@ Join the dotdo community to get help, share ideas, and connect with other develo
 
 ### Get Involved
 
-- **[GitHub Discussions](https://github.com/dot-do/dotdo/discussions)** - Ask questions, share ideas, and show what you've built
-- **[Discord](https://workers.do/discord)** - Real-time chat with the community
+- **[GitHub Issues](https://github.com/dot-do/dotdo/issues)** - Report bugs and request features
 - **[Contributing Guidelines](./CONTRIBUTING.md)** - Learn how to contribute to dotdo
 - **[Code of Conduct](./CODE_OF_CONDUCT.md)** - Our community standards
 
 ### Ways to Contribute
 
 - **Report bugs** - Found something broken? [Open an issue](https://github.com/dot-do/dotdo/issues/new?template=bug_report.yml)
-- **Suggest features** - Have an idea? [Start a discussion](https://github.com/dot-do/dotdo/discussions/categories/ideas)
+- **Suggest features** - Have an idea? [Open a feature request](https://github.com/dot-do/dotdo/issues/new?template=feature_request.yml)
 - **Submit PRs** - Check out our [contributing guide](./CONTRIBUTING.md)
-- **Share your projects** - Built something cool? [Show it off](https://github.com/dot-do/dotdo/discussions/categories/show-and-tell)
 
 ---
 
 ## Support
 
-- **Questions:** Use [GitHub Discussions](https://github.com/dot-do/dotdo/discussions/categories/q-a) for Q&A
-- **Issues:** [Report bugs](https://github.com/dot-do/dotdo/issues/new?template=bug_report.yml) or [request features](https://github.com/dot-do/dotdo/issues/new?template=feature_request.yml)
+- **Questions:** [Open an issue](https://github.com/dot-do/dotdo/issues/new) for help and questions
+- **Bugs:** [Report bugs](https://github.com/dot-do/dotdo/issues/new?template=bug_report.yml)
+- **Features:** [Request features](https://github.com/dot-do/dotdo/issues/new?template=feature_request.yml)
 - **Enterprise:** Contact [enterprise@dotdo.dev](mailto:enterprise@dotdo.dev)
 
 ---

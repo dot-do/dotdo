@@ -161,4 +161,4 @@ await this.$.Order('order-123').ship()
 
 ---
 
-**Need help?** Check [Troubleshooting](./docs/TROUBLESHOOTING.md) or join our [Discord](https://workers.do/discord).
+**Need help?** Check [Troubleshooting](./docs/TROUBLESHOOTING.md) or [open an issue](https://github.com/dot-do/dotdo/issues).

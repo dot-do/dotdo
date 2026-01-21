@@ -852,11 +852,9 @@ git branch  # Should show v3 or your feature branch
 
 ## Getting Help
 
-- **Questions & Help**: [GitHub Discussions Q&A](https://github.com/dot-do/dotdo/discussions/categories/q-a)
-- **Ideas & Features**: [GitHub Discussions Ideas](https://github.com/dot-do/dotdo/discussions/categories/ideas)
-- **Bug Reports**: [Open an issue](https://github.com/dot-do/dotdo/issues/new?template=bug_report.yml)
+- **Questions & Help**: [Open an issue](https://github.com/dot-do/dotdo/issues/new)
+- **Bug Reports**: [Open a bug report](https://github.com/dot-do/dotdo/issues/new?template=bug_report.yml)
 - **Feature Requests**: [Open a feature request](https://github.com/dot-do/dotdo/issues/new?template=feature_request.yml)
-- **Discord**: [Join the community](https://workers.do/discord)
 - **Security Issues**: [security@dotdo.dev](mailto:security@dotdo.dev) (do not open public issues)
 
 ---
