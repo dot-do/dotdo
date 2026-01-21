@@ -10,7 +10,7 @@
  * @module do/workflow/context
  */
 
-import { createEventsStore, type Event, type JsonValue } from '../../db'
+import { createEventsStore, type Event, type EventsStore, type JsonValue } from '../../db'
 import { createEveryProxy } from './schedule'
 import { createOnProxy, matchHandlers, invokeHandlers, type RetryOptions } from './events'
 import { createDORPCProxy } from './rpc'
@@ -18,9 +18,10 @@ import { RPCError, TimeoutError, InternalError, ValidationError } from '@dotdo/r
 import {
   createInMemoryErrorStore,
   extractErrorInfo,
+  type FireAndForgetErrorStore,
 } from '../fire-and-forget-errors'
 import { IntegrationRegistry } from '@dotdo/integrations'
-import { createLogger } from '../../utils/logger'
+import { createLogger } from '@dotdo/utils'
 import {
   runWithWorkflowContextSync,
   getContextMetadata,
@@ -62,6 +63,214 @@ import type { ScheduleRegistration } from './schedule'
 import type { DOStubProxy } from './rpc'
 
 /**
+ * Internal state object for the workflow context
+ */
+interface ContextState {
+  events: EventsStore
+  handlers: Map<string, EventHandler[]>
+  schedules: Map<string, ScheduleRegistration>
+  stubCache: Map<string, DOStubProxy>
+  fireAndForgetErrors: FireAndForgetErrorStore
+  integrations: IntegrationRegistry
+}
+
+/**
+ * Initialize the internal state for the workflow context
+ */
+function initializeContextState(options?: CreateContextOptions): ContextState {
+  const events = createEventsStore()
+  const handlers = new Map<string, EventHandler[]>()
+  const schedules = new Map<string, ScheduleRegistration>()
+  const stubCache = new Map<string, DOStubProxy>()
+  const fireAndForgetErrors = options?.errorStore ?? createInMemoryErrorStore()
+  const integrations = options?.integrationRegistry ?? new IntegrationRegistry()
+
+  // Initialize async context system (do-nexi)
+  initializeAsyncContext().catch((err) => {
+    logger.error('Failed to initialize async context:', err)
+  })
+
+  // Initialize integrations if configs provided
+  if (options?.integrationConfigs) {
+    integrations.initAll(options.integrationConfigs).catch((err) => {
+      logger.error('Failed to initialize integrations:', err)
+    })
+  }
+
+  return { events, handlers, schedules, stubCache, fireAndForgetErrors, integrations }
+}
+
+/**
+ * Create the event processor function that handles event processing with retry logic
+ */
+function createEventProcessor(
+  state: ContextState
+): (emitted: Event, eventType: string, payload: unknown) => Promise<void> {
+  const { events, handlers, fireAndForgetErrors } = state
+
+  return async function processEvent(emitted: Event, eventType: string, payload: unknown): Promise<void> {
+    // Get durability config for this event type (supports per-type configuration)
+    const config = events.getDurabilityConfig(eventType)
+    const retryOptions: RetryOptions = {
+      maxRetries: config.retries ?? 3, // Max 3 retries by default as per task spec
+      backoff: config.backoff ?? 'exponential',
+      initialDelay: 100
+    }
+
+    // Use invokeHandlers which includes retry logic
+    const result = await invokeHandlers(eventType, emitted, handlers, retryOptions)
+
+    // Handle failed handlers - add to DLQ, track validation failures, and track in error store
+    for (const failure of result.failed) {
+      trackHandlerFailure(failure, eventType, payload, result.failed.indexOf(failure), fireAndForgetErrors, events, emitted)
+    }
+
+    // Update retry status and metrics
+    updateRetryMetrics(result, emitted, eventType, payload, events)
+
+    // Emit recovery events for handlers that succeeded after retries
+    await emitRecoveryEvents(result, emitted, eventType, handlers)
+  }
+}
+
+/**
+ * Track a handler failure in the error store and DLQ/validation queue
+ */
+function trackHandlerFailure(
+  failure: { error: Error | undefined; attempts: number },
+  eventType: string,
+  payload: unknown,
+  handlerIndex: number,
+  fireAndForgetErrors: FireAndForgetErrorStore,
+  events: EventsStore,
+  emitted: Event
+): void {
+  const errorInfo = extractErrorInfo(failure.error)
+
+  // Track in fire-and-forget error store
+  const errorContext = typeof payload === 'object' && payload !== null
+    ? payload as Record<string, unknown>
+    : undefined
+  fireAndForgetErrors.track({
+    operation: 'event.handler',
+    eventType: eventType,
+    handlerIndex,
+    message: errorInfo.message,
+    ...(errorInfo.stack !== undefined && { stack: errorInfo.stack }),
+    errorType: errorInfo.errorType,
+    retriable: errorInfo.retriable,
+    ...(errorContext !== undefined && { context: errorContext }),
+    attempts: failure.attempts,
+  })
+
+  if (failure.error instanceof ValidationError) {
+    events.addValidationFailure({
+      type: eventType,
+      payload: payload,
+      error: `ValidationError: ${failure.error.message}`,
+      details: failure.error.details
+    })
+  } else {
+    events.addToDeadLetterQueue({
+      event: emitted,
+      attempts: failure.attempts,
+      lastError: failure.error?.message || 'Unknown error'
+    })
+  }
+}
+
+/**
+ * Update retry status and metrics for an event
+ */
+function updateRetryMetrics(
+  result: { succeeded: Array<{ attempts: number }>; failed: Array<{ attempts: number }> },
+  emitted: Event,
+  eventType: string,
+  payload: unknown,
+  events: EventsStore
+): void {
+  // Calculate total attempts (max across all handlers)
+  const totalAttempts = Math.max(
+    ...result.succeeded.map(h => h.attempts),
+    ...result.failed.map(h => h.attempts),
+    1
+  )
+
+  // Track event retry status using event payload's id or the emitted $id
+  const eventId = (payload as { id?: string })?.id || emitted.$id
+  events.setEventRetryStatus(eventId, {
+    attempts: totalAttempts,
+    succeeded: result.failed.length === 0,
+    lastAttempt: Date.now()
+  })
+
+  // Record retry metrics
+  const totalRetries = result.succeeded.reduce((sum, h) => sum + (h.attempts - 1), 0) +
+                      result.failed.reduce((sum, h) => sum + (h.attempts - 1), 0)
+
+  if (result.succeeded.length > 0 || result.failed.length > 0) {
+    events.recordRetryAttempt(
+      eventType,
+      result.failed.length === 0,
+      totalRetries
+    )
+  }
+}
+
+/**
+ * Emit recovery events for handlers that succeeded after retries
+ */
+async function emitRecoveryEvents(
+  result: { succeeded: Array<{ attempts: number }> },
+  emitted: Event,
+  eventType: string,
+  handlers: Map<string, EventHandler[]>
+): Promise<void> {
+  for (const success of result.succeeded) {
+    if (success.attempts > 1) {
+      const recoveryEvent = {
+        $id: `recovery-${emitted.$id}`,
+        type: 'System.recovered',
+        originalEvent: { type: eventType },
+        attempts: success.attempts,
+        $timestamp: Date.now(),
+        source: 'system'
+      }
+
+      const recoveryHandlers = matchHandlers('System.recovered', handlers)
+      for (const handler of recoveryHandlers) {
+        try {
+          await handler(recoveryEvent)
+        } catch (err) {
+          logger.error('Error in recovery handler:', err)
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Setup the event subscription for replayed events from the DLQ
+ */
+function setupEventSubscription(
+  state: ContextState,
+  processEvent: (emitted: Event, eventType: string, payload: unknown) => Promise<void>
+): void {
+  state.events.subscribe((event) => {
+    // Only process events replayed from the DLQ (source: 'dlq-replay')
+    // Events from $.send() have source: 'workflow' and are processed separately
+    if (event.source !== 'dlq-replay') {
+      return
+    }
+
+    // Process replayed events with retry logic
+    processEvent(event, event.type, event.payload).catch((err) => {
+      logger.error(`Error processing replayed event "${event.type}":`, err)
+    })
+  })
+}
+
+/**
  * Create a WorkflowContext ($) instance
  *
  * This is the main factory function for creating the $ context that provides
@@ -100,141 +309,41 @@ export function createContext(
   env: unknown,
   options?: CreateContextOptions
 ): WorkflowContext {
-  const events = createEventsStore()
-  const handlers = new Map<string, EventHandler[]>()
-  const schedules = new Map<string, ScheduleRegistration>()
-  const stubCache = new Map<string, DOStubProxy>()
-  const fireAndForgetErrors = options?.errorStore ?? createInMemoryErrorStore()
-  const integrations = options?.integrationRegistry ?? new IntegrationRegistry()
+  // Initialize state using helper function
+  const state = initializeContextState(options)
+  const { events, handlers, schedules, stubCache, fireAndForgetErrors, integrations } = state
 
-  // Initialize async context system (do-nexi)
-  initializeAsyncContext().catch((err) => {
-    logger.error('Failed to initialize async context:', err)
-  })
+  // Create event processor using helper function
+  const processEvent = createEventProcessor(state)
 
-  // Initialize integrations if configs provided
-  if (options?.integrationConfigs) {
-    integrations.initAll(options.integrationConfigs).catch((err) => {
-      logger.error('Failed to initialize integrations:', err)
-    })
-  }
+  // Setup event subscription for DLQ replays using helper function
+  setupEventSubscription(state, processEvent)
 
-  // Helper function to process an event (invoke handlers with retry logic)
-  async function processEvent(emitted: Event, eventType: string, payload: unknown): Promise<void> {
-    // Get durability config for this event type (supports per-type configuration)
-    const config = events.getDurabilityConfig(eventType)
-    const retryOptions: RetryOptions = {
-      maxRetries: config.retries ?? 3, // Max 3 retries by default as per task spec
-      backoff: config.backoff ?? 'exponential',
-      initialDelay: 100
-    }
+  // Create the base context object using helper function
+  const baseContext = createBaseContext(
+    state,
+    processEvent,
+    env,
+    options
+  )
 
-    // Use invokeHandlers which includes retry logic
-    const result = await invokeHandlers(eventType, emitted, handlers, retryOptions)
+  // Wrap context in Proxy to support cross-DO RPC: $.Customer(id)
+  // Uses _env and _stubCache from baseContext directly - no duplicate reference needed (do-1e3z)
+  return createDORPCProxy(baseContext) as WorkflowContext
+}
 
-    // Handle failed handlers - add to DLQ, track validation failures, and track in error store
-    for (const failure of result.failed) {
-      const errorInfo = extractErrorInfo(failure.error)
+/**
+ * Create the base context object with all workflow methods
+ */
+function createBaseContext(
+  state: ContextState,
+  processEvent: (emitted: Event, eventType: string, payload: unknown) => Promise<void>,
+  env: unknown,
+  options?: CreateContextOptions
+): Record<string, unknown> {
+  const { events, handlers, schedules, stubCache, fireAndForgetErrors, integrations } = state
 
-      // Track in fire-and-forget error store
-      const errorContext = typeof payload === 'object' && payload !== null
-        ? payload as Record<string, unknown>
-        : undefined
-      fireAndForgetErrors.track({
-        operation: 'event.handler',
-        eventType: eventType,
-        handlerIndex: result.failed.indexOf(failure),
-        message: errorInfo.message,
-        ...(errorInfo.stack !== undefined && { stack: errorInfo.stack }),
-        errorType: errorInfo.errorType,
-        retriable: errorInfo.retriable,
-        ...(errorContext !== undefined && { context: errorContext }),
-        attempts: failure.attempts,
-      })
-
-      if (failure.error instanceof ValidationError) {
-        events.addValidationFailure({
-          type: eventType,
-          payload: payload,
-          error: `ValidationError: ${failure.error.message}`,
-          details: failure.error.details
-        })
-      } else {
-        events.addToDeadLetterQueue({
-          event: emitted,
-          attempts: failure.attempts,
-          lastError: failure.error?.message || 'Unknown error'
-        })
-      }
-    }
-
-    // Calculate total attempts (max across all handlers)
-    const totalAttempts = Math.max(
-      ...result.succeeded.map(h => h.attempts),
-      ...result.failed.map(h => h.attempts),
-      1
-    )
-
-    // Track event retry status using event payload's id or the emitted $id
-    const eventId = (payload as { id?: string })?.id || emitted.$id
-    events.setEventRetryStatus(eventId, {
-      attempts: totalAttempts,
-      succeeded: result.failed.length === 0,
-      lastAttempt: Date.now()
-    })
-
-    // Record retry metrics
-    const totalRetries = result.succeeded.reduce((sum, h) => sum + (h.attempts - 1), 0) +
-                        result.failed.reduce((sum, h) => sum + (h.attempts - 1), 0)
-
-    if (result.succeeded.length > 0 || result.failed.length > 0) {
-      events.recordRetryAttempt(
-        eventType,
-        result.failed.length === 0,
-        totalRetries
-      )
-    }
-
-    // Emit recovery event if handlers succeeded after retries
-    for (const success of result.succeeded) {
-      if (success.attempts > 1) {
-        const recoveryEvent = {
-          $id: `recovery-${emitted.$id}`,
-          type: 'System.recovered',
-          originalEvent: { type: eventType },
-          attempts: success.attempts,
-          $timestamp: Date.now(),
-          source: 'system'
-        }
-
-        const recoveryHandlers = matchHandlers('System.recovered', handlers)
-        for (const handler of recoveryHandlers) {
-          try {
-            await handler(recoveryEvent)
-          } catch (err) {
-            logger.error('Error in recovery handler:', err)
-          }
-        }
-      }
-    }
-  }
-
-  // Subscribe to events from the store to handle replayed events only
-  events.subscribe((event) => {
-    // Only process events replayed from the DLQ (source: 'dlq-replay')
-    // Events from $.send() have source: 'workflow' and are processed separately
-    if (event.source !== 'dlq-replay') {
-      return
-    }
-
-    // Process replayed events with retry logic
-    processEvent(event, event.type, event.payload).catch((err) => {
-      logger.error(`Error processing replayed event "${event.type}":`, err)
-    })
-  })
-
-  // Create the base context object
-  const baseContext = {
+  const baseContext: Record<string, unknown> = {
     // Fire-and-forget event emission with retry support
     send(event: { type: string; payload?: JsonValue }) {
       const payload = event.payload ?? null
@@ -252,62 +361,10 @@ export function createContext(
     },
 
     // Single attempt - no retries, optional timeout
-    async try<T>(action: () => Promise<T>, options: TryOptions = {}): Promise<T> {
-      const { timeout } = options
-
-      // If no timeout specified, just execute the action directly
-      if (timeout === undefined) {
-        return action()
-      }
-
-      // Wrap with timeout
-      return Promise.race([
-        action(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(TimeoutError.afterMs(timeout)), timeout)
-        )
-      ])
-    },
+    try: createTryMethod(),
 
     // Durable with retries
-    async do<T>(action: () => Promise<T>, options: DoOptions = {}): Promise<T> {
-      const { retries = 3, backoff = 'exponential', timeout = 30000 } = options
-
-      let lastError: RPCError | undefined
-
-      for (let attempt = 0; attempt <= retries; attempt++) {
-        try {
-          // Wrap with timeout
-          const result = await Promise.race([
-            action(),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(TimeoutError.afterMs(timeout)), timeout)
-            )
-          ])
-          return result
-        } catch (error) {
-          // Preserve RPCErrors, wrap others
-          if (error instanceof RPCError) {
-            lastError = error
-          } else {
-            lastError = InternalError.wrap(error)
-          }
-
-          // Log retry attempt (no silent catches)
-          logger.warn(`Attempt ${attempt + 1}/${retries + 1} failed:`, lastError.message)
-
-          if (attempt < retries) {
-            // Wait before retry
-            const delay = backoff === 'exponential'
-              ? Math.pow(2, attempt) * 100
-              : (attempt + 1) * 100
-            await new Promise(r => setTimeout(r, delay))
-          }
-        }
-      }
-
-      throw lastError
-    },
+    do: createDoMethod(),
 
     // Event handlers - Proxy-based
     on: createOnProxy(handlers),
@@ -352,9 +409,73 @@ export function createContext(
     _circuitBreakerConfig: options?.circuitBreaker,
   }
 
-  // Wrap context in Proxy to support cross-DO RPC: $.Customer(id)
-  // Uses _env and _stubCache from baseContext directly - no duplicate reference needed (do-1e3z)
-  return createDORPCProxy(baseContext) as WorkflowContext
+  return baseContext
+}
+
+/**
+ * Create the $.try method - single attempt with optional timeout
+ */
+function createTryMethod() {
+  return async function tryAction<T>(action: () => Promise<T>, options: TryOptions = {}): Promise<T> {
+    const { timeout } = options
+
+    // If no timeout specified, just execute the action directly
+    if (timeout === undefined) {
+      return action()
+    }
+
+    // Wrap with timeout
+    return Promise.race([
+      action(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(TimeoutError.afterMs(timeout)), timeout)
+      )
+    ])
+  }
+}
+
+/**
+ * Create the $.do method - durable action with retries and timeout
+ */
+function createDoMethod() {
+  return async function doAction<T>(action: () => Promise<T>, options: DoOptions = {}): Promise<T> {
+    const { retries = 3, backoff = 'exponential', timeout = 30000 } = options
+
+    let lastError: RPCError | undefined
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        // Wrap with timeout
+        const result = await Promise.race([
+          action(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(TimeoutError.afterMs(timeout)), timeout)
+          )
+        ])
+        return result
+      } catch (error) {
+        // Preserve RPCErrors, wrap others
+        if (error instanceof RPCError) {
+          lastError = error
+        } else {
+          lastError = InternalError.wrap(error)
+        }
+
+        // Log retry attempt (no silent catches)
+        logger.warn(`Attempt ${attempt + 1}/${retries + 1} failed:`, lastError.message)
+
+        if (attempt < retries) {
+          // Wait before retry
+          const delay = backoff === 'exponential'
+            ? Math.pow(2, attempt) * 100
+            : (attempt + 1) * 100
+          await new Promise(r => setTimeout(r, delay))
+        }
+      }
+    }
+
+    throw lastError
+  }
 }
 
 // Re-export types for convenience
