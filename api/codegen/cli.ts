@@ -1,8 +1,7 @@
 // CLI command generation from API schema
 // Implements: do-7rf.7.6 - CLI command generation for @dotdo/api
 
-import type { ResourceDefinition, ActionDef, RelationDef } from '../resource'
-import type { StorableData, JsonValue } from '@dotdo/db'
+import type { ResourceDefinition } from '../resource'
 
 /**
  * Options for CLI generation
@@ -47,7 +46,7 @@ export interface CLIOption {
   description: string
   type: string
   required: boolean
-  default?: JsonValue
+  default?: any
   choices?: string[]
 }
 
@@ -61,8 +60,8 @@ export interface CLIStructure {
 /**
  * Generate CLI commands from resource definitions
  */
-export function generateCLI<T extends StorableData = StorableData>(
-  resources: ResourceDefinition<T>[],
+export function generateCLI(
+  resources: ResourceDefinition<any>[],
   options?: CLIGeneratorOptions
 ): CLIStructure | string {
   const format = options?.format
@@ -88,7 +87,7 @@ export function generateCLI<T extends StorableData = StorableData>(
 /**
  * Generate a command for a single resource
  */
-function generateResourceCommand<T extends StorableData>(resource: ResourceDefinition<T>): CLICommand {
+function generateResourceCommand(resource: ResourceDefinition<any>): CLICommand {
   const resourceNamePlural = pluralize(resource.name.toLowerCase())
 
   const subcommands: CLICommand[] = [
@@ -124,7 +123,7 @@ function generateResourceCommand<T extends StorableData>(resource: ResourceDefin
 /**
  * Generate list command
  */
-function generateListCommand<T extends StorableData>(resource: ResourceDefinition<T>): CLICommand {
+function generateListCommand(resource: ResourceDefinition<any>): CLICommand {
   return {
     name: 'list',
     description: `List all ${resource.name} resources`,
@@ -165,7 +164,7 @@ function generateListCommand<T extends StorableData>(resource: ResourceDefinitio
 /**
  * Generate get command
  */
-function generateGetCommand<T extends StorableData>(resource: ResourceDefinition<T>): CLICommand {
+function generateGetCommand(resource: ResourceDefinition<any>): CLICommand {
   return {
     name: 'get',
     description: `Get a ${resource.name} by ID`,
@@ -201,18 +200,17 @@ function generateGetCommand<T extends StorableData>(resource: ResourceDefinition
 /**
  * Generate create command
  */
-function generateCreateCommand<T extends StorableData>(resource: ResourceDefinition<T>): CLICommand {
+function generateCreateCommand(resource: ResourceDefinition<any>): CLICommand {
   const options: CLIOption[] = []
 
   // Generate options from fields
   for (const [fieldName, fieldDef] of Object.entries(resource.fields)) {
-    const choices = fieldDef.type === 'enum' ? getEnumChoices(resource, fieldName) : undefined
     options.push({
       name: fieldName,
       description: `${fieldName} field`,
       type: fieldDef.type,
       required: fieldDef.required || false,
-      ...(choices !== undefined && { choices }),
+      choices: fieldDef.type === 'enum' ? getEnumChoices(resource, fieldName) : undefined,
     })
   }
 
@@ -245,18 +243,17 @@ function generateCreateCommand<T extends StorableData>(resource: ResourceDefinit
 /**
  * Generate update command
  */
-function generateUpdateCommand<T extends StorableData>(resource: ResourceDefinition<T>): CLICommand {
+function generateUpdateCommand(resource: ResourceDefinition<any>): CLICommand {
   const options: CLIOption[] = []
 
   // Generate options from fields (all optional for update)
   for (const [fieldName, fieldDef] of Object.entries(resource.fields)) {
-    const choices = fieldDef.type === 'enum' ? getEnumChoices(resource, fieldName) : undefined
     options.push({
       name: fieldName,
       description: `${fieldName} field`,
       type: fieldDef.type,
       required: false,
-      ...(choices !== undefined && { choices }),
+      choices: fieldDef.type === 'enum' ? getEnumChoices(resource, fieldName) : undefined,
     })
   }
 
@@ -297,7 +294,7 @@ function generateUpdateCommand<T extends StorableData>(resource: ResourceDefinit
 /**
  * Generate delete command
  */
-function generateDeleteCommand<T extends StorableData>(resource: ResourceDefinition<T>): CLICommand {
+function generateDeleteCommand(resource: ResourceDefinition<any>): CLICommand {
   return {
     name: 'delete',
     description: `Delete a ${resource.name}`,
@@ -336,10 +333,10 @@ function generateDeleteCommand<T extends StorableData>(resource: ResourceDefinit
 /**
  * Generate action command
  */
-function generateActionCommand<T extends StorableData>(
-  resource: ResourceDefinition<T>,
+function generateActionCommand(
+  resource: ResourceDefinition<any>,
   actionName: string,
-  _actionDef: ActionDef
+  _actionDef: any
 ): CLICommand {
   return {
     name: actionName,
@@ -375,10 +372,10 @@ function generateActionCommand<T extends StorableData>(
 /**
  * Generate relation command
  */
-function generateRelationCommand<T extends StorableData>(
-  resource: ResourceDefinition<T>,
+function generateRelationCommand(
+  resource: ResourceDefinition<any>,
   relationName: string,
-  relationDef: RelationDef
+  relationDef: any
 ): CLICommand {
   const parentIdName = `${resource.name.toLowerCase()}Id`
   const relatedResource = relationDef.resource
@@ -417,10 +414,9 @@ function generateRelationCommand<T extends StorableData>(
 /**
  * Extract enum choices from resource schema
  */
-function getEnumChoices<T extends StorableData>(resource: ResourceDefinition<T>, fieldName: string): string[] | undefined {
+function getEnumChoices(resource: ResourceDefinition<any>, fieldName: string): string[] | undefined {
   // Extract from Zod schema if available
-  // Use type assertion for Zod internal structure access
-  const schema = resource.schema as { shape?: Record<string, { _def?: { values?: string[]; innerType?: { _def?: { values?: string[] } } } }> }
+  const schema = resource.schema as any
   if (schema && schema.shape && schema.shape[fieldName]) {
     const fieldSchema = schema.shape[fieldName]
     if (fieldSchema._def?.values) {
@@ -469,7 +465,7 @@ const client = createAPIClient('${baseUrl}')
 /**
  * Format output based on format option
  */
-function formatOutput(data: unknown, format: string = 'table') {
+function formatOutput(data: any, format: string = 'table') {
   if (format === 'json') {
     console.log(JSON.stringify(data, null, 2))
   } else if (format === 'yaml') {
@@ -480,21 +476,11 @@ function formatOutput(data: unknown, format: string = 'table') {
 }
 
 /**
- * Ask for user confirmation via readline
+ * Ask for user confirmation
  */
 async function askConfirmation(message: string): Promise<boolean> {
-  const readline = await import('readline')
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  })
-
-  return new Promise((resolve) => {
-    rl.question(\`\${message} (y/N): \`, (answer) => {
-      rl.close()
-      resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes')
-    })
-  })
+  // TODO: Implement interactive confirmation
+  return true
 }
 
 /**

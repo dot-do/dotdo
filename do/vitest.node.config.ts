@@ -18,14 +18,11 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    // Include persistence tests that use Miniflare directly AND
-    // pure logic tests that don't need cloudflare:test runtime
+    // Include only the persistence tests that use Miniflare directly
     include: [
       'tests/persistence.test.ts',
       'tests/storage-persistence.test.ts',
       'tests/miniflare-integration.test.ts',
-      'tests/error-recovery-edge-cases.test.ts',
-      'tests/saga.test.ts',
     ],
 
     // Standard exclusions

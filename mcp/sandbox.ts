@@ -1,7 +1,7 @@
 // Secure sandbox environment for code execution with $ context injection
 import { evaluate } from '../primitives/packages/ai-evaluate/src/node.js'
-import type { WorkflowContext } from '@dotdo/do'
-import { getErrorMessage } from '@dotdo/rpc'
+import type { WorkflowContext } from '../do/context.js'
+import { getErrorMessage } from '../rpc/errors.js'
 
 export interface SandboxPermissions {
   allowSend?: boolean
@@ -47,13 +47,13 @@ export interface ResourceUsage {
   /** Whether output was truncated due to size limits */
   outputTruncated: boolean
   /** Memory used in MB (approximate) */
-  memoryUsedMB?: number | undefined
+  memoryUsedMB?: number
   /** Peak memory usage in MB */
-  peakMemoryMB?: number | undefined
+  peakMemoryMB?: number
   /** CPU time consumed in milliseconds */
-  cpuTimeMs?: number | undefined
+  cpuTimeMs?: number
   /** Which limit was violated (if any) */
-  limitViolated?: 'timeout' | 'memory' | 'cpu' | 'network' | undefined
+  limitViolated?: 'timeout' | 'memory' | 'cpu' | 'network'
 }
 
 export interface SandboxOptions {
@@ -71,12 +71,12 @@ export interface SandboxOptions {
 
 export interface SandboxResult {
   success: boolean
-  value?: unknown | undefined
-  error?: string | undefined
+  value?: unknown
+  error?: string
   duration: number
-  logs?: Array<{ level: string; message: string; timestamp?: number | undefined }> | undefined
+  logs?: Array<{ level: string; message: string; timestamp?: number }>
   /** Resource usage statistics */
-  resourceUsage?: ResourceUsage | undefined
+  resourceUsage?: ResourceUsage
 }
 
 export interface Sandbox {
@@ -412,70 +412,11 @@ export class SandboxResourceEnforcer {
   }
 }
 
-/**
- * Create a request-scoped resource enforcer.
- *
- * This is the PREFERRED pattern for multi-tenant environments like Cloudflare Workers.
- * Each DO instance or request context should create its own enforcer to prevent
- * rate limit state from leaking between tenants.
- *
- * @example
- * ```typescript
- * // In your DO constructor or request handler:
- * class MyDO {
- *   private enforcer: SandboxResourceEnforcer
- *
- *   constructor(state: DurableObjectState, env: Env) {
- *     // Each DO instance gets its own isolated enforcer
- *     this.enforcer = createScopedResourceEnforcer()
- *   }
- *
- *   async fetch(request: Request): Promise<Response> {
- *     const { release } = await this.enforcer.acquire(clientId)
- *     try {
- *       // ... execute sandboxed code
- *     } finally {
- *       release()
- *     }
- *   }
- * }
- * ```
- *
- * @param rateLimitConfig - Optional rate limit configuration
- * @param concurrencyConfig - Optional concurrency limit configuration
- * @returns A new isolated SandboxResourceEnforcer instance
- */
-export function createScopedResourceEnforcer(
-  rateLimitConfig?: Partial<RateLimitConfig>,
-  concurrencyConfig?: Partial<ConcurrencyLimitConfig>
-): SandboxResourceEnforcer {
-  return new SandboxResourceEnforcer(rateLimitConfig, concurrencyConfig)
-}
-
 // Global default enforcer instance
-/**
- * @deprecated Global state can leak between tenants in Workers environments.
- * Use createScopedResourceEnforcer() instead to create isolated enforcer instances.
- * @internal
- */
 let globalEnforcer: SandboxResourceEnforcer | null = null
 
 /**
- * Get or create the global resource enforcer.
- *
- * @deprecated This function uses global state which can leak rate limits between
- * tenants in multi-tenant Workers environments. Use createScopedResourceEnforcer()
- * instead to create isolated enforcer instances per DO or request context.
- *
- * Migration guide:
- * ```typescript
- * // BEFORE (deprecated):
- * const enforcer = getGlobalResourceEnforcer()
- *
- * // AFTER (recommended):
- * const enforcer = createScopedResourceEnforcer()
- * // Store the enforcer in your DO instance or request context
- * ```
+ * Get or create the global resource enforcer
  */
 export function getGlobalResourceEnforcer(): SandboxResourceEnforcer {
   if (!globalEnforcer) {
@@ -485,21 +426,7 @@ export function getGlobalResourceEnforcer(): SandboxResourceEnforcer {
 }
 
 /**
- * Set a custom global resource enforcer (useful for testing).
- *
- * @deprecated This function uses global state which can leak rate limits between
- * tenants in multi-tenant Workers environments. Use createScopedResourceEnforcer()
- * instead to create isolated enforcer instances per DO or request context.
- *
- * Migration guide:
- * ```typescript
- * // BEFORE (deprecated):
- * setGlobalResourceEnforcer(customEnforcer)
- *
- * // AFTER (recommended):
- * // Pass the enforcer directly to your sandbox or DO instance:
- * const enforcer = createScopedResourceEnforcer(rateLimitConfig, concurrencyConfig)
- * ```
+ * Set a custom global resource enforcer (useful for testing)
  */
 export function setGlobalResourceEnforcer(enforcer: SandboxResourceEnforcer | null): void {
   globalEnforcer = enforcer
@@ -508,8 +435,8 @@ export function setGlobalResourceEnforcer(enforcer: SandboxResourceEnforcer | nu
 // Storage for captured operations (shared between sandbox instances)
 interface CapturedOperation {
   type: 'send' | 'try' | 'do' | 'on' | 'every'
-  data: unknown
-  actionResult?: unknown
+  data: any
+  actionResult?: any
 }
 
 /**
@@ -625,12 +552,6 @@ __createTrackedArray.prototype = __OriginalArray.prototype;
 // Replace Array globally
 globalThis.Array = __createTrackedArray;
 
-// SECURITY FIX (do-94il): Hook Array.prototype.join/fill to track memory
-const __origJoin = __OriginalArray.prototype.join;
-__OriginalArray.prototype.join = function(sep) { const r = __origJoin.call(this, sep); if (r.length > 1000) __resource__.trackAllocation(r.length * 2); return r; };
-const __origFill = __OriginalArray.prototype.fill;
-__OriginalArray.prototype.fill = function(v, s, e) { const r = __origFill.call(this, v, s, e); const fs = s || 0, fe = e !== undefined ? e : this.length; if (typeof v === 'string' && v.length > 0) __resource__.trackAllocation((fe - fs) * v.length * 2); return r; };
-
 // Track string length to catch exponential growth
 // Intercept String.prototype.concat and the + operator by watching string creation
 let __lastStringLength = 0;
@@ -689,181 +610,84 @@ function findMatchingParen(code: string, openIndex: number): number {
 }
 
 /**
- * Normalize Unicode whitespace characters to regular spaces.
- * Prevents bypasses using exotic whitespace like U+00A0, U+200B, etc.
- * SECURITY FIX (do-94il): Addresses Unicode whitespace obfuscation bypass.
- */
-function normalizeWhitespace(code: string): string {
-  return code.replace(/[\u00A0\u1680\u2000-\u200B\u2028\u2029\u202F\u205F\u3000\uFEFF]/g, ' ')
-}
-
-/**
- * Strip comments from code while preserving string literals.
- * Returns code with comments replaced by spaces to preserve positions.
- * SECURITY FIX (do-94il): Addresses comment obfuscation bypass.
- */
-function stripComments(code: string): { stripped: string } {
-  let result = ''
-  let i = 0
-  while (i < code.length) {
-    if (code[i] === '"' || code[i] === "'" || code[i] === '`') {
-      const quote = code[i]
-      result += code[i]
-      i++
-      if (quote === '`') {
-        while (i < code.length) {
-          if (code[i] === '\\' && i + 1 < code.length) { result += code[i]! + code[i + 1]!; i += 2 }
-          else if (code[i] === '$' && code[i + 1] === '{') {
-            result += code[i]! + code[i + 1]!; i += 2
-            let bd = 1
-            while (i < code.length && bd > 0) { if (code[i] === '{') bd++; else if (code[i] === '}') bd--; result += code[i]; i++ }
-          } else if (code[i] === '`') { result += code[i]; i++; break }
-          else { result += code[i]; i++ }
-        }
-      } else {
-        while (i < code.length && code[i] !== quote) {
-          if (code[i] === '\\' && i + 1 < code.length) { result += code[i]! + code[i + 1]!; i += 2 }
-          else { result += code[i]; i++ }
-        }
-        if (i < code.length) { result += code[i]; i++ }
-      }
-    } else if (code[i] === '/' && code[i + 1] === '/') {
-      let end = i; while (end < code.length && code[end] !== '\n') end++
-      result += ' '.repeat(end - i); i = end
-    } else if (code[i] === '/' && code[i + 1] === '*') {
-      let end = i + 2; while (end < code.length - 1 && !(code[end] === '*' && code[end + 1] === '/')) end++; end += 2
-      let spaces = ''; for (let j = i; j < end; j++) spaces += code[j] === '\n' ? '\n' : ' '
-      result += spaces; i = end
-    } else { result += code[i]; i++ }
-  }
-  return { stripped: result }
-}
-
-/**
- * Find the end of a control flow body (handles both braced and braceless).
- */
-function findControlFlowBodyEnd(code: string, startIndex: number): number {
-  let i = startIndex
-  while (i < code.length && /\s/.test(code.charAt(i))) i++
-  if (i >= code.length) return i
-  if (code.charAt(i) === '{') {
-    let bd = 1; i++
-    while (i < code.length && bd > 0) {
-      const ch = code.charAt(i)
-      if (ch === '"' || ch === "'" || ch === '`') {
-        const q = ch; i++
-        while (i < code.length) { if (code.charAt(i) === '\\' && i + 1 < code.length) i += 2; else if (code.charAt(i) === q) { i++; break } else i++ }
-        continue
-      }
-      if (ch === '{') bd++; else if (ch === '}') bd--; i++
-    }
-    return i
-  }
-  if (code.charAt(i) === ';') return i + 1
-  return findStatementEnd(code, i)
-}
-
-/**
- * Find the end of a statement, handling control flow keywords recursively.
- * SECURITY FIX (do-94il): Critical for nested braceless loops like: for (...) for (...) x++
- */
-function findStatementEnd(code: string, startIndex: number): number {
-  let i = startIndex
-  while (i < code.length && /\s/.test(code.charAt(i))) i++
-  if (i >= code.length) return i
-  if (code.charAt(i) === '{') return -1
-  if (code.charAt(i) === ';') return i + 1
-  const keywords = ['for', 'while', 'do', 'if', 'switch', 'with', 'try']
-  for (const kw of keywords) {
-    const nextChar = code.charAt(i + kw.length)
-    if (code.slice(i, i + kw.length) === kw && (!nextChar || /[\s(;{]/.test(nextChar))) {
-      i += kw.length; while (i < code.length && /\s/.test(code.charAt(i))) i++
-      if (kw === 'do') {
-        i = findControlFlowBodyEnd(code, i); while (i < code.length && /\s/.test(code.charAt(i))) i++
-        if (code.slice(i, i + 5) === 'while') { i += 5; while (i < code.length && /\s/.test(code.charAt(i))) i++; if (code.charAt(i) === '(') { const c = findMatchingParen(code, i); if (c !== -1) i = c + 1 }; while (i < code.length && /\s/.test(code.charAt(i))) i++; if (code.charAt(i) === ';') i++ }
-        return i
-      } else if (kw === 'if') {
-        if (code.charAt(i) === '(') { const c = findMatchingParen(code, i); if (c !== -1) { i = c + 1; i = findControlFlowBodyEnd(code, i); let j = i; while (j < code.length && /\s/.test(code.charAt(j))) j++; if (code.slice(j, j + 4) === 'else') { i = j + 4; i = findControlFlowBodyEnd(code, i) } } }
-        return i
-      } else {
-        if (code.charAt(i) === '(') { const c = findMatchingParen(code, i); if (c !== -1) { i = c + 1; i = findControlFlowBodyEnd(code, i) } }
-        return i
-      }
-    }
-  }
-  let bd = 0, pd = 0, bk = 0
-  while (i < code.length) {
-    const ch = code.charAt(i)
-    if (ch === '"' || ch === "'" || ch === '`') { const q = ch; i++; while (i < code.length) { if (code.charAt(i) === '\\' && i + 1 < code.length) i += 2; else if (code.charAt(i) === q) { i++; break } else i++ }; continue }
-    if (ch === '{') bd++; else if (ch === '}') bd--; else if (ch === '(') pd++; else if (ch === ')') pd--; else if (ch === '[') bk++; else if (ch === ']') bk--
-    if (ch === ';' && bd === 0 && pd === 0 && bk === 0) return i + 1
-    if (ch === '\n' && bd === 0 && pd === 0 && bk === 0) { let j = i + 1; while (j < code.length && /[ \t]/.test(code.charAt(j))) j++; if (j < code.length && /[+\-*/%&|^<>=!?:,.]/.test(code.charAt(j))) { i++; continue }; return i + 1 }
-    i++
-  }
-  return i
-}
-
-/**
- * Process loops of a given type (while or for).
- * Handles both braced and braceless loop bodies.
- * SECURITY FIX (do-94il): Handles braceless loops by wrapping them with checkpoints.
- */
-function processLoops(code: string, loopType: 'while' | 'for'): string {
-  let result = '', lastIndex = 0
-  const loopRegex = new RegExp(`\\b${loopType}\\s*\\(`, 'g')
-  let match
-  while ((match = loopRegex.exec(code)) !== null) {
-    const openParenIndex = match.index + match[0].length - 1
-    const closeParenIndex = findMatchingParen(code, openParenIndex)
-    if (closeParenIndex === -1) continue
-    const afterParen = code.slice(closeParenIndex + 1)
-    const wsMatch = afterParen.match(/^\s*/), whitespace = wsMatch ? wsMatch[0] : ''
-    const afterWhitespace = afterParen.slice(whitespace.length)
-    if (afterWhitespace.startsWith('{')) {
-      const braceIndex = closeParenIndex + 1 + whitespace.length + 1
-      result += code.slice(lastIndex, braceIndex); result += ' __resource__.checkCpuTime();'; lastIndex = braceIndex
-    } else if (afterWhitespace.length > 0 && !afterWhitespace.startsWith(';')) {
-      const statementStart = closeParenIndex + 1 + whitespace.length
-      const statementEnd = findStatementEnd(code, statementStart)
-      if (statementEnd > statementStart) {
-        let statement = code.slice(statementStart, statementEnd)
-        statement = processLoops(statement, 'for'); statement = processLoops(statement, 'while')
-        result += code.slice(lastIndex, statementStart); result += '{ __resource__.checkCpuTime(); ' + statement.trim() + ' }'; lastIndex = statementEnd
-      }
-    } else if (afterWhitespace.startsWith(';')) {
-      const semiIndex = closeParenIndex + 1 + whitespace.length + 1
-      result += code.slice(lastIndex, closeParenIndex + 1); result += '{ __resource__.checkCpuTime(); }'; lastIndex = semiIndex
-    }
-    loopRegex.lastIndex = lastIndex > match.index + match[0].length ? lastIndex : match.index + match[0].length
-  }
-  result += code.slice(lastIndex)
-  return result
-}
-
-/**
- * Inject CPU checkpoints and memory tracking into code.
- * SECURITY FIX (do-94il): Addresses regex bypass vulnerabilities:
- * 1. Normalizes Unicode whitespace to prevent exotic whitespace bypasses
- * 2. Strips comments to prevent comment obfuscation attacks
- * 3. Handles braceless loops by wrapping them in braces with checkpoints
- * 4. Recursively processes nested loops
- * 5. Tracks string concatenation for memory protection
+ * Inject CPU checkpoints and memory tracking into code
+ * This adds checkpoint calls at loop boundaries and tracks string growth
  */
 function injectResourceChecks(code: string): string {
-  code = normalizeWhitespace(code)
-  const { stripped } = stripComments(code)
-  let processedCode = stripped
-  processedCode = processLoops(processedCode, 'while')
-  processedCode = processLoops(processedCode, 'for')
-  processedCode = processedCode.replace(/\bdo\s*\{/g, 'do { __resource__.checkCpuTime();')
-  processedCode = processedCode.replace(/(\w+)\s*=\s*(\w+)\s*\+\s*(\w+)\s*;?/g, (m, v, l, r) => {
-    if (l === v || r === v || l === r) return `${m}; if (typeof ${v} === 'string' && ${v}.length > 1000) __resource__.trackAllocation(${v}.length * 2);`
-    return m
-  })
-  processedCode = processedCode.replace(/(\w+)\s*=\s*`[^`]*\$\{\s*\1\s*\}[^`]*\$\{\s*\1\s*\}[^`]*`\s*;?/g, (m, v) => {
-    return `${m}; if (typeof ${v} === 'string' && ${v}.length > 1000) __resource__.trackAllocation(${v}.length * 2);`
-  })
-  return processedCode
+  // Process loops by finding them manually to handle nested parens
+  let result = ''
+  let lastIndex = 0
+
+  // Find while loops
+  const whileRegex = /while\s*\(/g
+  let match
+  while ((match = whileRegex.exec(code)) !== null) {
+    const openParenIndex = match.index + match[0].length - 1
+    const closeParenIndex = findMatchingParen(code, openParenIndex)
+
+    if (closeParenIndex === -1) continue
+
+    // Look for opening brace after the closing paren
+    const afterParen = code.slice(closeParenIndex + 1)
+    const braceMatch = afterParen.match(/^\s*\{/)
+
+    if (braceMatch) {
+      // Found a while loop with body
+      const braceIndex = closeParenIndex + 1 + braceMatch.index + braceMatch[0].length
+      // Copy everything up to and including the opening brace
+      result += code.slice(lastIndex, braceIndex)
+      // Add checkpoint
+      result += ' __resource__.checkCpuTime();'
+      lastIndex = braceIndex
+    }
+  }
+  result += code.slice(lastIndex)
+  code = result
+
+  // Process for loops similarly
+  result = ''
+  lastIndex = 0
+  const forRegex = /for\s*\(/g
+  while ((match = forRegex.exec(code)) !== null) {
+    const openParenIndex = match.index + match[0].length - 1
+    const closeParenIndex = findMatchingParen(code, openParenIndex)
+
+    if (closeParenIndex === -1) continue
+
+    const afterParen = code.slice(closeParenIndex + 1)
+    const braceMatch = afterParen.match(/^\s*\{/)
+
+    if (braceMatch) {
+      const braceIndex = closeParenIndex + 1 + braceMatch.index + braceMatch[0].length
+      result += code.slice(lastIndex, braceIndex)
+      result += ' __resource__.checkCpuTime();'
+      lastIndex = braceIndex
+    }
+  }
+  result += code.slice(lastIndex)
+  code = result
+
+  // Match do-while: do { ... } while
+  code = code.replace(
+    /do\s*\{/g,
+    'do { __resource__.checkCpuTime();'
+  )
+
+  // Track string concatenation: str = str + str or str += str
+  // After any string assignment that uses +, track the result length
+  // Match: varname = anything + anything (where result could be string)
+  code = code.replace(
+    /(\w+)\s*=\s*(\w+)\s*\+\s*(\w+)\s*;?/g,
+    (match, varName, left, right) => {
+      // If same variable on both sides, likely string doubling
+      if (left === varName || right === varName || left === right) {
+        return `${match}; if (typeof ${varName} === 'string' && ${varName}.length > 1000) __resource__.trackAllocation(${varName}.length * 2);`
+      }
+      return match
+    }
+  )
+
+  return code
 }
 
 /**
@@ -1145,20 +969,20 @@ export function createSandbox(options: SandboxOptions): Sandbox {
 
           // Check for sandbox wrapper format
           if ('__sandbox_captured__' in wrappedValue) {
-            captured = (wrappedValue['__sandbox_captured__'] as CapturedOperation[]) || []
+            captured = (wrappedValue.__sandbox_captured__ as CapturedOperation[]) || []
           }
 
           if ('__sandbox_result__' in wrappedValue) {
-            userResult = wrappedValue['__sandbox_result__']
+            userResult = wrappedValue.__sandbox_result__
           }
 
           if ('__sandbox_error__' in wrappedValue) {
-            userError = wrappedValue['__sandbox_error__'] as string
+            userError = wrappedValue.__sandbox_error__ as string
           }
 
           // Extract resource stats from sandbox
           if ('__sandbox_stats__' in wrappedValue) {
-            sandboxStats = (wrappedValue['__sandbox_stats__'] as typeof sandboxStats) || {}
+            sandboxStats = (wrappedValue.__sandbox_stats__ as typeof sandboxStats) || {}
           }
         }
 
@@ -1249,7 +1073,7 @@ export function createSandbox(options: SandboxOptions): Sandbox {
         const resourceUsage: ResourceUsage = {
           executionTime: duration,
           codeSize,
-          timedOut: false,
+          timedOut,
           outputTruncated,
           memoryUsedMB: sandboxStats.memoryUsedMB,
           peakMemoryMB: sandboxStats.peakMemoryMB,
@@ -1261,7 +1085,6 @@ export function createSandbox(options: SandboxOptions): Sandbox {
         if (userError) {
           return {
             success: false,
-            value: undefined,
             error: userError,
             duration,
             logs: result.logs,
@@ -1298,13 +1121,12 @@ export function createSandbox(options: SandboxOptions): Sandbox {
 
         return {
           success: false,
-          value: undefined,
           error: message,
           duration,
           resourceUsage: {
             executionTime: duration,
             codeSize,
-            timedOut: timedOut,
+            timedOut,
             outputTruncated: false,
             limitViolated: errorLimitViolated
           }

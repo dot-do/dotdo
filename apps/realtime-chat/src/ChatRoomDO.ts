@@ -22,14 +22,12 @@ interface Message {
   timestamp: number
 }
 
-type SqlStorageValue = string | number | null | ArrayBuffer
-
-type MessageRow = {
+interface MessageRow {
   id: string
   username: string
   content: string
   timestamp: number
-} & Record<string, SqlStorageValue>
+}
 
 interface WebSocketMessage {
   type: string
@@ -158,8 +156,7 @@ export class ChatRoomDO implements DurableObject {
 
       // Create WebSocket pair
       const pair = new WebSocketPair()
-      const client = pair[0]
-      const server = pair[1]
+      const [client, server] = Object.values(pair)
 
       // Accept the WebSocket with hibernation support
       this.state.acceptWebSocket(server)
@@ -340,8 +337,7 @@ export class ChatRoomDO implements DurableObject {
       await this.initialize()
 
       const pair = new WebSocketPair()
-      const client = pair[0]
-      const server = pair[1]
+      const [client, server] = Object.values(pair)
 
       // Accept with hibernation
       this.state.acceptWebSocket(server)

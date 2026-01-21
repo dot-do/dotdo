@@ -1,73 +1,5 @@
-/**
- * @module @dotdo/integrations/stripe
- *
- * Stripe Integration Stub for dotdo integration registry
- *
- * ## Purpose
- *
- * This module provides a **stub/mock implementation** of Stripe operations for:
- * - Development and testing without requiring real Stripe API credentials
- * - Demonstrating the dotdo integration registry pattern
- * - Unit testing business logic that depends on Stripe
- *
- * ## For Production Use
- *
- * For a **fully implemented** Stripe provider with real SDK integration, use:
- *
- * ```typescript
- * import { StripeProvider } from '@dotdo/business/finance/providers/stripe-provider'
- *
- * const stripe = new StripeProvider({
- *   apiKey: process.env.STRIPE_SECRET_KEY!,
- *   webhookSecret: process.env.STRIPE_WEBHOOK_SECRET
- * })
- * ```
- *
- * The `@dotdo/business/finance` package provides:
- * - Full Stripe SDK integration with proper error handling
- * - SaaS metrics (MRR, ARR, churn calculations)
- * - Invoice and subscription lifecycle management
- * - Proper Stripe event type mapping for webhooks
- *
- * ## Stub Behavior
- *
- * All methods in this stub:
- * - Return mock data with properly formatted IDs (cus_, pi_, sub_ prefixes)
- * - Validate initialization state before operations
- * - Support webhook signature verification (real HMAC-SHA256)
- * - Track registered webhook handlers
- *
- * ## Implemented Features
- *
- * - Webhook signature verification using HMAC-SHA256 (via verifyStripeSignature)
- * - Stub methods for all core Stripe operations (customers, payments, subscriptions)
- * - Full webhook event handling with registered handlers
- * - Lifecycle management (init, shutdown, healthCheck)
- *
- * @example
- * ```typescript
- * import { createStripeIntegration } from '@dotdo/integrations/stripe'
- *
- * // Create and initialize the stub
- * const stripe = createStripeIntegration()
- * await stripe.init({
- *   apiKey: 'sk_test_xxx', // Format validated but not used for real API calls
- *   webhookSecret: 'whsec_xxx'
- * })
- *
- * // Use stub methods for testing
- * const result = await stripe.methods.createCustomer({
- *   email: 'test@example.com',
- *   name: 'Test User'
- * })
- *
- * if (result.success) {
- *   console.log(result.data.id) // 'cus_<random>'
- * }
- * ```
- *
- * @see {@link ../../business/finance/providers/stripe-provider.ts} for production implementation
- */
+// Stripe Integration Stub
+// Example integration for the dotdo integration registry (do-laux)
 
 import type {
   Integration,
@@ -79,16 +11,9 @@ import type {
   IntegrationEvent,
 } from '../types'
 import { successResult, errorResult } from '../registry'
-import { verifyStripeSignature } from '../webhook-verify'
 
 /**
  * Stripe-specific configuration
- *
- * @property apiKey - Stripe API key (sk_live_xxx or sk_test_xxx).
- *   In this stub, format is validated but no real API calls are made.
- * @property webhookSecret - Stripe webhook signing secret (whsec_xxx).
- *   Used for real HMAC-SHA256 signature verification.
- * @property apiVersion - API version (unused in stub, included for interface compatibility)
  */
 export interface StripeConfig extends IntegrationConfig {
   /** Stripe API key (sk_live_xxx or sk_test_xxx) */
@@ -172,51 +97,15 @@ export interface StripeMethods extends Record<string, (...args: any[]) => Promis
 }
 
 /**
- * Stripe Integration Stub
- *
- * A mock implementation of Stripe integration for testing and development.
- * All API methods return simulated responses without making real Stripe API calls.
- *
- * ## Stub vs Production
- *
- * This is a **stub implementation** intended for:
- * - Unit testing without Stripe credentials
- * - Development and prototyping
- * - CI/CD pipelines
- *
- * For **production use**, see `@dotdo/business/finance/providers/stripe-provider`
- * which provides full Stripe SDK integration.
- *
- * ## What Works
- *
- * - API key format validation (sk_test_* or sk_live_*)
- * - Webhook signature verification (real HMAC-SHA256)
- * - Event handler registration and invocation
- * - Proper ID formatting (cus_, pi_, sub_ prefixes)
- *
- * ## What's Stubbed
- *
- * - All CRUD operations return mock data
- * - No actual Stripe API calls are made
- * - Health checks always pass when initialized
- *
- * @example
- * ```typescript
- * const stripe = createStripeIntegration()
- * await stripe.init({ apiKey: 'sk_test_xxx' })
- *
- * // Returns mock customer, no real API call
- * const result = await stripe.methods.createCustomer({
- *   email: 'test@example.com'
- * })
- * ```
+ * Stripe Integration
+ * Provides payment processing capabilities
  */
 export class StripeIntegration implements Integration<StripeConfig, StripeMethods> {
   readonly name = 'stripe'
   readonly version = '1.0.0'
   readonly metadata: IntegrationMetadata = {
     displayName: 'Stripe',
-    description: 'Payment processing and subscription management (STUB - use @dotdo/business/finance for production)',
+    description: 'Payment processing and subscription management',
     category: 'payments',
     docsUrl: 'https://stripe.com/docs/api',
     websiteUrl: 'https://stripe.com',
@@ -232,51 +121,31 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
     return this._status
   }
 
-  /**
-   * Initialize the Stripe integration stub
-   *
-   * Validates configuration format without making real API calls.
-   * For production initialization with real API validation, use
-   * `@dotdo/business/finance/providers/stripe-provider`.
-   *
-   * @param config - Stripe configuration with API key
-   * @throws Error if API key is missing or has invalid format
-   *
-   * @example
-   * ```typescript
-   * await stripe.init({
-   *   apiKey: 'sk_test_xxx',
-   *   webhookSecret: 'whsec_xxx' // Optional, enables signature verification
-   * })
-   * ```
-   */
   async init(config: StripeConfig): Promise<void> {
     this._status = 'initializing'
 
     try {
       // Validate required config
       if (!config.apiKey) {
-        this._status = 'error'
         throw new Error('Stripe API key is required')
       }
 
       // Validate API key format
       if (!config.apiKey.startsWith('sk_')) {
-        this._status = 'error'
-        throw new Error('Invalid Stripe API key format (must start with sk_)')
+        throw new Error('Invalid Stripe API key format')
       }
 
       this.config = config
 
-      // STUB: No real Stripe SDK initialization
-      // For production implementation, see:
-      // - business/finance/providers/stripe-provider.ts
+      // In a real implementation, you would:
+      // 1. Initialize the Stripe SDK
+      // 2. Verify the API key by making a test request
+      // 3. Set up webhook endpoint verification
 
       this._status = 'ready'
     } catch (error) {
       this._status = 'error'
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to initialize Stripe integration: ${errorMessage}`)
+      throw error
     }
   }
 
@@ -286,45 +155,26 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
     this._status = 'uninitialized'
   }
 
-  /**
-   * Check integration health
-   *
-   * STUB: Always returns true when initialized.
-   * Production implementation would call `stripe.balance.retrieve()`.
-   *
-   * @returns true if initialized, false otherwise
-   */
   async healthCheck(): Promise<boolean> {
     if (this._status !== 'ready' || !this.config) {
       return false
     }
 
-    // STUB: Always returns true when initialized
-    // Production would call: await this.stripe.balance.retrieve()
+    // In a real implementation, you would make a test API call
+    // For the stub, we just return true
     return true
   }
 
   /**
-   * Stub methods for Stripe operations
-   *
-   * All methods return mock data without making real API calls.
-   * For production implementation, use `@dotdo/business/finance/providers/stripe-provider`.
-   *
-   * @see {@link ../../business/finance/providers/stripe-provider.ts}
+   * Methods exposed by this integration
    */
   readonly methods: StripeMethods = {
-    /**
-     * Create a customer (STUB)
-     *
-     * Returns a mock customer with a generated cus_* ID.
-     * Production: `stripe.customers.create()`
-     */
     createCustomer: async (data) => {
       if (this._status !== 'ready') {
         return errorResult('NOT_INITIALIZED', 'Stripe integration is not initialized')
       }
 
-      // STUB: Returns mock data for testing
+      // Stub implementation - returns mock data
       const customer: StripeCustomer = {
         id: `cus_${generateId()}`,
         email: data.email,
@@ -335,18 +185,12 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
       return successResult(customer, `req_${generateId()}`)
     },
 
-    /**
-     * Retrieve a customer by ID (STUB)
-     *
-     * Returns a mock customer with the provided ID.
-     * Production: `stripe.customers.retrieve(customerId)`
-     */
     getCustomer: async (customerId) => {
       if (this._status !== 'ready') {
         return errorResult('NOT_INITIALIZED', 'Stripe integration is not initialized')
       }
 
-      // STUB: Returns mock data for testing
+      // Stub implementation - returns mock data
       const customer: StripeCustomer = {
         id: customerId,
         email: 'customer@example.com',
@@ -356,18 +200,12 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
       return successResult(customer, `req_${generateId()}`)
     },
 
-    /**
-     * Update a customer (STUB)
-     *
-     * Returns a mock customer with updated fields.
-     * Production: `stripe.customers.update(customerId, data)`
-     */
     updateCustomer: async (customerId, data) => {
       if (this._status !== 'ready') {
         return errorResult('NOT_INITIALIZED', 'Stripe integration is not initialized')
       }
 
-      // STUB: Returns mock data for testing
+      // Stub implementation - returns mock data
       const customer: StripeCustomer = {
         id: customerId,
         email: data.email ?? 'customer@example.com',
@@ -378,18 +216,12 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
       return successResult(customer, `req_${generateId()}`)
     },
 
-    /**
-     * Create a payment intent (STUB)
-     *
-     * Returns a mock payment intent with 'requires_payment_method' status.
-     * Production: `stripe.paymentIntents.create(data)`
-     */
     createPaymentIntent: async (data) => {
       if (this._status !== 'ready') {
         return errorResult('NOT_INITIALIZED', 'Stripe integration is not initialized')
       }
 
-      // STUB: Returns mock data for testing
+      // Stub implementation - returns mock data
       const paymentIntent: StripePaymentIntent = {
         id: `pi_${generateId()}`,
         amount: data.amount,
@@ -402,18 +234,12 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
       return successResult(paymentIntent, `req_${generateId()}`)
     },
 
-    /**
-     * Confirm a payment intent (STUB)
-     *
-     * Returns a mock payment intent with 'succeeded' status.
-     * Production: `stripe.paymentIntents.confirm(paymentIntentId)`
-     */
     confirmPaymentIntent: async (paymentIntentId) => {
       if (this._status !== 'ready') {
         return errorResult('NOT_INITIALIZED', 'Stripe integration is not initialized')
       }
 
-      // STUB: Returns mock data for testing
+      // Stub implementation - returns mock data
       const paymentIntent: StripePaymentIntent = {
         id: paymentIntentId,
         amount: 1000,
@@ -424,18 +250,12 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
       return successResult(paymentIntent, `req_${generateId()}`)
     },
 
-    /**
-     * Create a subscription (STUB)
-     *
-     * Returns a mock subscription with 'active' status and 30-day period.
-     * Production: `stripe.subscriptions.create(data)`
-     */
     createSubscription: async (data) => {
       if (this._status !== 'ready') {
         return errorResult('NOT_INITIALIZED', 'Stripe integration is not initialized')
       }
 
-      // STUB: Returns mock data for testing
+      // Stub implementation - returns mock data
       const now = new Date()
       const subscription: StripeSubscription = {
         id: `sub_${generateId()}`,
@@ -449,18 +269,12 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
       return successResult(subscription, `req_${generateId()}`)
     },
 
-    /**
-     * Cancel a subscription (STUB)
-     *
-     * Returns a mock subscription with 'canceled' status.
-     * Production: `stripe.subscriptions.cancel(subscriptionId)`
-     */
     cancelSubscription: async (subscriptionId) => {
       if (this._status !== 'ready') {
         return errorResult('NOT_INITIALIZED', 'Stripe integration is not initialized')
       }
 
-      // STUB: Returns mock data for testing
+      // Stub implementation - returns mock data
       const subscription: StripeSubscription = {
         id: subscriptionId,
         customerId: 'cus_xxx',
@@ -476,55 +290,25 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
 
   /**
    * Handle incoming webhooks from Stripe
-   *
-   * This is a **real implementation** - webhook signature verification
-   * uses actual HMAC-SHA256 cryptography via `verifyStripeSignature()`.
-   *
-   * Features:
-   * - Validates stripe-signature header when webhookSecret is configured
-   * - Parses and dispatches events to registered handlers
-   * - Returns appropriate HTTP status codes
-   *
-   * @param request - Incoming webhook request
-   * @returns Response with appropriate status code
    */
   async handleWebhook(request: Request): Promise<Response> {
     if (this._status !== 'ready' || !this.config) {
-      return new Response(
-        JSON.stringify({ error: 'Integration not initialized' }),
-        { status: 503, headers: { 'Content-Type': 'application/json' } }
-      )
+      return new Response('Integration not initialized', { status: 503 })
     }
 
     try {
       const body = await request.text()
       const signature = request.headers.get('stripe-signature')
 
-      // Check for missing signature when secret is configured
       if (!signature && this.config.webhookSecret) {
-        return new Response(
-          JSON.stringify({ error: 'Missing stripe-signature header' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        )
+        return new Response('Missing signature', { status: 400 })
       }
 
-      // Verify signature if webhook secret is configured
-      if (this.config.webhookSecret && signature) {
-        const verification = await verifyStripeSignature(
-          body,
-          signature,
-          this.config.webhookSecret
-        )
+      // In a real implementation, you would:
+      // 1. Verify the webhook signature
+      // 2. Parse the event
+      // 3. Call registered handlers
 
-        if (!verification.valid) {
-          return new Response(
-            JSON.stringify({ error: 'Signature verification failed' }),
-            { status: 401, headers: { 'Content-Type': 'application/json' } }
-          )
-        }
-      }
-
-      // Parse the event payload
       const event = JSON.parse(body) as { type: string; data: { object: unknown } }
 
       // Create integration event
@@ -538,12 +322,7 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
 
       // Call all registered handlers
       for (const handler of this.webhookHandlers) {
-        try {
-          await handler(integrationEvent)
-        } catch (handlerError) {
-          console.error('Webhook handler error:', handlerError)
-          // Continue processing other handlers even if one fails
-        }
+        await handler(integrationEvent)
       }
 
       return new Response(JSON.stringify({ received: true }), {
@@ -551,18 +330,8 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
         headers: { 'Content-Type': 'application/json' },
       })
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      console.error('Webhook processing error:', errorMessage)
-      return new Response(
-        JSON.stringify({
-          error: 'Webhook processing failed',
-          message: errorMessage,
-        }),
-        {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
+      console.error('Stripe webhook error:', error)
+      return new Response('Webhook error', { status: 400 })
     }
   }
 
@@ -576,56 +345,19 @@ export class StripeIntegration implements Integration<StripeConfig, StripeMethod
 
 /**
  * Generate a random ID for stub responses
- *
- * Uses crypto.randomUUID() for better randomness than Math.random().
- * IDs are formatted to match Stripe's ID format (13 alphanumeric characters).
- *
- * @returns 13-character random ID string
  */
 function generateId(): string {
-  // Remove hyphens and take first 13 characters to match Stripe ID format
-  return crypto.randomUUID().replace(/-/g, '').substring(0, 13)
+  return Math.random().toString(36).substring(2, 15)
 }
 
 /**
- * Factory function for creating a Stripe integration stub
- *
- * Creates a new StripeIntegration instance for testing and development.
- *
- * ## For Production
- *
- * Use `@dotdo/business/finance/providers/stripe-provider` instead:
- *
- * ```typescript
- * import { StripeProvider } from '@dotdo/business/finance/providers/stripe-provider'
- *
- * const stripe = new StripeProvider({
- *   apiKey: process.env.STRIPE_SECRET_KEY!,
- *   webhookSecret: process.env.STRIPE_WEBHOOK_SECRET
- * })
- * ```
- *
- * @returns New StripeIntegration stub instance
- *
- * @example
- * ```typescript
- * const stripe = createStripeIntegration()
- * await stripe.init({ apiKey: 'sk_test_xxx' })
- *
- * // All methods return mock data
- * const result = await stripe.methods.createCustomer({
- *   email: 'test@example.com'
- * })
- * ```
+ * Factory function for creating Stripe integration
  */
 export function createStripeIntegration(): StripeIntegration {
   return new StripeIntegration()
 }
 
 /**
- * Default export - StripeIntegration stub class
- *
- * @see {@link createStripeIntegration} for factory function
- * @see {@link ../../business/finance/providers/stripe-provider.ts} for production implementation
+ * Default export
  */
 export default StripeIntegration

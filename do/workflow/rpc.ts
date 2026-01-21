@@ -11,23 +11,12 @@
  * - Type-safe method invocation via Proxy
  * - Correlation ID propagation
  * - Error handling with proper types
- * - Circuit breaker protection for cascade failure prevention (do-fcxj)
  *
  * @module do/workflow/rpc
  */
 
-import {
-  createDOStub,
-  createDOStubWithCircuitBreaker,
-  DEFAULT_CIRCUIT_BREAKER_CONFIG,
-  NotFoundError,
-} from '@dotdo/rpc'
-import type { CircuitBreakerRPCConfig } from '@dotdo/rpc'
-import type { ThingsStore } from '@dotdo/db'
-import { createEntityAccessor, isEntityName, isReservedProperty } from './entity'
-import type { EntitySchema, EntityProxy } from './entity'
-import type { EntitySchema as UnifiedEntitySchema } from '../schema/types'
-import type { StubCache } from './stub-cache'
+import { createDOStub } from '../../rpc/client'
+import { NotFoundError } from '../../rpc/errors'
 
 /**
  * A proxy type representing a DO stub that intercepts method calls
@@ -50,15 +39,9 @@ export type DOStubFactory = (id: string | DurableObjectId) => DOStubProxy
 export interface CrossDORPCConfig {
   /** The environment containing DO namespace bindings */
   env: unknown
-  /** Cache for storing created stubs with TTL and LRU eviction (do-o16uz) */
-  stubCache: StubCache<DOStubProxy>
-  /** Circuit breaker configuration (optional, enabled by default) */
-  circuitBreaker?: CircuitBreakerRPCConfig
+  /** Cache for storing created stubs */
+  stubCache: Map<string, DOStubProxy>
 }
-
-// Re-export circuit breaker types for convenience
-export type { CircuitBreakerRPCConfig }
-export { DEFAULT_CIRCUIT_BREAKER_CONFIG }
 
 /**
  * Create a cross-DO RPC accessor for a specific binding name
@@ -85,16 +68,14 @@ export function createDOAccessor(
   config: CrossDORPCConfig,
   bindingName: string
 ): DOStubFactory {
-  const { env, stubCache, circuitBreaker } = config
+  const { env, stubCache } = config
 
   return (id: string | DurableObjectId): DOStubProxy => {
     const cacheKey = `${bindingName}:${typeof id === 'string' ? id : id.toString()}`
 
-    // Return cached stub if exists and not expired (do-o16uz)
-    // StubCache.get() handles TTL expiration automatically
-    const cached = stubCache.get(cacheKey)
-    if (cached) {
-      return cached
+    // Return cached stub if exists
+    if (stubCache.has(cacheKey)) {
+      return stubCache.get(cacheKey)!
     }
 
     // Get DO namespace binding from env
@@ -108,43 +89,12 @@ export function createDOAccessor(
       )
     }
 
-    // Create stub with circuit breaker protection (do-fcxj)
-    // Circuit breaker is enabled by default unless explicitly disabled
-    const useCircuitBreaker = circuitBreaker?.enabled !== false
-    const stub = useCircuitBreaker
-      ? createDOStubWithCircuitBreaker<DOStubProxy>(binding, id, {
-          circuitBreaker: {
-            ...circuitBreaker,
-            // Prefix circuit name with binding for better isolation
-            namePrefix: circuitBreaker?.namePrefix ?? `do-rpc:${bindingName}`,
-          },
-        })
-      : createDOStub<DOStubProxy>(binding, id)
-
-    // Store in cache with TTL (do-o16uz)
+    // Create and cache the stub
+    const stub = createDOStub<DOStubProxy>(binding, id)
     stubCache.set(cacheKey, stub)
 
     return stub
   }
-}
-
-/**
- * Base context shape with _env and _stubCache fields.
- * Used by createDORPCProxy to extract env and stubCache from the context,
- * avoiding duplicate references. (do-1e3z)
- */
-interface BaseContextWithInternals {
-  _env: unknown
-  /** DO stub cache with TTL and LRU eviction (do-o16uz) */
-  _stubCache: StubCache<DOStubProxy>
-  /** Optional circuit breaker configuration for cross-DO RPC (do-fcxj) */
-  _circuitBreakerConfig?: CircuitBreakerRPCConfig
-  /** Things store for entity operations (do-lekf.8) */
-  _things?: ThingsStore
-  /** Legacy entity schemas for entity accessor (do-lekf.8) */
-  _legacyEntitySchemas?: Map<string, EntitySchema>
-  /** Unified entity schemas with relation definitions (do-lekf.5) and AI field support (do-lekf.4) */
-  _entitySchemas?: Map<string, UnifiedEntitySchema>
 }
 
 /**
@@ -153,10 +103,8 @@ interface BaseContextWithInternals {
  * This creates the proxy that enables the $.Customer(id), $.Order(id), etc. syntax.
  * Unknown property accesses are treated as DO binding names.
  *
- * The function extracts _env and _stubCache from baseContext directly,
- * avoiding duplicate references to these values. (do-1e3z)
- *
- * @param baseContext - The base context object with known properties (must include _env and _stubCache)
+ * @param baseContext - The base context object with known properties
+ * @param config - RPC configuration
  * @returns A proxy wrapping the base context with dynamic DO accessors
  *
  * @example
@@ -165,32 +113,21 @@ interface BaseContextWithInternals {
  *   send: (event) => { ... },
  *   on: onProxy,
  *   every: everyProxy,
- *   _env: env,
- *   _stubCache: stubCache,
  *   // ... other known properties
  * }
  *
- * const context = createDORPCProxy(baseContext)
+ * const context = createDORPCProxy(baseContext, { env, stubCache })
  *
  * // Dynamic DO access
  * const customer = context.Customer('user-123')
  * await customer.notify({ message: 'Hello' })
  * ```
  */
-export function createDORPCProxy<T extends BaseContextWithInternals>(
-  baseContext: T
-): T & Record<string, DOStubFactory | EntityProxy> {
-  // Extract env, stubCache, and circuitBreaker config from baseContext - single source of truth (do-1e3z)
-  const config: CrossDORPCConfig = {
-    env: baseContext._env,
-    stubCache: baseContext._stubCache,
-    circuitBreaker: baseContext._circuitBreakerConfig,
-  }
-
-  // Cache for entity accessors (do-lekf.8)
-  const entityAccessorCache = new Map<string, EntityProxy>()
-
-  return new Proxy(baseContext as T & Record<string, DOStubFactory | EntityProxy>, {
+export function createDORPCProxy<T extends object>(
+  baseContext: T,
+  config: CrossDORPCConfig
+): T & Record<string, DOStubFactory> {
+  return new Proxy(baseContext as T & Record<string, DOStubFactory>, {
     get(target, prop: string | symbol) {
       // Bypass symbols and internal properties
       if (typeof prop === 'symbol') {
@@ -202,47 +139,23 @@ export function createDORPCProxy<T extends BaseContextWithInternals>(
         return Reflect.get(target, prop)
       }
 
-      // Skip reserved properties (do-lekf.8)
-      if (isReservedProperty(prop)) {
-        return Reflect.get(target, prop)
-      }
-
-      // For PascalCase names with a things store, return entity accessor (do-lekf.2)
-      // This enables $.Product.create(), $.Product.list(), $.Product(id).get(), etc.
-      const things = baseContext._things
-      const entitySchemas = baseContext._legacyEntitySchemas ?? new Map()
-
-      if (things && isEntityName(prop)) {
-        // Return cached entity accessor or create new one
-        if (!entityAccessorCache.has(prop)) {
-          // Get unified schemas for relation expansion (do-lekf.5) and AI field generation (do-lekf.4)
-          const unifiedSchemas = baseContext._entitySchemas
-
-          entityAccessorCache.set(
-            prop,
-            createEntityAccessor({ things, schemas: entitySchemas, unifiedSchemas }, prop)
-          )
-        }
-        return entityAccessorCache.get(prop)
-      }
-
       // For unknown properties, assume it's a DO binding name
-      // Return a function that creates a cached DO stub with circuit breaker protection (do-fcxj)
+      // Return a function that creates a cached DO stub
       return createDOAccessor(config, prop)
     }
   })
 }
 
 /**
- * Check if a stub exists in the cache (and is not expired)
+ * Check if a stub exists in the cache
  *
- * @param stubCache - The stub cache with TTL support
+ * @param stubCache - The stub cache map
  * @param bindingName - The DO binding name
  * @param id - The DO instance ID
- * @returns True if stub is cached and valid
+ * @returns True if stub is cached
  */
 export function hasStub(
-  stubCache: StubCache<DOStubProxy>,
+  stubCache: Map<string, DOStubProxy>,
   bindingName: string,
   id: string | DurableObjectId
 ): boolean {
@@ -253,13 +166,13 @@ export function hasStub(
 /**
  * Clear a specific stub from the cache
  *
- * @param stubCache - The stub cache with TTL support
+ * @param stubCache - The stub cache map
  * @param bindingName - The DO binding name
  * @param id - The DO instance ID
  * @returns True if stub was removed
  */
 export function clearStub(
-  stubCache: StubCache<DOStubProxy>,
+  stubCache: Map<string, DOStubProxy>,
   bindingName: string,
   id: string | DurableObjectId
 ): boolean {
@@ -270,10 +183,10 @@ export function clearStub(
 /**
  * Clear all stubs from the cache
  *
- * @param stubCache - The stub cache with TTL support
+ * @param stubCache - The stub cache map
  */
 export function clearAllStubs(
-  stubCache: StubCache<DOStubProxy>
+  stubCache: Map<string, DOStubProxy>
 ): void {
   stubCache.clear()
 }
@@ -281,35 +194,11 @@ export function clearAllStubs(
 /**
  * Get the number of cached stubs
  *
- * @param stubCache - The stub cache with TTL support
- * @returns Number of cached stubs (including potentially expired entries)
+ * @param stubCache - The stub cache map
+ * @returns Number of cached stubs
  */
 export function getStubCount(
-  stubCache: StubCache<DOStubProxy>
+  stubCache: Map<string, DOStubProxy>
 ): number {
   return stubCache.size
-}
-
-/**
- * Get cache statistics (do-o16uz)
- *
- * @param stubCache - The stub cache with TTL support
- * @returns Cache statistics including hits, misses, evictions, and expirations
- */
-export function getStubCacheStats(
-  stubCache: StubCache<DOStubProxy>
-) {
-  return stubCache.getStats()
-}
-
-/**
- * Manually cleanup expired stubs (do-o16uz)
- *
- * @param stubCache - The stub cache with TTL support
- * @returns Number of expired entries removed
- */
-export function cleanupExpiredStubs(
-  stubCache: StubCache<DOStubProxy>
-): number {
-  return stubCache.cleanup()
 }

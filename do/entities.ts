@@ -2,32 +2,27 @@
 // See do-7rf.6.5 and do-xebw (audit logging)
 
 import {
-  createThingsStoreWithAdapter,
+  createThingsStore,
   createEventsStore,
   createRelationshipsStore,
   createQuery,
   createAuditLogStore,
-  MemoryStorageAdapter,
+  type ThingsStore,
+  type EventsStore,
+  type RelationshipsStore,
+  type AuditLogStore,
+  type AuditContext,
+  type AuditLogConfig,
+  type Thing,
+  type Relationship,
+  type BaseRelationship,
+  type RelationshipQuery,
+  type RelationshipInput,
+  type QueryBuilder,
+  type StorableData,
   defaultAuditConfig,
-  maskSensitiveFields,
-  toJsonObject,
-} from '@dotdo/db'
-import type {
-  ThingsStore,
-  EventsStore,
-  RelationshipsStore,
-  AuditLogStore,
-  AuditContext,
-  AuditLogConfig,
-  Thing,
-  Relationship,
-  BaseRelationship,
-  RelationshipQuery,
-  RelationshipInput,
-  QueryBuilder,
-  StorableData,
-  BulkUpdateItem,
-} from '@dotdo/db'
+  maskSensitiveFields
+} from '../db'
 
 /**
  * Options for EntityManager
@@ -50,8 +45,7 @@ export class EntityManager {
   private _auditContext: AuditContext
 
   constructor(options: EntityManagerOptions = {}) {
-    // Use adapter-based store (do-xjmbd migration from deprecated createThingsStore)
-    this._things = createThingsStoreWithAdapter(new MemoryStorageAdapter())
+    this._things = createThingsStore()
     this._events = createEventsStore()
     this._relationships = createRelationshipsStore()
     this._auditLogs = createAuditLogStore()
@@ -102,10 +96,10 @@ export class EntityManager {
       actor: this._auditContext.actor,
       action,
       resource,
-      ...(resourceId !== undefined && { resourceId }),
+      resourceId,
       level,
-      ...(maskedDetails !== undefined && { details: maskedDetails }),
-      ...(this._auditContext.correlationId !== undefined && { correlationId: this._auditContext.correlationId }),
+      details: maskedDetails,
+      correlationId: this._auditContext.correlationId
     })
   }
 
@@ -118,19 +112,18 @@ export class EntityManager {
     const logAudit = this.logAudit.bind(this)
 
     return {
-      async create<D extends Partial<StorableData> & { $type: string }>(data: D) {
+      async create(data: Omit<Thing, '$id' | '$createdAt' | '$updatedAt'>): Promise<Thing> {
         const thing = await baseStore.create(data)
 
         // Emit Thing.created event
-        // Use toJsonObject to safely convert Thing to JsonValue (strips undefined)
         await eventsStore.emit({
           type: 'Thing.created',
-          payload: toJsonObject(thing),
+          payload: thing,
           source: thing.$id
         })
 
         // Audit log
-        await logAudit('create', thing.$type, thing.$id, { name: (thing as Record<string, unknown>)['name'] as string })
+        await logAudit('create', thing.$type, thing.$id, { name: (thing as any).name })
 
         return thing
       },
@@ -143,10 +136,9 @@ export class EntityManager {
         const thing = await baseStore.update(id, data)
 
         // Emit Thing.updated event
-        // Use toJsonObject to safely convert Thing to JsonValue (strips undefined)
         await eventsStore.emit({
           type: 'Thing.updated',
-          payload: toJsonObject(thing),
+          payload: thing,
           source: thing.$id
         })
 
@@ -175,55 +167,6 @@ export class EntityManager {
 
       async list(options?: { type?: string; limit?: number; offset?: number }): Promise<Thing[]> {
         return baseStore.list(options)
-      },
-
-      async bulkCreate<D extends Partial<StorableData> & { $type: string }>(things: D[]) {
-        const created = await baseStore.bulkCreate(things)
-        for (const thing of created) {
-          // Use toJsonObject to safely convert Thing to JsonValue (strips undefined)
-          await eventsStore.emit({
-            type: 'Thing.created',
-            payload: toJsonObject(thing),
-            source: thing.$id
-          })
-          await logAudit('create', thing.$type, thing.$id, { name: (thing as Record<string, unknown>)['name'] as string })
-        }
-        return created
-      },
-
-      async bulkUpdate(items: BulkUpdateItem<StorableData>[]) {
-        const updated = await baseStore.bulkUpdate(items)
-        for (let i = 0; i < updated.length; i++) {
-          const thing = updated[i]
-          const item = items[i]
-          // Use toJsonObject to safely convert Thing to JsonValue (strips undefined)
-          await eventsStore.emit({
-            type: 'Thing.updated',
-            payload: toJsonObject(thing),
-            source: thing.$id
-          })
-          await logAudit('update', thing.$type, thing.$id, { fields: Object.keys(item.data) })
-        }
-        return updated
-      },
-
-      async bulkDelete(ids: string[]) {
-        const things: (Thing | null)[] = []
-        for (const id of ids) {
-          things.push(await baseStore.get(id))
-        }
-        await baseStore.bulkDelete(ids)
-        for (let i = 0; i < ids.length; i++) {
-          const thing = things[i]
-          if (thing) {
-            await eventsStore.emit({
-              type: 'Thing.deleted',
-              payload: { $id: ids[i], $type: thing.$type },
-              source: ids[i]
-            })
-            await logAudit('delete', thing.$type, ids[i])
-          }
-        }
       }
     }
   }
@@ -248,10 +191,9 @@ export class EntityManager {
         const relationship = await baseStore.add(rel)
 
         // Emit Relationship.added event
-        // Relationship has only primitive fields so it's safe to use toJsonObject
         await eventsStore.emit({
           type: 'Relationship.added',
-          payload: toJsonObject(relationship as StorableData),
+          payload: relationship,
           source: relationship.subject
         })
 
@@ -308,14 +250,10 @@ export class EntityManager {
 /**
  * Mixin to add entity management to DO classes
  */
-// TypeScript mixin pattern requires `any` for constructor type parameters (TS2545)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function withEntities<T extends new (...args: any[]) => any>(Base: T) {
   return class extends Base {
     private entityManager: EntityManager
 
-    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
       this.entityManager = new EntityManager()

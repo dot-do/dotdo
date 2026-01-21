@@ -61,19 +61,6 @@ export interface LoginOptions {
   token?: string
   verbose?: boolean
   noBrowser?: boolean
-  /** Output as JSON for scripting */
-  json?: boolean
-}
-
-/**
- * Result returned by login command for JSON output
- */
-export interface LoginResult {
-  success: boolean
-  message?: string
-  error?: string
-  isNewLogin?: boolean
-  tokenPath?: string
 }
 
 // ============================================================================
@@ -81,28 +68,9 @@ export interface LoginResult {
 // ============================================================================
 
 /**
- * Custom config directory for testing (set via setConfigDir or DOTDO_CONFIG_DIR env var)
- */
-let customConfigDir: string | undefined
-
-/**
- * Set a custom config directory (for testing)
- */
-export function setConfigDir(dir: string | undefined): void {
-  customConfigDir = dir
-}
-
-/**
- * Get the config directory path.
- * Uses custom dir if set, DOTDO_CONFIG_DIR env var, or defaults to ~/.dotdo
+ * Get the config directory path
  */
 function getConfigDir(): string {
-  if (customConfigDir) {
-    return customConfigDir
-  }
-  if (process.env['DOTDO_CONFIG_DIR']) {
-    return process.env['DOTDO_CONFIG_DIR']
-  }
   return join(homedir(), CONFIG_DIR_NAME)
 }
 
@@ -361,12 +329,10 @@ async function refreshToken(refreshToken: string): Promise<TokenResponse> {
 /**
  * Login command implementation
  */
-export async function login(options: LoginOptions = {}): Promise<LoginResult> {
-  const jsonMode = options.json ?? false
-
+export async function login(options: LoginOptions = {}): Promise<void> {
   // Check if user provided a token directly (for CI/CD)
   if (options.token) {
-    if (options.verbose && !jsonMode) {
+    if (options.verbose) {
       console.log('[dotdo login] Storing provided token')
     }
 
@@ -376,21 +342,8 @@ export async function login(options: LoginOptions = {}): Promise<LoginResult> {
     }
 
     await storeToken(token)
-
-    const result: LoginResult = {
-      success: true,
-      message: 'Token stored successfully',
-      isNewLogin: true,
-      tokenPath: getConfigPath(),
-    }
-
-    if (jsonMode) {
-      console.log(JSON.stringify(result))
-    } else {
-      console.log('Token stored successfully')
-    }
-
-    return result
+    console.log('Token stored successfully')
+    return
   }
 
   // Check if already logged in
@@ -399,87 +352,48 @@ export async function login(options: LoginOptions = {}): Promise<LoginResult> {
     // Check if token is expired
     if (isTokenExpired(existingToken)) {
       if (existingToken.refresh_token) {
-        if (!jsonMode) {
-          console.log('Token expired, refreshing...')
-        }
+        console.log('Token expired, refreshing...')
         try {
           const newToken = await refreshToken(existingToken.refresh_token)
           await storeToken(newToken)
-
-          const result: LoginResult = {
-            success: true,
-            message: 'Token refreshed successfully',
-            isNewLogin: false,
-            tokenPath: getConfigPath(),
-          }
-
-          if (jsonMode) {
-            console.log(JSON.stringify(result))
-          } else {
-            console.log('Token refreshed successfully')
-          }
-
-          return result
+          console.log('Token refreshed successfully')
+          return
         } catch (error) {
-          if (!jsonMode) {
-            console.log('Failed to refresh token, starting new login...')
-          }
+          console.log('Failed to refresh token, starting new login...')
         }
       } else {
-        if (!jsonMode) {
-          console.log('Token expired, please login again...')
-        }
+        console.log('Token expired, please login again...')
       }
     } else {
-      const result: LoginResult = {
-        success: true,
-        message: 'Already logged in',
-        isNewLogin: false,
-        tokenPath: getConfigPath(),
+      console.log('Already logged in')
+      if (options.verbose) {
+        console.log(`Token expires at: ${new Date(existingToken.expires_at || 0).toISOString()}`)
       }
-
-      if (jsonMode) {
-        console.log(JSON.stringify(result))
-      } else {
-        console.log('Already logged in')
-        if (options.verbose) {
-          console.log(`Token expires at: ${new Date(existingToken.expires_at || 0).toISOString()}`)
-        }
-      }
-
-      return result
+      return
     }
   }
 
   // Start OAuth Device Authorization Flow
-  if (!jsonMode) {
-    console.log('Starting OAuth login flow...')
-  }
+  console.log('Starting OAuth login flow...')
 
   try {
     // Step 1: Request device code
     const deviceCodeData = await requestDeviceCode()
 
     // Step 2: Display user code and open browser
-    if (!jsonMode) {
-      console.log('\nTo authenticate, please follow these steps:')
-      console.log(`1. Visit: ${deviceCodeData.verification_uri}`)
-      console.log(`2. Enter code: ${deviceCodeData.user_code}`)
-      console.log('')
-    }
+    console.log('\nTo authenticate, please follow these steps:')
+    console.log(`1. Visit: ${deviceCodeData.verification_uri}`)
+    console.log(`2. Enter code: ${deviceCodeData.user_code}`)
+    console.log('')
 
     // Open browser automatically unless disabled
     if (!options.noBrowser) {
       const url = deviceCodeData.verification_uri_complete || deviceCodeData.verification_uri
-      if (!jsonMode) {
-        console.log('Opening browser...')
-      }
+      console.log('Opening browser...')
       await openBrowser(url)
     }
 
-    if (!jsonMode) {
-      console.log('Waiting for authorization...')
-    }
+    console.log('Waiting for authorization...')
 
     // Step 3: Poll for token
     const token = await pollForToken(
@@ -491,37 +405,13 @@ export async function login(options: LoginOptions = {}): Promise<LoginResult> {
     // Step 4: Store token
     await storeToken(token)
 
-    const result: LoginResult = {
-      success: true,
-      message: 'Login successful',
-      isNewLogin: true,
-      tokenPath: getConfigPath(),
+    console.log('\nLogin successful!')
+    if (options.verbose) {
+      console.log(`Token stored at: ${getConfigPath()}`)
     }
-
-    if (jsonMode) {
-      console.log(JSON.stringify(result))
-    } else {
-      console.log('\nLogin successful!')
-      if (options.verbose) {
-        console.log(`Token stored at: ${getConfigPath()}`)
-      }
-    }
-
-    return result
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-
-    const result: LoginResult = {
-      success: false,
-      error: `Login failed: ${message}`,
-    }
-
-    if (jsonMode) {
-      console.log(JSON.stringify(result))
-    } else {
-      console.error('\nLogin failed:', message)
-    }
-
+    console.error('\nLogin failed:', message)
     throw new Error(`Login failed: ${message}`)
   }
 }
