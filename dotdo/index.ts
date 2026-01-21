@@ -317,12 +317,20 @@ export {
 } from '@dotdo/do'
 
 // Circuit Breaker (DO version - canonical)
+// Use runWithCircuitBreakerRegistry() for request-scoped isolation (recommended)
 export {
   CircuitBreaker,
   CircuitBreakerRegistry,
   createCircuitBreaker,
   createCircuitBreakerRegistry,
+  // Request-scoped (recommended)
+  runWithCircuitBreakerRegistry,
+  getCurrentCircuitBreakerRegistry,
+  getCircuitBreaker,
+  // Deprecated global registry (for backward compatibility only)
+  /** @deprecated Use runWithCircuitBreakerRegistry() instead */
   getGlobalCircuitBreakerRegistry,
+  /** @deprecated Use runWithCircuitBreakerRegistry() instead */
   resetGlobalCircuitBreakerRegistry,
   type CircuitState,
   type CircuitBreakerConfig,
@@ -801,6 +809,10 @@ export {
   getResource,
   getAllResources,
   clearRegistry,
+  // Request-scoped resource context (do-73qn)
+  runWithResourceContext,
+  getCurrentResourceContext,
+  clearGlobalRegistry,
   type ResourceDefinition,
   type ResourceFields,
   type FieldDef as APIFieldDef,

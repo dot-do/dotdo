@@ -354,13 +354,28 @@ export {
 
 /**
  * Circuit Breaker pattern implementation for protecting against cascading failures.
+ *
+ * Recommended usage with request-scoped isolation:
+ * ```ts
+ * await runWithCircuitBreakerRegistry(async () => {
+ *   const circuit = getCircuitBreaker('my-service')
+ *   await circuit.execute(() => fetchData())
+ * })
+ * ```
  */
 export {
   CircuitBreaker,
   CircuitBreakerRegistry,
   createCircuitBreaker,
   createCircuitBreakerRegistry,
+  // Request-scoped (recommended)
+  runWithCircuitBreakerRegistry,
+  getCurrentCircuitBreakerRegistry,
+  getCircuitBreaker,
+  // Deprecated global registry (for backward compatibility only)
+  /** @deprecated Use runWithCircuitBreakerRegistry() instead */
   getGlobalCircuitBreakerRegistry,
+  /** @deprecated Use runWithCircuitBreakerRegistry() instead */
   resetGlobalCircuitBreakerRegistry,
   type CircuitState,
   type CircuitBreakerConfig,

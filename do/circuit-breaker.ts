@@ -648,22 +648,38 @@ export function getCurrentCircuitBreakerRegistry(): CircuitBreakerRegistry | und
 /**
  * Get or create a circuit breaker for the given name.
  *
- * When running within runWithCircuitBreakerRegistry(), returns a circuit
- * from the request-scoped registry (tenant-isolated).
+ * This is the recommended way to obtain circuit breakers. It automatically
+ * uses the correct registry based on context:
  *
- * When running outside a context, falls back to the global registry
- * (deprecated behavior - use runWithCircuitBreakerRegistry for proper isolation).
+ * - **Within `runWithCircuitBreakerRegistry()`**: Returns a circuit from the
+ *   request-scoped registry, ensuring tenant isolation.
+ * - **Outside any context**: Falls back to the deprecated global registry
+ *   for backward compatibility. A console warning may be emitted in development.
  *
- * @param name - The circuit breaker name
- * @param config - Optional configuration
+ * @param name - The circuit breaker name (e.g., 'customer-service', 'payment-api')
+ * @param config - Optional configuration to customize the circuit breaker
  * @returns A CircuitBreaker instance
+ *
+ * @example
+ * ```ts
+ * // Recommended: Use within a scoped context
+ * await runWithCircuitBreakerRegistry(async () => {
+ *   const circuit = getCircuitBreaker('my-service', { failureThreshold: 3 })
+ *   const result = await circuit.execute(() => fetchData())
+ * })
+ *
+ * // The circuit breaker is automatically cleaned up when the context ends
+ * ```
+ *
+ * @see {@link runWithCircuitBreakerRegistry} - Set up a request-scoped context
+ * @see {@link getCurrentCircuitBreakerRegistry} - Get the raw registry if needed
  */
 export function getCircuitBreaker(name: string, config?: Partial<CircuitBreakerConfig>): CircuitBreaker {
   const registry = getCurrentCircuitBreakerRegistry()
   if (registry) {
     return registry.get(name, config)
   }
-  // Fall back to global registry for backward compatibility
+  // Fall back to global registry for backward compatibility (deprecated path)
   return getGlobalCircuitBreakerRegistry().get(name, config)
 }
 
@@ -679,13 +695,55 @@ export function getCircuitBreaker(name: string, config?: Partial<CircuitBreakerC
 // 3. Circuits will be automatically isolated per request
 
 /**
- * @deprecated Global registry causes tenant state leakage. Use runWithCircuitBreakerRegistry() instead.
- * @internal
+ * Global circuit breaker registry singleton.
+ *
+ * @deprecated **DO NOT USE** - Global registry causes tenant state leakage in multi-tenant environments.
+ *
+ * ## Why this is deprecated
+ * The global registry shares circuit breaker state across all requests and tenants,
+ * which can lead to:
+ * - Tenant A's failures affecting Tenant B's circuit state
+ * - Memory leaks from accumulated circuit breakers
+ * - Unpredictable behavior in high-concurrency scenarios
+ *
+ * ## Migration Guide
+ *
+ * **Before (deprecated):**
+ * ```ts
+ * const registry = getGlobalCircuitBreakerRegistry()
+ * const circuit = registry.get('my-service')
+ * ```
+ *
+ * **After (request-scoped):**
+ * ```ts
+ * // In middleware - wrap request handling
+ * await runWithCircuitBreakerRegistry(async () => {
+ *   // All circuit breaker usage is isolated to this request
+ *   const circuit = getCircuitBreaker('my-service')
+ *   await circuit.execute(() => fetchData())
+ * })
+ * ```
+ *
+ * Or use `getCurrentCircuitBreakerRegistry()` within the scoped context.
+ *
+ * @see {@link runWithCircuitBreakerRegistry} - The recommended request-scoped alternative
+ * @see {@link getCurrentCircuitBreakerRegistry} - Get registry within a scoped context
+ * @see {@link getCircuitBreaker} - Convenience function that uses scoped registry when available
+ * @internal Exported only for backward compatibility - will be removed in a future major version
  */
 let globalRegistry: CircuitBreakerRegistry | null = null
 
 /**
- * @deprecated Use runWithCircuitBreakerRegistry() and getCurrentCircuitBreakerRegistry() instead.
+ * Get the global circuit breaker registry singleton.
+ *
+ * @deprecated **DO NOT USE** - Use `runWithCircuitBreakerRegistry()` for request-scoped isolation.
+ *
+ * This function returns a shared global registry that persists across all requests,
+ * causing tenant state leakage. See `globalRegistry` documentation for migration guide.
+ *
+ * @returns The global CircuitBreakerRegistry instance
+ * @see {@link runWithCircuitBreakerRegistry} - The recommended alternative
+ * @see {@link getCurrentCircuitBreakerRegistry} - Get registry within a scoped context
  */
 export function getGlobalCircuitBreakerRegistry(): CircuitBreakerRegistry {
   if (!globalRegistry) {
@@ -695,7 +753,14 @@ export function getGlobalCircuitBreakerRegistry(): CircuitBreakerRegistry {
 }
 
 /**
- * @deprecated Use runWithCircuitBreakerRegistry() instead.
+ * Reset the global circuit breaker registry.
+ *
+ * @deprecated **DO NOT USE** - Use `runWithCircuitBreakerRegistry()` for request-scoped isolation.
+ *
+ * This function clears and resets the global registry. With request-scoped registries,
+ * cleanup happens automatically when the request context ends.
+ *
+ * @see {@link runWithCircuitBreakerRegistry} - The recommended alternative
  */
 export function resetGlobalCircuitBreakerRegistry(): void {
   if (globalRegistry) {
