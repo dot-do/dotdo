@@ -2,7 +2,7 @@
 // Added per do-rljr.8
 
 import type { JsonValue } from './types'
-import { DEFAULT_PAGINATION_LIMIT } from '@dotdo/utils'
+import { DEFAULT_PAGINATION_LIMIT } from './constants'
 
 /**
  * Cursor-based pagination options

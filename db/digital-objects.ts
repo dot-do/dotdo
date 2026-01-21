@@ -7,7 +7,7 @@ import type {
   Noun,
   ValidationOptions as DOValidationOptions,
   ListOptions as DOListOptions,
-} from '../primitives/packages/digital-objects/src/types.js'
+} from 'digital-objects'
 import type { Thing, ThingsStore } from './things'
 import { toThingId } from './branded-types'
 
@@ -293,7 +293,7 @@ export async function validateSchema(
 
   try {
     // Use digital-objects validation
-    const { validateOnly } = await import('../primitives/packages/digital-objects/src/schema-validation.js')
+    const { validateOnly } = await import('digital-objects')
     const result = validateOnly(data, noun.schema)
 
     return {
@@ -314,4 +314,4 @@ export async function validateSchema(
 /**
  * Re-export digital-objects types for convenience
  */
-export type { Noun, ValidationOptions as DOValidationOptions } from '../primitives/packages/digital-objects/src/types.js'
+export type { Noun, ValidationOptions as DOValidationOptions } from 'digital-objects'

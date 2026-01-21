@@ -21,7 +21,7 @@ import {
   MAX_ID_LENGTH,
   MAX_TYPE_NAME_LENGTH,
   MAX_PAGINATION_LIMIT,
-} from '@dotdo/utils'
+} from './constants'
 
 // =============================================================================
 // Validation Configuration

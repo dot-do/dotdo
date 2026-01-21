@@ -79,6 +79,17 @@
     "prepublishOnly": "npm run build",
     "clean": "rm -rf dist"
   },
+  "dependencies": {
+    "zod": "^3.23.0"
+  },
+  "peerDependencies": {
+    "digital-objects": ">=0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "digital-objects": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "typescript": "^5.7.0"
   }

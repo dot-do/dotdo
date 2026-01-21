@@ -1,7 +1,7 @@
 // SQLite persistence layer for @dotdo/db
 // Compatible with Cloudflare Durable Objects SqlStorage API
 
-import { createLogger } from '@dotdo/utils'
+import { createLogger } from './logger'
 import type { Thing, ThingsStore } from './things'
 import type { StorableData, SqlStorage, SqlRunResult } from './types'
 import type { EventId } from './branded-types'

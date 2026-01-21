@@ -8,7 +8,7 @@ import type { StorableData, JsonValue } from './types'
 import type { StorageAdapter } from './storage'
 import type { EventId, ThingId, CorrelationId } from './branded-types'
 import { generateEventId } from './id'
-import { createLogger } from '@dotdo/utils'
+import { createLogger } from './logger'
 import { MemoryStorageAdapter } from './adapters/memory'
 import { applyCursorPagination } from './pagination'
 
