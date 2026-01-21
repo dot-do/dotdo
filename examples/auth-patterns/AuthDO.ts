@@ -144,23 +144,23 @@ export class AuthDO extends DO {
     // Event Handlers
     // ========================================================================
 
-    this.$.on.User.registered(async (event: { type: string; payload: unknown }) => {
-      const { userId, email } = event.payload as { userId: string; email: string }
+    this.$.on.User.registered(async (event) => {
+      const { userId, email } = (event as { type: string; payload: { userId: string; email: string } }).payload
       console.log(`[Event] User registered: ${email} (${userId})`)
     })
 
-    this.$.on.User.loggedIn(async (event: { type: string; payload: unknown }) => {
-      const { userId, email } = event.payload as { userId: string; email: string }
+    this.$.on.User.loggedIn(async (event) => {
+      const { userId, email } = (event as { type: string; payload: { userId: string; email: string } }).payload
       console.log(`[Event] User logged in: ${email} (${userId})`)
     })
 
-    this.$.on.User.loggedOut(async (event: { type: string; payload: unknown }) => {
-      const { userId } = event.payload as { userId: string }
+    this.$.on.User.loggedOut(async (event) => {
+      const { userId } = (event as { type: string; payload: { userId: string } }).payload
       console.log(`[Event] User logged out: ${userId}`)
     })
 
-    this.$.on.Security.alert(async (event: { type: string; payload: unknown }) => {
-      const { type, details } = event.payload as { type: string; details: unknown }
+    this.$.on.Security.alert(async (event) => {
+      const { type, details } = (event as { type: string; payload: { type: string; details: unknown } }).payload
       console.log(`[Security Alert] ${type}:`, details)
     })
 

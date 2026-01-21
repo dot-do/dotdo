@@ -22,14 +22,16 @@ export interface User {
   updatedAt: number
 }
 
-interface UserRow {
+type SqlStorageValue = string | number | null | ArrayBuffer
+
+type UserRow = {
   id: string
   email: string
   name: string
   password_hash: string
   created_at: number
   updated_at: number
-}
+} & Record<string, SqlStorageValue>
 
 // ============================================================================
 // Password Utilities

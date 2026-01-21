@@ -11,7 +11,7 @@
  * All sub-types share a base schema and can be queried together or separately.
  */
 
-import type { StorableData, Thing, JsonObject } from './types'
+import type { JsonObject } from './types'
 
 // =============================================================================
 // Type Definition Schema
@@ -356,8 +356,11 @@ export function matchType<
 
 /**
  * Base function interface (shared by all function types)
+ *
+ * Note: This interface does not extend StorableData to avoid index signature conflicts
+ * with optional properties. The concrete function types are still JSON-serializable.
  */
-export interface FunctionBase extends StorableData {
+export interface FunctionBase {
   /** Function name */
   name: string
 
@@ -419,8 +422,3 @@ export interface HumanFunction extends FunctionBase {
  * Union of all function types
  */
 export type FunctionType = CodeFunction | GenerativeFunction | AgenticFunction | HumanFunction
-
-/**
- * Thing containing a FunctionType
- */
-export type FunctionThing = Thing<FunctionType>

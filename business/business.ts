@@ -152,7 +152,7 @@ function generateKeyResultId(): string {
  *   .last(30, 'days')
  *
  * // Or with template literals
- * const result = await business.query`
+ * const result = await business.aggregate`
  *   sum(amount) from purchases by day last 30 days
  * `
  * ```
@@ -279,11 +279,11 @@ export class Business extends DO {
   }
 
   /**
-   * Query with template literal syntax
+   * Aggregate data with template literal syntax
    *
    * @example
    * ```typescript
-   * const result = await business.query`
+   * const result = await business.aggregate`
    *   sum(amount) from purchases
    *   where status = 'completed'
    *   by day
@@ -292,19 +292,19 @@ export class Business extends DO {
    *
    * // With interpolation
    * const productId = 'prod_123'
-   * const sales = await business.query`
+   * const sales = await business.aggregate`
    *   count() from purchases
    *   where productId = ${productId}
    *   last 7 days
    * `
    * ```
    */
-  async query(
+  async aggregate(
     strings: TemplateStringsArray,
     ...values: unknown[]
   ): Promise<AggregateResult> {
-    const query = parseQueryTemplate(strings, values)
-    return this.executeAggregation(query)
+    const queryParsed = parseQueryTemplate(strings, values)
+    return this.executeAggregation(queryParsed)
   }
 
   // ===========================================================================
@@ -340,8 +340,8 @@ export class Business extends DO {
     return createMetricRef(this)
   }
 
-  // Alias for convenience
-  get $(): MetricRef {
+  // Alias for metric reference (use 'm' to avoid conflict with parent '$' WorkflowContext)
+  get m(): MetricRef {
     return this.metrics
   }
 
@@ -531,7 +531,7 @@ class GoalsAPI {
     }
 
     // Store in things (let the system generate the ID)
-    const thing = await this.business.things.create(thingData as { $type: string } & Record<string, unknown>)
+    const thing = await this.business.things.create(thingData)
 
     // Update objective with the actual generated ID
     objective.id = thing.$id as string
@@ -563,7 +563,7 @@ class GoalsAPI {
       updateData['keyResults'] = JSON.stringify(updates.keyResults)
     }
 
-    await this.business.things.update(id, updateData as Record<string, unknown>)
+    await this.business.things.update(id, updateData)
 
     // Return updated objective
     const updated = await this.business.things.get(id)
@@ -1274,7 +1274,7 @@ class ExperimentsAPI {
     }
 
     // Store in things
-    const thing = await this.business.things.create(thingData as { $type: string } & Record<string, unknown>)
+    const thing = await this.business.things.create(thingData)
 
     return this.thingToExperiment(thing)
   }
@@ -1387,7 +1387,7 @@ class ExperimentsAPI {
     await this.business.things.update(experiment.id, {
       status,
       updatedAt: now.toISOString(),
-    } as Record<string, unknown>)
+    })
 
     // Return updated experiment
     const updated = await this.get(key)

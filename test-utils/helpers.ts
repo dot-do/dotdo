@@ -212,14 +212,16 @@ export async function rpcMayFail<T>(
     body: JSON.stringify({ method, args })
   })
 
+  // Clone response so we can read body twice if needed
+  const clonedResponse = response.clone()
   try {
     const json = await response.json()
     if (response.ok) {
-      return { response, data: json as T }
+      return { response: clonedResponse, data: json as T }
     }
-    return { response, error: json }
+    return { response: clonedResponse, error: json }
   } catch {
-    return { response, error: await response.text() }
+    return { response: clonedResponse, error: await clonedResponse.text() }
   }
 }
 

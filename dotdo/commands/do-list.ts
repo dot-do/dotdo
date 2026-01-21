@@ -120,7 +120,13 @@ function parseWranglerConfig(configPath?: string): DurableObjectNamespace[] {
         }))
       }
     } catch (error) {
-      // Continue to next path
+      // Config parsing failed - continue to next path
+      // This is expected when a config file has invalid syntax or format
+      // Debug log for troubleshooting config issues
+      if (process.env.DEBUG) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.debug(`[do-list] Failed to parse ${path}: ${message}`)
+      }
     }
   }
 

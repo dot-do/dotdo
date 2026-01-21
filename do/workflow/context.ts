@@ -63,6 +63,21 @@ const logger = createLogger('[WorkflowContext]')
 // Import ScheduleRegistration for internal use
 import type { ScheduleRegistration } from './schedule'
 import type { DOStubProxy } from './rpc'
+import type { CircuitBreakerRPCConfig } from '@dotdo/rpc'
+
+/**
+ * Minimal interface for base context that satisfies createDORPCProxy requirements.
+ * This interface must include the internal fields that createDORPCProxy expects.
+ */
+interface BaseContextWithInternals {
+  _env: unknown
+  _stubCache: Map<string, DOStubProxy>
+  _circuitBreakerConfig?: CircuitBreakerRPCConfig
+  _things?: ThingsStore
+  _legacyEntitySchemas?: Map<string, LegacyEntitySchema>
+  _entitySchemas?: Map<string, EntitySchema>
+  [key: string]: unknown
+}
 
 /**
  * Internal state object for the workflow context
@@ -151,7 +166,7 @@ function createEventProcessor(
  * Track a handler failure in the error store and DLQ/validation queue
  */
 function trackHandlerFailure(
-  failure: { error: Error | undefined; attempts: number },
+  failure: { error?: Error; attempts: number },
   eventType: string,
   payload: unknown,
   handlerIndex: number,
@@ -180,9 +195,9 @@ function trackHandlerFailure(
   if (failure.error instanceof ValidationError) {
     events.addValidationFailure({
       type: eventType,
-      payload: payload,
+      payload: payload as JsonValue,
       error: `ValidationError: ${failure.error.message}`,
-      details: failure.error.details
+      details: failure.error.details as Record<string, JsonValue> | undefined
     })
   } else {
     events.addToDeadLetterQueue({
@@ -354,10 +369,10 @@ function createBaseContext(
   processEvent: (emitted: Event, eventType: string, payload: unknown) => Promise<void>,
   env: unknown,
   options?: CreateContextOptions
-): Record<string, unknown> {
+): BaseContextWithInternals {
   const { events, handlers, schedules, stubCache, fireAndForgetErrors, integrations, things, sql, entitySchemas, legacyEntitySchemas } = state
 
-  const baseContext: Record<string, unknown> = {
+  const baseContext: BaseContextWithInternals = {
     // Fire-and-forget event emission with retry support
     send(event: { type: string; payload?: JsonValue }) {
       const payload = event.payload ?? null

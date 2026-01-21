@@ -29,6 +29,7 @@ import { createLogger } from '../utils/logger'
 import { StorageHandler } from './handlers/storage'
 import { RPCHandler } from './handlers/rpc'
 import { WebSocketHandler } from './handlers/websocket'
+import { AlarmHandler } from './handlers/alarm'
 import { DOHandlerRegistry } from './handlers/registry'
 
 // Import type generation
@@ -95,6 +96,7 @@ export class DO implements DurableObject {
   private readonly storageHandler: StorageHandler
   private readonly rpcHandler: RPCHandler
   private readonly websocketHandler: WebSocketHandler
+  private readonly alarmHandler: AlarmHandler
 
   // Integration registry
   private _integrations: IntegrationRegistry
@@ -119,11 +121,16 @@ export class DO implements DurableObject {
     this.storageHandler = new StorageHandler()
     this.rpcHandler = new RPCHandler({ debug })
     this.websocketHandler = new WebSocketHandler({ debug })
+    this.alarmHandler = new AlarmHandler({ debug })
+
+    // Set state on alarm handler for storage access
+    this.alarmHandler.setState(state)
 
     // Register handlers
     this.handlers.register(this.storageHandler)
     this.handlers.register(this.rpcHandler)
     this.handlers.register(this.websocketHandler)
+    this.handlers.register(this.alarmHandler)
 
     // Initialize integration registry
     this._integrations = new IntegrationRegistry()
@@ -357,26 +364,50 @@ export class DO implements DurableObject {
 
   // Alarm handler (for scheduling)
   async alarm(): Promise<void> {
-    if (!this.observability) {
-      // No metrics - just return (override in subclass)
-      return
-    }
-
     const startTime = Date.now()
     let success = true
 
     try {
-      // Track alarm execution with metrics
-      await this.observability.wrapMethod('alarm', async () => {
-        // Base implementation does nothing - override in subclass
-      })
+      // Execute alarm processing with optional metrics wrapping
+      if (this.observability) {
+        await this.observability.wrapMethod('alarm', async () => {
+          await this.alarmHandler.processAlarm(this.$._schedules)
+        })
+      } else {
+        await this.alarmHandler.processAlarm(this.$._schedules)
+      }
     } catch (error) {
       success = false
+      logger.error('Alarm execution failed:', error)
       throw error
     } finally {
-      const duration = Date.now() - startTime
-      this.observability.trackAlarmExecution(success, duration)
+      if (this.observability) {
+        const duration = Date.now() - startTime
+        this.observability.trackAlarmExecution(success, duration)
+      }
     }
+  }
+
+  /**
+   * Schedule a one-time alarm to execute a handler after a delay.
+   *
+   * @param delayMs - Delay in milliseconds before execution
+   * @param handler - The handler function to execute
+   * @protected
+   */
+  protected async scheduleOneTimeAlarm(
+    delayMs: number,
+    handler: () => Promise<void>
+  ): Promise<void> {
+    await this.alarmHandler.scheduleOneTimeAlarm(delayMs, handler, this.$._schedules)
+  }
+
+  /**
+   * Clear all alarms (both recurring and one-time).
+   * @protected
+   */
+  protected async clearAllAlarms(): Promise<void> {
+    await this.alarmHandler.clearAllAlarms()
   }
 
   /**

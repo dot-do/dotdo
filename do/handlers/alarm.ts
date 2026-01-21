@@ -106,7 +106,11 @@ export class AlarmHandler implements DOHandler {
         }
       }
     } catch (error) {
-      logger.error('Failed to restore alarm state:', error)
+      // Log with full context for debugging, but continue with empty alarm store
+      // This is acceptable because the alarm store will be rebuilt from schedules
+      logger.error('Failed to restore alarm state, continuing with empty store:', error)
+      // Reset to clean state to ensure consistent behavior
+      this.alarmStore = createAlarmStore()
     }
   }
 
@@ -125,7 +129,11 @@ export class AlarmHandler implements DOHandler {
         logger.debug('Persisted alarm state to storage')
       }
     } catch (error) {
+      // Persistence failure is critical - throw to allow caller to handle
+      // This prevents silent data loss where alarm state appears saved but isn't
+      const errorMessage = error instanceof Error ? error.message : String(error)
       logger.error('Failed to persist alarm state:', error)
+      throw new Error(`AlarmHandler: failed to persist state: ${errorMessage}`)
     }
   }
 
@@ -153,7 +161,11 @@ export class AlarmHandler implements DOHandler {
           logger.debug(`Scheduled next alarm for ${new Date(nextTime).toISOString()}`)
         }
       } catch (error) {
+        // Alarm scheduling failure is critical - throw to allow caller to handle
+        // Silent failure here would cause schedules to stop executing
+        const errorMessage = error instanceof Error ? error.message : String(error)
         logger.error('Failed to set alarm:', error)
+        throw new Error(`AlarmHandler: failed to schedule alarm for ${new Date(nextTime).toISOString()}: ${errorMessage}`)
       }
     }
   }
@@ -244,18 +256,30 @@ export class AlarmHandler implements DOHandler {
     this.alarmStore.oneTimeAlarms.clear()
     this.alarmStore.oneTimeHandlers.clear()
 
-    // Delete the alarm
+    // Delete the alarm - collect errors and report at end
+    const errors: Error[] = []
+
     try {
       await this.state.storage.deleteAlarm()
     } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error))
       logger.error('Failed to delete alarm:', error)
+      errors.push(err)
     }
 
     // Clear persisted state
     try {
       await this.state.storage.delete(ALARM_STORAGE_KEY)
     } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error))
       logger.error('Failed to clear alarm storage:', error)
+      errors.push(err)
+    }
+
+    // If any cleanup operation failed, throw aggregated error
+    if (errors.length > 0) {
+      const messages = errors.map(e => e.message).join('; ')
+      throw new Error(`AlarmHandler: failed to clear alarms: ${messages}`)
     }
   }
 }

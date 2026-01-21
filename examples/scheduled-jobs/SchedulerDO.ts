@@ -41,53 +41,32 @@ export class SchedulerDO extends DO {
     // Event Handlers for Job Lifecycle
     // ========================================================================
 
-    this.$.on.Job.started(async (event: { type: string; payload: unknown }) => {
-      const { jobId, runId, jobName } = event.payload as {
-        jobId: string
-        runId: string
-        jobName: string
-      }
+    this.$.on.Job.started(async (event) => {
+      const { jobId, runId, jobName } = (event as { type: string; payload: { jobId: string; runId: string; jobName: string } }).payload
       console.log(`[Event] Job started: ${jobName} (run: ${runId})`)
 
       // Notify webhooks
       await this.notifyWebhooks('job.started', { jobId, runId, jobName })
     })
 
-    this.$.on.Job.completed(async (event: { type: string; payload: unknown }) => {
-      const { jobId, runId, jobName, duration } = event.payload as {
-        jobId: string
-        runId: string
-        jobName: string
-        duration: number
-      }
+    this.$.on.Job.completed(async (event) => {
+      const { jobId, runId, jobName, duration } = (event as { type: string; payload: { jobId: string; runId: string; jobName: string; duration: number } }).payload
       console.log(`[Event] Job completed: ${jobName} in ${duration}ms`)
 
       await this.notifyWebhooks('job.completed', { jobId, runId, jobName, duration })
       await this.updateMetrics(jobId, 'success', duration)
     })
 
-    this.$.on.Job.failed(async (event: { type: string; payload: unknown }) => {
-      const { jobId, runId, jobName, error, attempt, willRetry } = event.payload as {
-        jobId: string
-        runId: string
-        jobName: string
-        error: string
-        attempt: number
-        willRetry: boolean
-      }
+    this.$.on.Job.failed(async (event) => {
+      const { jobId, runId, jobName, error, attempt, willRetry } = (event as { type: string; payload: { jobId: string; runId: string; jobName: string; error: string; attempt: number; willRetry: boolean } }).payload
       console.log(`[Event] Job failed: ${jobName} (attempt ${attempt}): ${error}`)
 
       await this.notifyWebhooks('job.failed', { jobId, runId, jobName, error, attempt, willRetry })
       await this.updateMetrics(jobId, 'failure', 0)
     })
 
-    this.$.on.Job.timeout(async (event: { type: string; payload: unknown }) => {
-      const { jobId, runId, jobName, timeout } = event.payload as {
-        jobId: string
-        runId: string
-        jobName: string
-        timeout: number
-      }
+    this.$.on.Job.timeout(async (event) => {
+      const { jobId, runId, jobName, timeout } = (event as { type: string; payload: { jobId: string; runId: string; jobName: string; timeout: number } }).payload
       console.log(`[Event] Job timeout: ${jobName} after ${timeout}ms`)
 
       await this.notifyWebhooks('job.timeout', { jobId, runId, jobName, timeout })

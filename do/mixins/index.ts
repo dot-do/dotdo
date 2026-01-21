@@ -37,6 +37,9 @@
 // Storage Mixin
 // =============================================================================
 
+// Import Constructor for local use in MixinFn type definition
+import type { Constructor } from './storage'
+
 export {
   WithStorage,
   type Constructor,

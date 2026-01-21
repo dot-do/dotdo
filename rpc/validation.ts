@@ -611,34 +611,260 @@ export function validateZodArgs(args: unknown[], schema: ZodMethodSchema): void 
     throw new ValidationError('Invalid Zod schema: missing args array')
   }
 
+  const allErrors: Array<{ field: string; message: string }> = []
+
   for (let i = 0; i < schema.args.length; i++) {
-    const argSchema = schema.args[i]
+    const argDef = schema.args[i] as ZodArgSchema | undefined
     const argValue = args[i]
 
-    // If the schema has a parse method, it's a Zod schema
-    if (argSchema && typeof argSchema === 'object' && 'parse' in argSchema) {
-      try {
-        (argSchema as { parse: (v: unknown) => unknown }).parse(argValue)
-      } catch (error: unknown) {
-        const zodError = error as { errors?: Array<{ path: (string | number)[]; message: string }> }
-        if (zodError && typeof zodError === 'object' && 'errors' in zodError) {
-          const messages = (zodError.errors || [])
-            .map((e) => `arg[${i}]${e.path.length ? '.' + e.path.join('.') : ''}: ${e.message}`)
-            .join(', ')
-          throw new ValidationError(`Validation failed: ${messages}`)
-        }
-        throw new ValidationError(`Validation failed for argument ${i}`)
+    if (!argDef) continue
+
+    // Support both raw Zod schemas and ZodArgSchema objects
+    const zodSchema = 'schema' in argDef ? argDef.schema : argDef
+    const argName = 'name' in argDef ? argDef.name : `arg${i}`
+
+    // If the schema has a safeParse method, it's a Zod schema
+    if (zodSchema && typeof zodSchema === 'object' && 'safeParse' in zodSchema) {
+      const schema = zodSchema as { safeParse: (v: unknown) => { success: boolean; error?: { errors: Array<{ path: (string | number)[]; message: string }> } } }
+      const result = schema.safeParse(argValue)
+
+      if (!result.success && result.error) {
+        const errors = formatZodErrors(result.error, argName, i)
+        allErrors.push(...errors)
       }
     }
+  }
+
+  if (allErrors.length > 0) {
+    throw ValidationError.withErrors(allErrors)
   }
 }
 
 /**
  * Define a Zod method schema from an array of Zod schemas
  */
-export function defineZodMethodSchema(args: unknown[]): ZodMethodSchema {
+export function defineZodMethodSchema(args: ZodArgSchema[]): ZodMethodSchema {
   return {
     __zodSchema: true,
     args,
   }
+}
+
+/**
+ * Zod argument schema interface
+ */
+export interface ZodArgSchema {
+  /** Argument name for error messages */
+  name: string
+  /** The Zod schema for validation */
+  schema: unknown // z.ZodType - keeping as unknown to avoid zod dependency
+}
+
+/**
+ * Validation error for Zod schemas
+ */
+export interface ZodValidationError {
+  field: string
+  message: string
+}
+
+/**
+ * Format Zod errors into a consistent structure
+ */
+export function formatZodErrors(
+  error: { errors?: Array<{ path: (string | number)[]; message: string }> },
+  argName: string,
+  argIndex: number
+): ZodValidationError[] {
+  if (!error.errors || !Array.isArray(error.errors)) {
+    return [{ field: `args[${argIndex}] (${argName})`, message: 'Validation failed' }]
+  }
+
+  return error.errors.map((e) => {
+    const pathStr = e.path.length > 0 ? `.${e.path.join('.')}` : ''
+    return {
+      field: `args[${argIndex}] (${argName}${pathStr})`,
+      message: e.message,
+    }
+  })
+}
+
+/**
+ * Validate a single Zod argument and return errors
+ */
+export function validateZodArg(
+  value: unknown,
+  zodSchema: unknown,
+  argName: string,
+  argIndex: number
+): ZodValidationError[] {
+  if (!zodSchema || typeof zodSchema !== 'object') {
+    return []
+  }
+
+  // Check if it's a Zod schema (has safeParse method)
+  if (!('safeParse' in zodSchema)) {
+    return []
+  }
+
+  const schema = zodSchema as { safeParse: (v: unknown) => { success: boolean; error?: { errors: Array<{ path: (string | number)[]; message: string }> } } }
+  const result = schema.safeParse(value)
+
+  if (result.success) {
+    return []
+  }
+
+  return formatZodErrors(result.error || { errors: [] }, argName, argIndex)
+}
+
+/**
+ * Create a Zod schema registry for an RPC target
+ */
+export function createZodSchemaRegistry(schemas: Record<string, { args: ZodArgSchema[] }>): ZodMethodSchemaRegistry {
+  const registry: ZodMethodSchemaRegistry = {}
+
+  for (const [method, config] of Object.entries(schemas)) {
+    registry[method] = {
+      __zodSchema: true,
+      args: config.args,
+    }
+  }
+
+  return registry
+}
+
+/**
+ * Helper to create common Zod argument schemas
+ * These work with the zod library when imported by the consumer
+ */
+export const ZodArgSchemas = {
+  /** Required string argument */
+  string(name: string): ZodArgSchema {
+    // Dynamic import of zod to get z.string()
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.string() }
+  },
+
+  /** Non-empty string argument */
+  nonEmptyString(name: string): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.string().min(1) }
+  },
+
+  /** Required number argument */
+  number(name: string): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.number() }
+  },
+
+  /** Finite number argument */
+  finiteNumber(name: string): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.number().finite() }
+  },
+
+  /** Integer argument */
+  integer(name: string): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.number().int() }
+  },
+
+  /** Positive integer argument */
+  positiveInt(name: string): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.number().int().positive() }
+  },
+
+  /** Non-negative integer argument */
+  nonNegativeInt(name: string): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.number().int().nonnegative() }
+  },
+
+  /** Required boolean argument */
+  boolean(name: string): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.boolean() }
+  },
+
+  /** Required object argument */
+  object(name: string): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.record(z.unknown()) }
+  },
+
+  /** Required array argument */
+  array(name: string): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.array(z.unknown()) }
+  },
+
+  /** Optional string argument */
+  optionalString(name: string): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.string().optional() }
+  },
+
+  /** Optional number argument */
+  optionalNumber(name: string): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.number().optional() }
+  },
+
+  /** ID argument (non-empty string) */
+  id(name: string = 'id'): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.string().min(1) }
+  },
+
+  /** Email argument with format validation */
+  email(name: string = 'email'): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.string().email() }
+  },
+
+  /** URL argument with format validation */
+  url(name: string = 'url'): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.string().url() }
+  },
+
+  /** UUID argument with format validation */
+  uuid(name: string = 'uuid'): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    return { name, schema: z.string().uuid() }
+  },
+
+  /** Custom schema argument */
+  custom<T>(name: string, schema: T): ZodArgSchema {
+    return { name, schema }
+  },
+
+  /** Nullable schema argument */
+  nullable(name: string, innerSchema: unknown): ZodArgSchema {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { z } = require('zod')
+    const inner = innerSchema as { nullable: () => unknown }
+    if (typeof inner.nullable === 'function') {
+      return { name, schema: inner.nullable() }
+    }
+    // Fallback: wrap with z.union
+    return { name, schema: z.union([innerSchema as never, z.null()]) }
+  },
 }

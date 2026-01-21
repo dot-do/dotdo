@@ -33,23 +33,23 @@ export class TasksDO extends DO {
     // Event Handlers - Track entity lifecycle
     // ========================================================================
 
-    this.$.on.Task.created(async (event: { type: string; payload: unknown }) => {
-      const { taskId, title } = event.payload as { taskId: string; title: string }
+    this.$.on.Task.created(async (event) => {
+      const { taskId, title } = (event as { type: string; payload: { taskId: string; title: string } }).payload
       console.log(`[Event] Task created: ${title} (${taskId})`)
     })
 
-    this.$.on.Task.updated(async (event: { type: string; payload: unknown }) => {
-      const { taskId, changes } = event.payload as { taskId: string; changes: string[] }
+    this.$.on.Task.updated(async (event) => {
+      const { taskId, changes } = (event as { type: string; payload: { taskId: string; changes: string[] } }).payload
       console.log(`[Event] Task updated: ${taskId}, fields: ${changes.join(', ')}`)
     })
 
-    this.$.on.Task.deleted(async (event: { type: string; payload: unknown }) => {
-      const { taskId } = event.payload as { taskId: string }
+    this.$.on.Task.deleted(async (event) => {
+      const { taskId } = (event as { type: string; payload: { taskId: string } }).payload
       console.log(`[Event] Task deleted: ${taskId}`)
     })
 
-    this.$.on.Task.completed(async (event: { type: string; payload: unknown }) => {
-      const { taskId, title } = event.payload as { taskId: string; title: string }
+    this.$.on.Task.completed(async (event) => {
+      const { taskId, title } = (event as { type: string; payload: { taskId: string; title: string } }).payload
       console.log(`[Event] Task completed: ${title} (${taskId})`)
     })
   }

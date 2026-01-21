@@ -193,7 +193,12 @@ export async function doDelete(options: DoDeleteOptions): Promise<DoDeleteResult
       }
     }
   } catch (error) {
-    // Ignore - local server may not be running
+    // Local server may not be running - this is expected in production
+    // Log in verbose mode for debugging connection issues
+    if (verbose) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.log(`[do delete] Local server request failed: ${message}`)
+    }
   }
 
   // If we get here, we couldn't delete automatically

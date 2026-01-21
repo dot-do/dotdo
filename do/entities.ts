@@ -2,11 +2,12 @@
 // See do-7rf.6.5 and do-xebw (audit logging)
 
 import {
-  createThingsStore,
+  createThingsStoreWithAdapter,
   createEventsStore,
   createRelationshipsStore,
   createQuery,
   createAuditLogStore,
+  MemoryStorageAdapter,
   type ThingsStore,
   type EventsStore,
   type RelationshipsStore,
@@ -46,7 +47,8 @@ export class EntityManager {
   private _auditContext: AuditContext
 
   constructor(options: EntityManagerOptions = {}) {
-    this._things = createThingsStore()
+    // Use adapter-based store (do-xjmbd migration from deprecated createThingsStore)
+    this._things = createThingsStoreWithAdapter(new MemoryStorageAdapter())
     this._events = createEventsStore()
     this._relationships = createRelationshipsStore()
     this._auditLogs = createAuditLogStore()

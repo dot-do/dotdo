@@ -438,8 +438,15 @@ export class HibernationManager {
           metadata: attachment.metadata,
         }
       }
-    } catch {
-      // Attachment deserialization can fail - return default
+    } catch (error) {
+      // Attachment deserialization can fail due to:
+      // 1. Corrupted data after hibernation
+      // 2. Schema changes between versions
+      // 3. Invalid JSON in attachment
+      // Log for debugging but return default to maintain connection
+      logger.warn('Attachment deserialization failed, using default attachment', {
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
 
     return {
@@ -946,9 +953,13 @@ export class HibernationManager {
         )
       )
     } catch (error) {
-      // setWebSocketAutoResponse may not be available in all environments
-      logger.debug('Auto-response not available', {
+      // setWebSocketAutoResponse may not be available in all environments (e.g., miniflare tests)
+      // This is a non-critical feature - auto-response is an optimization, not a requirement
+      // Log at warn level so it's visible but doesn't indicate a failure
+      logger.warn('WebSocket auto-response setup failed - ping/pong will require DO wake-up', {
         error: error instanceof Error ? error.message : String(error),
+        pingMessage: this.config.pingMessage,
+        // This is expected in test environments where WebSocketRequestResponsePair may not be defined
       })
     }
   }

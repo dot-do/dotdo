@@ -159,13 +159,13 @@ function AdminPortal() {
       const response = await fetch(`/api/admin/${type}/${id}`)
       if (!response.ok) throw new Error(`Failed to load ${type} ${id}`)
 
-      const data = await response.json()
+      const data = await response.json() as Thing | Event | Relationship
       setState(prev => ({
         ...prev,
         selectedEntity: data,
         loading: false,
       }))
-      setFormData(data)
+      setFormData(data as Record<string, unknown>)
     } catch (e) {
       setState(prev => ({
         ...prev,

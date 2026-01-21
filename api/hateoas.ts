@@ -5,6 +5,8 @@ export interface Link {
   rel: string
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   title?: string
+  type?: string
+  name?: string
 }
 
 // ============================================================================

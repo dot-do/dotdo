@@ -58,7 +58,9 @@ describe('Zod Input Validation', () => {
         expect(error).toBeInstanceOf(ValidationError)
         const ve = error as ValidationError
         expect(ve.message).toContain('age')
-        expect(ve.message).toContain('expected number')
+        // Zod uses "Expected number, received string" format
+        expect(ve.message.toLowerCase()).toContain('expected')
+        expect(ve.message.toLowerCase()).toContain('number')
       }
     })
 
@@ -86,8 +88,8 @@ describe('Zod Input Validation', () => {
       } catch (error) {
         expect(error).toBeInstanceOf(ValidationError)
         const ve = error as ValidationError
-        // Zod may use different messages - just verify it mentions the constraint
-        expect(ve.message).toMatch(/minimum|at least|too small/i)
+        // Zod uses "Number must be greater than or equal to X" format
+        expect(ve.message).toMatch(/minimum|at least|too small|greater than or equal to/i)
       }
     })
 
@@ -185,8 +187,8 @@ describe('Zod Input Validation', () => {
       } catch (error) {
         expect(error).toBeInstanceOf(ValidationError)
         const ve = error as ValidationError
-        // Zod uses "Invalid option" message for enum errors
-        expect(ve.message).toMatch(/must be one of|Invalid option|expected one of/i)
+        // Zod uses "Invalid enum value" message for enum errors
+        expect(ve.message).toMatch(/must be one of|Invalid option|expected one of|Invalid enum value/i)
       }
     })
 
@@ -682,8 +684,9 @@ describe('Zod Input Validation', () => {
         const errors = formatZodErrors(result.error, 'name', 0)
         expect(errors).toHaveLength(1)
         expect(errors[0].field).toBe('args[0] (name)')
-        expect(errors[0].message).toContain('expected')
-        expect(errors[0].message).toContain('string')
+        // Zod uses "Expected string, received number" format
+        expect(errors[0].message.toLowerCase()).toContain('expected')
+        expect(errors[0].message.toLowerCase()).toContain('string')
       }
     })
 
@@ -705,8 +708,8 @@ describe('Zod Input Validation', () => {
       if (!result.success) {
         const errors = formatZodErrors(result.error, 'value', 0)
         expect(errors).toHaveLength(1)
-        // Zod uses "Invalid option" for enum errors
-        expect(errors[0].message).toMatch(/must be one of|Invalid option|expected one of/i)
+        // Zod uses "Invalid enum value" for enum errors
+        expect(errors[0].message).toMatch(/must be one of|Invalid option|expected one of|Invalid enum value/i)
       }
     })
   })

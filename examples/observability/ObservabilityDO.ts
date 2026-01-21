@@ -179,31 +179,23 @@ export class ObservabilityDO extends DO {
     // Event Handlers with Logging
     // ========================================================================
 
-    this.$.on.Product.created(async (event: { type: string; payload: unknown }) => {
-      const { productId, name, price } = event.payload as {
-        productId: string
-        name: string
-        price: number
-      }
+    this.$.on.Product.created(async (event) => {
+      const { productId, name, price } = (event as { type: string; payload: { productId: string; name: string; price: number } }).payload
       this.logger.info('Product created event', { productId, name, price })
     })
 
-    this.$.on.Order.created(async (event: { type: string; payload: unknown }) => {
-      const { orderId, customerId, total } = event.payload as {
-        orderId: string
-        customerId: string
-        total: number
-      }
+    this.$.on.Order.created(async (event) => {
+      const { orderId, customerId, total } = (event as { type: string; payload: { orderId: string; customerId: string; total: number } }).payload
       this.logger.info('Order created event', { orderId, customerId, total })
     })
 
-    this.$.on.Order.processed(async (event: { type: string; payload: unknown }) => {
-      const { orderId, duration } = event.payload as { orderId: string; duration: number }
+    this.$.on.Order.processed(async (event) => {
+      const { orderId, duration } = (event as { type: string; payload: { orderId: string; duration: number } }).payload
       this.logger.info('Order processed event', { orderId, durationMs: duration })
     })
 
-    this.$.on.Order.failed(async (event: { type: string; payload: unknown }) => {
-      const { orderId, reason } = event.payload as { orderId: string; reason: string }
+    this.$.on.Order.failed(async (event) => {
+      const { orderId, reason } = (event as { type: string; payload: { orderId: string; reason: string } }).payload
       this.logger.error('Order failed event', { orderId, reason })
     })
 

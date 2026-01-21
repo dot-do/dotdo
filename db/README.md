@@ -9,6 +9,7 @@ Abstract storage layer for dotdo Digital Objects.
 - Events (immutable event log)
 - Query Builder (fluent API for filtering, sorting, pagination)
 - Digital Objects Integration (schema validation, type generation)
+- Transaction Support (see [TRANSACTIONS.md](./TRANSACTIONS.md) for limitations)
 
 ## Quick Start
 
@@ -265,6 +266,21 @@ Each skipped test includes comprehensive documentation explaining:
 - Implementation requirements
 - Integration points with @dotdo/ai
 - Dependencies and architecture decisions
+
+## SQLite Transaction Limitations
+
+When using SQLite storage in Cloudflare Durable Objects, be aware of important transaction limitations:
+
+1. **No explicit `BEGIN`/`COMMIT`/`ROLLBACK`** - These statements are blocked by the Cloudflare runtime
+2. **Use `transactionSync()`** - For atomic synchronous operations
+3. **Automatic atomicity** - Consecutive writes without `await` are automatically atomic
+4. **`blockConcurrencyWhile()`** - For concurrency control during initialization
+
+See **[TRANSACTIONS.md](./TRANSACTIONS.md)** for comprehensive documentation including:
+- Cloudflare's transaction model
+- Workarounds and best practices
+- Known limitations and issues
+- Error handling patterns
 
 ## Status
 

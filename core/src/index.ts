@@ -111,8 +111,7 @@ export type {
   GenerativeFunction,
   AgenticFunction,
   HumanFunction,
-  FunctionType,
-  FunctionThing
+  FunctionType
 } from './polymorphic'
 
 export {

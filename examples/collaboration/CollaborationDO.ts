@@ -46,47 +46,32 @@ export class CollaborationDO extends DO {
     // ========================================================================
 
     // Track document edits for analytics
-    this.$.on.Document.edited(async (event: { type: string; payload: unknown }) => {
-      const { documentId, userId, version, operationCount } = event.payload as {
-        documentId: string
-        userId: string
-        version: number
-        operationCount: number
-      }
+    this.$.on.Document.edited(async (event) => {
+      const { documentId, userId, version, operationCount } = (event as { type: string; payload: { documentId: string; userId: string; version: number; operationCount: number } }).payload
       console.log(`[Event] Document ${documentId} edited by ${userId}, v${version} (${operationCount} ops)`)
     })
 
     // Track collaborator join/leave
-    this.$.on.Collaborator.joined(async (event: { type: string; payload: unknown }) => {
-      const { documentId, userId, userName } = event.payload as {
-        documentId: string
-        userId: string
-        userName: string
-      }
+    this.$.on.Collaborator.joined(async (event) => {
+      const { documentId, userId, userName } = (event as { type: string; payload: { documentId: string; userId: string; userName: string } }).payload
       console.log(`[Event] ${userName} (${userId}) joined document ${documentId}`)
     })
 
-    this.$.on.Collaborator.left(async (event: { type: string; payload: unknown }) => {
-      const { documentId, userId } = event.payload as {
-        documentId: string
-        userId: string
-      }
+    this.$.on.Collaborator.left(async (event) => {
+      const { documentId, userId } = (event as { type: string; payload: { documentId: string; userId: string } }).payload
       console.log(`[Event] User ${userId} left document ${documentId}`)
     })
 
     // Track comments
-    this.$.on.Comment.added(async (event: { type: string; payload: unknown }) => {
-      const { documentId, commentId, userId } = event.payload as {
-        documentId: string
-        commentId: string
-        userId: string
-      }
+    this.$.on.Comment.added(async (event) => {
+      const { documentId, commentId, userId } = (event as { type: string; payload: { documentId: string; commentId: string; userId: string } }).payload
       console.log(`[Event] Comment ${commentId} added to document ${documentId} by ${userId}`)
     })
 
     // Audit log all document events
-    this.$.on.Document['*'](async (event: { type: string; payload: unknown }) => {
-      console.log(`[Audit] Document event: ${event.type}`, event.payload)
+    this.$.on.Document['*'](async (event) => {
+      const e = event as { type: string; payload: unknown }
+      console.log(`[Audit] Document event: ${e.type}`, e.payload)
     })
 
     // ========================================================================

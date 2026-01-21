@@ -188,6 +188,77 @@ export function createDigitalObjectsAdapter(
     async listNouns() {
       return await provider.listNouns()
     },
+
+    // Bulk operations using digital-objects provider's batch methods
+    async bulkCreate<D extends { $type: string } & Record<string, unknown>>(items: D[]): Promise<(Thing & D)[]> {
+      if (items.length === 0) {
+        return []
+      }
+
+      // Group items by noun type since createMany works on a single noun
+      const groupedByType = new Map<string, Array<{ index: number; payload: Record<string, unknown> }>>()
+
+      for (let i = 0; i < items.length; i++) {
+        const { $type, ...payload } = items[i]
+        if (!$type) {
+          throw new Error('$type is required')
+        }
+        if (!groupedByType.has($type)) {
+          groupedByType.set($type, [])
+        }
+        groupedByType.get($type)!.push({ index: i, payload })
+      }
+
+      // Validate all noun types exist before creating
+      for (const nounName of groupedByType.keys()) {
+        const noun = await provider.getNoun(nounName)
+        if (!noun) {
+          throw new Error(`Noun not found: ${nounName}`)
+        }
+      }
+
+      // Create all items using createMany for each type
+      const results: Array<{ index: number; thing: Thing }> = []
+
+      for (const [nounName, itemsOfType] of groupedByType) {
+        const payloads = itemsOfType.map(item => item.payload)
+        const doThings = await provider.createMany(nounName, payloads)
+
+        for (let i = 0; i < doThings.length; i++) {
+          results.push({
+            index: itemsOfType[i].index,
+            thing: mapToDbThing(doThings[i]),
+          })
+        }
+      }
+
+      // Sort results back to original order and extract things
+      results.sort((a, b) => a.index - b.index)
+      return results.map(r => r.thing) as (Thing & D)[]
+    },
+
+    async bulkUpdate(items: Array<{ id: string; data: Record<string, unknown> }>): Promise<Thing[]> {
+      if (items.length === 0) {
+        return []
+      }
+
+      // Extract data payload for each update
+      const updates = items.map(item => ({
+        id: item.id,
+        data: extractData(item.data),
+      }))
+
+      const doThings = await provider.updateMany(updates)
+      return doThings.map(mapToDbThing)
+    },
+
+    async bulkDelete(ids: string[]): Promise<void> {
+      if (ids.length === 0) {
+        return
+      }
+
+      await provider.deleteMany(ids)
+    },
   }
 }
 

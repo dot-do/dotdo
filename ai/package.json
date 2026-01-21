@@ -85,7 +85,8 @@
   },
   "dependencies": {
     "hono": "^4.7.0",
-    "js-tiktoken": "^1.0.21"
+    "js-tiktoken": "^1.0.21",
+    "language-models": "file:../primitives/packages/language-models"
   },
   "devDependencies": {
     "@dotdo/do": "workspace:*",

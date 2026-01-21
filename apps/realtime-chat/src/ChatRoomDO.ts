@@ -22,12 +22,14 @@ interface Message {
   timestamp: number
 }
 
-interface MessageRow {
+type SqlStorageValue = string | number | null | ArrayBuffer
+
+type MessageRow = {
   id: string
   username: string
   content: string
   timestamp: number
-}
+} & Record<string, SqlStorageValue>
 
 interface WebSocketMessage {
   type: string

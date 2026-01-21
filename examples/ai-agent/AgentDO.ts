@@ -112,66 +112,47 @@ export class AgentDO extends DO {
     // ========================================================================
 
     // Track messages for analytics
-    this.$.on.Message.sent(async (event: { type: string; payload: unknown }) => {
-      const { conversationId, messageId, role } = event.payload as {
-        conversationId: string
-        messageId: string
-        role: string
-      }
+    this.$.on.Message.sent(async (event) => {
+      const { conversationId, messageId, role } = (event as { type: string; payload: { conversationId: string; messageId: string; role: string } }).payload
       console.log(`[Event] Message sent in ${conversationId}: ${role} (${messageId})`)
     })
 
-    this.$.on.Message.received(async (event: { type: string; payload: unknown }) => {
-      const { conversationId, messageId, role } = event.payload as {
-        conversationId: string
-        messageId: string
-        role: string
-      }
+    this.$.on.Message.received(async (event) => {
+      const { conversationId, messageId, role } = (event as { type: string; payload: { conversationId: string; messageId: string; role: string } }).payload
       console.log(`[Event] Message received in ${conversationId}: ${role} (${messageId})`)
     })
 
     // Track tool executions
-    this.$.on['Tool']['executed'](async (event: { type: string; payload: unknown }) => {
-      const { toolName, args, success } = event.payload as {
-        toolName: string
-        args: Record<string, unknown>
-        success: boolean
-      }
+    this.$.on['Tool']['executed'](async (event) => {
+      const { toolName, args, success } = (event as { type: string; payload: { toolName: string; args: Record<string, unknown>; success: boolean } }).payload
       console.log(`[Event] Tool ${toolName} executed (success: ${success})`, args)
     })
 
-    this.$.on['Tool'].failed(async (event: { type: string; payload: unknown }) => {
-      const { toolName, error } = event.payload as {
-        toolName: string
-        args: Record<string, unknown>
-        error: string
-      }
+    this.$.on['Tool'].failed(async (event) => {
+      const { toolName, error } = (event as { type: string; payload: { toolName: string; args: Record<string, unknown>; error: string } }).payload
       console.error(`[Event] Tool ${toolName} failed: ${error}`)
     })
 
     // Track task lifecycle
-    this.$.on.Task['started'](async (event: { type: string; payload: unknown }) => {
-      const { taskId, name } = event.payload as { taskId: string; name: string }
+    this.$.on.Task['started'](async (event) => {
+      const { taskId, name } = (event as { type: string; payload: { taskId: string; name: string } }).payload
       console.log(`[Event] Task started: ${name} (${taskId})`)
     })
 
-    this.$.on.Task.completed(async (event: { type: string; payload: unknown }) => {
-      const { taskId, name } = event.payload as { taskId: string; name: string }
+    this.$.on.Task.completed(async (event) => {
+      const { taskId, name } = (event as { type: string; payload: { taskId: string; name: string } }).payload
       console.log(`[Event] Task completed: ${name} (${taskId})`)
     })
 
-    this.$.on.Task.failed(async (event: { type: string; payload: unknown }) => {
-      const { taskId, name, error } = event.payload as {
-        taskId: string
-        name: string
-        error: string
-      }
+    this.$.on.Task.failed(async (event) => {
+      const { taskId, name, error } = (event as { type: string; payload: { taskId: string; name: string; error: string } }).payload
       console.error(`[Event] Task failed: ${name} (${taskId}): ${error}`)
     })
 
     // Audit log - catch all agent events
-    this.$.on['*']['*'](async (event: { type: string; payload: unknown }) => {
-      console.log(`[Audit] ${event.type}`, event.payload)
+    this.$.on['*']['*'](async (event) => {
+      const e = event as { type: string; payload: unknown }
+      console.log(`[Audit] ${e.type}`, e.payload)
     })
 
     // ========================================================================

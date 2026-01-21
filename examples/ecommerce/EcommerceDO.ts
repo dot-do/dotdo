@@ -34,50 +34,36 @@ export class EcommerceDO extends DO {
     // ========================================================================
 
     // Handle order creation - send confirmation email
-    this.$.on.Order.created(async (event: { type: string; payload: unknown }) => {
-      const { orderId, customerId, total } = event.payload as {
-        orderId: string
-        customerId: string
-        total: number
-      }
+    this.$.on.Order.created(async (event) => {
+      const { orderId, customerId, total } = (event as { type: string; payload: { orderId: string; customerId: string; total: number } }).payload
       console.log(`[Event] Order created: ${orderId} for customer ${customerId}, total: $${total}`)
       // In production: send order confirmation email via $.do for durability
     })
 
     // Handle payment completion - update inventory and notify
-    this.$.on.Payment.completed(async (event: { type: string; payload: unknown }) => {
-      const { orderId, paymentId } = event.payload as {
-        orderId: string
-        paymentId: string
-      }
+    this.$.on.Payment.completed(async (event) => {
+      const { orderId, paymentId } = (event as { type: string; payload: { orderId: string; paymentId: string } }).payload
       console.log(`[Event] Payment completed for order ${orderId}, payment: ${paymentId}`)
       // In production: trigger fulfillment workflow
     })
 
     // Handle payment failure - notify customer
-    this.$.on.Payment.failed(async (event: { type: string; payload: unknown }) => {
-      const { orderId, reason } = event.payload as {
-        orderId: string
-        paymentId: string
-        reason: string
-      }
+    this.$.on.Payment.failed(async (event) => {
+      const { orderId, reason } = (event as { type: string; payload: { orderId: string; paymentId: string; reason: string } }).payload
       console.log(`[Event] Payment failed for order ${orderId}: ${reason}`)
       // In production: send payment failure notification
     })
 
     // Handle cart item added - track analytics
-    this.$.on.Cart.itemAdded(async (event: { type: string; payload: unknown }) => {
-      const { cartId, productId, quantity } = event.payload as {
-        cartId: string
-        productId: string
-        quantity: number
-      }
+    this.$.on.Cart.itemAdded(async (event) => {
+      const { cartId, productId, quantity } = (event as { type: string; payload: { cartId: string; productId: string; quantity: number } }).payload
       console.log(`[Event] Item added to cart ${cartId}: ${productId} x${quantity}`)
     })
 
     // Wildcard handler - log all events for debugging
-    this.$.on['*']['*'](async (event: { type: string; payload: unknown }) => {
-      console.log(`[Audit] Event: ${event.type}`, event.payload)
+    this.$.on['*']['*'](async (event) => {
+      const e = event as { type: string; payload: unknown }
+      console.log(`[Audit] Event: ${e.type}`, e.payload)
     })
 
     // ========================================================================
