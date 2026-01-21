@@ -195,6 +195,7 @@ Run tests with Vitest:
 npm test             # Run tests in watch mode
 npm run test:run     # Run tests once (CI mode)
 npm run typecheck    # TypeScript type checking
+npm run benchmark    # Run performance benchmarks
 ```
 
 Deploy to Cloudflare:
@@ -864,7 +865,7 @@ npx vitest --project=do           # DO tests (miniflare)
 
 ### Benchmarks
 
-Performance regression tests are run in CI to prevent performance degradation:
+Performance regression tests are run in CI to prevent performance degradation. All benchmarks are located in [`tests/benchmarks/`](./tests/benchmarks/).
 
 ```bash
 npm run benchmark                # Run all benchmarks
@@ -874,11 +875,13 @@ npm run benchmark:update         # Update baseline with current results
 npm run benchmark:report         # Generate detailed report
 ```
 
-**Benchmark suites:**
-- `rpc-latency.bench.ts` - RPC call latency (simple, complex args, concurrent, large responses)
-- `storage.bench.ts` - Storage operations (read, write, batch, large values, list)
-- `do-instantiation.bench.ts` - DO instantiation time (base, subclass, with routes)
-- `websocket.bench.ts` - WebSocket throughput (serialization, broadcast, connection tracking)
+**Benchmark suites** (in `tests/benchmarks/`):
+- [`rpc-latency.bench.ts`](./tests/benchmarks/rpc-latency.bench.ts) - RPC call latency (simple, complex args, concurrent, large responses)
+- [`storage.bench.ts`](./tests/benchmarks/storage.bench.ts) - Storage operations (read, write, batch, large values, list)
+- [`do-instantiation.bench.ts`](./tests/benchmarks/do-instantiation.bench.ts) - DO instantiation time (base, subclass, with routes)
+- [`websocket.bench.ts`](./tests/benchmarks/websocket.bench.ts) - WebSocket throughput (serialization, broadcast, connection tracking)
+- [`entity-relationship.bench.ts`](./tests/benchmarks/entity-relationship.bench.ts) - Entity and relationship operations
+- [`query-builder.bench.ts`](./tests/benchmarks/query-builder.bench.ts) - Query builder performance
 
 **CI Integration:**
 - Benchmarks run automatically on every PR to main
@@ -1114,6 +1117,7 @@ The runtime handles the hard parts—state management, sharding, replication, an
 
 - **[CLAUDE.md](./CLAUDE.md)** - Guidance for Claude Code when working with this codebase
 - **[AGENTS.md](./AGENTS.md)** - AI agent specifications and patterns
+- **[Benchmarks](./tests/benchmarks/)** - Performance benchmarks and regression tests
 - **[v1 Reference](./.worktrees/v1/README.md)** - Previous implementation documentation
 - **[Unified Storage](./.worktrees/v1/objects/unified-storage/README.md)** - Pipeline-as-WAL architecture
 
