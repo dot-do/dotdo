@@ -29,118 +29,30 @@
  * @module do/mixins/auth
  */
 
-// Note: These DO auth guard types are placeholders for planned functionality
-// The actual implementation in @dotdo/auth is not yet complete (do-xxxx)
-
-// Placeholder types for DO-to-DO auth
-export type CallerType = 'user' | 'worker' | 'do' | 'unknown'
-
-export interface AuthPayload {
-  sub: string
-  iat?: number
-  exp?: number
-  [key: string]: unknown
-}
-
-export interface CallerInfo {
-  type: CallerType
-  trusted: boolean
-  auth?: AuthPayload | null
-  id?: string
-  sourceDoId?: string
-  sourceDoName?: string
-  correlationId?: string
-}
-
-export interface DOAuthGuardConfig {
-  secret?: string | Uint8Array
-  jwksClient?: unknown
-  issuer?: string | string[]
-  audience?: string | string[]
-}
-
-export interface DOAuthGuard {
-  validateCaller(request: Request): Promise<CallerInfo>
-  canAccess(request: Request, doId?: string): Promise<boolean>
-  validateToken(token: string): Promise<AuthPayload | null>
-  getCallerId(request: Request): string | null
-}
-
-export interface CreateDOToDoHeadersOptions {
-  sourceDoId: string
-  sourceDoName?: string | undefined
-  correlationId?: string | undefined
-}
-
-// Header constants
-const CF_WORKER_HEADER = 'cf-worker'
-const WORKER_NAME_HEADER = 'x-worker-name'
-const DO_SOURCE_HEADER = 'x-do-source'
-const DO_SOURCE_ID_HEADER = 'x-do-source-id'
-const CORRELATION_ID_HEADER = 'x-correlation-id'
-const INTERNAL_TRUST_HEADER = 'x-internal-trust'
-const DO_SIGNATURE_HEADER = 'x-do-signature'
-const DO_TIMESTAMP_HEADER = 'x-do-timestamp'
-const DO_NONCE_HEADER = 'x-do-nonce'
-
-// Placeholder implementations - to be replaced with actual @dotdo/auth exports
-export function setDOInternalSecret(_secret: string): void {
-  // Placeholder - will be implemented in @dotdo/auth
-}
-
-export function createDOAuthGuard(_config: DOAuthGuardConfig): DOAuthGuard {
-  // Placeholder implementation
-  return {
-    async validateCaller(_request: Request): Promise<CallerInfo> {
-      return { type: 'unknown', trusted: false }
-    },
-    async canAccess(_request: Request, _doId?: string): Promise<boolean> {
-      return false
-    },
-    async validateToken(_token: string): Promise<AuthPayload | null> {
-      return null
-    },
-    getCallerId(_request: Request): string | null {
-      return null
-    }
-  }
-}
-
-export function extractCallerInfoWithVerification(_request: Request, _config?: DOAuthGuardConfig): Promise<CallerInfo> {
-  return Promise.resolve({ type: 'unknown', trusted: false })
-}
-
-export function extractCallerInfo(_request: Request): CallerInfo {
-  return { type: 'unknown', trusted: false }
-}
-
-export function detectCallerType(_request: Request): CallerType {
-  return 'unknown'
-}
-
-export function verifyDOSignature(_request: Request, _secret?: string): boolean {
-  return false
-}
-
-export function extractDONonce(_request: Request): string | null {
-  return null
-}
-
-export async function addDOSourceHeadersAsync(
-  _headers: Headers,
-  _options: CreateDOToDoHeadersOptions,
-  _secret?: string
-): Promise<void> {
-  // Placeholder
-}
-
-export function createDOToDoHeaders(_options: CreateDOToDoHeadersOptions): Headers {
-  return new Headers()
-}
-
-export function addWorkerHeaders(_headers: Headers, _workerName?: string): void {
-  // Placeholder
-}
+import {
+  createDOAuthGuard,
+  extractCallerInfoWithVerification,
+  extractCallerInfo,
+  detectCallerType,
+  verifyDOSignature,
+  setDOInternalSecret,
+  addDOSourceHeadersAsync,
+  createDOToDoHeaders,
+  addWorkerHeaders,
+  type DOAuthGuard,
+  type DOAuthGuardConfig,
+  type CallerInfo,
+  type CallerType,
+  type AuthPayload,
+  CF_WORKER_HEADER,
+  WORKER_NAME_HEADER,
+  DO_SOURCE_HEADER,
+  DO_SOURCE_ID_HEADER,
+  CORRELATION_ID_HEADER,
+  INTERNAL_TRUST_HEADER,
+  DO_SIGNATURE_HEADER,
+  DO_TIMESTAMP_HEADER
+} from '../auth'
 import type { Constructor } from './storage'
 
 // =============================================================================
@@ -250,7 +162,6 @@ export function WithAuth<TBase extends Constructor>(
   return class AuthMixin extends Base implements HasAuth {
     private _authGuard: DOAuthGuard
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
       this._authGuard = createDOAuthGuard(guardConfig)
@@ -362,7 +273,7 @@ export function WithAuth<TBase extends Constructor>(
      */
     async canAccess(request: Request): Promise<boolean> {
       // Get DO ID from instance if available
-      const doId = (this as unknown as { state?: { id?: { toString(): string } } }).state?.id?.toString() ?? 'unknown'
+      const doId = (this as any).state?.id?.toString() ?? 'unknown'
       return this._authGuard.canAccess(request, doId)
     }
 
@@ -432,20 +343,34 @@ export function WithAuth<TBase extends Constructor>(
      */
     protected async createDOToDoHeaders(
       sourceDoId: string,
-      _targetPath?: string,
+      targetPath?: string,
       correlationId?: string
     ): Promise<Headers> {
-      return createDOToDoHeaders({ sourceDoId, correlationId })
+      return createDOToDoHeaders(sourceDoId, targetPath, correlationId)
     }
   }
 }
 
 // =============================================================================
-// Re-exports (types and functions are already exported at the top of this file)
+// Re-exports
 // =============================================================================
 
-// Export header constants
 export {
+  createDOAuthGuard,
+  extractCallerInfoWithVerification,
+  extractCallerInfo,
+  detectCallerType,
+  verifyDOSignature,
+  setDOInternalSecret,
+  addDOSourceHeadersAsync,
+  createDOToDoHeaders,
+  addWorkerHeaders,
+  type DOAuthGuard,
+  type DOAuthGuardConfig,
+  type CallerInfo,
+  type CallerType,
+  type AuthPayload,
+  // Headers
   CF_WORKER_HEADER,
   WORKER_NAME_HEADER,
   DO_SOURCE_HEADER,
@@ -453,6 +378,5 @@ export {
   CORRELATION_ID_HEADER,
   INTERNAL_TRUST_HEADER,
   DO_SIGNATURE_HEADER,
-  DO_TIMESTAMP_HEADER,
-  DO_NONCE_HEADER
+  DO_TIMESTAMP_HEADER
 }

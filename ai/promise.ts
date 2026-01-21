@@ -1,8 +1,6 @@
 // AIPromise wrapper
 
 import { createStream, type Stream } from './stream'
-import type { JSONSchema } from './ai-core'
-import type { ZodTypeAny } from 'zod'
 
 export interface AIMeta {
   model?: string
@@ -17,9 +15,6 @@ export interface AIPromise<T> extends Promise<T> {
   with(options: Partial<AIMeta>): AIPromise<T>
   stream(): Stream<string>
   json<U = unknown>(): Promise<U>
-  boolean(): AIPromise<boolean>
-  list<U = unknown>(): AIPromise<U[]>
-  object<U = unknown>(schema: JSONSchema | ZodTypeAny | Record<string, unknown>): AIPromise<U>
   pipe<U>(fn: (value: T) => U | Promise<U>): AIPromise<U>
 }
 
@@ -79,131 +74,6 @@ export function createAIPromise<T>(
 
       // Otherwise parse as JSON
       return JSON.parse(String(result)) as U
-    },
-    enumerable: true
-  })
-
-  Object.defineProperty(aiPromise, 'boolean', {
-    value: function (): AIPromise<boolean> {
-      return createAIPromise<boolean>(
-        async (boolMeta) => {
-          // Wait for base promise to resolve
-          const result = await basePromise
-
-          // Copy meta from original promise
-          Object.assign(boolMeta, meta)
-
-          // Convert result to string for parsing
-          const resultString = String(result).trim().toLowerCase()
-
-          // Parse as boolean - check for affirmative responses
-          // Accepts: true, yes, y, 1, on, affirmative, correct, etc.
-          const affirmativePatterns = /^(true|yes|y|1|on|affirmative|correct|right|ok|okay|sure|indeed|absolutely|definitely)$/i
-          return affirmativePatterns.test(resultString)
-        },
-        { ...meta }
-      )
-    },
-    enumerable: true
-  })
-
-  Object.defineProperty(aiPromise, 'list', {
-    value: function <U = unknown>(): AIPromise<U[]> {
-      return createAIPromise<U[]>(
-        async (listMeta) => {
-          // Wait for base promise to resolve
-          const result = await basePromise
-
-          // Copy meta from original promise
-          Object.assign(listMeta, meta)
-
-          // Parse as JSON array
-          // If already an array, return as-is
-          if (Array.isArray(result)) {
-            return result as U[]
-          }
-
-          // Try to parse as JSON if it's a string
-          const resultString = String(result).trim()
-
-          // Try to parse as JSON array
-          try {
-            const parsed = JSON.parse(resultString)
-            if (Array.isArray(parsed)) {
-              return parsed as U[]
-            }
-            // If it parses to a JSON object, wrap it in an array
-            return [parsed] as U[]
-          } catch {
-            // If JSON parsing fails, try to parse as a newline-delimited list
-            // Split by newlines, commas, or markdown list markers
-            const lines = resultString
-              .split(/[\n,]/)
-              .map(line => line.trim())
-              .filter(line => {
-                // Remove markdown list markers, bullets, numbers
-                return line.length > 0 && !line.match(/^[-*•+\d+.]\s*$/)
-              })
-              .map(line => {
-                // Clean up markdown list markers (numbered: "1. ", "2. ", etc., and bullets: "- ", "* ", etc.)
-                return line.replace(/^\d+\.\s+/, '').replace(/^[-*•+]\s+/, '').trim()
-              })
-              .filter(line => line.length > 0)
-
-            // Try to parse each line as JSON if it looks like JSON
-            return lines.map(line => {
-              try {
-                return JSON.parse(line) as U
-              } catch {
-                // If not JSON, return as string
-                return line as unknown as U
-              }
-            })
-          }
-        },
-        { ...meta }
-      )
-    },
-    enumerable: true
-  })
-
-  Object.defineProperty(aiPromise, 'object', {
-    value: function <U = unknown>(
-      schema: JSONSchema | ZodTypeAny | Record<string, unknown>
-    ): AIPromise<U> {
-      return createAIPromise<U>(
-        async (objectMeta) => {
-          // Import generateObject at runtime to avoid circular dependencies
-          const { generateObject } = await import('./ai-core')
-
-          // Copy meta from original promise
-          Object.assign(objectMeta, meta)
-
-          // Get the model from meta
-          const modelId = objectMeta.model === 'default' ? 'sonnet' : (objectMeta.model || 'sonnet')
-
-          // Get the prompt from the original text result
-          const textResult = await basePromise
-          const prompt = String(textResult)
-
-          // Call generateObject with the schema and prompt
-          const result = await generateObject<U>({
-            model: modelId,
-            schema: schema as any,
-            prompt,
-            ...(objectMeta.temperature !== undefined && { temperature: objectMeta.temperature }),
-          })
-
-          // Update meta with token usage
-          objectMeta.tokens = {
-            input: result.usage.promptTokens,
-            output: result.usage.completionTokens,
-          }
-
-          return result.object
-        },
-        { ...meta }
-      )
     },
     enumerable: true
   })

@@ -43,9 +43,9 @@
 // console.log(health.status) // 'healthy' | 'degraded' | 'unhealthy'
 // ```
 //
-import type { Thing, ThingsStore, JsonValue } from '@dotdo/db'
-import type { Event, EventsStore, EventQueryOptions } from '@dotdo/db'
-import type { Relationship, RelationshipsStore } from '@dotdo/db'
+import type { Thing, ThingsStore } from '../db/things'
+import type { Event, EventsStore, EventQueryOptions } from '../db/events'
+import type { Relationship, RelationshipsStore } from '../db/relationships'
 
 export interface AdminStores {
   things: ThingsStore
@@ -214,13 +214,11 @@ export class AdminDO {
   async listRelationships(options: RelationshipListOptions = {}): Promise<RelationshipListResult> {
     const { subject, predicate, object } = options
 
-    // Build query object, only including defined properties (exactOptionalPropertyTypes)
-    const query: Partial<Pick<Relationship, 'subject' | 'predicate' | 'object'>> = {}
-    if (subject !== undefined) query.subject = subject
-    if (predicate !== undefined) query.predicate = predicate
-    if (object !== undefined) query.object = object
-
-    const relationships = await this.stores.relationships.find(query)
+    const relationships = await this.stores.relationships.find({
+      subject,
+      predicate,
+      object
+    })
 
     return {
       relationships,
@@ -234,15 +232,12 @@ export class AdminDO {
   async emitEvent(options: EmitEventOptions): Promise<Event> {
     const { type, payload, source, correlationId } = options
 
-    // Build event input, only including defined properties (exactOptionalPropertyTypes)
-    const eventInput: { type: string; payload: JsonValue; source?: string; correlationId?: string } = {
+    return await this.stores.events.emit({
       type,
-      payload: payload as JsonValue
-    }
-    if (source !== undefined) eventInput.source = source
-    if (correlationId !== undefined) eventInput.correlationId = correlationId
-
-    return await this.stores.events.emit(eventInput)
+      payload,
+      source,
+      correlationId
+    })
   }
 
   /**

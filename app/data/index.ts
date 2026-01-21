@@ -284,23 +284,12 @@ class RESTClient implements DataClient {
 /**
  * TanStack DB (WebSocket) client implementation
  */
-/**
- * WebSocket request message shape
- */
-interface WSRequestMessage {
-  type: 'get' | 'list' | 'create' | 'update' | 'delete'
-  resource: string
-  id?: string
-  data?: Record<string, unknown>
-  requestId?: string
-}
-
 class TanStackDBClient implements DataClient {
   private ws: WebSocket | null = null
   private baseUrl: string
   private timeout: number
   private token?: string
-  private pendingRequests: Map<string, (value: Thing | Thing[] | void) => void> = new Map()
+  private pendingRequests: Map<string, (value: any) => void> = new Map()
   private requestCounter = 0
   private updateListeners: Set<UpdateListener> = new Set()
   private restFallback: RESTClient

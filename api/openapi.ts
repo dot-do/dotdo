@@ -17,10 +17,10 @@ export interface OpenAPISpec {
 export interface InfoObject {
   title: string
   version: string
-  description?: string | undefined
-  termsOfService?: string | undefined
-  contact?: ContactObject | undefined
-  license?: LicenseObject | undefined
+  description?: string
+  termsOfService?: string
+  contact?: ContactObject
+  license?: LicenseObject
 }
 
 export interface ContactObject {
@@ -55,10 +55,10 @@ export interface PathItemObject {
 }
 
 export interface OperationObject {
-  summary?: string | undefined
-  description?: string | undefined
-  tags?: string[] | undefined
-  operationId?: string | undefined
+  summary?: string
+  description?: string
+  tags?: string[]
+  operationId?: string
   parameters?: ParameterObject[]
   requestBody?: RequestBodyObject
   responses: ResponsesObject
@@ -147,7 +147,7 @@ export interface GenerateOpenAPIOptions {
   servers?: ServerObject[]
   schemas?: Record<string, ZodTypeAny>
   resources?: ResourceDefinition<any>[]
-  operations?: Record<string, Omit<Partial<OperationObject>, 'requestBody' | 'responses'> & {
+  operations?: Record<string, Partial<OperationObject> & {
     requestBody?: { schema: string }
     responses?: Record<string, { schema?: string; description?: string }>
   }>
@@ -285,15 +285,12 @@ export class OpenAPIGenerator {
     const matches = honoPath.matchAll(/:([^/]+)/g)
 
     for (const match of matches) {
-      const paramName = match[1]
-      if (paramName) {
-        params.push({
-          name: paramName,
-          in: 'path',
-          required: true,
-          schema: { type: 'string' }
-        })
-      }
+      params.push({
+        name: match[1],
+        in: 'path',
+        required: true,
+        schema: { type: 'string' }
+      })
     }
 
     return params
