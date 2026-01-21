@@ -33,31 +33,14 @@ import type {
   StorableData
 } from '../../db'
 
+// Re-export Constructor and MixinInstance from @dotdo/utils for backward compatibility
+// These are the canonical definitions used across all @dotdo packages
+export { Constructor, MixinInstance } from '@dotdo/utils'
+import type { Constructor } from '@dotdo/utils'
+
 // =============================================================================
 // Types
 // =============================================================================
-
-/**
- * Constructor type for mixin pattern.
- *
- * TypeScript's mixin pattern requires `any[]` for constructor arguments (TS2545).
- * The type safety in this module comes from:
- * 1. Interface constraints (HasStorage, HasAuth, etc.) on mixin return types
- * 2. Generic constraints on mixin functions (TBase extends Constructor)
- * 3. Type helper utilities (MixinInstance, InstanceOf) for extracting types
- *
- * @template T - The instance type returned by the constructor (constrained to object)
- *
- * @example
- * ```typescript
- * // Constructor type allows composing mixins
- * class MyDO extends WithAuth(WithStorage(BaseDO)) {
- *   // TypeScript infers: this has HasStorage & HasAuth
- * }
- * ```
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type Constructor<T = object> = new (...args: any[]) => T
 
 /**
  * Base interface for classes that have DurableObjectState.
@@ -339,14 +322,4 @@ export function WithStorage<TBase extends Constructor>(
   } as TBase & Constructor<HasStorage>
 }
 
-/**
- * Type helper to extract the instance type of a mixin result.
- * The `any[]` is required by TypeScript's conditional type inference for constructor types.
- *
- * @example
- * ```typescript
- * type MyDOInstance = MixinInstance<typeof WithStorage<typeof BaseDO>>
- * ```
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type MixinInstance<T> = T extends new (...args: any[]) => infer R ? R : never
+// MixinInstance type is now imported and re-exported from @dotdo/utils above

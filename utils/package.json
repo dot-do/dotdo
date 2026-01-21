@@ -18,6 +18,10 @@
     "./logger": {
       "types": "./dist/logger.d.ts",
       "import": "./dist/logger.js"
+    },
+    "./mixin-types": {
+      "types": "./dist/mixin-types.d.ts",
+      "import": "./dist/mixin-types.js"
     }
   },
   "files": [
