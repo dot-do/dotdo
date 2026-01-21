@@ -18,10 +18,10 @@
  * @module do/workflow/events
  */
 
-import { createNestedProxy, createLogger } from '@dotdo/utils'
+import { createNestedProxy, createScopedLogger, LogLevel } from '@dotdo/utils'
 import { isRetryableError, ValidationError } from '@dotdo/rpc'
 
-const logger = createLogger('[EventHandlers]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[EventHandlers]' })
 
 /**
  * Event handler function type

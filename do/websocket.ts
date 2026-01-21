@@ -11,9 +11,9 @@
  * - Reconnection handling with connection IDs
  */
 
-import { createLogger } from '../utils/logger'
+import { createScopedLogger, LogLevel } from '../utils/logger'
 
-const logger = createLogger('[WebSocketManager]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[WebSocketManager]' })
 
 // ============================================================================
 // Constants

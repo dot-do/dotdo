@@ -12,11 +12,11 @@
 
 import type { Hono } from 'hono'
 import { RPCError, NotFoundError, InternalError, AuthenticationError } from '@dotdo/rpc'
-import { createLogger } from '../../utils/logger'
+import { createScopedLogger, LogLevel } from '../../utils/logger'
 import type { DOHandler } from './registry'
 import { extractCallerInfoWithVerification } from '../auth'
 
-const logger = createLogger('[RPCHandler]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[RPCHandler]' })
 
 /**
  * Methods that require authentication

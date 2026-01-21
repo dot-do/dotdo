@@ -10,7 +10,7 @@
  * @module do/handlers/alarm
  */
 
-import { createLogger } from '../../utils/logger'
+import { createScopedLogger, LogLevel } from '../../utils/logger'
 import {
   createAlarmStore,
   executeSchedules,
@@ -23,7 +23,7 @@ import {
 import type { ScheduleRegistration } from '../workflow/schedule'
 import type { DOHandler } from './registry'
 
-const logger = createLogger('[AlarmHandler]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[AlarmHandler]' })
 
 /** Storage key for persisted alarm metadata */
 const ALARM_STORAGE_KEY = '_alarms'

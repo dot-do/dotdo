@@ -6,9 +6,9 @@ import { Command } from 'commander'
 import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { resolve, join } from 'path'
-import { createLogger } from '../utils/logger'
+import { createScopedLogger, LogLevel } from '../utils/logger'
 
-const logger = createLogger('[dotdo]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[dotdo]' })
 
 /**
  * Configuration type for dotdo CLI and projects

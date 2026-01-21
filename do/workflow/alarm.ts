@@ -11,9 +11,9 @@
  */
 
 import type { ScheduleRegistration, ScheduleInterval } from './schedule'
-import { createLogger } from '@dotdo/utils'
+import { createScopedLogger, LogLevel } from '@dotdo/utils'
 
-const logger = createLogger('[Alarm]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[Alarm]' })
 
 /**
  * Stored alarm metadata for persistence

@@ -13,10 +13,14 @@
 
 import type { MiddlewareHandler, Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import type { AuthUser } from '../auth/middleware'
-import { extractToken, verifyTokenSignature } from '../auth/token'
-import { verifyTokenWithJwks, type JwksClient } from '../auth/jwks'
-import { createLogger } from '../utils/logger'
+import {
+  extractToken,
+  verifyTokenSignature,
+  verifyTokenWithJwks,
+  type AuthUser,
+  type JwksClient,
+} from '@dotdo/auth'
+import { createScopedLogger, LogLevel } from '@dotdo/utils'
 // Import shared header constants from @dotdo/rpc to avoid circular dependencies
 import {
   DO_SOURCE_HEADER,
@@ -27,9 +31,9 @@ import {
   WORKER_NAME_HEADER,
   INTERNAL_TRUST_HEADER,
   CORRELATION_ID_HEADER,
-} from '../rpc/headers'
+} from '@dotdo/rpc'
 
-const logger = createLogger('[DOAuth]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[DOAuth]' })
 
 // ============================================================================
 // Types

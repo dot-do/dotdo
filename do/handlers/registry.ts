@@ -7,9 +7,9 @@
  * @module do/handlers/registry
  */
 
-import { createLogger } from '../../utils/logger'
+import { createScopedLogger, LogLevel } from '../../utils/logger'
 
-const logger = createLogger('[DOHandlerRegistry]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[DOHandlerRegistry]' })
 
 /**
  * Base interface for all DO handlers

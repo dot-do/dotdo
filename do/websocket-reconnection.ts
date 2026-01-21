@@ -35,9 +35,9 @@
  * @see https://developers.cloudflare.com/durable-objects/api/websockets/
  */
 
-import { createLogger } from '@dotdo/utils'
+import { createScopedLogger, LogLevel } from '@dotdo/utils'
 
-const logger = createLogger('[WebSocket-Reconnection]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[WebSocket-Reconnection]' })
 
 // ============================================================================
 // Protocol Constants

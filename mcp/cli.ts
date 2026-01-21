@@ -31,9 +31,9 @@ import { fetchTool } from './fetch'
 import { doTool } from './do'
 import { createReadStream, createWriteStream } from 'fs'
 import { createInterface } from 'readline'
-import { createLogger } from '../utils/logger'
+import { createScopedLogger, LogLevel } from '../utils/logger'
 
-const logger = createLogger('[mcp]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[mcp]' })
 
 /**
  * CLI options parsed from arguments

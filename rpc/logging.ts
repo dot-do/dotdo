@@ -9,9 +9,9 @@
  * @module rpc/logging
  */
 
-import { createLogger } from '../utils/logger'
+import { createScopedLogger, LogLevel } from '../utils/logger'
 
-const logger = createLogger('[RPC]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[RPC]' })
 
 /**
  * List of keys that should be redacted from log output

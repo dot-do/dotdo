@@ -44,7 +44,7 @@
  * @see {@link SessionManager} for reconnection session management
  */
 
-import { createLogger } from '@dotdo/utils'
+import { createScopedLogger, LogLevel } from '@dotdo/utils'
 import {
   SessionManager,
   type SessionState,
@@ -60,7 +60,7 @@ import {
   RECONNECTION_PROTOCOL_VERSION,
 } from './websocket-reconnection'
 
-const logger = createLogger('[Hibernation]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[Hibernation]' })
 
 // ============================================================================
 // Types

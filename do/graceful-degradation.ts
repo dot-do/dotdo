@@ -21,9 +21,9 @@ import {
   type CircuitStats,
   type CircuitState,
 } from './circuit-breaker'
-import { createLogger } from '@dotdo/utils'
+import { createScopedLogger, LogLevel } from '@dotdo/utils'
 
-const logger = createLogger('[GracefulDegradation]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[GracefulDegradation]' })
 
 /**
  * Health status for a DO or service

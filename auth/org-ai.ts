@@ -14,9 +14,9 @@ import { HTTPException } from 'hono/http-exception'
 import type { User, Session, Credential } from '../primitives/packages/id.org.ai/src/index'
 import { isSession, isUser } from '../primitives/packages/id.org.ai/src/index'
 import type { AuthUser } from './middleware'
-import { createLogger } from '../utils/logger'
+import { createScopedLogger, LogLevel } from '../utils/logger'
 
-const logger = createLogger('[OrgAI]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[OrgAI]' })
 
 // === Configuration ===
 

@@ -14,7 +14,7 @@
  */
 
 import type { SqlStorage, SqlRunResult } from '../db/sqlite'
-import { createLogger } from '../utils/logger'
+import { createScopedLogger, LogLevel } from '../utils/logger'
 import {
   DEFAULT_MAX_STORE_ENTRIES,
   DEFAULT_MAX_ERROR_AGE_MS,
@@ -25,7 +25,7 @@ import {
   DEFAULT_MAX_RETRY_ATTEMPTS,
 } from '../utils/time-constants'
 
-const logger = createLogger('[FireAndForget]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[FireAndForget]' })
 
 /**
  * Sync-only SqlStorage interface for DO contexts where SQL is always sync.

@@ -1,9 +1,9 @@
 // Data Layer - Dual-Mode (REST/TanStack DB) Data Client
 // Provides abstraction for data fetching with REST and real-time WebSocket sync
 
-import { createLogger } from '../../utils/logger'
+import { createScopedLogger, LogLevel } from '../../utils/logger'
 
-const logger = createLogger('[DataClient]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[DataClient]' })
 
 export type DataMode = 'rest' | 'tanstack-db'
 

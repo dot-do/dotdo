@@ -7,9 +7,9 @@
  * @module do/utils/cors
  */
 
-import { createLogger } from '../../utils/logger'
+import { createScopedLogger, LogLevel } from '../../utils/logger'
 
-const logger = createLogger('[CORS]')
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[CORS]' })
 
 /**
  * Standard HTTP methods for CORS
