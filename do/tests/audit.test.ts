@@ -20,7 +20,7 @@
 import { describe, it, expect } from 'vitest'
 import { env } from 'cloudflare:test'
 import type { Thing, Relationship } from '@dotdo/db'
-import { generateTestId, getTestDO, rpcMayFail } from '../../test-utils'
+import { generateTestId, getTestDO, rpcMayFail } from '@dotdo/test-utils'
 
 // ============================================================================
 // TYPE DEFINITIONS

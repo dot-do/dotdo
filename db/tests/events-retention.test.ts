@@ -119,14 +119,16 @@ describe('Events Retention Policy', () => {
         await store.setRetentionPolicy({ maxAgeDays: 1 })
 
         // Emit events with backdated timestamps
+        // Note: Use timestamps that are clearly older than the cutoff to avoid race conditions
+        // The cutoff is Date.now() - 1 day, so we use 1 day + 1 minute to be safely past it
         const now = Date.now()
         const twoDaysAgo = now - (2 * 24 * 60 * 60 * 1000)
-        const oneDayAgo = now - (1 * 24 * 60 * 60 * 1000)
+        const oneDayPlusOneMinuteAgo = now - (1 * 24 * 60 * 60 * 1000) - (60 * 1000)
         const oneHourAgo = now - (1 * 60 * 60 * 1000)
 
         // Use internal timestamp injection (emit accepts $timestamp)
         await store.emit({ type: 'old', payload: { age: '2days' }, $timestamp: twoDaysAgo } as any)
-        await store.emit({ type: 'old', payload: { age: '1day' }, $timestamp: oneDayAgo } as any)
+        await store.emit({ type: 'old', payload: { age: '1day+' }, $timestamp: oneDayPlusOneMinuteAgo } as any)
         await store.emit({ type: 'recent', payload: { age: '1hour' }, $timestamp: oneHourAgo } as any)
         await store.emit({ type: 'recent', payload: { age: 'now' } })
 
@@ -134,7 +136,7 @@ describe('Events Retention Policy', () => {
 
         const result = await store.cleanup()
 
-        // Events older than 1 day should be deleted (2 days ago and 1 day ago exact)
+        // Events older than 1 day should be deleted (2 days ago and 1 day + 1 minute ago)
         expect(result.deleted).toBe(2)
         expect(await store.count()).toBe(2)
 

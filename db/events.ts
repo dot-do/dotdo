@@ -2,12 +2,14 @@
 // Generic types added per do-jqrj
 // Storage abstraction added per do-68rr
 // Branded types added per do-e3my
+// Code duplication refactored per do-1knp.4
 
 import type { StorableData, JsonValue } from './types'
 import type { StorageAdapter } from './storage'
 import type { EventId, ThingId, CorrelationId } from './branded-types'
 import { generateEventId } from './id'
 import { createLogger } from '../utils/logger'
+import { MemoryStorageAdapter } from './adapters/memory'
 
 const logger = createLogger('[Events]')
 
@@ -751,177 +753,8 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
 /**
  * Create an in-memory EventsStore with generic type parameter
  * P defaults to JsonValue for backward compatibility
- * Refactored per do-fo3n to use shared helper functions
+ * Refactored per do-1knp.4 to use createEventsStoreWithAdapter with MemoryStorageAdapter
  */
 export function createEventsStore<P extends JsonValue = JsonValue>(): EventsStore<P> {
-  const events: Event<P>[] = []
-  const state = createSharedEventState<P>()
-
-  const store: EventsStore<P> = {
-    async emit(data) {
-      const event = createEventFromInput<P>(data)
-      events.push(event)
-      notifySubscribers(event, state, (entry) => addToDLQ(entry, state))
-      return event
-    },
-
-    async get(id) {
-      return events.find(e => e.$id === id) ?? null
-    },
-
-    async query(options = {}) {
-      const filtered = filterEvents([...events], options)
-      return sortAndPaginateEvents(filtered, options)
-    },
-
-    subscribe(handler) {
-      state.subscribers.add(handler)
-      return () => state.subscribers.delete(handler)
-    },
-
-    async setRetentionPolicy(policy: RetentionPolicy): Promise<void> {
-      validateAndSetRetentionPolicy(policy, state)
-    },
-
-    async getRetentionPolicy(): Promise<RetentionPolicy | undefined> {
-      return state.retentionPolicy
-    },
-
-    async count(filter?: { type?: string }): Promise<number> {
-      if (!filter?.type) {
-        return events.length
-      }
-      return events.filter(e => e.type === filter.type).length
-    },
-
-    async cleanup(_options?: { batchSize?: number }): Promise<CleanupResult> {
-      if (!state.retentionPolicy) {
-        return { deleted: 0 }
-      }
-
-      let deleted = 0
-
-      // Delete by age first (age-based deletion)
-      if (state.retentionPolicy.maxAgeDays) {
-        const cutoff = Date.now() - (state.retentionPolicy.maxAgeDays * 24 * 60 * 60 * 1000)
-        const initialLength = events.length
-
-        // Find events to keep (newer than cutoff)
-        const eventsToKeep = events.filter(e => e.$timestamp >= cutoff)
-        deleted += initialLength - eventsToKeep.length
-
-        // Replace events array contents
-        events.length = 0
-        events.push(...eventsToKeep)
-      }
-
-      // Delete by count (keep the newest events)
-      if (state.retentionPolicy.maxEvents && events.length > state.retentionPolicy.maxEvents) {
-        // Sort by timestamp ascending (oldest first) to find which to delete
-        events.sort((a, b) => a.$timestamp - b.$timestamp)
-
-        const toDelete = events.length - state.retentionPolicy.maxEvents
-        events.splice(0, toDelete)
-        deleted += toDelete
-
-        // Re-sort by timestamp descending for normal access
-        events.sort((a, b) => b.$timestamp - a.$timestamp)
-      }
-
-      return { deleted }
-    },
-
-    async getStorageUsage(): Promise<StorageUsage> {
-      const bytesUsed = events.reduce((total, event) => total + estimateEventSize(event), 0)
-      return { eventCount: events.length, bytesUsed }
-    },
-
-    // DLQ methods - delegate to shared helpers
-    addToDeadLetterQueue(entry: Omit<DLQEntry<P>, 'timestamp'>): void {
-      addToDLQ(entry, state)
-    },
-
-    getDeadLetterQueue(): DLQEntry<P>[] {
-      return [...state.deadLetterQueue]
-    },
-
-    queryDeadLetterQueue(options?: DLQQueryOptions): DLQEntry<P>[] {
-      return queryDLQ(options, state)
-    },
-
-    removeFromDeadLetterQueue(eventId: string): boolean {
-      return removeFromDLQ(eventId, state)
-    },
-
-    async replayDeadLetterQueue(options?: DLQQueryOptions): Promise<Event<P>[]> {
-      const toReplay = queryDLQ(options, state)
-      const replayedEvents: Event<P>[] = []
-
-      for (const entry of toReplay) {
-        // Re-emit the event (creates a new event with new id/timestamp)
-        const newEvent = await store.emit({
-          type: entry.event.type,
-          payload: entry.event.payload,
-          source: 'dlq-replay',
-          correlationId: entry.event.$id // Track original event
-        })
-        replayedEvents.push(newEvent)
-
-        // Remove from DLQ
-        removeFromDLQ(entry.event.$id, state)
-      }
-
-      return replayedEvents
-    },
-
-    getDLQEntry(eventId: string): DLQEntry<P> | null {
-      return getDLQEntryById(eventId, state)
-    },
-
-    getDLQStats(): DLQStats {
-      return calculateDLQStats(state)
-    },
-
-    cleanupDeadLetterQueue(options: DLQCleanupOptions): DLQCleanupResult {
-      return cleanupDLQ(options, state)
-    },
-
-    // Validation failure tracking - delegate to shared helpers
-    addValidationFailure(failure: Omit<ValidationFailure<P>, 'timestamp'>): void {
-      addValidationFailureEntry(failure, state)
-    },
-
-    queryValidationFailures(options?: { type?: string }): ValidationFailure<P>[] {
-      return queryValidationFailureEntries(options, state)
-    },
-
-    // Retry status tracking
-    setEventRetryStatus(eventId: string, status: EventRetryStatus): void {
-      state.eventRetryStatus.set(eventId, status)
-    },
-
-    getEventRetryStatus(eventId: string): EventRetryStatus | undefined {
-      return state.eventRetryStatus.get(eventId)
-    },
-
-    // Retry metrics - delegate to shared helpers
-    recordRetryAttempt(eventType: string, succeeded: boolean, retryCount: number): void {
-      recordRetryAttemptMetric(eventType, succeeded, retryCount, state)
-    },
-
-    getRetryMetrics(): Record<string, RetryMetrics> {
-      return getRetryMetricsData(state)
-    },
-
-    // Durability configuration
-    setDurabilityConfig(config: Record<string, DurabilityConfig>): void {
-      state.durabilityConfig = config
-    },
-
-    getDurabilityConfig(eventType: string): DurabilityConfig {
-      return getDurabilityConfigForType(eventType, state)
-    }
-  }
-
-  return store
+  return createEventsStoreWithAdapter<P>(new MemoryStorageAdapter())
 }

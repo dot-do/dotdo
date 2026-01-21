@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { env, runInDurableObject } from 'cloudflare:test'
 import { DO } from '../DO'
 import type { WorkflowContext } from '../context'
-import { generateTestId, getTestDO as getTestDOFromUtils } from '../../test-utils'
+import { generateTestId, getTestDO as getTestDOFromUtils } from '@dotdo/test-utils'
 
 // ============================================================================
 // TEST HELPER FUNCTIONS - Using shared test-utils

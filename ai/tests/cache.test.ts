@@ -25,7 +25,7 @@ import {
   type CacheStats,
   type MemoryCacheOptions,
 } from '../cache'
-import { sleep } from '../../test-utils'
+import { sleep } from '@dotdo/test-utils'
 
 // =============================================================================
 // Helper Functions - Using shared test-utils for sleep
