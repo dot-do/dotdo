@@ -1061,6 +1061,103 @@ In `tsconfig.json`:
 
 ---
 
+## Adding Extended Primitives
+
+dotdo provides extended primitives for filesystem, git, shell execution, and npm operations. The easiest way to use them is with the `DOWithPrimitives` mixin.
+
+### Using DOWithPrimitives
+
+```typescript
+import { DO, DOWithPrimitives } from '@dotdo/do'
+
+// One-line integration - enables all primitives
+export class MyApp extends DOWithPrimitives(DO) {
+  async saveConfig(config: object) {
+    // Filesystem operations via $.fs
+    await this.$.fs.writeFile('/config.json', JSON.stringify(config, null, 2))
+  }
+
+  async readConfig() {
+    const content = await this.$.fs.readFile('/config.json', { encoding: 'utf-8' })
+    return JSON.parse(content as string)
+  }
+
+  async listFiles(path: string) {
+    return this.$.fs.readdir(path)
+  }
+}
+```
+
+### Configuring Primitives
+
+You can configure individual primitives:
+
+```typescript
+export class DevEnvironment extends DOWithPrimitives(DO, {
+  fs: { basePath: '/workspace' },        // Set base path for fs operations
+  git: { repo: 'org/repo', branch: 'main' }, // Configure git repository
+  bash: { executor: containerExecutor },  // Provide shell executor
+  npm: false                              // Disable npm primitive
+}) {
+  async buildProject() {
+    await this.$.git.sync()
+    await this.$.bash.exec('npm', ['run', 'build'])
+    await this.$.git.add('dist/')
+    await this.$.git.commit('build: production build')
+  }
+}
+```
+
+### Selective Enablement
+
+Enable only the primitives you need:
+
+```typescript
+export class FileServer extends DOWithPrimitives(DO, {
+  fs: true,      // Enable filesystem
+  git: false,    // Disable git
+  bash: false,   // Disable bash
+  npm: false     // Disable npm
+}) {
+  // Only $.fs is available - smaller footprint
+}
+```
+
+### Checking Primitive Availability
+
+```typescript
+export class FlexibleDO extends DOWithPrimitives(DO) {
+  async doWork() {
+    // Check at runtime
+    if (this.hasPrimitive('git')) {
+      await this.$.git.commit('auto: save changes')
+    }
+
+    // List available primitives
+    const available = this.getAvailablePrimitives()
+    console.log('Available:', available) // ['fs', 'git', 'bash']
+  }
+}
+```
+
+### Composing with Other Mixins
+
+`DOWithPrimitives` works with other dotdo mixins:
+
+```typescript
+import { DO, DOWithPrimitives, WithAuth, WithRPC } from '@dotdo/do'
+
+// Combine primitives with auth and RPC
+export class SecureDevEnv extends DOWithPrimitives(
+  WithAuth(WithRPC(DO)),
+  { fs: true, bash: true }
+) {
+  // Has auth, RPC, and primitives
+}
+```
+
+---
+
 ## Next Steps
 
 Congratulations! You now have a solid foundation for building with dotdo.
@@ -1072,6 +1169,7 @@ Congratulations! You now have a solid foundation for building with dotdo.
 - **Cross-DO RPC**: Use `$.Customer(id).method()` for DO-to-DO communication
 - **Entity Relationships**: Build graph structures with `this.relationships`
 - **Audit Logging**: Track changes with `this.auditLogs`
+- **Primitives**: Use `DOWithPrimitives(DO)` for filesystem, git, bash, and npm
 
 ### Explore the Packages
 
@@ -1156,4 +1254,10 @@ await this.things.list({ $type: 'Type' })
 this.ws.handleWebSocketUpgrade(state, ['tag'], true)
 this.ws.broadcast(state, 'tag', { type: 'event', data })
 this.ws.broadcastAll(state, { type: 'event', data })
+
+// Primitives (via DOWithPrimitives mixin)
+await this.$.fs.writeFile(path, content)
+await this.$.fs.readFile(path, { encoding: 'utf-8' })
+await this.$.git.commit(message)
+await this.$.bash.exec(command, args)
 ```

@@ -6,9 +6,13 @@ import { Command } from 'commander'
 import { pull } from './pull'
 import { init, TEMPLATES } from './init'
 import { evalCommand, runCommand } from './eval'
-import { startRepl } from './repl'
+import { startRepl, ReplService, type ReplServiceOptions, type ReplCommand, type ProcessLineResult } from './repl'
 import { loginCommand, logoutCommand, whoamiCommand, createDefaultLoginOptions } from './login'
 import { LogLevel, setLogLevel, initLogLevelFromEnv, createLogger } from './logger'
+
+// Export REPL functionality for use by other packages (e.g., dotdo CLI)
+export { startRepl, ReplService }
+export type { ReplServiceOptions, ReplCommand, ProcessLineResult }
 
 // Initialize log level from environment variables
 initLogLevelFromEnv()

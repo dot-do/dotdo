@@ -5,50 +5,22 @@
  * 1. Client stringifies handler via handler.toString()
  * 2. Code is sent to backend via RPC
  * 3. Backend stores and executes the handler with $ context
+ *
+ * NOTE: Tests for executeRemoteHandler and invokeRemoteHandlers are in
+ * utils/tests/remote-handler-execution.test.ts because they require
+ * new Function()/eval() which is not available in the workers runtime.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import {
   registerRemoteHandler,
   matchRemoteHandlers,
-  executeRemoteHandler,
-  invokeRemoteHandlers,
   removeRemoteHandler,
   clearRemoteHandlers,
   clearAllRemoteHandlers,
   getAllRemoteHandlers,
   type RemoteEventHandler,
-  type CodeEvaluator,
 } from '../workflow/events'
-
-/**
- * Test evaluator that uses indirect eval for testing purposes.
- * In production, this would be replaced with a sandboxed evaluator
- * like V8 isolates, WebAssembly, or a custom interpreter.
- *
- * NOTE: The Cloudflare Workers runtime disallows new Function() and eval()
- * for security. This evaluator is only for testing in Node.js environment.
- */
-const testEvaluator: CodeEvaluator = async (code, event, context) => {
-  // Create context variables in scope
-  const contextKeys = Object.keys(context)
-  const contextValues = Object.values(context)
-
-  // Build the function with context in scope
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
-  const createFn = new Function(
-    ...contextKeys,
-    '__code__',
-    '__event__',
-    `
-    'use strict';
-    const fn = eval('(' + __code__ + ')');
-    return fn(__event__);
-    `
-  )
-
-  return createFn(...contextValues, code, event)
-}
 
 describe('Remote Event Handler Management', () => {
   let remoteHandlers: Map<string, RemoteEventHandler[]>
@@ -164,200 +136,9 @@ describe('Remote Event Handler Management', () => {
     })
   })
 
-  describe('executeRemoteHandler', () => {
-    it('should execute a simple handler and return success', async () => {
-      const handler: RemoteEventHandler = {
-        id: 'test-1',
-        event: 'Test.event',
-        code: '(event) => { return event.value * 2 }',
-        registeredAt: Date.now()
-      }
-
-      const result = await executeRemoteHandler(handler, { value: 21 }, { evaluator: testEvaluator })
-
-      expect(result.succeeded).toBe(true)
-      expect(result.attempts).toBe(1)
-      expect(result.error).toBeUndefined()
-    })
-
-    it('should execute an async handler', async () => {
-      const handler: RemoteEventHandler = {
-        id: 'test-2',
-        event: 'Test.event',
-        code: 'async (event) => { await Promise.resolve(); return event.name }',
-        registeredAt: Date.now()
-      }
-
-      const result = await executeRemoteHandler(handler, { name: 'Alice' }, { evaluator: testEvaluator })
-
-      expect(result.succeeded).toBe(true)
-    })
-
-    it('should handle handler that throws an error', async () => {
-      const handler: RemoteEventHandler = {
-        id: 'test-3',
-        event: 'Test.event',
-        code: '(event) => { throw new Error("Handler error") }',
-        registeredAt: Date.now()
-      }
-
-      const result = await executeRemoteHandler(handler, {}, { evaluator: testEvaluator })
-
-      expect(result.succeeded).toBe(false)
-      expect(result.error).toBeDefined()
-      expect(result.error?.message).toContain('Handler error')
-    })
-
-    it('should handle syntax error in handler code', async () => {
-      const handler: RemoteEventHandler = {
-        id: 'test-4',
-        event: 'Test.event',
-        code: '(event => { invalid syntax',
-        registeredAt: Date.now()
-      }
-
-      const result = await executeRemoteHandler(handler, {}, { evaluator: testEvaluator })
-
-      expect(result.succeeded).toBe(false)
-      expect(result.error).toBeDefined()
-    })
-
-    it('should provide context variables to the handler', async () => {
-      const mockContext = {
-        send: vi.fn(),
-        log: vi.fn((msg: string) => msg)
-      }
-
-      const handler: RemoteEventHandler = {
-        id: 'test-5',
-        event: 'Test.event',
-        code: '(event) => { $.log("Hello " + event.name) }',
-        registeredAt: Date.now()
-      }
-
-      const result = await executeRemoteHandler(handler, { name: 'World' }, {
-        context: { $: mockContext },
-        evaluator: testEvaluator
-      })
-
-      expect(result.succeeded).toBe(true)
-      expect(mockContext.log).toHaveBeenCalledWith('Hello World')
-    })
-
-    it('should timeout long-running handlers', async () => {
-      const handler: RemoteEventHandler = {
-        id: 'test-6',
-        event: 'Test.event',
-        code: 'async (event) => { await new Promise(r => setTimeout(r, 5000)) }',
-        registeredAt: Date.now()
-      }
-
-      const result = await executeRemoteHandler(handler, {}, { timeout: 100, evaluator: testEvaluator })
-
-      expect(result.succeeded).toBe(false)
-      expect(result.error?.message).toContain('timed out')
-    })
-
-    it('should handle arrow function with implicit return', async () => {
-      const handler: RemoteEventHandler = {
-        id: 'test-7',
-        event: 'Test.event',
-        code: '(event) => event.value + 10',
-        registeredAt: Date.now()
-      }
-
-      const result = await executeRemoteHandler(handler, { value: 5 }, { evaluator: testEvaluator })
-
-      expect(result.succeeded).toBe(true)
-    })
-
-    it('should handle traditional function syntax', async () => {
-      const handler: RemoteEventHandler = {
-        id: 'test-8',
-        event: 'Test.event',
-        code: 'function(event) { return event.x + event.y }',
-        registeredAt: Date.now()
-      }
-
-      const result = await executeRemoteHandler(handler, { x: 3, y: 4 }, { evaluator: testEvaluator })
-
-      expect(result.succeeded).toBe(true)
-    })
-  })
-
-  describe('invokeRemoteHandlers', () => {
-    it('should invoke all matching remote handlers', async () => {
-      registerRemoteHandler(
-        'Test.event',
-        '(event) => { event.results.push("handler1") }',
-        remoteHandlers
-      )
-      registerRemoteHandler(
-        'Test.event',
-        '(event) => { event.results.push("handler2") }',
-        remoteHandlers
-      )
-
-      const eventData = { results: [] as string[] }
-      const result = await invokeRemoteHandlers('Test.event', eventData, remoteHandlers, { evaluator: testEvaluator })
-
-      expect(result.succeeded).toHaveLength(2)
-      expect(result.failed).toHaveLength(0)
-      expect(eventData.results).toContain('handler1')
-      expect(eventData.results).toContain('handler2')
-    })
-
-    it('should separate succeeded and failed handlers', async () => {
-      registerRemoteHandler(
-        'Test.event',
-        '(event) => { /* success */ }',
-        remoteHandlers
-      )
-      registerRemoteHandler(
-        'Test.event',
-        '(event) => { throw new Error("fail") }',
-        remoteHandlers
-      )
-
-      const result = await invokeRemoteHandlers('Test.event', {}, remoteHandlers, { evaluator: testEvaluator })
-
-      expect(result.succeeded).toHaveLength(1)
-      expect(result.failed).toHaveLength(1)
-    })
-
-    it('should return empty arrays when no handlers match', async () => {
-      const result = await invokeRemoteHandlers('NoHandlers.event', {}, remoteHandlers, { evaluator: testEvaluator })
-
-      expect(result.succeeded).toHaveLength(0)
-      expect(result.failed).toHaveLength(0)
-    })
-
-    it('should pass context to all handlers', async () => {
-      const calls: string[] = []
-      const mockContext = {
-        track: (msg: string) => calls.push(msg)
-      }
-
-      registerRemoteHandler(
-        'Test.event',
-        '(event) => { $.track("first") }',
-        remoteHandlers
-      )
-      registerRemoteHandler(
-        'Test.event',
-        '(event) => { $.track("second") }',
-        remoteHandlers
-      )
-
-      await invokeRemoteHandlers('Test.event', {}, remoteHandlers, {
-        context: { $: mockContext },
-        evaluator: testEvaluator
-      })
-
-      expect(calls).toContain('first')
-      expect(calls).toContain('second')
-    })
-  })
+  // NOTE: executeRemoteHandler and invokeRemoteHandlers tests are in
+  // utils/tests/remote-handler-execution.test.ts because they require
+  // new Function()/eval() which is not available in the workers runtime.
 
   describe('removeRemoteHandler', () => {
     it('should remove a handler by ID', () => {
@@ -474,21 +255,6 @@ describe('Handler Code Stringification', () => {
     expect(code).toContain('function')
   })
 
-  it('should preserve handler logic in stringified form', async () => {
-    // Original handler
-    const originalHandler = (event: { value: number }) => event.value * 2
-
-    // Stringify it
-    const code = originalHandler.toString()
-
-    // Register as remote handler
-    const remoteHandlers = new Map<string, RemoteEventHandler[]>()
-    registerRemoteHandler('Test.event', code, remoteHandlers)
-
-    // Execute the remote handler
-    const matched = matchRemoteHandlers('Test.event', remoteHandlers)
-    const result = await executeRemoteHandler(matched[0], { value: 21 }, { evaluator: testEvaluator })
-
-    expect(result.succeeded).toBe(true)
-  })
+  // NOTE: The execution test is in utils/tests/remote-handler-execution.test.ts
+  // because it requires new Function()/eval() which is not available in workers runtime.
 })

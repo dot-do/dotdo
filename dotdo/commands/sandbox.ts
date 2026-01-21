@@ -606,7 +606,17 @@ export interface SandboxReplOptions {
  * Creates an in-memory Durable Object and connects the REPL to it.
  */
 export async function startSandboxRepl(options: SandboxReplOptions = {}): Promise<void> {
-  const { ReplService } = await import('rpc.do/cli')
+  // Import ReplService from rpc.do/cli
+  const { ReplService } = await import('rpc.do/cli') as {
+    ReplService: new (options: {
+      transport: Transport
+      types?: string
+      historyPath?: string
+      prompt?: string
+      onExit?: () => void
+      onClear?: () => void
+    }) => { start(): Promise<void> }
+  }
 
   // Create sandbox transport
   const transport = createSandboxTransport()
