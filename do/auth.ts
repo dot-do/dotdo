@@ -13,36 +13,12 @@
 
 import type { MiddlewareHandler, Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import {
-  extractToken,
-  verifyTokenSignature,
-  verifyTokenWithJwks,
-  type AuthUser,
-  type JwksClient,
-  // Import DO-to-DO signing utilities from @dotdo/auth (canonical source)
-  setDOInternalSecret as _setDOInternalSecret,
-  getDOInternalSecret as _getDOInternalSecret,
-  clearDOInternalSecret as _clearDOInternalSecret,
-  verifyDOSignature as _verifyDOSignature,
-  createDOToDoHeaders as _createDOToDoHeaders,
-  addDOSourceHeaders as _addDOSourceHeaders,
-  addDOSourceHeadersAsync as _addDOSourceHeadersAsync,
-  SIGNATURE_MAX_AGE_MS,
-} from '@dotdo/auth'
-import { createScopedLogger, LogLevel } from '@dotdo/utils'
-// Import shared header constants from @dotdo/rpc to avoid circular dependencies
-import {
-  DO_SOURCE_HEADER,
-  DO_SOURCE_ID_HEADER,
-  DO_SIGNATURE_HEADER,
-  DO_TIMESTAMP_HEADER,
-  CF_WORKER_HEADER,
-  WORKER_NAME_HEADER,
-  INTERNAL_TRUST_HEADER,
-  CORRELATION_ID_HEADER,
-} from '@dotdo/rpc'
+import type { AuthUser } from '../auth/middleware'
+import { extractToken, verifyTokenSignature } from '../auth/token'
+import { verifyTokenWithJwks, type JwksClient } from '../auth/jwks'
+import { createLogger } from '../utils/logger'
 
-const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[DOAuth]' })
+const logger = createLogger('[DOAuth]')
 
 // ============================================================================
 // Types
@@ -86,9 +62,9 @@ export interface CallerInfo {
   /** Caller identifier (user ID, DO ID, or worker name) */
   id: string | null
   /** Full auth payload (for user requests) */
-  auth?: AuthPayload | undefined
+  auth?: AuthPayload
   /** Source DO ID (for DO-to-DO calls) */
-  sourceDoId?: string | undefined
+  sourceDoId?: string
   /** Whether this is a trusted internal call */
   trusted: boolean
 }
@@ -143,30 +119,65 @@ export interface DOAuthGuardConfig {
 }
 
 // ============================================================================
-// Headers - Re-exported from @dotdo/rpc to maintain backwards compatibility
+// Headers
 // ============================================================================
 
-// Re-export header constants from @dotdo/rpc for backwards compatibility.
-// These were previously defined here but are now in @dotdo/rpc to avoid
-// circular dependencies (do -> rpc -> do).
-export {
-  DO_SOURCE_HEADER,
-  DO_SOURCE_ID_HEADER,
-  DO_SIGNATURE_HEADER,
-  DO_TIMESTAMP_HEADER,
-  CF_WORKER_HEADER,
-  WORKER_NAME_HEADER,
-  INTERNAL_TRUST_HEADER,
-  CORRELATION_ID_HEADER,
-}
+/**
+ * Header indicating the request is from a Cloudflare Worker
+ * This is set by the Cloudflare runtime for internal requests
+ */
+export const CF_WORKER_HEADER = 'cf-worker'
+
+/**
+ * Header containing the worker name (set by us in the API layer)
+ */
+export const WORKER_NAME_HEADER = 'X-Worker-Name'
+
+/**
+ * Header indicating request is from another DO
+ */
+export const DO_SOURCE_HEADER = 'X-DO-Source'
+
+/**
+ * Header containing the source DO's ID
+ */
+export const DO_SOURCE_ID_HEADER = 'X-DO-Source-ID'
+
+/**
+ * Correlation ID header (from rpc/client.ts)
+ */
+export const CORRELATION_ID_HEADER = 'X-Correlation-ID'
+
+/**
+ * Header indicating internal trust chain
+ */
+export const INTERNAL_TRUST_HEADER = 'X-Internal-Trust'
+
+/**
+ * Header containing HMAC signature for DO-to-DO authentication
+ * This prevents header spoofing by external clients
+ */
+export const DO_SIGNATURE_HEADER = 'X-DO-Signature'
+
+/**
+ * Header containing timestamp for signature validation (prevents replay attacks)
+ */
+export const DO_TIMESTAMP_HEADER = 'X-DO-Timestamp'
+
+/**
+ * Maximum age of a signature in milliseconds (5 minutes)
+ */
+const SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000
 
 // ============================================================================
 // HMAC Signing for DO-to-DO Authentication
-// Re-exported from @dotdo/auth for backward compatibility
 // ============================================================================
 
-// Re-export SIGNATURE_MAX_AGE_MS from @dotdo/auth
-export { SIGNATURE_MAX_AGE_MS }
+/**
+ * Internal secret for DO-to-DO HMAC signing
+ * This should be set via setDOInternalSecret() before use
+ */
+let doInternalSecret: string | null = null
 
 /**
  * Set the internal secret used for DO-to-DO HMAC signing
@@ -177,35 +188,116 @@ export { SIGNATURE_MAX_AGE_MS }
  * // In your Worker/DO initialization
  * setDOInternalSecret(env.DO_INTERNAL_SECRET)
  * ```
- *
- * @deprecated Import from @dotdo/auth instead: `import { setDOInternalSecret } from '@dotdo/auth'`
  */
-export const setDOInternalSecret = _setDOInternalSecret
+export function setDOInternalSecret(secret: string): void {
+  if (!secret || secret.length < 32) {
+    throw new Error('DO_INTERNAL_SECRET must be at least 32 characters')
+  }
+  doInternalSecret = secret
+}
 
 /**
  * Get the current internal secret (for testing purposes)
  * @internal
- * @deprecated Import from @dotdo/auth instead
  */
-export const getDOInternalSecret = _getDOInternalSecret
+export function getDOInternalSecret(): string | null {
+  return doInternalSecret
+}
 
 /**
  * Clear the internal secret (for testing purposes)
  * @internal
- * @deprecated Import from @dotdo/auth instead
  */
-export const clearDOInternalSecret = _clearDOInternalSecret
+export function clearDOInternalSecret(): void {
+  doInternalSecret = null
+}
+
+/**
+ * Generate HMAC-SHA256 signature for DO-to-DO request
+ */
+async function generateHmacSignature(
+  secret: string,
+  sourceDoId: string,
+  timestamp: string,
+  targetPath?: string
+): Promise<string> {
+  const encoder = new TextEncoder()
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+
+  // Message format: sourceDoId|timestamp|targetPath
+  const message = `${sourceDoId}|${timestamp}|${targetPath || ''}`
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message))
+
+  // Convert to base64
+  return btoa(String.fromCharCode(...new Uint8Array(signature)))
+}
+
+/**
+ * Verify HMAC-SHA256 signature for DO-to-DO request
+ */
+async function verifyHmacSignature(
+  secret: string,
+  sourceDoId: string,
+  timestamp: string,
+  signature: string,
+  targetPath?: string
+): Promise<boolean> {
+  try {
+    const expectedSignature = await generateHmacSignature(secret, sourceDoId, timestamp, targetPath)
+    // Constant-time comparison to prevent timing attacks
+    if (signature.length !== expectedSignature.length) {
+      return false
+    }
+    let result = 0
+    for (let i = 0; i < signature.length; i++) {
+      result |= signature.charCodeAt(i) ^ expectedSignature.charCodeAt(i)
+    }
+    return result === 0
+  } catch {
+    return false
+  }
+}
 
 /**
  * Verify DO-to-DO request signature
  * Returns true if the request has a valid signature, false otherwise
- *
- * This is a wrapper around the @dotdo/auth version that passes the logger
- *
- * @deprecated Import from @dotdo/auth instead: `import { verifyDOSignature } from '@dotdo/auth'`
  */
 export async function verifyDOSignature(request: Request): Promise<boolean> {
-  return _verifyDOSignature(request, logger)
+  if (!doInternalSecret) {
+    logger.warn(' DO_INTERNAL_SECRET not configured - DO-to-DO verification disabled')
+    return false
+  }
+
+  const signature = request.headers.get(DO_SIGNATURE_HEADER)
+  const timestamp = request.headers.get(DO_TIMESTAMP_HEADER)
+  const sourceDoId = request.headers.get(DO_SOURCE_ID_HEADER)
+
+  if (!signature || !timestamp || !sourceDoId) {
+    return false
+  }
+
+  // Check timestamp to prevent replay attacks
+  const timestampMs = parseInt(timestamp, 10)
+  if (isNaN(timestampMs)) {
+    return false
+  }
+
+  const now = Date.now()
+  if (Math.abs(now - timestampMs) > SIGNATURE_MAX_AGE_MS) {
+    return false
+  }
+
+  // Extract path from URL for signature verification
+  const url = new URL(request.url)
+  const targetPath = url.pathname
+
+  return verifyHmacSignature(doInternalSecret, sourceDoId, timestamp, signature, targetPath)
 }
 
 // ============================================================================
@@ -446,9 +538,8 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
           try {
             // Decode without verification just to get the subject
             const parts = token.split('.')
-            const payloadPart = parts[1]
-            if (parts.length === 3 && payloadPart) {
-              const payload = JSON.parse(atob(payloadPart))
+            if (parts.length === 3) {
+              const payload = JSON.parse(atob(parts[1]))
               return payload.sub ?? null
             }
           } catch {
@@ -464,11 +555,9 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
       try {
         // Try JWKS validation first if client is available
         if (jwksClient) {
-          const issuerArray = issuer ? (Array.isArray(issuer) ? issuer : [issuer]) : undefined
-          const audienceArray = audience ? (Array.isArray(audience) ? audience : [audience]) : undefined
           const payload = await verifyTokenWithJwks(token, jwksClient, {
-            ...(issuerArray !== undefined && { issuer: issuerArray }),
-            ...(audienceArray !== undefined && { audience: audienceArray }),
+            issuer: issuer ? (Array.isArray(issuer) ? issuer : [issuer]) : undefined,
+            audience: audience ? (Array.isArray(audience) ? audience : [audience]) : undefined,
           })
           return payload as AuthPayload
         }
@@ -756,8 +845,35 @@ export function requireDOSource(...allowedDOs: string[]): MiddlewareHandler {
 
 // ============================================================================
 // Helpers for Cross-DO Calls
-// Re-exported from @dotdo/auth for backward compatibility
 // ============================================================================
+
+/**
+ * Generate HMAC signature for DO-to-DO request headers
+ * @internal
+ */
+async function signDORequest(
+  sourceDoId: string,
+  timestamp: string,
+  targetPath?: string
+): Promise<string> {
+  if (!doInternalSecret) {
+    throw new Error('DO_INTERNAL_SECRET not configured - call setDOInternalSecret() first')
+  }
+
+  const encoder = new TextEncoder()
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(doInternalSecret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+
+  const message = `${sourceDoId}|${timestamp}|${targetPath || ''}`
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message))
+
+  return btoa(String.fromCharCode(...new Uint8Array(signature)))
+}
 
 /**
  * Add DO source headers to a request for cross-DO calls (with HMAC signature)
@@ -771,14 +887,29 @@ export function requireDOSource(...allowedDOs: string[]): MiddlewareHandler {
  * })
  * ```
  *
- * @deprecated Import from @dotdo/auth instead: `import { addDOSourceHeaders } from '@dotdo/auth'`
+ * @deprecated Use addDOSourceHeadersAsync for clarity - this function is now async
  */
 export async function addDOSourceHeaders(
   headers: Headers,
   sourceDoId: string,
   targetPath?: string
 ): Promise<Headers> {
-  return _addDOSourceHeaders(headers, sourceDoId, targetPath, logger)
+  const timestamp = Date.now().toString()
+
+  headers.set(DO_SOURCE_HEADER, 'true')
+  headers.set(DO_SOURCE_ID_HEADER, sourceDoId)
+  headers.set(DO_TIMESTAMP_HEADER, timestamp)
+
+  try {
+    const signature = await signDORequest(sourceDoId, timestamp, targetPath)
+    headers.set(DO_SIGNATURE_HEADER, signature)
+  } catch (error) {
+    logger.warn(' Failed to sign DO-to-DO request:', error)
+    // Still set the headers without signature for backwards compatibility
+    // but the receiver will reject it if DO_INTERNAL_SECRET is configured
+  }
+
+  return headers
 }
 
 /**
@@ -792,15 +923,13 @@ export async function addDOSourceHeaders(
  *   headers,
  * })
  * ```
- *
- * @deprecated Import from @dotdo/auth instead: `import { addDOSourceHeadersAsync } from '@dotdo/auth'`
  */
 export async function addDOSourceHeadersAsync(
   headers: Headers,
   sourceDoId: string,
   targetPath?: string
 ): Promise<Headers> {
-  return _addDOSourceHeadersAsync(headers, sourceDoId, targetPath, logger)
+  return addDOSourceHeaders(headers, sourceDoId, targetPath)
 }
 
 /**
@@ -815,15 +944,33 @@ export async function addDOSourceHeadersAsync(
  *   body: JSON.stringify({ ... }),
  * })
  * ```
- *
- * @deprecated Import from @dotdo/auth instead: `import { createDOToDoHeaders } from '@dotdo/auth'`
  */
 export async function createDOToDoHeaders(
   sourceDoId: string,
   targetPath?: string,
   correlationId?: string
 ): Promise<Headers> {
-  return _createDOToDoHeaders(sourceDoId, targetPath, correlationId, logger)
+  const timestamp = Date.now().toString()
+
+  const headers = new Headers({
+    'Content-Type': 'application/json',
+    [DO_SOURCE_HEADER]: 'true',
+    [DO_SOURCE_ID_HEADER]: sourceDoId,
+    [DO_TIMESTAMP_HEADER]: timestamp,
+  })
+
+  try {
+    const signature = await signDORequest(sourceDoId, timestamp, targetPath)
+    headers.set(DO_SIGNATURE_HEADER, signature)
+  } catch (error) {
+    logger.warn(' Failed to sign DO-to-DO request:', error)
+  }
+
+  if (correlationId) {
+    headers.set(CORRELATION_ID_HEADER, correlationId)
+  }
+
+  return headers
 }
 
 /**

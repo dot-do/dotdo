@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { AdminDO } from '../admin'
-import { createThingsStore, createEventsStore, createRelationshipsStore } from '@dotdo/db'
+import { createThingsStore, createEventsStore, createRelationshipsStore } from '../../db'
 
 describe('Admin Interface', () => {
   let admin: AdminDO

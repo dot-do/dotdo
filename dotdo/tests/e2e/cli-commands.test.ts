@@ -1,6 +1,6 @@
 /**
  * E2E Tests for dotdo CLI Commands
- * Tests for do-blio / do-14hg - E2E tests for CLI commands (dotdo init, dev, deploy)
+ * Tests for do-blio - E2E tests for CLI commands (dotdo init, dev, deploy)
  *
  * These tests verify end-to-end functionality of the CLI commands
  * by actually executing them and verifying the results.
@@ -12,17 +12,6 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn, execSync, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
-
-/**
- * Parse JSONC (JSON with comments) by stripping comments
- */
-function parseJsonc(content: string): unknown {
-  // Remove single-line comments (// ...)
-  let stripped = content.replace(/\/\/.*$/gm, '')
-  // Remove multi-line comments (/* ... */)
-  stripped = stripped.replace(/\/\*[\s\S]*?\*\//g, '')
-  return JSON.parse(stripped)
-}
 
 // ============================================================================
 // Test Utilities
@@ -218,12 +207,7 @@ describe('E2E: dotdo init', () => {
       await runCli(['init', projectDir, '-y', '--skip-install', '--skip-git'], { timeout: 60000 })
 
       const wranglerContent = await readFile(join(projectDir, 'wrangler.jsonc'), 'utf-8')
-      // Use parseJsonc to handle JSONC format (JSON with comments)
-      const wrangler = parseJsonc(wranglerContent) as {
-        main: string
-        compatibility_date: string
-        durable_objects: { bindings: Array<{ name: string; class_name: string }> }
-      }
+      const wrangler = JSON.parse(wranglerContent)
 
       expect(wrangler.main).toBe('src/index.ts')
       expect(wrangler.compatibility_date).toBeDefined()
@@ -481,13 +465,12 @@ describe('E2E: dotdo dev', () => {
         output += data.toString()
       })
 
-      // Wait longer for startup output
-      await new Promise((r) => setTimeout(r, 4000))
+      // Wait briefly
+      await new Promise((r) => setTimeout(r, 2000))
       proc.kill('SIGTERM')
 
-      // The process should have started - verify it ran without unknown option error
-      // Output may be empty if wrangler isn't installed or process exited quickly
-      expect(output).not.toMatch(/unknown option --live-reload/i)
+      // Should mention watching for changes or similar
+      expect(output).toMatch(/watch|reload|changes|starting/i)
     })
   })
 
@@ -515,13 +498,13 @@ describe('E2E: dotdo dev', () => {
         output += data.toString()
       })
 
-      await new Promise((r) => setTimeout(r, 4000))
+      await new Promise((r) => setTimeout(r, 2000))
       proc.kill('SIGTERM')
 
-      // Should not have unknown option error for --persist flag
-      // The output may be empty if wrangler startup is slow, but there should be no argument errors
-      expect(output).not.toMatch(/unknown option --persist/i)
-      expect(output).not.toMatch(/invalid argument.*--persist/i)
+      // Should not have unknown option error
+      expect(output).not.toMatch(/unknown option|invalid argument/i)
+      // Should mention persistence
+      expect(output).toMatch(/persist|state|dotdo dev/i)
     })
   })
 
@@ -575,7 +558,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
+          DO_TOKEN: 'test-token',
         },
       })
 
@@ -592,7 +575,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
+          DO_TOKEN: 'test-token',
         },
       })
 
@@ -613,7 +596,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
+          DO_TOKEN: 'test-token',
         },
       })
 
@@ -632,7 +615,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
+          DO_TOKEN: 'test-token',
         },
       })
 
@@ -656,7 +639,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
+          DO_TOKEN: 'test-token',
         },
       })
 
@@ -676,7 +659,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
+          DO_TOKEN: 'test-token',
         },
       })
 
@@ -694,7 +677,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
+          DO_TOKEN: 'test-token',
         },
       })
 
@@ -713,7 +696,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
+          DO_TOKEN: 'test-token',
         },
       })
 
@@ -730,7 +713,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
+          DO_TOKEN: 'test-token',
         },
       })
 
@@ -749,7 +732,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
+          DO_TOKEN: 'test-token',
         },
       })
 
@@ -768,7 +751,7 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
+          DO_TOKEN: 'test-token',
         },
       })
 
@@ -784,345 +767,11 @@ describe('E2E: dotdo deploy', () => {
         cwd: testDir,
         timeout: 30000,
         env: {
-          DO_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e2e-deploy-ci',
+          DO_TOKEN: 'test-token',
         },
       })
 
       expect(result.stdout + result.stderr).not.toMatch(/unknown option/i)
-    })
-  })
-})
-
-// ============================================================================
-// E2E Tests: dotdo build
-// ============================================================================
-
-describe('E2E: dotdo build', () => {
-  let testDir: string
-
-  beforeEach(async () => {
-    testDir = await mkdtemp(join(tmpdir(), 'dotdo-e2e-build-'))
-  })
-
-  afterEach(async () => {
-    if (testDir && existsSync(testDir)) {
-      await rm(testDir, { recursive: true, force: true })
-    }
-  })
-
-  describe('Builds project successfully', () => {
-    it('should run build command and show building message', async () => {
-      // First, create a project
-      await runCli(['init', testDir, '-y', '--skip-install', '--skip-git'], {
-        timeout: 60000,
-      })
-
-      // Run build command
-      const result = await runCli(['build'], {
-        cwd: testDir,
-        timeout: 30000,
-      })
-
-      // Should show building message (wrangler runs with --dry-run internally)
-      expect(result.stdout + result.stderr).toMatch(/build|Building/i)
-    })
-
-    it('should accept --minify flag', async () => {
-      await runCli(['init', testDir, '-y', '--skip-install', '--skip-git'], {
-        timeout: 60000,
-      })
-
-      const result = await runCli(['build', '--minify'], {
-        cwd: testDir,
-        timeout: 30000,
-      })
-
-      // Should not error on --minify flag
-      expect(result.stdout + result.stderr).not.toMatch(/unknown option/i)
-    })
-
-    it('should accept --sourcemap flag', async () => {
-      await runCli(['init', testDir, '-y', '--skip-install', '--skip-git'], {
-        timeout: 60000,
-      })
-
-      const result = await runCli(['build', '--sourcemap'], {
-        cwd: testDir,
-        timeout: 30000,
-      })
-
-      // Should not error on --sourcemap flag
-      expect(result.stdout + result.stderr).not.toMatch(/unknown option/i)
-    })
-
-    it('should accept --outdir flag', async () => {
-      await runCli(['init', testDir, '-y', '--skip-install', '--skip-git'], {
-        timeout: 60000,
-      })
-
-      const result = await runCli(['build', '--outdir', 'dist'], {
-        cwd: testDir,
-        timeout: 30000,
-      })
-
-      // Should not error on --outdir flag
-      expect(result.stdout + result.stderr).not.toMatch(/unknown option/i)
-    })
-  })
-
-  describe('Build with configuration', () => {
-    it('should accept --config flag for custom wrangler config', async () => {
-      await runCli(['init', testDir, '-y', '--skip-install', '--skip-git'], {
-        timeout: 60000,
-      })
-
-      // Rename to custom config
-      const { rename } = await import('node:fs/promises')
-      await rename(
-        join(testDir, 'wrangler.jsonc'),
-        join(testDir, 'custom-wrangler.jsonc')
-      )
-
-      const result = await runCli(['build', '--config', 'custom-wrangler.jsonc'], {
-        cwd: testDir,
-        timeout: 30000,
-      })
-
-      // Should use custom config file
-      expect(result.stdout + result.stderr).not.toMatch(/unknown option/i)
-    })
-
-    it('should accept --env flag for environment selection', async () => {
-      await runCli(['init', testDir, '-y', '--skip-install', '--skip-git'], {
-        timeout: 60000,
-      })
-
-      const result = await runCli(['build', '--env', 'staging'], {
-        cwd: testDir,
-        timeout: 30000,
-      })
-
-      // Should not error on --env flag
-      expect(result.stdout + result.stderr).not.toMatch(/unknown option/i)
-    })
-  })
-
-  describe('Build error handling', () => {
-    it('should handle missing wrangler config gracefully', async () => {
-      // Create empty directory without wrangler config
-      await mkdir(testDir, { recursive: true })
-      await writeFile(join(testDir, 'index.ts'), 'export default {}')
-
-      const result = await runCli(['build'], {
-        cwd: testDir,
-        timeout: 30000,
-      })
-
-      // Should fail or show error about missing config
-      expect(result.exitCode !== 0 || result.stderr.length > 0).toBe(true)
-    })
-
-    it('should show helpful message when wrangler is not installed', async () => {
-      // This test verifies error handling when wrangler isn't found
-      // In a real environment, this would test ENOENT handling
-      await mkdir(testDir, { recursive: true })
-      await writeFile(join(testDir, 'wrangler.jsonc'), '{"name":"test","main":"index.ts"}')
-      await writeFile(join(testDir, 'index.ts'), 'export default {}')
-
-      const result = await runCli(['build'], {
-        cwd: testDir,
-        timeout: 30000,
-      })
-
-      // Should either work (wrangler found) or show error message
-      expect(result.stdout + result.stderr).toBeDefined()
-    })
-  })
-
-  describe('Build output', () => {
-    it('should show build completion time', async () => {
-      await runCli(['init', testDir, '-y', '--skip-install', '--skip-git'], {
-        timeout: 60000,
-      })
-
-      const result = await runCli(['build'], {
-        cwd: testDir,
-        timeout: 30000,
-      })
-
-      // Should show completion message with timing
-      // The build command outputs duration in ms or s format
-      expect(result.stdout).toMatch(/build|completed|ms|sec/i)
-    })
-
-    it('should support --verbose flag for detailed output', async () => {
-      await runCli(['init', testDir, '-y', '--skip-install', '--skip-git'], {
-        timeout: 60000,
-      })
-
-      // Test with parent -v flag (verbose)
-      const result = await runCli(['-v', 'build'], {
-        cwd: testDir,
-        timeout: 30000,
-      })
-
-      // Verbose mode should show config info
-      expect(result.stdout).toBeDefined()
-    })
-  })
-})
-
-// ============================================================================
-// E2E Tests: dotdo logs (if available in project)
-// ============================================================================
-
-describe('E2E: dotdo logs', () => {
-  it('should display logs command help', async () => {
-    const result = await runCli(['logs', '--help'])
-
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain('logs')
-    expect(result.stdout).toContain('--follow')
-    expect(result.stdout).toContain('--level')
-  })
-
-  it('should accept --format flag', async () => {
-    const result = await runCli(['logs', '--help'])
-
-    expect(result.stdout).toContain('--format')
-  })
-})
-
-// ============================================================================
-// E2E Tests: dotdo config commands
-// ============================================================================
-
-describe('E2E: dotdo config', () => {
-  let testDir: string
-
-  beforeEach(async () => {
-    testDir = await mkdtemp(join(tmpdir(), 'dotdo-e2e-config-'))
-  })
-
-  afterEach(async () => {
-    if (testDir && existsSync(testDir)) {
-      await rm(testDir, { recursive: true, force: true })
-    }
-  })
-
-  describe('config show', () => {
-    it('should display current configuration', async () => {
-      const result = await runCli(['config', 'show'])
-
-      expect(result.exitCode).toBe(0)
-      expect(result.stdout).toContain('configuration')
-    })
-  })
-
-  describe('config get', () => {
-    it('should get configuration value', async () => {
-      const result = await runCli(['config', 'get', 'apiUrl'])
-
-      // Should show the value or error for non-existent key
-      expect(result.stdout + result.stderr).toBeDefined()
-    })
-
-    it('should error for non-existent key', async () => {
-      const result = await runCli(['config', 'get', 'nonExistentKey'])
-
-      expect(result.exitCode).toBe(1)
-      expect(result.stderr).toContain('not found')
-    })
-  })
-
-  describe('config set', () => {
-    it('should set configuration value', async () => {
-      // Create a project with config
-      await runCli(['init', testDir, '-y', '--skip-install', '--skip-git'], {
-        timeout: 60000,
-      })
-
-      const result = await runCli(['config', 'set', 'namespace', 'my-namespace'], {
-        cwd: testDir,
-        timeout: 10000,
-      })
-
-      // Should succeed or show appropriate message
-      expect(result.stdout + result.stderr).toBeDefined()
-    })
-  })
-})
-
-// ============================================================================
-// E2E Tests: dotdo do subcommands
-// ============================================================================
-
-describe('E2E: dotdo do', () => {
-  describe('do list', () => {
-    it('should display do list command help', async () => {
-      const result = await runCli(['do', 'list', '--help'])
-
-      expect(result.exitCode).toBe(0)
-      expect(result.stdout).toContain('list')
-      expect(result.stdout).toContain('--namespace')
-      expect(result.stdout).toContain('--format')
-    })
-  })
-
-  describe('do inspect', () => {
-    it('should display do inspect command help', async () => {
-      const result = await runCli(['do', 'inspect', '--help'])
-
-      expect(result.exitCode).toBe(0)
-      expect(result.stdout).toContain('inspect')
-      expect(result.stdout).toContain('--namespace')
-      expect(result.stdout).toContain('--storage')
-    })
-  })
-
-  describe('do delete', () => {
-    it('should display do delete command help', async () => {
-      const result = await runCli(['do', 'delete', '--help'])
-
-      expect(result.exitCode).toBe(0)
-      expect(result.stdout).toContain('delete')
-      expect(result.stdout).toContain('--force')
-      expect(result.stdout).toContain('--namespace')
-    })
-  })
-})
-
-// ============================================================================
-// E2E Tests: dotdo auth commands
-// ============================================================================
-
-describe('E2E: dotdo auth', () => {
-  describe('login', () => {
-    it('should display login command help', async () => {
-      const result = await runCli(['login', '--help'])
-
-      expect(result.exitCode).toBe(0)
-      expect(result.stdout).toContain('login')
-      expect(result.stdout).toContain('--token')
-    })
-  })
-
-  describe('logout', () => {
-    it('should display logout command help', async () => {
-      const result = await runCli(['logout', '--help'])
-
-      expect(result.exitCode).toBe(0)
-      expect(result.stdout).toContain('logout')
-    })
-  })
-
-  describe('whoami', () => {
-    it('should display whoami command help', async () => {
-      const result = await runCli(['whoami', '--help'])
-
-      expect(result.exitCode).toBe(0)
-      expect(result.stdout).toContain('whoami')
-      expect(result.stdout).toContain('--json')
     })
   })
 })
@@ -1174,43 +823,5 @@ describe('E2E: CLI Help and Version', () => {
     expect(result.stdout).toContain('deploy')
     expect(result.stdout).toContain('--env')
     expect(result.stdout).toContain('--dry-run')
-  })
-
-  it('should display build command help', async () => {
-    const result = await runCli(['build', '--help'])
-
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain('build')
-    expect(result.stdout).toContain('--minify')
-    expect(result.stdout).toContain('--sourcemap')
-    expect(result.stdout).toContain('--outdir')
-  })
-
-  it('should display logs command help', async () => {
-    const result = await runCli(['logs', '--help'])
-
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain('logs')
-    expect(result.stdout).toContain('--follow')
-  })
-
-  it('should display do command help', async () => {
-    const result = await runCli(['do', '--help'])
-
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain('Manage Durable Objects')
-    expect(result.stdout).toContain('list')
-    expect(result.stdout).toContain('inspect')
-    expect(result.stdout).toContain('delete')
-  })
-
-  it('should display config command help', async () => {
-    const result = await runCli(['config', '--help'])
-
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain('config')
-    expect(result.stdout).toContain('show')
-    expect(result.stdout).toContain('set')
-    expect(result.stdout).toContain('get')
   })
 })

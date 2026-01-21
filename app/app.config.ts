@@ -11,7 +11,7 @@ export default defineConfig({
     },
   },
   vite: {
-    plugins: [tailwindcss()] as any, // Vite version mismatch between root and @tanstack/start-config
+    plugins: [tailwindcss()],
   },
   // Enable static export for Cloudflare Pages
   react: {
@@ -26,5 +26,9 @@ export default defineConfig({
     client: {
       entry: './client.tsx',
     },
+  },
+  // Additional static export configuration
+  deployment: {
+    preset: 'cloudflare-pages-static',
   },
 })
