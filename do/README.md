@@ -1083,3 +1083,547 @@ await do3.things.create({ ns: 'app', type: 'User', data: { name: 'Alice' } })
 ## Status
 
 See beads issues for implementation progress.
+
+---
+
+# BusinessDO - Business-as-Code DO
+
+The `BusinessDO` extends `DO` with full business analytics, financial tracking, and experimentation capabilities.
+
+## Class Hierarchy
+
+```
+DO (base)
+│
+├── BusinessDO extends DO
+│   ├── Analytics (ClickHouse WASM for queries, DO SQLite for hot data)
+│   ├── SaaS Metrics (MRR, ARR, NRR, GRR, CAC, LTV, Churn)
+│   ├── OKRs & Goals (with AI-guided optimization)
+│   ├── Experiments & Feature Flags
+│   ├── Financial Ledger (Stripe + optional TigerBeetle)
+│   └── Contains:
+│       ├── Products (Things with per-product analytics)
+│       └── Services (Things with per-service analytics)
+```
+
+## BusinessDO Implementation
+
+```typescript
+// @dotdo/do/src/BusinessDO.ts
+import { DO } from './DO'
+import { AnalyticsClient, createClickHouseClient } from '@dotdo/clickhouse'
+import { FinancialClient, createStripeClient } from '@dotdo/finance'
+import { calculateMRR, calculateChurnMetrics, calculateLTVMetric } from 'business-as-code'
+
+export interface BusinessConfig {
+  // Database backend
+  backend?: 'db4' | 'sqlite' | 'postgres'
+
+  // Analytics (ClickHouse WASM for complex queries)
+  analytics?: {
+    enabled: boolean
+    clickhouse?: { profile: 'minimal' | 'standard' | 'full' }
+  }
+
+  // Financial integration
+  finance?: {
+    provider: 'stripe'
+    stripeSecretKey?: string
+    // Optional: TigerBeetle for double-entry accounting
+    ledger?: 'stripe' | 'tigerbeetle'
+  }
+
+  // Experiments
+  experiments?: {
+    enabled: boolean
+    autoAssign?: boolean
+  }
+}
+
+export class BusinessDO extends DO {
+  // Analytics client (lazy-loaded ClickHouse WASM)
+  private _analytics?: AnalyticsClient
+
+  // Financial client (Stripe by default)
+  private _finance?: FinancialClient
+
+  constructor(
+    state: DurableObjectState,
+    env: Env,
+    config: BusinessConfig = {}
+  ) {
+    super(state, env, { backend: config.backend ?? 'db4' })
+    this.config = config
+
+    // Set up event handlers for metrics
+    this.setupMetricsHandlers()
+  }
+
+  // ==========================================================================
+  // Analytics
+  // ==========================================================================
+
+  /** Analytics client - lazy loads ClickHouse WASM when first accessed */
+  get analytics(): AnalyticsClient {
+    if (!this._analytics) {
+      this._analytics = createClickHouseClient(this.state.storage, {
+        profile: this.config.analytics?.clickhouse?.profile ?? 'standard'
+      })
+    }
+    return this._analytics
+  }
+
+  /** Track an analytics event */
+  async track(event: AnalyticsEventInput): Promise<void> {
+    await this.analytics.track(event)
+  }
+
+  /** Track page view with privacy-safe visitor ID */
+  async pageview(input: PageViewInput): Promise<void> {
+    await this.analytics.pageview(input)
+  }
+
+  /** Execute analytics SQL query (uses ClickHouse WASM) */
+  async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
+    return this.analytics.query<T>(sql, params)
+  }
+
+  // ==========================================================================
+  // SaaS Metrics
+  // ==========================================================================
+
+  /** Calculate all SaaS metrics for a period */
+  async calculateMetrics(period: MetricPeriod): Promise<SaaSMetrics> {
+    // Get subscription events
+    const subscriptions = await this.events.query({
+      type: 'Subscription.*',
+      since: period.start.getTime(),
+      until: period.end.getTime()
+    })
+
+    // Get customer events
+    const customers = await this.events.query({
+      type: 'Customer.*',
+      since: period.start.getTime()
+    })
+
+    const mrr = calculateMRR({
+      newMRR: sumByType(subscriptions, 'Subscription.created'),
+      expansionMRR: sumByType(subscriptions, 'Subscription.upgraded'),
+      contractionMRR: sumByType(subscriptions, 'Subscription.downgraded'),
+      churnedMRR: sumByType(subscriptions, 'Subscription.cancelled'),
+      previousMRR: await this.getPreviousMRR(period),
+      period
+    })
+
+    const churn = calculateChurnMetrics({ /* ... */ })
+    const ltv = calculateLTVMetric({ /* ... */ })
+
+    // Emit metrics for OKR tracking
+    await this.emitMetrics({ mrr, churn, ltv })
+
+    return { mrr, churn, ltv, /* ... */ }
+  }
+
+  /** Get current MRR */
+  async getMRR(): Promise<number> {
+    const subscriptions = await this.things.list({ type: 'Subscription', where: { status: 'active' } })
+    return subscriptions.reduce((sum, s) => sum + (s.data.mrr ?? 0), 0)
+  }
+
+  // ==========================================================================
+  // Products & Services (with analytics)
+  // ==========================================================================
+
+  /** Products collection - Things with per-product analytics */
+  get products() {
+    return {
+      ...this.typedClient<Product>('Product'),
+
+      /** Get product analytics */
+      analytics: async (productId: string, period: DateRange) => {
+        return this.analytics.query(`
+          SELECT
+            date_trunc('day', timestamp) as day,
+            count(*) as events,
+            count(distinct visitor_id) as unique_users,
+            sum(case when type = 'Product.purchased' then 1 else 0 end) as purchases,
+            sum(case when type = 'Product.purchased' then value else 0 end) as revenue
+          FROM events
+          WHERE product_id = {productId:String}
+            AND timestamp BETWEEN {start:DateTime} AND {end:DateTime}
+          GROUP BY day
+          ORDER BY day
+        `, { productId, start: period.start, end: period.end })
+      },
+
+      /** Get product funnel */
+      funnel: async (productId: string, steps: FunnelStep[], period: DateRange) => {
+        return this.analytics.funnel(
+          steps.map(s => ({ ...s, filter: { product_id: productId } })),
+          period
+        )
+      }
+    }
+  }
+
+  /** Services collection - Things with per-service analytics */
+  get services() {
+    return {
+      ...this.typedClient<Service>('Service'),
+
+      /** Get service analytics (usage, latency, errors) */
+      analytics: async (serviceId: string, period: DateRange) => {
+        return this.analytics.query(`
+          SELECT
+            date_trunc('hour', timestamp) as hour,
+            count(*) as requests,
+            avg(duration_ms) as avg_latency,
+            quantile(0.95)(duration_ms) as p95_latency,
+            sum(case when status >= 400 then 1 else 0 end) as errors,
+            sum(case when status >= 400 then 1 else 0 end) / count(*) as error_rate
+          FROM service_events
+          WHERE service_id = {serviceId:String}
+            AND timestamp BETWEEN {start:DateTime} AND {end:DateTime}
+          GROUP BY hour
+          ORDER BY hour
+        `, { serviceId, start: period.start, end: period.end })
+      }
+    }
+  }
+
+  // ==========================================================================
+  // Financial System
+  // ==========================================================================
+
+  /** Financial client - Stripe by default */
+  get finance(): FinancialClient {
+    if (!this._finance) {
+      this._finance = createStripeClient(this.env.STRIPE_SECRET_KEY)
+    }
+    return this._finance
+  }
+
+  /** Create a customer */
+  async createCustomer(input: CustomerInput): Promise<Customer> {
+    // Create in Stripe
+    const stripeCustomer = await this.finance.customers.create(input)
+
+    // Store locally
+    const customer = await this.things.create({
+      type: 'Customer',
+      data: {
+        ...input,
+        stripeId: stripeCustomer.id,
+        createdAt: new Date()
+      }
+    })
+
+    await this.events.emit({ type: 'Customer.created', payload: customer })
+    return customer
+  }
+
+  /** Create a subscription */
+  async createSubscription(customerId: string, priceId: string): Promise<Subscription> {
+    const customer = await this.things.get({ type: 'Customer', id: customerId })
+    if (!customer?.data.stripeId) throw new Error('Customer has no Stripe ID')
+
+    // Create in Stripe
+    const stripeSub = await this.finance.subscriptions.create({
+      customer: customer.data.stripeId,
+      items: [{ price: priceId }]
+    })
+
+    // Store locally with MRR
+    const subscription = await this.things.create({
+      type: 'Subscription',
+      data: {
+        customerId,
+        stripeId: stripeSub.id,
+        status: stripeSub.status,
+        mrr: stripeSub.items.data[0].price.unit_amount / 100,
+        currentPeriodStart: new Date(stripeSub.current_period_start * 1000),
+        currentPeriodEnd: new Date(stripeSub.current_period_end * 1000)
+      }
+    })
+
+    await this.events.emit({ type: 'Subscription.created', payload: subscription })
+    return subscription
+  }
+
+  /** Process Stripe webhook */
+  async handleStripeWebhook(request: Request): Promise<Response> {
+    const sig = request.headers.get('stripe-signature')
+    const body = await request.text()
+
+    const event = await this.finance.webhooks.constructEvent(
+      body, sig, this.env.STRIPE_WEBHOOK_SECRET
+    )
+
+    switch (event.type) {
+      case 'invoice.paid':
+        await this.recordPayment(event.data.object)
+        break
+      case 'customer.subscription.updated':
+        await this.syncSubscription(event.data.object)
+        break
+      case 'customer.subscription.deleted':
+        await this.handleChurn(event.data.object)
+        break
+    }
+
+    return new Response('ok')
+  }
+
+  // ==========================================================================
+  // Experiments & Feature Flags
+  // ==========================================================================
+
+  /** Get variant for user in experiment */
+  async getVariant(userId: string, experimentKey: string): Promise<Variant | null> {
+    return this.analytics.getVariant(userId, experimentKey)
+  }
+
+  /** Evaluate feature flag */
+  async flag(userId: string, flagKey: string): Promise<boolean | string | number> {
+    return this.analytics.flag(userId, flagKey)
+  }
+
+  /** Record experiment exposure */
+  async recordExposure(userId: string, experimentKey: string, variant: string): Promise<void> {
+    await this.analytics.exposure(userId, experimentKey, variant)
+  }
+
+  /** Get experiment results */
+  async getExperimentResults(experimentKey: string): Promise<ExperimentResults> {
+    return this.analytics.experimentResults(experimentKey)
+  }
+
+  // ==========================================================================
+  // OKRs & Goals
+  // ==========================================================================
+
+  /** OKRs collection */
+  get okrs() {
+    return {
+      ...this.typedClient<OKR>('OKR'),
+
+      /** Get OKR health dashboard */
+      health: async () => {
+        const okrs = await this.things.list({ type: 'OKR', where: { status: 'in-progress' } })
+        return {
+          onTrack: okrs.filter(o => o.data.confidence >= 70).length,
+          atRisk: okrs.filter(o => o.data.confidence < 70 && o.data.confidence >= 40).length,
+          offTrack: okrs.filter(o => o.data.confidence < 40).length,
+          overallConfidence: average(okrs.map(o => o.data.confidence))
+        }
+      },
+
+      /** AI-powered recommendations for at-risk OKRs */
+      recommendations: async (okrId: string) => {
+        const okr = await this.things.get({ type: 'OKR', id: okrId })
+        const atRiskKRs = okr.data.keyResults.filter(kr => kr.progress < kr.expected)
+
+        // Use AI to generate recommendations
+        return ai`
+          Given OKR "${okr.data.objective}" with these at-risk key results:
+          ${JSON.stringify(atRiskKRs)}
+
+          And recent experiment results:
+          ${await this.getRecentExperimentWins()}
+
+          Suggest 3 experiments that could improve these metrics.
+        `
+      }
+    }
+  }
+
+  // ==========================================================================
+  // Private Helpers
+  // ==========================================================================
+
+  private setupMetricsHandlers(): void {
+    // Auto-update OKRs when metrics change
+    this.$.on.Metric.updated(async (event) => {
+      const { metricKey, value } = event.payload
+      await this.updateOKRsFromMetric(metricKey, value)
+    })
+
+    // Track subscription lifecycle
+    this.$.on.Subscription.created(async (event) => {
+      await this.track({ name: 'subscription_started', value: event.payload.mrr })
+    })
+
+    this.$.on.Subscription.cancelled(async (event) => {
+      await this.track({ name: 'subscription_churned', value: event.payload.mrr })
+    })
+  }
+}
+```
+
+## Product and Service Entities
+
+```typescript
+// Built-in entity types for BusinessDO
+
+interface Product {
+  $type: 'Product'
+
+  // Core
+  name: string
+  description?: string
+  sku?: string
+
+  // Pricing
+  prices: Price[]
+
+  // Analytics (auto-populated)
+  totalRevenue?: number
+  totalSales?: number
+  conversionRate?: number
+
+  // Relationships
+  services?: string[]  // Service IDs this product includes
+}
+
+interface Service {
+  $type: 'Service'
+
+  // Core
+  name: string
+  description?: string
+  endpoint?: string
+
+  // Usage tracking
+  requestCount?: number
+  avgLatency?: number
+  errorRate?: number
+
+  // Relationships
+  products?: string[]  // Products that include this service
+}
+
+interface Price {
+  $type: 'Price'
+
+  amount: number
+  currency: string
+  interval?: 'month' | 'year' | 'one_time'
+  stripeId?: string
+}
+```
+
+## Analytics Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         BusinessDO                               │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐           │
+│  │  DO SQLite  │   │ ClickHouse  │   │    R2       │           │
+│  │  (Hot Data) │   │   WASM      │   │  (Archive)  │           │
+│  │  ─────────  │   │  ─────────  │   │  ─────────  │           │
+│  │  Events     │ → │  Analytics  │ → │  MergeTree  │           │
+│  │  Counters   │   │  Queries    │   │  Parts      │           │
+│  │  Sessions   │   │  Funnels    │   │  (Cold)     │           │
+│  └─────────────┘   └─────────────┘   └─────────────┘           │
+│         │                 │                 │                   │
+│         └─────────────────┼─────────────────┘                   │
+│                           ▼                                     │
+│                   ┌─────────────┐                               │
+│                   │  Dashboard  │                               │
+│                   │  API        │                               │
+│                   └─────────────┘                               │
+└─────────────────────────────────────────────────────────────────┘
+
+Data Flow:
+1. Events → DO SQLite (hot, immediate)
+2. DO SQLite → ClickHouse WASM (queries on warm data)
+3. Old data → R2 MergeTree parts (archived, cold queries)
+```
+
+## Financial Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         BusinessDO                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Payments (Stripe as Source of Truth)                           │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Stripe API → Webhooks → BusinessDO.handleStripeWebhook │   │
+│  │                              │                           │   │
+│  │                              ▼                           │   │
+│  │                    ┌─────────────────┐                   │   │
+│  │                    │ Local State     │                   │   │
+│  │                    │ - Customers     │                   │   │
+│  │                    │ - Subscriptions │                   │   │
+│  │                    │ - Invoices      │                   │   │
+│  │                    └─────────────────┘                   │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Optional: TigerBeetle (Double-Entry Accounting)                │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  For businesses needing full GL:                         │   │
+│  │  - Chart of Accounts                                     │   │
+│  │  - Journal Entries                                       │   │
+│  │  - Trial Balance                                         │   │
+│  │  - Financial Statements                                  │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Usage Example
+
+```typescript
+// Create a business
+const business = env.BUSINESS_DO.get(env.BUSINESS_DO.idFromName('acme-corp'))
+
+// Create a product with analytics tracking
+const product = await business.products.create({
+  name: 'Pro Plan',
+  prices: [{ amount: 99, currency: 'USD', interval: 'month' }]
+})
+
+// Get product analytics
+const analytics = await business.products.analytics(product.id, {
+  start: thirtyDaysAgo,
+  end: now
+})
+
+// Create a customer and subscription
+const customer = await business.createCustomer({
+  email: 'alice@example.com',
+  name: 'Alice'
+})
+
+const subscription = await business.createSubscription(customer.id, 'price_xxx')
+
+// Check metrics
+const metrics = await business.calculateMetrics(thisMonth)
+console.log(`MRR: $${metrics.mrr.total}`)
+console.log(`Churn: ${metrics.churn.customerChurnRate}%`)
+
+// Run an experiment
+const variant = await business.getVariant(customer.id, 'pricing-experiment')
+if (variant?.key === 'discounted') {
+  // Show discounted pricing
+}
+
+// Check OKR health
+const okrHealth = await business.okrs.health()
+if (okrHealth.atRisk > 0) {
+  const recommendations = await business.okrs.recommendations(atRiskOkrId)
+}
+```
+
+## Package Structure
+
+```
+@dotdo/do          - Base DO class (existing)
+@dotdo/core        - Types and interfaces (existing)
+@dotdo/clickhouse  - ClickHouse WASM client (NEW)
+@dotdo/finance     - Financial abstraction (NEW)
+@dotdo/business    - BusinessDO class (NEW)
+```
