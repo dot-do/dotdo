@@ -812,3 +812,48 @@ export {
   createEnhancedGracefulDegradationHandler,
   type EnhancedGracefulDegradationConfig,
 } from './graceful-degradation'
+
+/**
+ * Shared proxy utilities for building Proxy-based APIs.
+ *
+ * These utilities are used across @dotdo/do, @dotdo/rpc, and rpc.do packages
+ * for consistent proxy behavior including:
+ * - Two-level nested proxies for $.on.Noun.verb() patterns
+ * - Method proxies for RPC-style calls
+ * - Deep nested RPC proxies for client.users.create() patterns
+ * - Event handler proxies for $.on.Entity.action() patterns
+ * - Schedule DSL proxies for $.every.Monday.at('9am') patterns
+ * - Entity access proxies for $.Customer('id').method() patterns
+ *
+ * @example
+ * ```typescript
+ * import { createDeepRPCProxy, createEventProxy, PROMISE_PROPS } from '@dotdo/do'
+ *
+ * // Create an RPC client proxy
+ * const client = createDeepRPCProxy({
+ *   invoke: async (path, args) => {
+ *     return fetch('/rpc', {
+ *       method: 'POST',
+ *       body: JSON.stringify({ method: path.join('.'), args })
+ *     }).then(r => r.json())
+ *   }
+ * })
+ *
+ * // Use the client
+ * await client.users.create({ name: 'Alice' })
+ * ```
+ */
+export {
+  PROMISE_PROPS,
+  createNestedProxy,
+  createMethodProxy,
+  createCallableNestedProxy,
+  createDeepRPCProxy,
+  createEventProxy,
+  createScheduleProxy,
+  createEntityAccessProxy,
+  type DeepRPCProxyOptions,
+  type EventProxyOptions,
+  type ScheduleProxyOptions,
+  type EntityProxyOptions,
+} from '@dotdo/utils'
