@@ -36,14 +36,17 @@ export interface DotdoConfig {
 export interface GlobalOptions {
   verbose?: boolean
   config?: string
+  json?: boolean
 }
 
 /**
  * Extended Command type with dotdo config attached via preAction hook.
  * The _dotdoConfig property is set in the preAction hook before command execution.
+ * The _jsonOutput property tracks whether --json flag was passed globally.
  */
 interface CommandWithConfig extends Command {
   _dotdoConfig?: DotdoConfig
+  _jsonOutput?: boolean
 }
 
 /**
@@ -147,6 +150,7 @@ export function createProgram(): Command {
     .version('0.0.1')
     .option('-v, --verbose', 'Enable verbose logging')
     .option('-c, --config <path>', 'Path to config file (.dotdo.json or dotdo.config.ts)')
+    .option('--json', 'Output as JSON for scripting')
     .hook('preAction', async (thisCommand) => {
       // Load config before each command runs
       const opts = thisCommand.opts() as GlobalOptions
@@ -158,6 +162,8 @@ export function createProgram(): Command {
 
       // Store config on command for access in actions
       ;(thisCommand as CommandWithConfig)._dotdoConfig = config
+      // Store JSON output flag for access in actions
+      ;(thisCommand as CommandWithConfig)._jsonOutput = opts.json
     })
 
   // ============================================================================
@@ -440,10 +446,12 @@ export function createProgram(): Command {
     .description('List Durable Object bindings from wrangler configuration')
     .option('-n, --namespace <name>', 'Filter by namespace/binding name')
     .option('-c, --config <file>', 'Path to wrangler config file')
-    .option('--format <format>', 'Output format (table|json)', 'table')
+    .option('--json', 'Output as JSON')
     .action(async (options, command) => {
       const config = (command.parent?.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
+      const globalJson = (command.parent?.parent as CommandWithConfig | undefined)?._jsonOutput
       const verbose = config.verbose || options.verbose
+      const json = options.json || globalJson
 
       if (verbose) {
         logger.debug('[dotdo do list] Options:', options)
@@ -457,7 +465,7 @@ export function createProgram(): Command {
         await doList({
           namespace: options.namespace,
           config: options.config,
-          format: options.format,
+          json,
           verbose,
         })
       } catch (error) {
@@ -471,11 +479,13 @@ export function createProgram(): Command {
     .description('Inspect a Durable Object\'s state and metadata')
     .option('-n, --namespace <name>', 'Namespace/binding name')
     .option('-c, --config <file>', 'Path to wrangler config file')
-    .option('--format <format>', 'Output format (table|json)', 'table')
+    .option('--json', 'Output as JSON')
     .option('--storage', 'Show storage contents', true)
     .action(async (id, options, command) => {
       const config = (command.parent?.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
+      const globalJson = (command.parent?.parent as CommandWithConfig | undefined)?._jsonOutput
       const verbose = config.verbose || options.verbose
+      const json = options.json || globalJson
 
       if (verbose) {
         logger.debug('[dotdo do inspect] Options:', options)
@@ -490,7 +500,7 @@ export function createProgram(): Command {
           id,
           namespace: options.namespace,
           config: options.config,
-          format: options.format,
+          json,
           storage: options.storage,
           verbose,
         })
@@ -506,9 +516,12 @@ export function createProgram(): Command {
     .option('-f, --force', 'Skip confirmation prompt')
     .option('-n, --namespace <name>', 'Namespace/binding name')
     .option('-c, --config <file>', 'Path to wrangler config file')
+    .option('--json', 'Output as JSON')
     .action(async (id, options, command) => {
       const config = (command.parent?.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
+      const globalJson = (command.parent?.parent as CommandWithConfig | undefined)?._jsonOutput
       const verbose = config.verbose || options.verbose
+      const json = options.json || globalJson
 
       if (verbose) {
         logger.debug('[dotdo do delete] Options:', options)
@@ -524,6 +537,7 @@ export function createProgram(): Command {
           namespace: options.namespace,
           force: options.force,
           config: options.config,
+          json,
           verbose,
         })
 
@@ -549,10 +563,12 @@ export function createProgram(): Command {
     .option('-n, --name <name>', 'Worker name (defaults to wrangler.toml name)')
     .option('-e, --env <environment>', 'Environment to target')
     .option('-c, --config <file>', 'Path to wrangler config file')
-    .option('--format <format>', 'Output format (json|pretty)', 'pretty')
+    .option('--json', 'Output as JSON')
     .action(async (options, command) => {
       const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
+      const globalJson = (command.parent as CommandWithConfig | undefined)?._jsonOutput
       const verbose = config.verbose || options.verbose
+      const json = options.json || globalJson
 
       if (verbose) {
         logger.debug('[dotdo logs] Options:', options)
@@ -569,7 +585,7 @@ export function createProgram(): Command {
           name: options.name,
           env: options.env,
           config: options.config,
-          format: options.format,
+          json,
           verbose,
         })
       } catch (error) {
@@ -589,10 +605,18 @@ export function createProgram(): Command {
   configCommand
     .command('show')
     .description('Show current configuration')
+    .option('--json', 'Output as JSON')
     .action(async (options, command) => {
       const config = (command.parent?.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
-      logger.info('Current dotdo configuration:')
-      logger.info(JSON.stringify(config, null, 2))
+      const globalJson = (command.parent?.parent as CommandWithConfig | undefined)?._jsonOutput
+      const json = options.json || globalJson
+
+      if (json) {
+        console.log(JSON.stringify(config))
+      } else {
+        logger.info('Current dotdo configuration:')
+        logger.info(JSON.stringify(config, null, 2))
+      }
     })
 
   configCommand
@@ -630,9 +654,12 @@ export function createProgram(): Command {
     .command('get [key]')
     .description('Get a configuration value')
     .option('-g, --global', 'Use global config (~/.dotdo/config.json)')
+    .option('--json', 'Output as JSON')
     .action(async (key, options, command) => {
       const config = (command.parent?.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
+      const globalJson = (command.parent?.parent as CommandWithConfig | undefined)?._jsonOutput
       const verbose = config.verbose || options.verbose
+      const json = options.json || globalJson
 
       if (verbose) {
         logger.debug('[dotdo config get] Key:', key)
@@ -647,6 +674,7 @@ export function createProgram(): Command {
         const result = await configGet({
           key,
           global: options.global,
+          json,
           verbose,
         })
 
@@ -655,6 +683,51 @@ export function createProgram(): Command {
         }
       } catch (error) {
         logger.error('Error:', error instanceof Error ? error.message : String(error))
+        process.exit(1)
+      }
+    })
+
+  // ============================================================================
+  // RPC Commands
+  // ============================================================================
+
+  program
+    .command('repl')
+    .description('Start interactive REPL connected to an RPC endpoint')
+    .argument('<endpoint>', 'RPC endpoint URL (e.g., https://my-tenant.api.dotdo.dev)')
+    .option('-t, --types <path>', 'Path to TypeScript types file (default: fetch from endpoint)')
+    .option('-H, --history <path>', 'Path to history file (default: ~/.do/repl_history)')
+    .action(async (endpoint: string, options: { types?: string; history?: string }, command) => {
+      const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
+      const verbose = config.verbose || false
+
+      if (verbose) {
+        logger.debug('[dotdo repl] Endpoint:', endpoint)
+        logger.debug('[dotdo repl] Options:', options)
+      }
+
+      try {
+        // Read types from file if provided
+        let types: string | undefined
+        if (options.types) {
+          const fs = await import('node:fs')
+          try {
+            types = fs.readFileSync(options.types, 'utf-8')
+          } catch (error) {
+            logger.error(`Error reading types file: ${error instanceof Error ? error.message : error}`)
+            process.exit(1)
+          }
+        }
+
+        // Import startRepl from rpc.do
+        const { startRepl } = await import('rpc.do/cli')
+
+        await startRepl(endpoint, {
+          types,
+          historyPath: options.history,
+        })
+      } catch (error) {
+        logger.error('REPL error:', error instanceof Error ? error.message : String(error))
         process.exit(1)
       }
     })
