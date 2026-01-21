@@ -39,6 +39,14 @@ export interface GlobalOptions {
 }
 
 /**
+ * Extended Command type with dotdo config attached via preAction hook.
+ * The _dotdoConfig property is set in the preAction hook before command execution.
+ */
+interface CommandWithConfig extends Command {
+  _dotdoConfig?: DotdoConfig
+}
+
+/**
  * Load configuration from file (.dotdo.json or dotdo.config.ts)
  * Search order:
  * 1. --config flag path
@@ -149,7 +157,7 @@ export function createProgram(): Command {
       }
 
       // Store config on command for access in actions
-      ;(thisCommand as any)._dotdoConfig = config
+      ;(thisCommand as CommandWithConfig)._dotdoConfig = config
     })
 
   // ============================================================================
@@ -166,7 +174,7 @@ export function createProgram(): Command {
     .option('--skip-git', 'Skip git initialization')
     .option('--skip-install', 'Skip npm install')
     .action(async (directory, options, command) => {
-      const config = (command.parent as any)?._dotdoConfig || {}
+      const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
       if (config.verbose) {
         logger.debug('[dotdo init] Directory:', directory)
         logger.debug('[dotdo init] Options:', options)
@@ -206,7 +214,7 @@ export function createProgram(): Command {
     .option('--persist', 'Enable Durable Object state persistence')
     .option('--verbose', 'Show all wrangler output')
     .action(async (options, command) => {
-      const config = (command.parent as any)?._dotdoConfig || {}
+      const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
       if (config.verbose || options.verbose) {
         logger.debug('[dotdo dev] Options:', options)
         logger.debug('[dotdo dev] Config:', config)
@@ -237,7 +245,7 @@ export function createProgram(): Command {
     .option('-c, --config <file>', 'Path to wrangler config file')
     .option('-e, --env <environment>', 'Environment to build for')
     .action(async (options, command) => {
-      const config = (command.parent as any)?._dotdoConfig || {}
+      const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
       const verbose = config.verbose || options.verbose
 
       if (verbose) {
@@ -283,7 +291,7 @@ export function createProgram(): Command {
     .option('--skip-build', 'Skip build step before deployment')
     .allowUnknownOption() // Allow passing through wrangler options
     .action(async (options, command) => {
-      const config = (command.parent as any)?._dotdoConfig || {}
+      const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
       const verbose = config.verbose || options.verbose
 
       if (verbose) {
@@ -358,7 +366,7 @@ export function createProgram(): Command {
     .option('--token <token>', 'Use existing token (for CI/CD)')
     .option('--no-browser', 'Do not open browser automatically')
     .action(async (options, command) => {
-      const config = (command.parent as any)?._dotdoConfig || {}
+      const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
 
       try {
         // Import login command
@@ -380,7 +388,7 @@ export function createProgram(): Command {
     .command('logout')
     .description('Logout and clear credentials')
     .action(async (options, command) => {
-      const config = (command.parent as any)?._dotdoConfig || {}
+      const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
 
       try {
         // Import logout command
@@ -401,7 +409,7 @@ export function createProgram(): Command {
     .description('Show current user')
     .option('--json', 'Output as JSON')
     .action(async (options, command) => {
-      const config = (command.parent as any)?._dotdoConfig || {}
+      const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
 
       try {
         // Import whoami command
@@ -434,7 +442,7 @@ export function createProgram(): Command {
     .option('-c, --config <file>', 'Path to wrangler config file')
     .option('--format <format>', 'Output format (table|json)', 'table')
     .action(async (options, command) => {
-      const config = (command.parent?.parent as any)?._dotdoConfig || {}
+      const config = (command.parent?.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
       const verbose = config.verbose || options.verbose
 
       if (verbose) {
@@ -466,7 +474,7 @@ export function createProgram(): Command {
     .option('--format <format>', 'Output format (table|json)', 'table')
     .option('--storage', 'Show storage contents', true)
     .action(async (id, options, command) => {
-      const config = (command.parent?.parent as any)?._dotdoConfig || {}
+      const config = (command.parent?.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
       const verbose = config.verbose || options.verbose
 
       if (verbose) {
@@ -499,7 +507,7 @@ export function createProgram(): Command {
     .option('-n, --namespace <name>', 'Namespace/binding name')
     .option('-c, --config <file>', 'Path to wrangler config file')
     .action(async (id, options, command) => {
-      const config = (command.parent?.parent as any)?._dotdoConfig || {}
+      const config = (command.parent?.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
       const verbose = config.verbose || options.verbose
 
       if (verbose) {
@@ -543,7 +551,7 @@ export function createProgram(): Command {
     .option('-c, --config <file>', 'Path to wrangler config file')
     .option('--format <format>', 'Output format (json|pretty)', 'pretty')
     .action(async (options, command) => {
-      const config = (command.parent as any)?._dotdoConfig || {}
+      const config = (command.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
       const verbose = config.verbose || options.verbose
 
       if (verbose) {
@@ -582,7 +590,7 @@ export function createProgram(): Command {
     .command('show')
     .description('Show current configuration')
     .action(async (options, command) => {
-      const config = (command.parent?.parent as any)?._dotdoConfig || {}
+      const config = (command.parent?.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
       logger.info('Current dotdo configuration:')
       logger.info(JSON.stringify(config, null, 2))
     })
@@ -592,7 +600,7 @@ export function createProgram(): Command {
     .description('Set a configuration value')
     .option('-g, --global', 'Use global config (~/.dotdo/config.json)')
     .action(async (key, value, options, command) => {
-      const config = (command.parent?.parent as any)?._dotdoConfig || {}
+      const config = (command.parent?.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
       const verbose = config.verbose || options.verbose
 
       if (verbose) {
@@ -623,7 +631,7 @@ export function createProgram(): Command {
     .description('Get a configuration value')
     .option('-g, --global', 'Use global config (~/.dotdo/config.json)')
     .action(async (key, options, command) => {
-      const config = (command.parent?.parent as any)?._dotdoConfig || {}
+      const config = (command.parent?.parent as CommandWithConfig | undefined)?._dotdoConfig || {}
       const verbose = config.verbose || options.verbose
 
       if (verbose) {

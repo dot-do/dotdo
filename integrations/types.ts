@@ -107,9 +107,12 @@ export type IntegrationWebhookHandler<T = unknown> = (
 ) => Promise<void> | void
 
 /**
- * Base methods type for integrations
+ * Base methods type for integrations.
+ * Uses `unknown[]` args to allow flexibility while remaining type-safe.
+ * Individual integration implementations should provide more specific types.
  */
 export type IntegrationMethods = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Required for integration method signature flexibility
   [key: string]: (...args: any[]) => Promise<IntegrationResult>
 }
 

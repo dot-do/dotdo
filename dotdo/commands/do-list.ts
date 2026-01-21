@@ -111,8 +111,8 @@ function parseWranglerConfig(configPath?: string): DurableObjectNamespace[] {
         const jsonContent = content.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
         const config = JSON.parse(jsonContent)
 
-        const bindings = config.durable_objects?.bindings || []
-        return bindings.map((binding: any) => ({
+        const bindings: Array<{ name: string; class_name: string; script_name?: string }> = config.durable_objects?.bindings || []
+        return bindings.map((binding) => ({
           id: `binding:${binding.name}`,
           name: binding.name,
           className: binding.class_name,

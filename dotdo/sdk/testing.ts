@@ -34,6 +34,7 @@ import type {
   RelationshipsResource,
   PaginatedResponse,
   HealthResponse,
+  ListOptions,
 } from './client'
 import { DotdoClient } from './client'
 
@@ -444,11 +445,11 @@ export class MockDotdoClient {
 
     // Handle built-in methods
     if (method === 'things.list') {
-      const result = await this.things.list(args[0] as any)
+      const result = await this.things.list(args[0] as ListOptions | undefined)
       return result.data as T
     }
     if (method === 'events.list') {
-      const result = await this.events.list(args[0] as any)
+      const result = await this.events.list(args[0] as { type?: string; source?: string; limit?: number; cursor?: string } | undefined)
       return result.data as T
     }
 

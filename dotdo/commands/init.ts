@@ -91,8 +91,8 @@ async function checkDirectory(targetDir: string): Promise<void> {
     if (files.length > 0 && !files.every((f) => f.startsWith('.'))) {
       throw new Error(`Directory ${targetDir} is not empty`)
     }
-  } catch (error: any) {
-    if (error.code === 'ENOENT') {
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       // Directory doesn't exist, will create it
       return
     }
