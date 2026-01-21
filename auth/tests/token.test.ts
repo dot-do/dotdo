@@ -124,7 +124,7 @@ describe('Token Validation', () => {
           issuer,
           audience,
         })
-      ).rejects.toThrow('unexpected "iss" claim value')
+      ).rejects.toThrow(/Token issuer \(iss\) does not match expected value/)
     })
 
     it('should reject token with wrong audience', async () => {
@@ -136,7 +136,7 @@ describe('Token Validation', () => {
           issuer,
           audience,
         })
-      ).rejects.toThrow('unexpected "aud" claim value')
+      ).rejects.toThrow(/Token audience \(aud\) does not match expected value/)
     })
 
     it('should reject malformed token', async () => {

@@ -15,6 +15,14 @@ import type { CryptoKey, KeyObject } from 'jose'
 type KeyLike = CryptoKey | KeyObject
 import { validateSecretPresent } from './validation'
 import { ApiKeyManager, ApiKeyAuth, type ApiKey } from './apikey'
+import {
+  TokenValidationError,
+  MissingTokenError,
+  InvalidAuthHeaderError,
+  MissingSubjectError,
+  mapJoseError,
+  getWWWAuthenticateHeader,
+} from './errors'
 
 /**
  * Options for configuring JWT authentication middleware.
@@ -150,15 +158,46 @@ export function authMiddleware(options: AuthOptions = {}): MiddlewareHandler {
       return next()
     }
 
-    // Get token from header
+    // Get token from header with detailed error handling
     const authHeader = c.req.header('Authorization')
     if (!authHeader) {
-      throw new HTTPException(401, { message: 'Authorization header required' })
+      const error = new MissingTokenError('header')
+      c.header('WWW-Authenticate', getWWWAuthenticateHeader(error))
+      throw new HTTPException(error.statusCode, {
+        message: error.message,
+        cause: error,
+      })
     }
 
-    const [scheme, token] = authHeader.split(' ')
-    if (scheme !== 'Bearer' || !token) {
-      throw new HTTPException(401, { message: 'Bearer token required' })
+    const parts = authHeader.trim().split(/\s+/)
+    const scheme = parts[0]
+    const token = parts[1]
+
+    if (!scheme) {
+      const error = new InvalidAuthHeaderError('missing_scheme')
+      c.header('WWW-Authenticate', getWWWAuthenticateHeader(error))
+      throw new HTTPException(error.statusCode, {
+        message: error.message,
+        cause: error,
+      })
+    }
+
+    if (scheme !== 'Bearer') {
+      const error = new InvalidAuthHeaderError('wrong_scheme')
+      c.header('WWW-Authenticate', getWWWAuthenticateHeader(error))
+      throw new HTTPException(error.statusCode, {
+        message: error.message,
+        cause: error,
+      })
+    }
+
+    if (!token) {
+      const error = new InvalidAuthHeaderError('missing_token')
+      c.header('WWW-Authenticate', getWWWAuthenticateHeader(error))
+      throw new HTTPException(error.statusCode, {
+        message: error.message,
+        cause: error,
+      })
     }
 
     try {
@@ -175,7 +214,12 @@ export function authMiddleware(options: AuthOptions = {}): MiddlewareHandler {
 
       // Strict claim validation - subject is required
       if (!payload.sub) {
-        throw new HTTPException(401, { message: 'Token missing subject claim' })
+        const error = new MissingSubjectError()
+        c.header('WWW-Authenticate', getWWWAuthenticateHeader(error))
+        throw new HTTPException(error.statusCode, {
+          message: error.message,
+          cause: error,
+        })
       }
 
       // Extract claims safely using index signature access
@@ -199,8 +243,20 @@ export function authMiddleware(options: AuthOptions = {}): MiddlewareHandler {
       if (error instanceof HTTPException) {
         throw error
       }
-      // All other errors (invalid signature, expired, malformed) reject the request
-      throw new HTTPException(401, { message: 'Invalid token' })
+
+      // Convert to TokenValidationError for detailed error messages
+      const tokenError = error instanceof TokenValidationError
+        ? error
+        : mapJoseError(error, {
+            expectedIssuer: issuer,
+            expectedAudience: audience,
+          })
+
+      c.header('WWW-Authenticate', getWWWAuthenticateHeader(tokenError))
+      throw new HTTPException(tokenError.statusCode, {
+        message: tokenError.message,
+        cause: tokenError,
+      })
     }
   }
 }
