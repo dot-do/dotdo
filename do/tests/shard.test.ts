@@ -8,6 +8,7 @@ import {
   extractShardFromQuery,
   LoadMetricsStore,
   LoadBalancedRouter,
+  createLoadBalancedRouter,
   type ShardContext,
 } from '../shard'
 
@@ -539,6 +540,693 @@ describe('ShardRouter integration scenarios', () => {
         entityId: 'order-123',
       })
       expect(result.shardIndex).toBeLessThan(128)
+    })
+  })
+})
+
+// ============================================================================
+// Additional Shard Routing Edge Cases (do-ka77)
+// ============================================================================
+
+describe('Shard routing edge cases (do-ka77)', () => {
+  describe('fnv1aHash edge cases', () => {
+    it('should produce deterministic results for identical keys', () => {
+      const key = 'test-deterministic-key'
+      const hashes = Array.from({ length: 100 }, () => fnv1aHash(key))
+      expect(new Set(hashes).size).toBe(1)
+    })
+
+    it('should handle very long strings', () => {
+      const longKey = 'a'.repeat(10000)
+      const hash = fnv1aHash(longKey)
+      expect(typeof hash).toBe('number')
+      expect(hash).toBeGreaterThanOrEqual(0)
+    })
+
+    it('should handle special characters', () => {
+      const specialKeys = [
+        'key/with/slashes',
+        'key:with:colons',
+        'key@with@at',
+        'key#with#hash',
+        'key?with?question',
+        'key&with&ampersand',
+        'key=with=equals',
+        'key with spaces',
+        'key\twith\ttabs',
+        'key\nwith\nnewlines',
+      ]
+      for (const key of specialKeys) {
+        const hash = fnv1aHash(key)
+        expect(typeof hash).toBe('number')
+        expect(hash).toBeGreaterThanOrEqual(0)
+      }
+    })
+
+    it('should produce different hashes for similar strings', () => {
+      const hashes = new Set([
+        fnv1aHash('user-1'),
+        fnv1aHash('user-2'),
+        fnv1aHash('user-3'),
+        fnv1aHash('1-user'),
+        fnv1aHash('2-user'),
+      ])
+      expect(hashes.size).toBe(5)
+    })
+
+    it('should handle null characters in strings', () => {
+      const keyWithNull = 'key\x00with\x00nulls'
+      const hash = fnv1aHash(keyWithNull)
+      expect(typeof hash).toBe('number')
+    })
+  })
+
+  describe('getShardIndex edge cases', () => {
+    it('should handle very large shard counts', () => {
+      const index = getShardIndex('test-key', 1000000)
+      expect(index).toBeGreaterThanOrEqual(0)
+      expect(index).toBeLessThan(1000000)
+    })
+
+    it('should distribute keys reasonably for power-of-2 shard counts', () => {
+      const shardCount = 256
+      const shardCounts = new Map<number, number>()
+
+      // Generate many keys and track distribution
+      for (let i = 0; i < 1000; i++) {
+        const key = `key-${i}-${Math.random()}`
+        const index = getShardIndex(key, shardCount)
+        shardCounts.set(index, (shardCounts.get(index) ?? 0) + 1)
+      }
+
+      // Should use at least 50% of available shards
+      expect(shardCounts.size).toBeGreaterThan(shardCount / 2)
+    })
+
+    it('should distribute keys reasonably for non-power-of-2 shard counts', () => {
+      const shardCount = 17 // Prime number
+      const shardCounts = new Map<number, number>()
+
+      for (let i = 0; i < 1000; i++) {
+        const key = `key-${i}-${Math.random()}`
+        const index = getShardIndex(key, shardCount)
+        shardCounts.set(index, (shardCounts.get(index) ?? 0) + 1)
+      }
+
+      expect(shardCounts.size).toBe(shardCount) // Should use all shards
+    })
+
+    it('should handle edge case shard count of 2', () => {
+      const index = getShardIndex('test-key', 2)
+      expect(index === 0 || index === 1).toBe(true)
+    })
+  })
+
+  describe('ShardRouter path extraction edge cases', () => {
+    let router: ShardRouter
+
+    beforeEach(() => {
+      router = new ShardRouter({ defaultShardCount: 16 })
+    })
+
+    it('should handle paths with trailing slashes', () => {
+      const result1 = router.route({ namespace: 'acme', path: '/users/user-123/' })
+      const result2 = router.route({ namespace: 'acme', path: '/users/user-123' })
+      // Both should extract the same key
+      expect(result1.key).toBe(result2.key)
+    })
+
+    it('should handle paths with multiple API version prefixes', () => {
+      const result = router.route({ namespace: 'acme', path: '/api/v2/users/user-123' })
+      expect(result.doName).toMatch(/^acme:users:shard-\d+$/)
+      expect(result.key).toBe('user-123')
+    })
+
+    it('should handle deeply nested paths', () => {
+      const result = router.route({
+        namespace: 'acme',
+        path: '/api/v1/organizations/org-123/teams/team-456/members/user-789',
+      })
+      expect(result.sharded).toBe(true)
+      expect(result.key).toBe('user-789') // Extracts last ID-like segment
+    })
+
+    it('should handle UUID-style keys', () => {
+      const uuid = '550e8400-e29b-41d4-a716-446655440000'
+      const result = router.route({
+        namespace: 'acme',
+        path: `/users/${uuid}`,
+        entityId: uuid,
+      })
+      expect(result.key).toBe(uuid)
+      expect(result.sharded).toBe(true)
+    })
+
+    it('should handle numeric-only keys', () => {
+      const result = router.route({
+        namespace: 'acme',
+        path: '/users/12345',
+        entityId: '12345',
+      })
+      expect(result.key).toBe('12345')
+      expect(result.sharded).toBe(true)
+    })
+
+    it('should handle empty path segments', () => {
+      const result = router.route({ namespace: 'acme', path: '//users//user-123//' })
+      expect(result.sharded).toBe(true)
+    })
+
+    it('should handle root path without sharding', () => {
+      const result = router.route({ namespace: 'acme', path: '/' })
+      expect(result.sharded).toBe(false)
+      expect(result.doName).toBe('acme')
+    })
+
+    it('should handle paths with only API prefixes', () => {
+      const result = router.route({ namespace: 'acme', path: '/api/v1' })
+      expect(result.sharded).toBe(false)
+      expect(result.doName).toBe('acme')
+    })
+  })
+
+  describe('ShardRouter namespace edge cases', () => {
+    it('should handle namespaces with special characters', () => {
+      const router = new ShardRouter({ defaultShardCount: 16 })
+      const result = router.route({
+        namespace: 'acme-corp',
+        path: '/users/user-123',
+        entityId: 'user-123',
+      })
+      expect(result.doName).toMatch(/^acme-corp:users:shard-\d+$/)
+    })
+
+    it('should handle numeric namespaces', () => {
+      const router = new ShardRouter({ defaultShardCount: 16 })
+      const result = router.route({
+        namespace: '12345',
+        path: '/users/user-123',
+        entityId: 'user-123',
+      })
+      expect(result.doName).toMatch(/^12345:users:shard-\d+$/)
+    })
+
+    it('should handle very long namespaces', () => {
+      const router = new ShardRouter({ defaultShardCount: 16 })
+      const longNamespace = 'a'.repeat(100)
+      const result = router.route({
+        namespace: longNamespace,
+        path: '/users/user-123',
+        entityId: 'user-123',
+      })
+      expect(result.doName).toContain(longNamespace)
+      expect(result.sharded).toBe(true)
+    })
+
+    it('should handle empty namespace with default behavior', () => {
+      const router = new ShardRouter({ defaultShardCount: 16 })
+      const result = router.route({
+        namespace: '',
+        path: '/users/user-123',
+        entityId: 'user-123',
+      })
+      expect(result.doName).toMatch(/^:users:shard-\d+$/)
+    })
+  })
+
+  describe('ShardRouter pattern matching edge cases', () => {
+    it('should match exact path lengths', () => {
+      const router = new ShardRouter({
+        defaultShardCount: 16,
+        keyExtractors: {
+          '/api/*/users/*': (ctx) => ctx.params?.get('userId') || undefined,
+        },
+      })
+
+      const params = new URLSearchParams('userId=custom-123')
+      // Pattern has 4 segments, path has 4 segments - should match
+      const result = router.route({
+        namespace: 'acme',
+        path: '/api/v1/users/user-123',
+        params,
+      })
+      expect(result.key).toBe('custom-123')
+    })
+
+    it('should not match paths with different segment counts', () => {
+      const router = new ShardRouter({
+        defaultShardCount: 16,
+        keyExtractors: {
+          '/api/*/users': (ctx) => ctx.params?.get('userId') || undefined,
+        },
+      })
+
+      const params = new URLSearchParams('userId=custom-123')
+      // Pattern has 3 segments, path has 4 - should NOT match
+      const result = router.route({
+        namespace: 'acme',
+        path: '/api/v1/users/extra',
+        params,
+      })
+      // Should fall back to path extraction, not custom extractor
+      expect(result.key).not.toBe('custom-123')
+    })
+
+    it('should handle multiple matching patterns (first match wins)', () => {
+      const router = new ShardRouter({
+        defaultShardCount: 16,
+        keyExtractors: {
+          '/api/*/users/*': () => 'first-match',
+          '/api/v1/users/*': () => 'second-match',
+        },
+      })
+
+      const result = router.route({
+        namespace: 'acme',
+        path: '/api/v1/users/user-123',
+      })
+      // Object iteration order should give us first-match
+      expect(result.key).toBe('first-match')
+    })
+  })
+})
+
+// ============================================================================
+// Load Balancing Edge Cases (do-ka77)
+// ============================================================================
+
+describe('Load balancing edge cases (do-ka77)', () => {
+  describe('LoadMetricsStore edge cases', () => {
+    it('should handle recording zero load', () => {
+      const store = new LoadMetricsStore()
+      store.recordLoad('acme:shard-0', 0)
+      expect(store.getLoad('acme:shard-0')).toBe(0)
+    })
+
+    it('should handle negative load values gracefully', () => {
+      const store = new LoadMetricsStore()
+      store.recordLoad('acme:shard-0', -10)
+      expect(store.getLoad('acme:shard-0')).toBe(-10)
+    })
+
+    it('should handle very large load values', () => {
+      const store = new LoadMetricsStore()
+      store.recordLoad('acme:shard-0', Number.MAX_SAFE_INTEGER)
+      expect(store.getLoad('acme:shard-0')).toBe(Number.MAX_SAFE_INTEGER)
+    })
+
+    it('should handle concurrent request tracking', () => {
+      const store = new LoadMetricsStore()
+
+      // Simulate concurrent requests
+      for (let i = 0; i < 100; i++) {
+        store.recordRequest(`acme:shard-${i % 4}`)
+      }
+
+      const totalRequests =
+        store.getLoad('acme:shard-0') +
+        store.getLoad('acme:shard-1') +
+        store.getLoad('acme:shard-2') +
+        store.getLoad('acme:shard-3')
+
+      expect(totalRequests).toBe(100)
+    })
+
+    it('should return snapshot of all loads', () => {
+      const store = new LoadMetricsStore()
+      store.recordLoad('shard-0', 10)
+      store.recordLoad('shard-1', 20)
+      store.recordLoad('shard-2', 30)
+
+      const snapshot = store.getSnapshot()
+      expect(snapshot).toEqual({
+        'shard-0': 10,
+        'shard-1': 20,
+        'shard-2': 30,
+      })
+    })
+
+    it('should not decay when interval not reached', () => {
+      const store = new LoadMetricsStore({ decayIntervalMs: 10000 })
+      store.recordLoad('shard-0', 100)
+
+      // Immediate decay call should not reduce load
+      store.applyDecay()
+      expect(store.getLoad('shard-0')).toBe(100)
+    })
+
+    it('should handle metrics decay with floor rounding', () => {
+      const store = new LoadMetricsStore({ decayIntervalMs: 1, decayFactor: 0.5 })
+      store.recordLoad('shard-0', 7) // 7 * 0.5 = 3.5 -> floor to 3
+      store.recordMetric('shard-0', 'requests', 5)
+
+      // Wait for decay interval
+      return new Promise<void>((resolve) => {
+        setTimeout(() => {
+          store.applyDecay()
+          expect(store.getLoad('shard-0')).toBe(3)
+          expect(store.getMetric('shard-0', 'requests')).toBe(2)
+          resolve()
+        }, 10)
+      })
+    })
+
+    it('should find least loaded with all zero loads', () => {
+      const store = new LoadMetricsStore()
+      // No loads recorded - all are 0
+
+      const result = store.findLeastLoaded('acme', 'users', 4)
+      expect(result.shardIndex).toBe(0) // First shard wins on tie
+      expect(result.load).toBe(0)
+    })
+
+    it('should return zero composite load for unknown shard', () => {
+      const store = new LoadMetricsStore()
+      expect(store.getCompositeLoad('unknown:shard')).toBe(0)
+    })
+  })
+
+  describe('LoadBalancedRouter edge cases', () => {
+    it('should handle single shard configuration', () => {
+      const metricsStore = new LoadMetricsStore()
+      metricsStore.recordLoad('acme:users:shard-0', 100)
+
+      const router = new LoadBalancedRouter({
+        defaultShardCount: 1,
+        metricsStore,
+        strategy: 'least-loaded',
+      })
+
+      const result = router.route({ namespace: 'acme', path: '/users', entityType: 'users' })
+      expect(result.shardIndex).toBe(0)
+      expect(result.doName).toBe('acme:users:shard-0')
+    })
+
+    it('should handle round-robin strategy', () => {
+      const router = new LoadBalancedRouter({
+        defaultShardCount: 4,
+        strategy: 'round-robin',
+      })
+
+      const shardIndices: number[] = []
+      for (let i = 0; i < 8; i++) {
+        const result = router.route({ namespace: 'acme', path: '/users', entityType: 'users' })
+        shardIndices.push(result.shardIndex)
+      }
+
+      // Should cycle through 0,1,2,3,0,1,2,3
+      expect(shardIndices).toEqual([0, 1, 2, 3, 0, 1, 2, 3])
+    })
+
+    it('should handle round-robin for different entity types independently', () => {
+      const router = new LoadBalancedRouter({
+        defaultShardCount: 4,
+        strategy: 'round-robin',
+      })
+
+      // Route users
+      const users1 = router.route({ namespace: 'acme', path: '/users', entityType: 'users' })
+      const users2 = router.route({ namespace: 'acme', path: '/users', entityType: 'users' })
+
+      // Route orders - should start fresh counter
+      const orders1 = router.route({ namespace: 'acme', path: '/orders', entityType: 'orders' })
+      const orders2 = router.route({ namespace: 'acme', path: '/orders', entityType: 'orders' })
+
+      expect(users1.shardIndex).toBe(0)
+      expect(users2.shardIndex).toBe(1)
+      expect(orders1.shardIndex).toBe(0)
+      expect(orders2.shardIndex).toBe(1)
+    })
+
+    it('should return loadBalanced=false when sharding disabled', () => {
+      const router = new LoadBalancedRouter({
+        defaultShardCount: 4,
+        enabled: false,
+      })
+
+      const result = router.route({ namespace: 'acme', path: '/users', entityType: 'users' })
+      expect(result.loadBalanced).toBe(false)
+      expect(result.sharded).toBe(false)
+      expect(result.doName).toBe('acme')
+    })
+
+    it('should use consistent hashing for keys even with load balancing', () => {
+      const metricsStore = new LoadMetricsStore()
+      metricsStore.recordLoad('acme:users:shard-0', 1000)
+      metricsStore.recordLoad('acme:users:shard-1', 1)
+
+      const router = new LoadBalancedRouter({
+        defaultShardCount: 4,
+        metricsStore,
+        strategy: 'least-loaded',
+      })
+
+      // With explicit entityId, should use consistent hash, not load balancing
+      const result = router.route({
+        namespace: 'acme',
+        path: '/users/user-123',
+        entityType: 'users',
+        entityId: 'user-123',
+      })
+
+      expect(result.loadBalanced).toBe(false)
+      // Should be deterministic regardless of load
+      const result2 = router.route({
+        namespace: 'acme',
+        path: '/users/user-123',
+        entityType: 'users',
+        entityId: 'user-123',
+      })
+      expect(result.doName).toBe(result2.doName)
+    })
+
+    it('should handle weighted strategy with missing weights', () => {
+      const metricsStore = new LoadMetricsStore()
+      metricsStore.recordLoad('acme:users:shard-0', 100)
+      metricsStore.recordLoad('acme:users:shard-1', 100)
+      metricsStore.recordLoad('acme:users:shard-2', 100)
+
+      const router = new LoadBalancedRouter({
+        defaultShardCount: 3,
+        metricsStore,
+        strategy: 'weighted',
+        // Only shard-0 has explicit weight
+        weights: { 'acme:users:shard-0': 2 },
+      })
+
+      const result = router.route({ namespace: 'acme', path: '/users', entityType: 'users' })
+      // shard-0 has weight 2, effective load = 100/2 = 50
+      // shard-1,2 have weight 1, effective load = 100/1 = 100
+      expect(result.shardIndex).toBe(0)
+    })
+
+    it('should not emit telemetry for non-load-balanced routes', () => {
+      const metricsStore = new LoadMetricsStore()
+      const telemetryEvents: unknown[] = []
+
+      const router = new LoadBalancedRouter({
+        defaultShardCount: 4,
+        metricsStore,
+        strategy: 'least-loaded',
+        onTelemetry: (event) => telemetryEvents.push(event),
+      })
+
+      // Route with entityId - uses consistent hash, not load balancing
+      router.route({
+        namespace: 'acme',
+        path: '/users/user-123',
+        entityType: 'users',
+        entityId: 'user-123',
+      })
+
+      expect(telemetryEvents.length).toBe(0)
+    })
+
+    it('should include correct telemetry metadata', () => {
+      const metricsStore = new LoadMetricsStore()
+      metricsStore.recordLoad('acme:users:shard-0', 50)
+      metricsStore.recordLoad('acme:users:shard-1', 25)
+
+      let capturedEvent: unknown = null
+
+      const router = new LoadBalancedRouter({
+        defaultShardCount: 2,
+        metricsStore,
+        strategy: 'least-loaded',
+        onTelemetry: (event) => { capturedEvent = event },
+      })
+
+      router.route({ namespace: 'acme', path: '/users', entityType: 'users' })
+
+      expect(capturedEvent).toMatchObject({
+        type: 'load_balance_decision',
+        namespace: 'acme',
+        entityType: 'users',
+        selectedShard: 1,
+        selectedDoName: 'acme:users:shard-1',
+        strategy: 'least-loaded',
+        timestamp: expect.any(Number),
+        loadSnapshot: {
+          'acme:users:shard-0': 50,
+          'acme:users:shard-1': 25,
+        },
+      })
+    })
+
+    it('should get metrics store reference', () => {
+      const metricsStore = new LoadMetricsStore()
+      const router = new LoadBalancedRouter({ metricsStore })
+
+      expect(router.getMetricsStore()).toBe(metricsStore)
+    })
+
+    it('should create default metrics store if not provided', () => {
+      const router = new LoadBalancedRouter({})
+      expect(router.getMetricsStore()).toBeInstanceOf(LoadMetricsStore)
+    })
+
+    it('should handle routing without entity type using namespace-only prefix', () => {
+      const metricsStore = new LoadMetricsStore()
+      metricsStore.recordLoad('acme:shard-0', 100)
+      metricsStore.recordLoad('acme:shard-1', 10)
+
+      const router = new LoadBalancedRouter({
+        defaultShardCount: 2,
+        metricsStore,
+        strategy: 'least-loaded',
+      })
+
+      // No entityType, no path that extracts one - uses namespace-only prefix
+      const result = router.route({ namespace: 'acme', path: '/' })
+      // Should use load balancing with namespace-only prefix
+      expect(result.doName).toBe('acme:shard-1') // shard-1 has lower load
+      expect(result.sharded).toBe(true)
+      expect(result.loadBalanced).toBe(true)
+    })
+  })
+
+  describe('createLoadBalancedRouter', () => {
+    it('should create router with default config', () => {
+      const router = createLoadBalancedRouter()
+      expect(router).toBeInstanceOf(LoadBalancedRouter)
+    })
+
+    it('should create router with custom config', () => {
+      const metricsStore = new LoadMetricsStore()
+      const router = createLoadBalancedRouter({
+        defaultShardCount: 32,
+        metricsStore,
+        strategy: 'round-robin',
+      })
+      expect(router).toBeInstanceOf(LoadBalancedRouter)
+      expect(router.getMetricsStore()).toBe(metricsStore)
+    })
+  })
+})
+
+// ============================================================================
+// Shard Selection Boundary Tests (do-ka77)
+// ============================================================================
+
+describe('Shard selection boundary tests (do-ka77)', () => {
+  describe('Hash distribution at boundaries', () => {
+    it('should handle minimum valid shard count (1)', () => {
+      const router = new ShardRouter({ defaultShardCount: 1 })
+      const result = router.route({
+        namespace: 'acme',
+        path: '/users/user-123',
+        entityId: 'user-123',
+      })
+      expect(result.shardIndex).toBe(0)
+    })
+
+    it('should handle large shard count (1000)', () => {
+      const router = new ShardRouter({ defaultShardCount: 1000 })
+      const shardsSeen = new Set<number>()
+
+      for (let i = 0; i < 5000; i++) {
+        const result = router.route({
+          namespace: 'acme',
+          path: `/users/user-${i}`,
+          entityId: `user-${i}`,
+        })
+        shardsSeen.add(result.shardIndex)
+      }
+
+      // With 5000 keys across 1000 shards, we should hit a reasonable number
+      // Hash collisions are expected, so we use a conservative threshold
+      expect(shardsSeen.size).toBeGreaterThan(600)
+    })
+
+    it('should maintain consistency across router instances', () => {
+      const router1 = new ShardRouter({ defaultShardCount: 16 })
+      const router2 = new ShardRouter({ defaultShardCount: 16 })
+
+      const ctx = {
+        namespace: 'acme',
+        path: '/users/user-123',
+        entityId: 'user-123',
+      }
+
+      expect(router1.route(ctx).doName).toBe(router2.route(ctx).doName)
+    })
+  })
+
+  describe('Load balanced shard selection boundaries', () => {
+    it('should select shard 0 when all loads are equal and round-robin starts', () => {
+      const metricsStore = new LoadMetricsStore()
+      for (let i = 0; i < 4; i++) {
+        metricsStore.recordLoad(`acme:users:shard-${i}`, 50)
+      }
+
+      const router = new LoadBalancedRouter({
+        defaultShardCount: 4,
+        metricsStore,
+        strategy: 'least-loaded',
+      })
+
+      const result = router.route({ namespace: 'acme', path: '/users', entityType: 'users' })
+      expect(result.shardIndex).toBe(0) // First in round-robin
+    })
+
+    it('should handle transition when load changes during routing', () => {
+      const metricsStore = new LoadMetricsStore()
+      metricsStore.recordLoad('acme:users:shard-0', 100)
+      metricsStore.recordLoad('acme:users:shard-1', 50)
+
+      const router = new LoadBalancedRouter({
+        defaultShardCount: 2,
+        metricsStore,
+        strategy: 'least-loaded',
+      })
+
+      // First route goes to shard-1 (lower load)
+      const result1 = router.route({ namespace: 'acme', path: '/users', entityType: 'users' })
+      expect(result1.shardIndex).toBe(1)
+
+      // Update load - now shard-0 is lower
+      metricsStore.recordLoad('acme:users:shard-0', 10)
+      metricsStore.recordLoad('acme:users:shard-1', 200)
+
+      const result2 = router.route({ namespace: 'acme', path: '/users', entityType: 'users' })
+      expect(result2.shardIndex).toBe(0)
+    })
+
+    it('should handle shard count mismatch between config and metrics', () => {
+      const metricsStore = new LoadMetricsStore()
+      // Only record load for 2 shards
+      metricsStore.recordLoad('acme:users:shard-0', 100)
+      metricsStore.recordLoad('acme:users:shard-1', 50)
+
+      const router = new LoadBalancedRouter({
+        defaultShardCount: 4, // But config says 4 shards
+        metricsStore,
+        strategy: 'least-loaded',
+      })
+
+      const result = router.route({ namespace: 'acme', path: '/users', entityType: 'users' })
+      // Should select shard-2 or shard-3 which have 0 load
+      expect([2, 3]).toContain(result.shardIndex)
     })
   })
 })

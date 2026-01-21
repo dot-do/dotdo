@@ -10,8 +10,17 @@
  *
  * Converts fluent DSL to CRON expressions internally
  *
+ * SECURITY NOTE (do-stfi): All user input is validated through cron-validation.ts
+ * to prevent CRON injection attacks.
+ *
  * @module do/workflow/schedule
  */
+
+import {
+  validateTimeString,
+  validateCronExpression,
+  CronValidationError,
+} from './cron-validation'
 
 export type ScheduleHandler = () => Promise<void>
 
@@ -122,52 +131,55 @@ const TIME_PATTERNS: Record<string, { hour: number; minute: number }> = {
 
 /**
  * Parse time string like "6pm", "9am", "3:45pm" to hour and minute
+ *
+ * SECURITY (do-stfi): Input is validated through validateTimeString to prevent
+ * injection attacks. This function rejects:
+ * - Shell metacharacters (;, &, |, `, $, etc.)
+ * - Control characters and null bytes
+ * - Unicode direction override characters
+ * - Excessively long strings
+ *
+ * @param timeStr - Time string to parse (e.g., "9am", "3:45pm", "15:30")
+ * @returns Object with hour (0-23) and minute (0-59)
+ * @throws CronValidationError if the time string is invalid or contains dangerous characters
  */
 function parseTimeString(timeStr: string): { hour: number; minute: number } {
   const clean = timeStr.toLowerCase().trim()
 
-  // Check for named patterns first
+  // Check for named patterns first (these are safe, pre-defined values)
   const named = TIME_PATTERNS[`at${clean.replace(/[:\s]/g, '')}`]
   if (named) return named
 
-  // Parse formats: "6pm", "9am", "3:45pm", "15:30"
-  const match = clean.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i)
-  if (!match) {
-    throw new Error(`Invalid time format: ${timeStr}. Use formats like "9am", "3:45pm", or "15:30"`)
-  }
-
-  const hourStr = match[1]
-  if (!hourStr) {
-    throw new Error(`Invalid time format: ${timeStr}. Use formats like "9am", "3:45pm", or "15:30"`)
-  }
-  let hour = parseInt(hourStr, 10)
-  const minute = match[2] ? parseInt(match[2], 10) : 0
-  const meridiem = match[3]?.toLowerCase()
-
-  if (meridiem === 'pm' && hour < 12) {
-    hour += 12
-  } else if (meridiem === 'am' && hour === 12) {
-    hour = 0
-  }
-
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-    throw new Error(`Invalid time: ${timeStr}`)
-  }
-
-  return { hour, minute }
+  // Validate and parse using secure validation (do-stfi)
+  // This will throw CronValidationError for dangerous input
+  return validateTimeString(timeStr)
 }
 
 /**
  * Combine a cron pattern with a specific time
+ *
+ * SECURITY (do-stfi): The resulting CRON expression is validated
+ * to ensure no injection has occurred.
+ *
+ * @param baseCron - Base CRON pattern (e.g., "0 0 * * 1")
+ * @param time - Time object with hour (0-23) and minute (0-59)
+ * @returns Complete CRON expression
+ * @throws CronValidationError if the resulting expression is invalid
  */
 function combineWithTime(baseCron: string, time: { hour: number; minute: number }): string {
   const parts = baseCron.split(' ')
   // Cron format: minute hour day month weekday (5 parts)
   // We modify parts[0] and parts[1] - they must exist for a valid cron
   if (parts.length < 2) {
-    throw new Error(`Invalid cron pattern: ${baseCron}`)
+    throw new CronValidationError(`Invalid cron pattern: ${baseCron}`)
   }
-  return [String(time.minute), String(time.hour), ...parts.slice(2)].join(' ')
+
+  const result = [String(time.minute), String(time.hour), ...parts.slice(2)].join(' ')
+
+  // Validate the resulting CRON expression (do-stfi)
+  validateCronExpression(result)
+
+  return result
 }
 
 /**
