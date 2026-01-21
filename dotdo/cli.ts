@@ -230,12 +230,38 @@ export function createProgram(): Command {
     .description('Build project for deployment')
     .option('--minify', 'Minify output')
     .option('--sourcemap', 'Generate sourcemaps')
+    .option('-o, --outdir <dir>', 'Output directory')
+    .option('-c, --config <file>', 'Path to wrangler config file')
+    .option('-e, --env <environment>', 'Environment to build for')
     .action(async (options, command) => {
       const config = (command.parent as any)?._dotdoConfig || {}
-      if (config.verbose) {
+      const verbose = config.verbose || options.verbose
+
+      if (verbose) {
         console.log('[dotdo build] Options:', options)
       }
-      console.log('TODO: Implement dotdo build')
+
+      try {
+        // Import build command
+        const { build } = await import('./commands/build')
+
+        // Run build
+        const result = await build({
+          minify: options.minify,
+          sourcemap: options.sourcemap,
+          outdir: options.outdir,
+          config: options.config,
+          env: options.env,
+          verbose,
+        })
+
+        if (!result.success) {
+          process.exit(result.exitCode)
+        }
+      } catch (error) {
+        console.error('Build error:', error instanceof Error ? error.message : String(error))
+        process.exit(1)
+      }
     })
 
   // ============================================================================
@@ -400,25 +426,104 @@ export function createProgram(): Command {
 
   doCommand
     .command('list')
-    .description('List Durable Objects')
-    .option('-n, --namespace <name>', 'Filter by namespace')
+    .description('List Durable Object bindings from wrangler configuration')
+    .option('-n, --namespace <name>', 'Filter by namespace/binding name')
+    .option('-c, --config <file>', 'Path to wrangler config file')
+    .option('--format <format>', 'Output format (table|json)', 'table')
     .action(async (options, command) => {
-      console.log('TODO: Implement dotdo do list')
+      const config = (command.parent?.parent as any)?._dotdoConfig || {}
+      const verbose = config.verbose || options.verbose
+
+      if (verbose) {
+        console.log('[dotdo do list] Options:', options)
+      }
+
+      try {
+        // Import do list command
+        const { doList } = await import('./commands/do-list')
+
+        // Run do list
+        await doList({
+          namespace: options.namespace,
+          config: options.config,
+          format: options.format,
+          verbose,
+        })
+      } catch (error) {
+        console.error('Error:', error instanceof Error ? error.message : String(error))
+        process.exit(1)
+      }
     })
 
   doCommand
     .command('inspect <id>')
-    .description('Inspect a Durable Object')
+    .description('Inspect a Durable Object\'s state and metadata')
+    .option('-n, --namespace <name>', 'Namespace/binding name')
+    .option('-c, --config <file>', 'Path to wrangler config file')
+    .option('--format <format>', 'Output format (table|json)', 'table')
+    .option('--storage', 'Show storage contents', true)
     .action(async (id, options, command) => {
-      console.log(`TODO: Implement dotdo do inspect ${id}`)
+      const config = (command.parent?.parent as any)?._dotdoConfig || {}
+      const verbose = config.verbose || options.verbose
+
+      if (verbose) {
+        console.log('[dotdo do inspect] Options:', options)
+      }
+
+      try {
+        // Import do inspect command
+        const { doInspect } = await import('./commands/do-inspect')
+
+        // Run do inspect
+        await doInspect({
+          id,
+          namespace: options.namespace,
+          config: options.config,
+          format: options.format,
+          storage: options.storage,
+          verbose,
+        })
+      } catch (error) {
+        console.error('Error:', error instanceof Error ? error.message : String(error))
+        process.exit(1)
+      }
     })
 
   doCommand
     .command('delete <id>')
-    .description('Delete a Durable Object')
-    .option('-f, --force', 'Skip confirmation')
+    .description('Delete a Durable Object\'s storage')
+    .option('-f, --force', 'Skip confirmation prompt')
+    .option('-n, --namespace <name>', 'Namespace/binding name')
+    .option('-c, --config <file>', 'Path to wrangler config file')
     .action(async (id, options, command) => {
-      console.log(`TODO: Implement dotdo do delete ${id}`)
+      const config = (command.parent?.parent as any)?._dotdoConfig || {}
+      const verbose = config.verbose || options.verbose
+
+      if (verbose) {
+        console.log('[dotdo do delete] Options:', options)
+      }
+
+      try {
+        // Import do delete command
+        const { doDelete } = await import('./commands/do-delete')
+
+        // Run do delete
+        const result = await doDelete({
+          id,
+          namespace: options.namespace,
+          force: options.force,
+          config: options.config,
+          verbose,
+        })
+
+        if (!result.deleted) {
+          // Exit with non-zero if deletion was cancelled or failed
+          process.exit(1)
+        }
+      } catch (error) {
+        console.error('Error:', error instanceof Error ? error.message : String(error))
+        process.exit(1)
+      }
     })
 
   // ============================================================================
@@ -428,11 +533,38 @@ export function createProgram(): Command {
   program
     .command('logs')
     .description('Tail logs from deployed worker')
-    .option('-f, --follow', 'Follow logs in real-time')
-    .option('--level <level>', 'Filter by log level', 'info')
+    .option('-f, --follow', 'Follow logs in real-time', true)
+    .option('--level <level>', 'Filter by log level (debug|info|warn|error)', 'info')
+    .option('-n, --name <name>', 'Worker name (defaults to wrangler.toml name)')
+    .option('-e, --env <environment>', 'Environment to target')
+    .option('-c, --config <file>', 'Path to wrangler config file')
+    .option('--format <format>', 'Output format (json|pretty)', 'pretty')
     .action(async (options, command) => {
       const config = (command.parent as any)?._dotdoConfig || {}
-      console.log('TODO: Implement dotdo logs')
+      const verbose = config.verbose || options.verbose
+
+      if (verbose) {
+        console.log('[dotdo logs] Options:', options)
+      }
+
+      try {
+        // Import logs command
+        const { logs } = await import('./commands/logs')
+
+        // Run logs
+        await logs({
+          follow: options.follow,
+          level: options.level,
+          name: options.name,
+          env: options.env,
+          config: options.config,
+          format: options.format,
+          verbose,
+        })
+      } catch (error) {
+        console.error('Logs error:', error instanceof Error ? error.message : String(error))
+        process.exit(1)
+      }
     })
 
   // ============================================================================
