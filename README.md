@@ -264,14 +264,15 @@ Now that you have a working DO, explore dotdo's capabilities:
 This is a **monorepo** organized as a workspace. Each package handles a specific concern:
 
 ```
-dotdo/             # Main package - re-exports everything
-├── @dotdo/do      # THE Durable Object class with $ context
-├── @dotdo/db      # Storage layer (Things, Relationships, Events)
-├── @dotdo/rpc     # Cap'n Web RPC with promise pipelining
-├── @dotdo/mcp     # Model Context Protocol server (3 tools)
-├── @dotdo/ai      # AI routing and template literals
-├── @dotdo/auth    # Hono auth middleware
-└── @dotdo/api     # Self-describing REST API layer
+dotdo/                  # Main package - re-exports everything
+├── @dotdo/do           # THE Durable Object class with $ context
+├── @dotdo/db           # Storage layer (Things, Relationships, Events)
+├── @dotdo/rpc          # Cap'n Web RPC with promise pipelining
+├── @dotdo/mcp          # Model Context Protocol server (3 tools)
+├── @dotdo/ai           # AI routing and template literals
+├── @dotdo/auth         # Hono auth middleware
+├── @dotdo/api          # Self-describing REST API layer
+└── @dotdo/observability # Logging, tracing, and metrics
 ```
 
 ### Extended Primitives (Submodules)

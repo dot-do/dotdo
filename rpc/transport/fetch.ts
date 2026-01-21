@@ -2,10 +2,17 @@
 // Used for client-to-worker communication over HTTP
 
 import { generateCorrelationId, CORRELATION_ID_HEADER } from '../headers'
-import { isSerializedError, TransportError, ValidationError, type SerializedError } from '../errors'
-import { validateRPCMessage, checkCircularReferences } from '../validation'
-import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportState } from './types'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { isSerializedError, type SerializedError } from '../errors'
+import { validateRPCMessage } from '../validation'
+import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportState, ErrorInterceptor } from './types'
+import {
+  createTransportErrorFromCatch,
+  createValidationErrorResponse,
+  createServerErrorFromStatus,
+  createErrorResponse,
+  createErrorContext,
+  applyErrorInterceptor,
+} from './error-utils'
 import { DEFAULT_RPC_TIMEOUT_MS } from '@dotdo/utils'
 
 /**
@@ -62,6 +69,7 @@ export class FetchTransport implements Transport {
   private readonly headers: Record<string, string>
   private readonly fetchImpl: typeof globalThis.fetch
   private readonly validateMessages: boolean
+  private readonly onError?: ErrorInterceptor
 
   constructor(options: FetchTransportOptions) {
     this.url = options.url
@@ -72,6 +80,7 @@ export class FetchTransport implements Transport {
     this.headers = options.headers ?? {}
     this.fetchImpl = options.fetch ?? globalThis.fetch
     this.validateMessages = options.validateMessages ?? false
+    this.onError = options.onError
   }
 
   /**
@@ -79,6 +88,7 @@ export class FetchTransport implements Transport {
    */
   async send<T = unknown>(message: RPCMessage): Promise<RPCResponse<T>> {
     const correlationId = message.correlationId ?? this.baseCorrelationId ?? generateCorrelationId()
+    const startTime = Date.now()
 
     // Validate message if validation is enabled
     if (this.validateMessages) {
@@ -87,17 +97,17 @@ export class FetchTransport implements Transport {
       } catch (error) {
         // Return validation error without making network request
         const errorMessage = error instanceof Error ? error.message : 'Validation failed'
-        const isCircular = errorMessage.toLowerCase().includes('circular')
+        const validationError = createValidationErrorResponse(errorMessage, correlationId)
 
-        return {
-          error: {
-            type: 'ValidationError',
-            code: 'VALIDATION_ERROR',
-            message: errorMessage,
-            httpStatus: 400,
-          },
+        return createErrorResponse({
+          error: validationError,
           correlationId,
-        }
+          transportType: 'fetch',
+          message,
+          endpoint: this.url,
+          startTime,
+          onError: this.onError,
+        })
       }
     }
 
@@ -118,17 +128,17 @@ export class FetchTransport implements Transport {
       })
     } catch (error) {
       // Handle transport-level errors (network failures, timeouts, DNS resolution, etc.)
-      const transportError = TransportError.fetchFailed(this.url, error instanceof Error ? error : new Error(String(error)))
-      return {
-        error: {
-          type: transportError.name,
-          code: transportError.code,
-          message: transportError.message,
-          ...(transportError.details && { details: transportError.details }),
-          httpStatus: transportError.httpStatus,
-        },
+      const transportError = createTransportErrorFromCatch(error, 'fetch', this.url)
+
+      return createErrorResponse({
+        error: transportError,
         correlationId,
-      }
+        transportType: 'fetch',
+        message,
+        endpoint: this.url,
+        startTime,
+        onError: this.onError,
+      })
     }
 
     const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) ?? correlationId
@@ -138,8 +148,19 @@ export class FetchTransport implements Transport {
       try {
         const errorBody = await response.json() as SerializedError & { correlationId?: string }
         if (isSerializedError(errorBody)) {
-          return {
+          // Apply error interceptor even for server-returned errors
+          const context = createErrorContext({
+            transportType: 'fetch',
+            message,
+            correlationId: responseCorrelationId,
             error: errorBody,
+            endpoint: this.url,
+            startTime,
+          })
+          const finalError = applyErrorInterceptor(errorBody, context, this.onError)
+
+          return {
+            error: finalError,
             correlationId: responseCorrelationId,
           }
         }
@@ -148,15 +169,17 @@ export class FetchTransport implements Transport {
       }
 
       // Return generic error response
-      return {
-        error: {
-          type: 'RPCError',
-          code: 'INTERNAL_ERROR',
-          message: `RPC error: ${response.status}`,
-          httpStatus: response.status as ContentfulStatusCode,
-        },
+      const serverError = createServerErrorFromStatus(response.status, 'fetch', response.statusText)
+
+      return createErrorResponse({
+        error: serverError,
         correlationId: responseCorrelationId,
-      }
+        transportType: 'fetch',
+        message,
+        endpoint: this.url,
+        startTime,
+        onError: this.onError,
+      })
     }
 
     // Parse successful response

@@ -152,14 +152,19 @@ export interface RPCResponse<T = unknown> {
 export function WithRPC<TBase extends Constructor>(
   Base: TBase,
   options: WithRPCOptions = {}
-): TBase & Constructor<HasRPC> {
+): Constructor<HasRPC> & TBase {
   const { rpcPath = '/rpc', debug = false } = options
 
   return class RPCMixin extends Base implements HasRPC {
     private _stubCache: Map<string, DOStubProxy>
     private _rpcConfig: CrossDORPCConfig | null = null
 
-    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545)
+    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545).
+    // This is a TypeScript language limitation, not a design flaw. Type safety is preserved via:
+    // - Interface constraints (HasRPC) on the return type
+    // - Generic constraints (TBase extends Constructor) on the input
+    // - Instance type inference via MixinInstance<T>
+    // See @dotdo/utils/mixin-types.ts for full documentation (do-1sbr9).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
@@ -313,7 +318,7 @@ export function WithRPC<TBase extends Constructor>(
         }
       })
     }
-  } as TBase & Constructor<HasRPC>
+  } as Constructor<HasRPC> & TBase
 }
 
 // =============================================================================

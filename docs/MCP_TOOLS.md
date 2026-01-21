@@ -285,7 +285,7 @@ export default {
     input_schema: tool.inputSchema,
     execute: async (params: Record<string, unknown>) => {
       // Connect to your actual API
-      const response = await fetch(`https://api.example.com/${tool.name}`, {
+      const response = await fetch(`https://api.example.com.ai/${tool.name}`, {
         method: 'POST',
         body: JSON.stringify(params)
       })
@@ -404,7 +404,7 @@ import { generateMCPTools } from '@dotdo/api'
 const tools = generateMCPTools([CustomerResource])
 
 // Replace mock handlers with real implementations
-const apiClient = createClient({ baseUrl: 'https://api.example.com' })
+const apiClient = createClient({ baseUrl: 'https://api.example.com.ai' })
 
 tools.forEach(tool => {
   const [resource, operation] = tool.name.split('_')

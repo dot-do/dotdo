@@ -20,7 +20,8 @@
  */
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { createContext, type WorkflowContext } from './context'
+import { createContext } from './context'
+import type { WorkflowContext } from './context'
 import type { ThingsStore, EventsStore, RelationshipsStore, AuditLogStore, AuditContext, QueryBuilder } from '@dotdo/db'
 import { IntegrationRegistry } from '@dotdo/integrations'
 import { createScopedLogger, LogLevel } from '@dotdo/utils'
@@ -33,16 +34,19 @@ import { AlarmHandler } from './handlers/alarm'
 import { DOHandlerRegistry } from './handlers/registry'
 
 // Import WebSocket event streaming (do-9zknf)
-import { WebSocketEventStreaming, createWebSocketEventStreaming } from './websocket-streaming'
+import { createWebSocketEventStreaming } from './websocket-streaming'
+import type { WebSocketEventStreaming } from './websocket-streaming'
 
 // Import type generation
-import { generateTypes, type TypeGenOptions, type TypeGenResult } from './types-gen'
+import { generateTypes } from './types-gen'
+import type { TypeGenOptions, TypeGenResult } from './types-gen'
 
 // Import script interpreter for _eval
 import { ScriptInterpreter, createSandboxConsole } from './eval'
 
 // Import auth utilities
-import { extractCallerInfoWithVerification, type CallerInfo } from './auth'
+import { extractCallerInfoWithVerification } from './auth'
+import type { CallerInfo } from './auth'
 
 // Import CORS utilities
 import {

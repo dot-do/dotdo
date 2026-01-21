@@ -310,7 +310,12 @@ describe('RPC Client', () => {
     })
 
     it('should accept DurableObjectId directly', async () => {
-      const mockDOId = { toString: () => 'direct-id' } as DurableObjectId
+      // Mock DurableObjectId must have: equals, toString (returning non-empty string), and name property
+      const mockDOId = {
+        toString: () => '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        equals: () => false,
+        name: undefined,
+      } as unknown as DurableObjectId
 
       const mockStub = {
         fetch: vi.fn().mockResolvedValueOnce({

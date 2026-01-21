@@ -7,21 +7,62 @@
  * - Cross-DO RPC: $.Customer(id).method()
  * - Durability levels: $.send(), $.try(), $.do()
  *
+ * ## Architecture Note (do-q63lc)
+ *
+ * This module intentionally uses a **facade pattern** rather than decomposed classes.
+ * The WorkflowContext aggregates multiple capabilities into a single $ object because:
+ *
+ * 1. **Developer Experience**: The $ context is the primary API surface for workflows.
+ *    Having a single object with all capabilities (events, scheduling, RPC, primitives)
+ *    provides a cohesive, discoverable interface: `$.on`, `$.every`, `$.send`, `$.do`.
+ *
+ * 2. **Composition via Helpers**: Internal complexity is managed through helper functions:
+ *    - `initializeContextState()` - State initialization
+ *    - `createEventProcessor()` - Event processing with retries
+ *    - `createBaseContext()` - Base context object assembly
+ *    - `createTryMethod()` / `createDoMethod()` - Durability methods
+ *
+ * 3. **Proxy-Based Extension**: Cross-DO RPC ($.Customer(id)) uses Proxy, which requires
+ *    a single object to intercept property access. Decomposing would complicate this.
+ *
+ * 4. **Shared State**: Event handlers, schedules, stub cache, and integrations are
+ *    interdependent. A single ContextState object manages this shared state cleanly.
+ *
+ * ### Alternative Considered
+ *
+ * A class-based approach (EventEmitter, Scheduler, RPCProxy classes) was considered but
+ * rejected because:
+ * - It would require passing the $ context to each class for cross-references
+ * - The Proxy-based RPC pattern doesn't compose well with separate class instances
+ * - Testing is equally simple with the current helper function approach
+ *
+ * ### Testing Strategy
+ *
+ * Each capability is testable in isolation via the helper functions, and the full
+ * context can be tested via createContext() with mock options. See workflow/tests/.
+ *
  * @module do/workflow/context
  */
 
-import { createEventsStore, type Event, type EventsStore, type JsonValue, type ThingsStore, type SqlStorage } from '@dotdo/db'
+import { createEventsStore } from '@dotdo/db'
+import type { Event, EventsStore, JsonValue, ThingsStore, SqlStorage } from '@dotdo/db'
 import { createEveryProxy } from './schedule'
-import { createOnProxy, matchHandlers, invokeHandlers, type RetryOptions } from './events'
-import { createDORPCProxy } from './rpc'
-import { type EntitySchema as LegacyEntitySchema } from './entity'
-import { parseSchema, generateSchemaDDL, generateMigrationDDL, type EntitySchema, type RawDatabaseSchema, type DDLOptions } from '../schema/index'
-import { RPCError, TimeoutError, InternalError, ValidationError } from '@dotdo/rpc'
 import {
-  createInMemoryErrorStore,
-  extractErrorInfo,
-  type FireAndForgetErrorStore,
-} from '../fire-and-forget-errors'
+  createOnProxy,
+  matchHandlers,
+  invokeHandlers,
+  invokeRemoteHandlers,
+  registerRemoteHandler,
+  matchRemoteHandlers,
+} from './events'
+import type { RetryOptions, RemoteEventHandler } from './events'
+import { createDORPCProxy } from './rpc'
+import type { EntitySchema as LegacyEntitySchema } from './entity'
+import { parseSchema, generateSchemaDDL, generateMigrationDDL } from '../schema/index'
+import type { EntitySchema, RawDatabaseSchema, DDLOptions } from '../schema/index'
+import { RPCError, TimeoutError, InternalError, ValidationError } from '@dotdo/rpc'
+import { createInMemoryErrorStore, extractErrorInfo } from '../fire-and-forget-errors'
+import type { FireAndForgetErrorStore } from '../fire-and-forget-errors'
 import { IntegrationRegistry } from '@dotdo/integrations'
 import { createScopedLogger, LogLevel } from '@dotdo/utils'
 import {
@@ -85,6 +126,8 @@ interface BaseContextWithInternals {
 interface ContextState {
   events: EventsStore
   handlers: Map<string, EventHandler[]>
+  /** Remote handlers registered via RPC (stringified code for server-side execution) */
+  remoteHandlers: Map<string, RemoteEventHandler[]>
   schedules: Map<string, ScheduleRegistration>
   stubCache: Map<string, DOStubProxy>
   fireAndForgetErrors: FireAndForgetErrorStore
@@ -105,6 +148,7 @@ interface ContextState {
 function initializeContextState(options?: CreateContextOptions): ContextState {
   const events = createEventsStore()
   const handlers = new Map<string, EventHandler[]>()
+  const remoteHandlers = new Map<string, RemoteEventHandler[]>()
   const schedules = new Map<string, ScheduleRegistration>()
   const stubCache = new Map<string, DOStubProxy>()
   const fireAndForgetErrors = options?.errorStore ?? createInMemoryErrorStore()
@@ -126,16 +170,17 @@ function initializeContextState(options?: CreateContextOptions): ContextState {
     })
   }
 
-  return { events, handlers, schedules, stubCache, fireAndForgetErrors, integrations, things, sql, entitySchemas, legacyEntitySchemas }
+  return { events, handlers, remoteHandlers, schedules, stubCache, fireAndForgetErrors, integrations, things, sql, entitySchemas, legacyEntitySchemas }
 }
 
 /**
  * Create the event processor function that handles event processing with retry logic
  */
 function createEventProcessor(
-  state: ContextState
+  state: ContextState,
+  baseContext: () => BaseContextWithInternals
 ): (emitted: Event, eventType: string, payload: unknown) => Promise<void> {
-  const { events, handlers, fireAndForgetErrors } = state
+  const { events, handlers, remoteHandlers, fireAndForgetErrors } = state
 
   return async function processEvent(emitted: Event, eventType: string, payload: unknown): Promise<void> {
     // Get durability config for this event type (supports per-type configuration)
@@ -149,13 +194,46 @@ function createEventProcessor(
     // Use invokeHandlers which includes retry logic
     const result = await invokeHandlers(eventType, emitted, handlers, retryOptions)
 
+    // Also invoke remote handlers (do-qkqhm)
+    // Remote handlers are stringified functions registered via RPC
+    // They execute server-side with access to the $ context
+    const remoteResult = await invokeRemoteHandlers(
+      eventType,
+      emitted,
+      remoteHandlers,
+      {
+        // Provide the $ context to remote handlers
+        context: { $: baseContext() },
+        timeout: 30000
+      }
+    )
+
+    // Combine results for metrics (remote handlers use single attempt for now)
+    const combinedResult = {
+      succeeded: [...result.succeeded, ...remoteResult.succeeded.map(r => ({ attempts: r.attempts }))],
+      failed: [...result.failed, ...remoteResult.failed.map(r => ({ attempts: r.attempts, error: r.error }))]
+    }
+
     // Handle failed handlers - add to DLQ, track validation failures, and track in error store
     for (const failure of result.failed) {
       trackHandlerFailure(failure, eventType, payload, result.failed.indexOf(failure), fireAndForgetErrors, events, emitted)
     }
 
+    // Track remote handler failures
+    for (const failure of remoteResult.failed) {
+      trackHandlerFailure(
+        { error: failure.error, attempts: failure.attempts },
+        eventType,
+        payload,
+        result.failed.length + remoteResult.failed.indexOf(failure),
+        fireAndForgetErrors,
+        events,
+        emitted
+      )
+    }
+
     // Update retry status and metrics
-    updateRetryMetrics(result, emitted, eventType, payload, events)
+    updateRetryMetrics(combinedResult, emitted, eventType, payload, events)
 
     // Emit recovery events for handlers that succeeded after retries
     await emitRecoveryEvents(result, emitted, eventType, handlers)
@@ -340,10 +418,20 @@ export function createContext(
 ): WorkflowContext {
   // Initialize state using helper function
   const state = initializeContextState(options)
-  const { events, handlers, schedules, stubCache, fireAndForgetErrors, integrations } = state
+  const { events, handlers, remoteHandlers, schedules, stubCache, fireAndForgetErrors, integrations } = state
 
-  // Create event processor using helper function
-  const processEvent = createEventProcessor(state)
+  // Create a lazy reference to base context (needed for remote handler execution)
+  // This allows the event processor to access the full context including RPC capabilities
+  let baseContextRef: BaseContextWithInternals | null = null
+  const getBaseContext = () => {
+    if (!baseContextRef) {
+      throw new Error('Context not yet initialized')
+    }
+    return baseContextRef
+  }
+
+  // Create event processor using helper function (with lazy context reference)
+  const processEvent = createEventProcessor(state, getBaseContext)
 
   // Setup event subscription for DLQ replays using helper function
   setupEventSubscription(state, processEvent)
@@ -355,6 +443,9 @@ export function createContext(
     env,
     options
   )
+
+  // Store reference for lazy access
+  baseContextRef = baseContext
 
   // Wrap context in Proxy to support cross-DO RPC: $.Customer(id)
   // Uses _env and _stubCache from baseContext directly - no duplicate reference needed (do-1e3z)
@@ -370,7 +461,7 @@ function createBaseContext(
   env: unknown,
   options?: CreateContextOptions
 ): BaseContextWithInternals {
-  const { events, handlers, schedules, stubCache, fireAndForgetErrors, integrations, things, sql, entitySchemas, legacyEntitySchemas } = state
+  const { events, handlers, remoteHandlers, schedules, stubCache, fireAndForgetErrors, integrations, things, sql, entitySchemas, legacyEntitySchemas } = state
 
   const baseContext: BaseContextWithInternals = {
     // Fire-and-forget event emission with retry support
@@ -427,6 +518,60 @@ function createBaseContext(
     },
     hasContext(): boolean {
       return hasWorkflowContext()
+    },
+
+    // Remote handler registration (do-qkqhm)
+    /**
+     * Register a remote event handler from stringified code.
+     *
+     * This is the RPC endpoint called by remote clients to register event handlers
+     * that execute server-side. The handler code is stringified on the client side
+     * and sent here for storage and execution when events fire.
+     *
+     * @param params - Registration parameters
+     * @param params.event - Event type pattern (e.g., 'Customer.signup')
+     * @param params.code - Stringified handler function code
+     * @param params.source - Optional source identifier (client ID, etc.)
+     * @returns The registered handler info
+     *
+     * @example
+     * ```ts
+     * // Client-side (via RPC):
+     * await $.registerHandler({
+     *   event: 'Customer.signup',
+     *   code: 'async (event) => { console.log(event.email) }',
+     *   source: 'client-123'
+     * })
+     * ```
+     */
+    registerHandler(params: { event: string; code: string; source?: string }): RemoteEventHandler {
+      const { event, code, source } = params
+
+      // Validate the event pattern
+      if (!event || typeof event !== 'string') {
+        throw new ValidationError('Event pattern is required and must be a string', { field: 'event' })
+      }
+
+      // Validate the code
+      if (!code || typeof code !== 'string') {
+        throw new ValidationError('Handler code is required and must be a string', { field: 'code' })
+      }
+
+      // Basic validation that code looks like a function
+      const trimmedCode = code.trim()
+      const looksLikeFunction = (
+        trimmedCode.startsWith('function') ||
+        trimmedCode.startsWith('async function') ||
+        trimmedCode.includes('=>') ||
+        trimmedCode.startsWith('(')
+      )
+
+      if (!looksLikeFunction) {
+        throw new ValidationError('Handler code must be a function expression', { field: 'code' })
+      }
+
+      // Register the remote handler
+      return registerRemoteHandler(event, code, remoteHandlers, source)
     },
 
     // Database Schema Methods (do-lekf.8)
@@ -515,6 +660,7 @@ function createBaseContext(
     // Internal state
     _events: events,
     _handlers: handlers,
+    _remoteHandlers: remoteHandlers,
     _schedules: schedules,
     _stubCache: stubCache,
     _env: env,
@@ -599,6 +745,6 @@ function createDoMethod() {
 }
 
 // Re-export types for convenience
-export type { EventHandler, OnProxy, RetryOptions } from './events'
+export type { EventHandler, OnProxy, RetryOptions, RemoteEventHandler, RemoteHandlerResult } from './events'
 export type { ScheduleHandler, ScheduleInterval, ScheduleRegistration } from './schedule'
 export type { DOStubProxy } from './rpc'

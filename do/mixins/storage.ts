@@ -159,11 +159,16 @@ export interface WithStorageOptions {
 export function WithStorage<TBase extends Constructor>(
   Base: TBase,
   options: WithStorageOptions = {}
-): TBase & Constructor<HasStorage> {
+): Constructor<HasStorage> & TBase {
   return class StorageMixin extends Base implements HasStorage {
     private _entityManager: EntityManager
 
-    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545)
+    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545).
+    // This is a TypeScript language limitation, not a design flaw. Type safety is preserved via:
+    // - Interface constraints (HasStorage) on the return type
+    // - Generic constraints (TBase extends Constructor) on the input
+    // - Instance type inference via MixinInstance<T>
+    // See @dotdo/utils/mixin-types.ts for full documentation (do-1sbr9).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
@@ -319,7 +324,7 @@ export function WithStorage<TBase extends Constructor>(
     query<T extends StorableData = StorableData>(): QueryBuilder<T> {
       return this._entityManager.query<T>()
     }
-  } as TBase & Constructor<HasStorage>
+  } as Constructor<HasStorage> & TBase
 }
 
 // MixinInstance type is now imported and re-exported from @dotdo/utils above

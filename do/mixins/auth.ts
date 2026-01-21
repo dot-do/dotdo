@@ -151,7 +151,7 @@ export interface WithAuthOptions extends DOAuthGuardConfig {
 export function WithAuth<TBase extends Constructor>(
   Base: TBase,
   options: WithAuthOptions = {}
-): TBase & Constructor<HasAuth> {
+): Constructor<HasAuth> & TBase {
   const { doInternalSecret, ...guardConfig } = options
 
   // Set DO internal secret if provided
@@ -162,7 +162,12 @@ export function WithAuth<TBase extends Constructor>(
   return class AuthMixin extends Base implements HasAuth {
     private _authGuard: DOAuthGuard
 
-    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545)
+    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545).
+    // This is a TypeScript language limitation, not a design flaw. Type safety is preserved via:
+    // - Interface constraints (HasAuth) on the return type
+    // - Generic constraints (TBase extends Constructor) on the input
+    // - Instance type inference via MixinInstance<T>
+    // See @dotdo/utils/mixin-types.ts for full documentation (do-1sbr9).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
@@ -351,7 +356,7 @@ export function WithAuth<TBase extends Constructor>(
     ): Promise<Headers> {
       return createDOToDoHeaders(sourceDoId, targetPath, correlationId)
     }
-  } as TBase & Constructor<HasAuth>
+  } as Constructor<HasAuth> & TBase
 }
 
 // =============================================================================

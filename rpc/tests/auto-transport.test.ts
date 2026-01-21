@@ -226,7 +226,8 @@ describe('AutoTransport', () => {
       const response = await transport.send({ method: 'test', args: [] })
 
       expect(response.error).toBeDefined()
-      expect(response.error?.code).toBe('TRANSPORT_CLOSED')
+      // The unified error handler returns NETWORK_ERROR for closed transport
+      expect(response.error?.code).toBe('NETWORK_ERROR')
     })
 
     it('should send via WebSocket after upgrade', async () => {

@@ -10,14 +10,21 @@ import type {
   TransportState,
   TransportEvent,
   TransportEventListener,
+  ErrorInterceptor,
 } from './types'
 import { FetchTransport, type FetchTransportOptions } from './fetch'
 import { WebSocketTransport, type WebSocketTransportOptions } from './websocket'
+import { createUnifiedErrorHandler, type UnifiedErrorHandlerOptions } from './error-utils'
 
 /**
  * Strategy for transport selection
+ *
+ * - 'fetch-only': Only use FetchTransport (no WebSocket)
+ * - 'websocket-only': Only use WebSocketTransport (fail if unavailable)
+ * - 'auto-upgrade': Start with Fetch, upgrade to WebSocket if available (lazy upgrade)
+ * - 'websocket-first': Try WebSocket first, fall back to Fetch if unavailable (eager WS)
  */
-export type TransportStrategy = 'fetch-only' | 'websocket-only' | 'auto-upgrade'
+export type TransportStrategy = 'fetch-only' | 'websocket-only' | 'auto-upgrade' | 'websocket-first'
 
 /**
  * Options for the auto transport
@@ -29,7 +36,8 @@ export interface AutoTransportOptions extends TransportOptions {
    * Transport selection strategy
    * - 'fetch-only': Only use FetchTransport (no upgrade)
    * - 'websocket-only': Only use WebSocketTransport
-   * - 'auto-upgrade': Start with Fetch, upgrade to WebSocket if available
+   * - 'auto-upgrade': Start with Fetch, upgrade to WebSocket if available (default)
+   * - 'websocket-first': Try WebSocket first, fall back to Fetch if unavailable (best for REPL)
    * @default 'auto-upgrade'
    */
   strategy?: TransportStrategy
@@ -146,6 +154,8 @@ export class AutoTransport implements Transport {
   private readonly WebSocketImpl: typeof WebSocket
   private readonly fetchOptions: Partial<FetchTransportOptions>
   private readonly wsOptions: Partial<WebSocketTransportOptions>
+  private readonly onError?: ErrorInterceptor
+  private readonly errorHandler: ReturnType<typeof createUnifiedErrorHandler>
 
   private fetchTransport: FetchTransport | null = null
   private wsTransport: WebSocketTransport | null = null
@@ -170,13 +180,24 @@ export class AutoTransport implements Transport {
     this.WebSocketImpl = options.WebSocket ?? globalThis.WebSocket
     this.fetchOptions = options.fetchOptions ?? {}
     this.wsOptions = options.wsOptions ?? {}
+    this.onError = options.onError
+
+    // Create unified error handler for consistent error responses
+    this.errorHandler = createUnifiedErrorHandler({
+      transportType: 'fetch', // Use 'fetch' as the base type for auto transport
+      endpoint: this.url,
+      onError: this.onError,
+    })
 
     // Determine strategy
+    // Default to 'auto-upgrade' for backward compatibility
+    // Use 'websocket-first' explicitly for REPL and real-time use cases
     if (options.strategy) {
       this.strategy = options.strategy
     } else if (options.autoUpgrade === false) {
       this.strategy = 'fetch-only'
     } else {
+      // Default strategy: auto-upgrade (start with fetch, upgrade if available)
       this.strategy = 'auto-upgrade'
     }
 
@@ -207,8 +228,14 @@ export class AutoTransport implements Transport {
    */
   private initializeTransport(): void {
     if (this.strategy === 'websocket-only') {
-      // Start with WebSocket only
+      // Start with WebSocket only (fail if unavailable)
       this.initWebSocket()
+    } else if (this.strategy === 'websocket-first') {
+      // Try WebSocket first, fall back to Fetch if unavailable
+      // Initialize Fetch as fallback (but don't activate it yet)
+      this.initFetchAsFallback()
+      // Attempt WebSocket connection immediately
+      setTimeout(() => this.attemptWebSocketFirst(), 0)
     } else {
       // Start with Fetch (default for auto-upgrade and fetch-only)
       this.initFetch()
@@ -217,6 +244,94 @@ export class AutoTransport implements Transport {
       if (this.strategy === 'auto-upgrade') {
         // Use setImmediate equivalent to not block constructor
         setTimeout(() => this.attemptUpgrade(), 0)
+      }
+    }
+  }
+
+  /**
+   * Initialize FetchTransport as a fallback (not active yet)
+   * Used by websocket-first strategy
+   */
+  private initFetchAsFallback(): void {
+    this.fetchTransport = new FetchTransport({
+      url: this.url,
+      timeout: this.timeout,
+      correlationId: this.baseCorrelationId,
+      headers: this.headers,
+      fetch: this.fetchImpl,
+      onError: this.onError,
+      ...this.fetchOptions,
+    })
+    // Don't set as active yet - we'll try WebSocket first
+    // Set state to CONNECTING while we attempt WebSocket
+    this.state = 'CONNECTING' as TransportState
+  }
+
+  /**
+   * Attempt WebSocket connection first, fall back to Fetch if unavailable
+   * Used by websocket-first strategy for optimal real-time experience
+   */
+  private async attemptWebSocketFirst(): Promise<void> {
+    if (this.closed) {
+      return
+    }
+
+    try {
+      // Check if WebSocket is available
+      const available = await this.checkWebSocketAvailability()
+
+      if (available && !this.closed) {
+        // WebSocket is available, initialize and use it
+        this.initWebSocket()
+
+        // Try to establish connection
+        const connectSuccess = await this.tryWebSocketConnect()
+
+        if (connectSuccess) {
+          // Successfully connected via WebSocket
+          this.activeTransport = this.wsTransport
+          this.activeTransportType = 'websocket'
+          this.state = 'CONNECTED' as TransportState
+
+          this.emit({
+            type: 'connect',
+            transport: 'websocket',
+          } as AutoTransportEvent)
+          return
+        }
+      }
+
+      // WebSocket unavailable or failed, fall back to Fetch
+      this.fallbackToFetchOnInit()
+    } catch {
+      // Any error, fall back to Fetch
+      this.fallbackToFetchOnInit()
+    }
+  }
+
+  /**
+   * Fall back to Fetch transport during initialization
+   * Used by websocket-first strategy when WebSocket is unavailable
+   */
+  private fallbackToFetchOnInit(): void {
+    if (this.closed) {
+      return
+    }
+
+    // Activate the Fetch transport that was already initialized
+    if (this.fetchTransport) {
+      this.activeTransport = this.fetchTransport
+      this.activeTransportType = 'fetch'
+      this.state = 'CONNECTED' as TransportState
+
+      this.emit({
+        type: 'connect',
+        transport: 'fetch',
+      } as AutoTransportEvent)
+
+      // Schedule WebSocket retry for later
+      if (this.upgradeRetryInterval > 0) {
+        this.scheduleUpgradeRetry()
       }
     }
   }
@@ -231,6 +346,7 @@ export class AutoTransport implements Transport {
       correlationId: this.baseCorrelationId,
       headers: this.headers,
       fetch: this.fetchImpl,
+      onError: this.onError,
       ...this.fetchOptions,
     })
     this.activeTransport = this.fetchTransport
@@ -247,6 +363,7 @@ export class AutoTransport implements Transport {
       timeout: this.timeout,
       correlationId: this.baseCorrelationId,
       WebSocket: this.WebSocketImpl,
+      onError: this.onError,
       ...this.wsOptions,
     })
 
@@ -499,28 +616,14 @@ export class AutoTransport implements Transport {
    * Send an RPC message via the active transport
    */
   async send<T = unknown>(message: RPCMessage): Promise<RPCResponse<T>> {
+    const correlationId = message.correlationId ?? this.baseCorrelationId ?? generateCorrelationId()
+
     if (this.closed) {
-      const correlationId = message.correlationId ?? this.baseCorrelationId ?? generateCorrelationId()
-      return {
-        error: {
-          type: 'TransportError',
-          code: 'TRANSPORT_CLOSED',
-          message: 'Transport has been closed',
-        },
-        correlationId,
-      }
+      return this.errorHandler.fromClosed(message, correlationId)
     }
 
     if (!this.activeTransport) {
-      const correlationId = message.correlationId ?? this.baseCorrelationId ?? generateCorrelationId()
-      return {
-        error: {
-          type: 'TransportError',
-          code: 'NO_TRANSPORT',
-          message: 'No transport available',
-        },
-        correlationId,
-      }
+      return this.errorHandler.fromNoTransport(message, correlationId)
     }
 
     return this.activeTransport.send<T>(message)

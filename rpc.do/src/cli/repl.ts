@@ -776,19 +776,48 @@ export class ReplService {
 /**
  * Start an interactive REPL connected to an endpoint
  *
+ * Uses WebSocket-first transport strategy for optimal real-time experience:
+ * - Tries WebSocket connection first (wss://endpoint/ws)
+ * - Falls back to HTTP if WebSocket unavailable
+ * - Enables real-time event streaming and low-latency REPL commands
+ *
  * @example
  * ```typescript
  * await startRepl('https://api.do')
+ * // -> Tries wss://api.do/ws first, falls back to https://api.do/rpc
  * ```
  */
 export async function startRepl(endpoint: string, options?: {
   types?: string | undefined
   historyPath?: string | undefined
+  /**
+   * Transport strategy for RPC communication
+   * - 'websocket-first': Try WebSocket first, fall back to HTTP (default, optimal for REPL)
+   * - 'fetch-only': Only use HTTP
+   * - 'websocket-only': Only use WebSocket (fail if unavailable)
+   * - 'auto-upgrade': Start with HTTP, upgrade to WebSocket if available
+   * @default 'websocket-first'
+   */
+  strategy?: 'fetch-only' | 'websocket-only' | 'auto-upgrade' | 'websocket-first'
 }): Promise<void> {
-  // Import transport
-  const { FetchTransport } = await import('../transport/fetch')
+  // Import transport - use AutoTransport for WebSocket-first strategy
+  const { AutoTransport } = await import('../transport/auto')
 
-  const transport = new FetchTransport({ url: endpoint })
+  // Default to 'websocket-first' for optimal REPL experience
+  const strategy = options?.strategy ?? 'websocket-first'
+
+  const transport = new AutoTransport({
+    url: endpoint,
+    strategy,
+  })
+
+  // Listen for transport events to show connection status
+  let transportType: 'fetch' | 'websocket' = 'fetch'
+  transport.addEventListener((event) => {
+    if (event.type === 'connect' && 'transport' in event) {
+      transportType = event.transport as 'fetch' | 'websocket'
+    }
+  })
 
   // Try to fetch types if not provided
   let types = options?.types
@@ -808,6 +837,7 @@ export async function startRepl(endpoint: string, options?: {
     types,
     historyPath: options?.historyPath,
     onExit: () => {
+      transport.close?.()
       process.exit(0)
     },
     onClear: () => {
@@ -815,8 +845,9 @@ export async function startRepl(endpoint: string, options?: {
     },
   })
 
-  // Print welcome message
-  console.log(`Connected to ${endpoint}`)
+  // Print welcome message with transport info
+  const transportInfo = transport.isUsingWebSocket?.() ? 'WebSocket' : 'HTTP'
+  console.log(`Connected to ${endpoint} via ${transportInfo}`)
   console.log('Type .help for available commands')
   console.log('')
 

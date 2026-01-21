@@ -570,19 +570,19 @@ class DualModeClient implements DataClient {
  * // REST mode
  * const client = createDataClient({
  *   mode: 'rest',
- *   baseUrl: 'https://api.example.com',
+ *   baseUrl: 'https://api.example.com.ai',
  * })
  *
  * // TanStack DB mode with WebSocket sync
  * const client = createDataClient({
  *   mode: 'tanstack-db',
- *   baseUrl: 'wss://api.example.com',
+ *   baseUrl: 'wss://api.example.com.ai',
  * })
  *
  * // With optimistic updates
  * const client = createDataClient({
  *   mode: 'rest',
- *   baseUrl: 'https://api.example.com',
+ *   baseUrl: 'https://api.example.com.ai',
  *   optimistic: true,
  * })
  * ```

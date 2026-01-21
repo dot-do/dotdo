@@ -152,7 +152,8 @@ describe('FetchTransport error handling', () => {
 
     expect(response.error).toBeDefined()
     expect(response.error?.code).toBe(RPCErrorCode.NETWORK_ERROR)
-    expect(response.error?.type).toBe('TransportError')
+    // Unified error handling uses more specific error types
+    expect(response.error?.type).toBe('NetworkError')
     expect(response.error?.message).toContain('Network error')
     expect(response.correlationId).toBeDefined()
   })
@@ -174,7 +175,9 @@ describe('FetchTransport error handling', () => {
     })
 
     expect(response.error).toBeDefined()
-    expect(response.error?.code).toBe(RPCErrorCode.NETWORK_ERROR)
+    // Unified error handling uses specific TIMEOUT code for timeout errors
+    expect(response.error?.code).toBe(RPCErrorCode.TIMEOUT)
+    expect(response.error?.type).toBe('TimeoutError')
     expect(response.error?.message).toContain('timeout')
   })
 
@@ -191,7 +194,9 @@ describe('FetchTransport error handling', () => {
       args: [],
     })
 
-    expect(response.error?.details?.transport).toContain('fetch:https://api.example.com')
+    // Unified error handling uses 'transportType' and 'endpoint' instead of 'transport'
+    expect(response.error?.details?.transportType).toBe('fetch')
+    expect(response.error?.details?.endpoint).toBe('https://api.example.com')
   })
 
   it('should still handle HTTP errors correctly', async () => {

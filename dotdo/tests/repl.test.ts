@@ -24,17 +24,17 @@ describe('REPL Command', () => {
       expect(replCmd?.description()).toContain('endpoint')
     })
 
-    it('requires endpoint argument', () => {
+    it('has optional endpoint argument', () => {
       const program = createProgram()
       const replCmd = program.commands.find((cmd) => cmd.name() === 'repl')
 
       expect(replCmd).toBeDefined()
 
-      // Check that endpoint is a required argument
+      // Check that endpoint is an optional argument (defaults to local sandbox)
       const args = replCmd?.registeredArguments || []
       expect(args.length).toBeGreaterThan(0)
       expect(args[0]?.name()).toBe('endpoint')
-      expect(args[0]?.required).toBe(true)
+      expect(args[0]?.required).toBe(false)
     })
 
     it('has --types option', () => {
@@ -93,7 +93,7 @@ describe('REPL Command', () => {
       const helpText = replCmd?.helpInformation() || ''
       expect(helpText).toContain('--types')
       expect(helpText).toContain('--history')
-      expect(helpText).toContain('<endpoint>')
+      expect(helpText).toContain('[endpoint]')
     })
   })
 })

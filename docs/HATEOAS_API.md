@@ -38,16 +38,16 @@ import {
 
 // Single resource with links
 const customer = { $id: 'cust-123', name: 'Alice', email: 'alice@example.com' }
-const links = generateLinks('customers', customer.$id, 'https://api.example.com')
+const links = generateLinks('customers', customer.$id, 'https://api.example.com.ai')
 
 const response = withLinks(customer, links)
 // {
 //   data: { $id: 'cust-123', name: 'Alice', email: 'alice@example.com' },
 //   _links: {
-//     self: { href: 'https://api.example.com/customers/cust-123', rel: 'self', method: 'GET' },
-//     update: { href: 'https://api.example.com/customers/cust-123', rel: 'edit', method: 'PUT' },
-//     delete: { href: 'https://api.example.com/customers/cust-123', rel: 'delete', method: 'DELETE' },
-//     collection: { href: 'https://api.example.com/customers', rel: 'collection', method: 'GET' }
+//     self: { href: 'https://api.example.com.ai/customers/cust-123', rel: 'self', method: 'GET' },
+//     update: { href: 'https://api.example.com.ai/customers/cust-123', rel: 'edit', method: 'PUT' },
+//     delete: { href: 'https://api.example.com.ai/customers/cust-123', rel: 'delete', method: 'DELETE' },
+//     collection: { href: 'https://api.example.com.ai/customers', rel: 'collection', method: 'GET' }
 //   }
 // }
 ```
@@ -63,7 +63,7 @@ const customers = [
 const response = withCollectionLinks(
   customers,
   'customers',
-  'https://api.example.com',
+  'https://api.example.com.ai',
   (c) => c.$id,  // ID extractor
   { page: 1, limit: 20, total: 100 }
 )
@@ -129,7 +129,7 @@ const root = generateAPIRoot({
   name: 'My API',
   version: '1.0.0',
   description: 'E-commerce API with full HATEOAS support',
-  baseUrl: 'https://api.example.com',
+  baseUrl: 'https://api.example.com.ai',
   resources: {
     customers: { path: '/customers', title: 'Customer management' },
     orders: { path: '/orders', title: 'Order management' },
@@ -149,13 +149,13 @@ const root = generateAPIRoot({
 //   version: '1.0.0',
 //   description: 'E-commerce API with full HATEOAS support',
 //   _links: {
-//     self: { href: 'https://api.example.com/', rel: 'self' },
-//     health: { href: 'https://api.example.com/health', rel: 'health' },
-//     describedby: { href: 'https://api.example.com/openapi.json', rel: 'describedby' },
-//     help: { href: 'https://api.example.com/docs', rel: 'help' },
-//     customers: { href: 'https://api.example.com/customers', rel: 'collection' },
-//     orders: { href: 'https://api.example.com/orders', rel: 'collection' },
-//     products: { href: 'https://api.example.com/products', rel: 'collection' }
+//     self: { href: 'https://api.example.com.ai/', rel: 'self' },
+//     health: { href: 'https://api.example.com.ai/health', rel: 'health' },
+//     describedby: { href: 'https://api.example.com.ai/openapi.json', rel: 'describedby' },
+//     help: { href: 'https://api.example.com.ai/docs', rel: 'help' },
+//     customers: { href: 'https://api.example.com.ai/customers', rel: 'collection' },
+//     orders: { href: 'https://api.example.com.ai/orders', rel: 'collection' },
+//     products: { href: 'https://api.example.com.ai/products', rel: 'collection' }
 //   }
 // }
 ```
@@ -201,7 +201,7 @@ import { generateLinks } from '@dotdo/api'
 const links = generateLinks(
   'customers',           // Resource name
   'cust-123',           // Resource ID
-  'https://api.example.com'
+  'https://api.example.com.ai'
 )
 
 // Generated links:
@@ -219,7 +219,7 @@ const links = generateLinks(
 const links = generateLinks(
   'customers',
   'cust-123',
-  'https://api.example.com',
+  'https://api.example.com.ai',
   {
     relations: {
       orders: { resource: 'orders', type: 'hasMany' },
@@ -242,7 +242,7 @@ const links = generateLinks(
 const links = generateLinks(
   'customers',
   'cust-123',
-  'https://api.example.com',
+  'https://api.example.com.ai',
   {
     actions: ['upgrade', 'suspend', 'reactivate']
   }
@@ -272,7 +272,7 @@ const config: ResourceConfig = {
   actions: ['verify', 'block', 'unblock']
 }
 
-const links = generateLinks('customers', 'cust-123', 'https://api.example.com', config)
+const links = generateLinks('customers', 'cust-123', 'https://api.example.com.ai', config)
 ```
 
 ## Collection Links
@@ -284,7 +284,7 @@ import { generateCollectionLinks } from '@dotdo/api'
 
 const links = generateCollectionLinks(
   'customers',
-  'https://api.example.com'
+  'https://api.example.com.ai'
 )
 
 // {
@@ -298,7 +298,7 @@ const links = generateCollectionLinks(
 ```typescript
 const links = generateCollectionLinks(
   'customers',
-  'https://api.example.com',
+  'https://api.example.com.ai',
   { page: 3, limit: 25, total: 200 }
 )
 
@@ -326,7 +326,7 @@ const customers = [
 const response = withCollectionLinks(
   customers,
   'customers',
-  'https://api.example.com',
+  'https://api.example.com.ai',
   (customer) => customer.$id,
   { page: 1, limit: 10, total: 50 }
 )
@@ -365,7 +365,7 @@ import { createErrorResponse, generateErrorLinks } from '@dotdo/api'
 const error = createErrorResponse(
   'Customer not found',
   404,
-  'https://api.example.com',
+  'https://api.example.com.ai',
   {
     requestId: 'req-abc123',
     docsPath: '/docs',
@@ -380,9 +380,9 @@ const error = createErrorResponse(
 //   requestId: 'req-abc123',
 //   details: { customerId: 'cust-invalid' },
 //   _links: {
-//     root: { href: 'https://api.example.com/', rel: 'up', title: 'API Root' },
-//     help: { href: 'https://api.example.com/docs', rel: 'help', title: 'API documentation' },
-//     health: { href: 'https://api.example.com/health', rel: 'related', title: 'Health check' }
+//     root: { href: 'https://api.example.com.ai/', rel: 'up', title: 'API Root' },
+//     help: { href: 'https://api.example.com.ai/docs', rel: 'help', title: 'API documentation' },
+//     health: { href: 'https://api.example.com.ai/health', rel: 'related', title: 'Health check' }
 //   }
 // }
 ```
@@ -390,7 +390,7 @@ const error = createErrorResponse(
 ### Error Link Generation
 
 ```typescript
-const errorLinks = generateErrorLinks('https://api.example.com', {
+const errorLinks = generateErrorLinks('https://api.example.com.ai', {
   docsPath: '/docs',
   healthPath: '/health'
 })
@@ -408,18 +408,18 @@ The HATEOAS module includes security features to prevent XSS and injection attac
 import { isValidUrl, buildSafeUrl } from '@dotdo/api'
 
 // Validates URLs
-isValidUrl('https://api.example.com/users')  // true
+isValidUrl('https://api.example.com.ai/users')  // true
 isValidUrl('/users/123')                      // true (relative)
 isValidUrl('javascript:alert(1)')             // false (XSS)
 isValidUrl('data:text/html,...')              // false (data URI)
 
 // Safe URL building
-const url = buildSafeUrl('https://api.example.com', 'users', 'user-123')
-// 'https://api.example.com/users/user-123'
+const url = buildSafeUrl('https://api.example.com.ai', 'users', 'user-123')
+// 'https://api.example.com.ai/users/user-123'
 
 // Handles special characters safely
-const url = buildSafeUrl('https://api.example.com', 'users', 'user/with/slashes')
-// 'https://api.example.com/users/user%2Fwith%2Fslashes'
+const url = buildSafeUrl('https://api.example.com.ai', 'users', 'user/with/slashes')
+// 'https://api.example.com.ai/users/user%2Fwith%2Fslashes'
 ```
 
 ### Link Validation

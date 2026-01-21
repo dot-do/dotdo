@@ -783,3 +783,160 @@ describe('Edge cases and integration', () => {
     expect(result).toEqual([1, 2, 3])
   })
 })
+
+// ============================================================================
+// createRemoteEventProxy tests (do-qkqhm)
+// ============================================================================
+
+import { createRemoteEventProxy, type RemoteEventProxyOptions } from '../proxy'
+
+describe('createRemoteEventProxy', () => {
+  let registrations: Array<{ path: string[]; code: string }>
+  let options: RemoteEventProxyOptions
+
+  beforeEach(() => {
+    registrations = []
+    options = {
+      onRegister: async (path, code) => {
+        registrations.push({ path, code })
+        return { success: true }
+      },
+    }
+  })
+
+  it('should stringify handler and call onRegister with code', async () => {
+    const proxy = createRemoteEventProxy<{ Customer: { signup: (handler: () => void) => Promise<unknown> } }>(options)
+
+    const handler = () => {
+      console.log('Hello')
+    }
+    await proxy.Customer.signup(handler)
+
+    expect(registrations).toHaveLength(1)
+    expect(registrations[0].path).toEqual(['Customer', 'signup'])
+    expect(registrations[0].code).toContain('console.log')
+    expect(registrations[0].code).toContain('Hello')
+  })
+
+  it('should stringify async handlers correctly', async () => {
+    const proxy = createRemoteEventProxy<{ Order: { placed: (handler: () => void) => Promise<unknown> } }>(options)
+
+    const handler = async () => {
+      await Promise.resolve()
+      return 'done'
+    }
+    await proxy.Order.placed(handler)
+
+    expect(registrations[0].code).toContain('async')
+    expect(registrations[0].code).toContain('Promise.resolve')
+  })
+
+  it('should stringify arrow functions with implicit return', async () => {
+    const proxy = createRemoteEventProxy<{ Math: { double: (handler: () => void) => Promise<unknown> } }>(options)
+
+    const handler = (x: number) => x * 2
+    await proxy.Math.double(handler)
+
+    expect(registrations[0].code).toContain('=>')
+    expect(registrations[0].code).toContain('* 2')
+  })
+
+  it('should preserve handler parameter names in stringified code', async () => {
+    const proxy = createRemoteEventProxy<{ Event: { handle: (handler: () => void) => Promise<unknown> } }>(options)
+
+    const handler = (event: { email: string }) => {
+      console.log(event.email)
+    }
+    await proxy.Event.handle(handler)
+
+    expect(registrations[0].code).toContain('event')
+    expect(registrations[0].code).toContain('email')
+  })
+
+  it('should handle deep event paths', async () => {
+    const proxy = createRemoteEventProxy<{ System: { User: { Auth: { login: (handler: () => void) => Promise<unknown> } } } }>(options)
+
+    await proxy.System.User.Auth.login(() => {})
+
+    expect(registrations[0].path).toEqual(['System', 'User', 'Auth', 'login'])
+  })
+
+  it('should reject non-function arguments', async () => {
+    const proxy = createRemoteEventProxy<{ Test: { event: (handler: unknown) => Promise<unknown> } }>(options)
+
+    await expect(proxy.Test.event('not a function')).rejects.toThrow('Event handler must be a function')
+  })
+
+  it('should return undefined for promise properties', () => {
+    const proxy = createRemoteEventProxy(options)
+
+    // @ts-expect-error - testing then property
+    expect(proxy.then).toBeUndefined()
+    // @ts-expect-error - testing catch property
+    expect(proxy.catch).toBeUndefined()
+  })
+
+  it('should return undefined for symbol properties', () => {
+    const proxy = createRemoteEventProxy(options) as Record<symbol, unknown>
+
+    expect(proxy[Symbol('test')]).toBeUndefined()
+  })
+
+  it('should use cache when provided', async () => {
+    const cache = new Map<string, unknown>()
+    const proxy = createRemoteEventProxy<{ Cached: { event: (handler: () => void) => Promise<unknown> } }>({ ...options, cache })
+
+    // Access the same path multiple times
+    const _ = proxy.Cached.event
+    const __ = proxy.Cached.event
+
+    // Cache should have the proxy for 'remote-on:Cached.event'
+    expect(cache.has('remote-on:Cached.event')).toBe(true)
+  })
+
+  it('should return promise from onRegister', async () => {
+    const mockResult = { id: 'handler-123', registered: true }
+    const asyncOptions: RemoteEventProxyOptions = {
+      onRegister: async (path, code) => {
+        await new Promise(r => setTimeout(r, 10))
+        return mockResult
+      },
+    }
+    const proxy = createRemoteEventProxy<{ Test: { event: (handler: () => void) => Promise<typeof mockResult> } }>(asyncOptions)
+
+    const result = await proxy.Test.event(() => {})
+
+    expect(result).toEqual(mockResult)
+  })
+
+  it('should propagate errors from onRegister', async () => {
+    const errorOptions: RemoteEventProxyOptions = {
+      onRegister: async () => {
+        throw new Error('Registration failed')
+      },
+    }
+    const proxy = createRemoteEventProxy<{ Test: { event: (handler: () => void) => Promise<unknown> } }>(errorOptions)
+
+    await expect(proxy.Test.event(() => {})).rejects.toThrow('Registration failed')
+  })
+
+  it('should handle handler.toString() correctly', async () => {
+    const proxy = createRemoteEventProxy<{ Test: { event: (handler: () => void) => Promise<unknown> } }>(options)
+
+    // Test various function formats
+    const arrowFn = () => 'arrow'
+    const asyncArrowFn = async () => 'async arrow'
+    const regularFn = function() { return 'regular' }
+    const asyncRegularFn = async function() { return 'async regular' }
+
+    await proxy.Test.event(arrowFn)
+    await proxy.Test.event(asyncArrowFn)
+    await proxy.Test.event(regularFn)
+    await proxy.Test.event(asyncRegularFn)
+
+    expect(registrations[0].code).toBe(arrowFn.toString())
+    expect(registrations[1].code).toBe(asyncArrowFn.toString())
+    expect(registrations[2].code).toBe(regularFn.toString())
+    expect(registrations[3].code).toBe(asyncRegularFn.toString())
+  })
+})

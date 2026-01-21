@@ -222,3 +222,6 @@ export class SourceDO implements DurableObject {
     return this.app.fetch(request)
   }
 }
+
+// Re-export context test DOs for remote context tests
+export { ContextDO, EntityDO } from './context-test-dos'

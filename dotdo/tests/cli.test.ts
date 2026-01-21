@@ -235,6 +235,9 @@ describe('CLI Framework', () => {
       // Configuration
       expect(commandNames).toContain('config')
 
+      // RPC
+      expect(commandNames).toContain('repl')
+
       // Utilities
       expect(commandNames).toContain('version')
     })

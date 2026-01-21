@@ -873,7 +873,7 @@ new_sqlite_classes = ["TaskDO"]
 
 # Optional: Custom domain
 # routes = [
-#   { pattern = "api.example.com/*", zone_name = "example.com" }
+#   { pattern = "api.example.com.ai/*", zone_name = "example.com.ai" }
 # ]
 
 # Optional: Environment variables

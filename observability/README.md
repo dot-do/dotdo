@@ -15,8 +15,28 @@ Comprehensive observability for dotdo applications with structured logging, dist
 
 ## Installation
 
+**Within the dotdo monorepo:**
+
+The package is available as `@dotdo/observability` via TypeScript path mapping. No additional installation needed.
+
+**For published package (when available):**
+
 ```bash
 npm install @dotdo/observability
+```
+
+**Import paths:**
+
+```typescript
+// Main entry point - includes all exports
+import { createStructuredLogger, createTracer, observability } from '@dotdo/observability'
+
+// Subpath imports for tree-shaking
+import { createStructuredLogger } from '@dotdo/observability/logger'
+import { createTracer } from '@dotdo/observability/tracing'
+import { observability } from '@dotdo/observability/middleware'
+import { createMeter } from '@dotdo/observability/metrics'
+import { runWithContext } from '@dotdo/observability/context'
 ```
 
 ## Quick Start

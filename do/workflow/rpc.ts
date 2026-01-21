@@ -19,12 +19,13 @@
 import {
   createDOStub,
   createDOStubWithCircuitBreaker,
-  type CircuitBreakerRPCConfig,
   DEFAULT_CIRCUIT_BREAKER_CONFIG,
   NotFoundError,
 } from '@dotdo/rpc'
+import type { CircuitBreakerRPCConfig } from '@dotdo/rpc'
 import type { ThingsStore } from '@dotdo/db'
-import { createEntityAccessor, isEntityName, isReservedProperty, type EntitySchema, type EntityProxy } from './entity'
+import { createEntityAccessor, isEntityName, isReservedProperty } from './entity'
+import type { EntitySchema, EntityProxy } from './entity'
 import type { EntitySchema as UnifiedEntitySchema } from '../schema/types'
 
 /**

@@ -205,7 +205,7 @@ const bashCache = new WeakMap<object, BashModule>()
 export function DOWithPrimitives<TBase extends Constructor<HasWorkflowContext & HasDurableObjectContext>>(
   Base: TBase,
   options: WithPrimitivesOptions = {}
-): TBase & Constructor<HasPrimitives> {
+): Constructor<HasPrimitives> & TBase {
   // Normalize options
   const fsConfig = normalizeConfig(options.fs, true) as FsConfig | undefined
   const gitConfig = normalizeConfig(options.git, false) as GitConfig | undefined
@@ -412,7 +412,7 @@ export function DOWithPrimitives<TBase extends Constructor<HasWorkflowContext & 
         },
       })
     }
-  } as TBase & Constructor<HasPrimitives>
+  } as Constructor<HasPrimitives> & TBase
 }
 
 // =============================================================================

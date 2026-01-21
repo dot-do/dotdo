@@ -41,82 +41,62 @@ export class ContextDO implements DurableObject {
   private state: DurableObjectState
   private env: Env
   private app: ReturnType<typeof createServer>
-  private things: ThingsStore
-  private events: EventsStore
+  private _thingsStore: ThingsStore
+  private _eventsStore: EventsStore
   private handlers: Map<string, Array<(event: unknown) => void>> = new Map()
   private schedules: Map<string, { cron: string; handler: string }> = new Map()
   private eventCount = 0
   private metadata: Map<string, unknown> = new Map()
   private requestId: string | undefined
 
+  // Public things object for RPC - this is what gets called when client calls things.create, things.list, etc.
+  things: {
+    create: (data: { $type: string; name: string; [key: string]: unknown }) => Promise<{ $id: string; $type: string; [key: string]: unknown }>
+    list: (opts?: { $type?: string; limit?: number }) => Promise<Array<{ $id: string; $type: string; [key: string]: unknown }>>
+    get: (id: string) => Promise<{ $id: string; $type: string; [key: string]: unknown } | null>
+    update: (id: string, data: Record<string, unknown>) => Promise<{ $id: string; $type: string; [key: string]: unknown }>
+    delete: (id: string) => Promise<boolean>
+  }
+
   constructor(state: DurableObjectState, env: Env) {
     this.state = state
     this.env = env
-    this.things = createThingsStore()
-    this.events = createEventsStore()
+    this._thingsStore = createThingsStore()
+    this._eventsStore = createEventsStore()
+
+    // Create the things object with bound methods for RPC
+    // This enables calls like things.create, things.list, etc.
+    this.things = {
+      create: async (data) => {
+        // Cast through unknown for StorableData compatibility
+        const result = await this._thingsStore.create(data as unknown as Parameters<typeof this._thingsStore.create>[0])
+        return result
+      },
+      list: async (opts) => {
+        // Map $type to type for the thingsStore API
+        const storeOpts = opts ? {
+          type: opts.$type,
+          limit: opts.limit,
+        } : undefined
+        const results = await this._thingsStore.list(storeOpts)
+        return results
+      },
+      get: async (id) => {
+        const result = await this._thingsStore.get(id)
+        return result
+      },
+      update: async (id, data) => {
+        // Cast through unknown for StorableData compatibility
+        const result = await this._thingsStore.update(id, data as unknown as Parameters<typeof this._thingsStore.update>[1])
+        return result
+      },
+      delete: async (id) => {
+        await this._thingsStore.delete(id)
+        return true
+      },
+    }
+
     this.app = createServer({ target: this })
-  }
-
-  // =========================================================================
-  // Things Operations ($.things)
-  // =========================================================================
-
-  /**
-   * Create a new thing
-   */
-  async 'things.create'(data: {
-    $type: string
-    name: string
-    [key: string]: unknown
-  }): Promise<{ $id: string; $type: string; [key: string]: unknown }> {
-    // Cast through unknown for StorableData compatibility
-    const result = await this.things.create(data as unknown as Parameters<typeof this.things.create>[0])
-    return result
-  }
-
-  /**
-   * List things with optional filtering
-   * Note: ThingsStore uses `type` not `$type` for filtering
-   */
-  async 'things.list'(
-    opts?: { $type?: string; limit?: number }
-  ): Promise<Array<{ $id: string; $type: string; [key: string]: unknown }>> {
-    // Map $type to type for the thingsStore API
-    const storeOpts = opts ? {
-      type: opts.$type,
-      limit: opts.limit,
-    } : undefined
-    const results = await this.things.list(storeOpts)
-    return results
-  }
-
-  /**
-   * Get a thing by ID
-   */
-  async 'things.get'(id: string): Promise<{ $id: string; $type: string; [key: string]: unknown } | null> {
-    const result = await this.things.get(id)
-    return result
-  }
-
-  /**
-   * Update a thing by ID
-   */
-  async 'things.update'(
-    id: string,
-    data: Record<string, unknown>
-  ): Promise<{ $id: string; $type: string; [key: string]: unknown }> {
-    // Cast through unknown for StorableData compatibility
-    const result = await this.things.update(id, data as unknown as Parameters<typeof this.things.update>[1])
-    return result
-  }
-
-  /**
-   * Delete a thing by ID
-   * Returns an object for proper JSON serialization
-   */
-  async 'things.delete'(id: string): Promise<{ deleted: boolean }> {
-    await this.things.delete(id)
-    return { deleted: true }
   }
 
   // =========================================================================
@@ -128,7 +108,7 @@ export class ContextDO implements DurableObject {
    * Returns void but we need to return something for JSON serialization
    */
   async sendEvent(type: string, payload?: unknown): Promise<{ success: true }> {
-    await this.events.emit({
+    await this._eventsStore.emit({
       type,
       payload: (payload ?? null) as import('@dotdo/db').JsonValue,
       source: 'workflow',

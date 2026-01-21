@@ -293,6 +293,23 @@ export interface EventProxyOptions {
 }
 
 /**
+ * Options for creating a remote event handler proxy (for RPC clients)
+ */
+export interface RemoteEventProxyOptions {
+  /**
+   * Function called when a handler is registered remotely.
+   * Receives the event path and the stringified handler code.
+   * Returns a promise that resolves when registration is complete.
+   */
+  onRegister: (path: string[], handlerCode: string) => Promise<unknown>
+
+  /**
+   * Optional cache for proxy instances
+   */
+  cache?: Map<string, unknown>
+}
+
+/**
  * Creates a proxy for event handler registration patterns like $.on.Entity.action(handler).
  *
  * This supports arbitrary depth event paths and can register multiple handlers
@@ -349,6 +366,87 @@ export function createEventProxy<T = unknown>(
   // Cache the proxy
   if (cache) {
     const cacheKey = `on:${path.join('.')}`
+    cache.set(cacheKey, proxy)
+  }
+
+  return proxy as T
+}
+
+/**
+ * Creates a proxy for remote event handler registration that stringifies handlers.
+ *
+ * This is used by RPC clients to register event handlers on remote DOs.
+ * Instead of storing the handler locally, it:
+ * 1. Stringifies the handler using handler.toString()
+ * 2. Sends the stringified code to the backend for registration
+ * 3. The backend stores and executes the handler when events fire
+ *
+ * @param options - Configuration for the proxy behavior
+ * @param path - Current accumulated path (used internally for recursion)
+ * @returns A Proxy that captures event paths and sends stringified handlers remotely
+ *
+ * @example
+ * ```ts
+ * const on = createRemoteEventProxy({
+ *   onRegister: async (path, handlerCode) => {
+ *     // Send to backend
+ *     await transport.send({
+ *       method: 'registerHandler',
+ *       args: [{
+ *         event: path.join('.'),
+ *         code: handlerCode
+ *       }]
+ *     })
+ *   }
+ * })
+ *
+ * // When this is called:
+ * on.Customer.signup(async (event) => {
+ *   console.log('New customer:', event.email)
+ * })
+ *
+ * // The handler is stringified and sent to the backend:
+ * // code: "async (event) => {\n  console.log('New customer:', event.email)\n}"
+ * ```
+ */
+export function createRemoteEventProxy<T = unknown>(
+  options: RemoteEventProxyOptions,
+  path: string[] = []
+): T {
+  const { onRegister, cache } = options
+
+  // Check cache
+  if (cache) {
+    const cacheKey = `remote-on:${path.join('.')}`
+    const cached = cache.get(cacheKey)
+    if (cached !== undefined) return cached as T
+  }
+
+  const proxy = new Proxy(() => {}, {
+    get(_target, prop: string | symbol): unknown {
+      if (typeof prop === 'symbol') return undefined
+      if (PROMISE_PROPS.has(prop)) return undefined
+
+      return createRemoteEventProxy(options, [...path, prop])
+    },
+
+    apply(_target, _thisArg, args: unknown[]): Promise<unknown> {
+      const handler = args[0] as ((...args: unknown[]) => unknown) | undefined
+      if (typeof handler !== 'function') {
+        return Promise.reject(new Error('Event handler must be a function'))
+      }
+
+      // CRITICAL: Stringify the handler function
+      const handlerCode = handler.toString()
+
+      // Send to backend for registration
+      return onRegister(path, handlerCode)
+    }
+  })
+
+  // Cache the proxy
+  if (cache) {
+    const cacheKey = `remote-on:${path.join('.')}`
     cache.set(cacheKey, proxy)
   }
 

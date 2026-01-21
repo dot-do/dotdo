@@ -54,7 +54,7 @@
  * ```
  */
 
-import type { EventsStore, Event } from '../db'
+import type { EventsStore, Event } from '@dotdo/db'
 import type { EventHandler } from './on'
 import type { ScheduleRegistration, ScheduleHandler } from './schedule'
 import type { FireAndForgetErrorStore } from './fire-and-forget-errors'

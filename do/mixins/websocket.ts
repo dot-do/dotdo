@@ -132,7 +132,7 @@ interface MinimalDOState {
 export function WithWebSocket<TBase extends Constructor>(
   Base: TBase,
   options: WithWebSocketOptions = {}
-): TBase & Constructor<HasWebSocket> {
+): Constructor<HasWebSocket> & TBase {
   const {
     enableHeartbeat = false,
     heartbeatInterval = DEFAULT_HEARTBEAT_INTERVAL_MS,
@@ -143,7 +143,12 @@ export function WithWebSocket<TBase extends Constructor>(
     private _websocketManager: WebSocketManager
     private _heartbeatIntervalId: number | null = null
 
-    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545)
+    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545).
+    // This is a TypeScript language limitation, not a design flaw. Type safety is preserved via:
+    // - Interface constraints (HasWebSocket) on the return type
+    // - Generic constraints (TBase extends Constructor) on the input
+    // - Instance type inference via MixinInstance<T>
+    // See @dotdo/utils/mixin-types.ts for full documentation (do-1sbr9).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
@@ -257,7 +262,7 @@ export function WithWebSocket<TBase extends Constructor>(
         this._heartbeatIntervalId = null
       }
     }
-  } as TBase & Constructor<HasWebSocket>
+  } as Constructor<HasWebSocket> & TBase
 }
 
 // =============================================================================

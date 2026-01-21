@@ -1134,9 +1134,9 @@ describe('DO Integration with digital-workers: Contact Channels', () => {
         sms: { number: '+1-555-1234' },
         whatsapp: { number: '+1-555-1234' },
         telegram: { user: '@worker' },
-        web: { url: 'https://app.example.com', userId: 'worker-001' },
-        api: { endpoint: 'https://api.example.com/v1', auth: 'bearer' },
-        webhook: { url: 'https://hooks.example.com/worker' },
+        web: { url: 'https://app.example.com.ai', userId: 'worker-001' },
+        api: { endpoint: 'https://api.example.com.ai/v1', auth: 'bearer' },
+        webhook: { url: 'https://hooks.example.com.ai/worker' },
       },
     }
 

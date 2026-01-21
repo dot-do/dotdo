@@ -254,14 +254,14 @@ Cloudflare Workers support zero-downtime deployments by default. For more contro
 [env.blue]
 name = "your-app-blue"
 routes = [
-  { pattern = "api.example.com/*", zone_name = "example.com" }
+  { pattern = "api.example.com.ai/*", zone_name = "example.com.ai" }
 ]
 
 # Green (new version)
 [env.green]
 name = "your-app-green"
 routes = [
-  { pattern = "api-preview.example.com/*", zone_name = "example.com" }
+  { pattern = "api-preview.example.com.ai/*", zone_name = "example.com.ai" }
 ]
 ```
 
@@ -1871,7 +1871,7 @@ main = "src/index.ts"
 
 # Route configuration
 routes = [
-  { pattern = "api.example.com/*", zone_name = "example.com" }
+  { pattern = "api.example.com.ai/*", zone_name = "example.com.ai" }
 ]
 ```
 
