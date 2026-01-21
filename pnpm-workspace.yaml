@@ -8,3 +8,5 @@ packages:
   - api
   - app
   - dotdo
+  - integrations
+  - utils
