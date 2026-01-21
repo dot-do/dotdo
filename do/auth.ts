@@ -13,27 +13,12 @@
 
 import type { MiddlewareHandler, Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import {
-  extractToken,
-  verifyTokenSignature,
-  verifyTokenWithJwks,
-  type AuthUser,
-  type JwksClient,
-} from '@dotdo/auth'
-import { createScopedLogger, LogLevel } from '@dotdo/utils'
-// Import shared header constants from @dotdo/rpc to avoid circular dependencies
-import {
-  DO_SOURCE_HEADER,
-  DO_SOURCE_ID_HEADER,
-  DO_SIGNATURE_HEADER,
-  DO_TIMESTAMP_HEADER,
-  CF_WORKER_HEADER,
-  WORKER_NAME_HEADER,
-  INTERNAL_TRUST_HEADER,
-  CORRELATION_ID_HEADER,
-} from '@dotdo/rpc'
+import type { AuthUser } from '../auth/middleware'
+import { extractToken, verifyTokenSignature } from '../auth/token'
+import { verifyTokenWithJwks, type JwksClient } from '../auth/jwks'
+import { createLogger } from '../utils/logger'
 
-const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[DOAuth]' })
+const logger = createLogger('[DOAuth]')
 
 // ============================================================================
 // Types
@@ -77,9 +62,9 @@ export interface CallerInfo {
   /** Caller identifier (user ID, DO ID, or worker name) */
   id: string | null
   /** Full auth payload (for user requests) */
-  auth?: AuthPayload | undefined
+  auth?: AuthPayload
   /** Source DO ID (for DO-to-DO calls) */
-  sourceDoId?: string | undefined
+  sourceDoId?: string
   /** Whether this is a trusted internal call */
   trusted: boolean
 }
@@ -134,22 +119,50 @@ export interface DOAuthGuardConfig {
 }
 
 // ============================================================================
-// Headers - Re-exported from @dotdo/rpc to maintain backwards compatibility
+// Headers
 // ============================================================================
 
-// Re-export header constants from @dotdo/rpc for backwards compatibility.
-// These were previously defined here but are now in @dotdo/rpc to avoid
-// circular dependencies (do -> rpc -> do).
-export {
-  DO_SOURCE_HEADER,
-  DO_SOURCE_ID_HEADER,
-  DO_SIGNATURE_HEADER,
-  DO_TIMESTAMP_HEADER,
-  CF_WORKER_HEADER,
-  WORKER_NAME_HEADER,
-  INTERNAL_TRUST_HEADER,
-  CORRELATION_ID_HEADER,
-}
+/**
+ * Header indicating the request is from a Cloudflare Worker
+ * This is set by the Cloudflare runtime for internal requests
+ */
+export const CF_WORKER_HEADER = 'cf-worker'
+
+/**
+ * Header containing the worker name (set by us in the API layer)
+ */
+export const WORKER_NAME_HEADER = 'X-Worker-Name'
+
+/**
+ * Header indicating request is from another DO
+ */
+export const DO_SOURCE_HEADER = 'X-DO-Source'
+
+/**
+ * Header containing the source DO's ID
+ */
+export const DO_SOURCE_ID_HEADER = 'X-DO-Source-ID'
+
+/**
+ * Correlation ID header (from rpc/client.ts)
+ */
+export const CORRELATION_ID_HEADER = 'X-Correlation-ID'
+
+/**
+ * Header indicating internal trust chain
+ */
+export const INTERNAL_TRUST_HEADER = 'X-Internal-Trust'
+
+/**
+ * Header containing HMAC signature for DO-to-DO authentication
+ * This prevents header spoofing by external clients
+ */
+export const DO_SIGNATURE_HEADER = 'X-DO-Signature'
+
+/**
+ * Header containing timestamp for signature validation (prevents replay attacks)
+ */
+export const DO_TIMESTAMP_HEADER = 'X-DO-Timestamp'
 
 /**
  * Maximum age of a signature in milliseconds (5 minutes)
@@ -525,9 +538,8 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
           try {
             // Decode without verification just to get the subject
             const parts = token.split('.')
-            const payloadPart = parts[1]
-            if (parts.length === 3 && payloadPart) {
-              const payload = JSON.parse(atob(payloadPart))
+            if (parts.length === 3) {
+              const payload = JSON.parse(atob(parts[1]))
               return payload.sub ?? null
             }
           } catch {
@@ -543,11 +555,9 @@ export function createDOAuthGuard(config: DOAuthGuardConfig = {}): DOAuthGuard {
       try {
         // Try JWKS validation first if client is available
         if (jwksClient) {
-          const issuerArray = issuer ? (Array.isArray(issuer) ? issuer : [issuer]) : undefined
-          const audienceArray = audience ? (Array.isArray(audience) ? audience : [audience]) : undefined
           const payload = await verifyTokenWithJwks(token, jwksClient, {
-            ...(issuerArray !== undefined && { issuer: issuerArray }),
-            ...(audienceArray !== undefined && { audience: audienceArray }),
+            issuer: issuer ? (Array.isArray(issuer) ? issuer : [issuer]) : undefined,
+            audience: audience ? (Array.isArray(audience) ? audience : [audience]) : undefined,
           })
           return payload as AuthPayload
         }

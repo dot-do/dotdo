@@ -1,21 +1,5 @@
 {
   "name": "dotdo-ai",
-  "main": "test-entry.ts",
-  "compatibility_date": "2025-01-15",
-
-  // Durable Object bindings for tests
-  // Uses DO from @dotdo/do for AI-DO integration tests
-  "durable_objects": {
-    "bindings": [
-      { "name": "DO", "class_name": "DO" }
-    ]
-  },
-
-  // Migrations for DO classes with SQL storage
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["DO"]
-    }
-  ]
+  "main": "index.ts",
+  "compatibility_date": "2025-01-15"
 }

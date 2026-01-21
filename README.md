@@ -5,8 +5,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![npm version](https://badge.fury.io/js/dotdo.svg)](https://www.npmjs.com/package/dotdo)
 
-> **New to dotdo?** Start with the [5-Minute Quickstart](./QUICKSTART.md) to get running in minutes.
-
 ```typescript
 import { DO } from 'dotdo'
 
@@ -16,8 +14,11 @@ export class MyApp extends DO {
 
     // Event-driven architecture with $ context
     this.$.on.Customer.signup(async (event) => {
-      // Graph-based storage
-      await this.$.things.create({ $type: 'Profile', ...event.data })
+      // Full POSIX filesystem on SQLite
+      await this.$.fs.write('customers/profile.json', event.data)
+
+      // Git operations without shelling out
+      await this.$.git.commit('feat: new customer signup')
 
       // Cross-DO RPC with promise pipelining
       await this.$.Email('welcome').send(event.email)
@@ -42,26 +43,6 @@ dotdo is a runtime layer for [Cloudflare Durable Objects](https://developers.clo
 | `require()` | Cap'n Web RPC (promise pipelining) |
 
 V8 isolates lack the primitives developers expect. We built them from scratch, optimized for edge execution.
-
-### Who is dotdo for?
-
-- **Startup Founders** - Build production apps without infrastructure complexity
-- **Full-Stack Developers** - Deploy stateful backends that scale automatically
-- **Infrastructure Engineers** - Extend Cloudflare Workers with persistence primitives
-- **AI/Agent Developers** - Run autonomous agents with durable state at the edge
-
-### Why Durable Objects?
-
-Durable Objects provide a unique combination of benefits:
-
-1. **Zero Cold Starts** - V8 isolates start in 0ms, not seconds
-2. **Guaranteed Consistency** - Single-threaded access eliminates race conditions
-3. **Global Distribution** - Deploy to 300+ cities automatically
-4. **Built-in SQLite** - 10GB of persistent storage per instance
-5. **Exactly-Once Delivery** - No message loss or duplication
-6. **Pay-Per-Use** - Only pay for what you use, no idle costs
-
-dotdo gives you the developer experience you expect from Node.js, on top of this powerful foundation.
 
 ---
 
@@ -103,13 +84,11 @@ V8 isolates don't have:
 
 ### Installation
 
-Install dotdo in your existing project:
-
 ```bash
 npm install dotdo
 ```
 
-Or use the CLI to scaffold a new project with pre-configured setup:
+Or use the CLI to scaffold a new project:
 
 ```bash
 npx dotdo init my-app
@@ -117,146 +96,38 @@ cd my-app
 npm install
 ```
 
-### Prerequisites
-
-- **Node.js** >= 18.0.0
-- **Cloudflare Account** - Free tier available at [dash.cloudflare.com](https://dash.cloudflare.com)
-- **Wrangler CLI** - Installed automatically with dotdo
-
 ### Create Your First DO
 
-Create a new Durable Object that extends the dotdo base class:
-
 ```typescript
-// src/index.ts
 import { DO } from 'dotdo'
 
 export class MyApp extends DO {
   async fetch(request: Request) {
     const url = new URL(request.url)
 
-    if (url.pathname === '/users') {
-      // Create a Thing (entity in the graph)
-      const user = await this.$.things.create({
-        $type: 'User',
-        name: 'Alice',
-        email: 'alice@example.com'
-      })
+    // Create a Thing (entity in the graph)
+    const user = await this.$.things.create({
+      $type: 'User',
+      name: 'Alice',
+      email: 'alice@example.com'
+    })
 
-      return new Response(JSON.stringify(user), {
-        headers: { 'Content-Type': 'application/json' }
-      })
-    }
-
-    return new Response('Hello from dotdo!', {
-      headers: { 'Content-Type': 'text/plain' }
+    return new Response(JSON.stringify(user), {
+      headers: { 'Content-Type': 'application/json' }
     })
   }
 }
-
-// Export the DO
-export default {
-  async fetch(request: Request, env: Env) {
-    const id = env.MY_APP.idFromName('default')
-    const stub = env.MY_APP.get(id)
-    return stub.fetch(request)
-  }
-}
-```
-
-### Configure wrangler.toml
-
-```toml
-name = "my-app"
-main = "src/index.ts"
-compatibility_date = "2024-01-01"
-
-[durable_objects]
-bindings = [
-  { name = "MY_APP", class_name = "MyApp" }
-]
-
-[[migrations]]
-tag = "v1"
-new_classes = ["MyApp"]
 ```
 
 ### Development
 
-Start the local development server:
-
 ```bash
-npm run dev          # Start Wrangler dev server at http://localhost:8787
-```
-
-Run tests with Vitest:
-
-```bash
-npm test             # Run tests in watch mode
+npm run dev          # Start Wrangler dev server
+npm test             # Run tests with Vitest
 npm run test:run     # Run tests once (CI mode)
 npm run typecheck    # TypeScript type checking
-npm run benchmark    # Run performance benchmarks
+npm run deploy       # Deploy to Cloudflare
 ```
-
-Deploy to Cloudflare:
-
-```bash
-npm run deploy       # Deploy to production
-```
-
-### Your First Request
-
-Once the dev server is running, test your DO:
-
-```bash
-curl http://localhost:8787/users
-```
-
-You'll get back your first Thing:
-
-```json
-{
-  "$id": "usr_abc123",
-  "$type": "User",
-  "name": "Alice",
-  "email": "alice@example.com",
-  "$createdAt": 1706000000000,
-  "$updatedAt": 1706000000000
-}
-```
-
-### Next Steps
-
-Now that you have a working DO, explore dotdo's capabilities:
-
-1. **Add Event Handlers** - Use `$.on.Noun.verb()` to handle events:
-   ```typescript
-   this.$.on.User.created(async (event) => {
-     await this.$.send({ type: 'welcome-email', to: event.email })
-   })
-   ```
-
-2. **Schedule Tasks** - Use fluent scheduling DSL:
-   ```typescript
-   this.$.every.monday.at('9am')(async () => {
-     await generateWeeklyReport()
-   })
-   ```
-
-3. **Call Other DOs** - Use cross-DO RPC:
-   ```typescript
-   const balance = await this.$.Customer('user-456').getBalance()
-   await this.$.Order('order-123').ship()
-   ```
-
-4. **Add Observability** - Monitor your DOs:
-   ```typescript
-   import { createDOObservability } from '@dotdo/observability'
-
-   const obs = createDOObservability({ service: 'my-app' })
-   ```
-
-5. **Explore Examples** - Check out `.worktrees/v1/examples/` for real-world patterns
 
 ---
 
@@ -265,27 +136,24 @@ Now that you have a working DO, explore dotdo's capabilities:
 This is a **monorepo** organized as a workspace. Each package handles a specific concern:
 
 ```
-dotdo/                  # Main package - re-exports everything
-├── @dotdo/do           # THE Durable Object class with $ context
-├── @dotdo/db           # Storage layer (Things, Relationships, Events)
-├── @dotdo/rpc          # Cap'n Web RPC with promise pipelining
-├── @dotdo/mcp          # Model Context Protocol server (3 tools)
-├── @dotdo/ai           # AI routing and template literals
-├── @dotdo/auth         # Hono auth middleware
-├── @dotdo/api          # Self-describing REST API layer
-└── @dotdo/observability # Logging, tracing, and metrics
+dotdo/             # Main package - re-exports everything
+├── @dotdo/do      # THE Durable Object class with $ context
+├── @dotdo/db      # Storage layer (Things, Relationships, Events)
+├── @dotdo/rpc     # Cap'n Web RPC with promise pipelining
+├── @dotdo/mcp     # Model Context Protocol server (3 tools)
+├── @dotdo/ai      # AI routing and template literals
+├── @dotdo/auth    # Hono auth middleware
+└── @dotdo/api     # Self-describing REST API layer
 ```
 
 ### Extended Primitives (Submodules)
 
-Located in root submodule directories (not `primitives/` which is a git submodule for AI primitives):
-- **fsx/** - Full POSIX filesystem on SQLite
-- **gitx/** - Git operations with R2 storage
-- **bashx/** - Shell execution without VMs
-- **npmx/** - Package management for edge
-- **pyx/** - Python runtime (experimental)
-
-> **Note:** These require [manual wiring](#primitives-status) to the `$` context.
+Located in `primitives/`:
+- **fsx** - Full POSIX filesystem on SQLite
+- **gitx** - Git operations with R2 storage
+- **bashx** - Shell execution without VMs
+- **npmx** - Package management for edge
+- **pyx** - Python runtime (experimental)
 
 ---
 
@@ -407,53 +275,6 @@ npx dotdo login         # OAuth login (future: via oauth.do)
 
 The CLI is included in the main `dotdo` package. No separate installation needed.
 
-### Code Generation
-
-dotdo follows the principle of **"Define once, generate everywhere"** - your resource definitions automatically produce SDKs, CLI commands, OpenAPI specs, and MCP tools.
-
-#### Using the Programmatic API
-
-```typescript
-import { defineResource, generateSDK, generateCLI, generateMCPTools, generateOpenAPI } from '@dotdo/api'
-
-// Define resources once
-const CustomerResource = defineResource('customers')
-  .fields({
-    name: { type: 'string', required: true },
-    email: { type: 'string', format: 'email', required: true }
-  })
-  .actions({
-    upgrade: { method: 'POST', handler: async (ctx) => ({}) }
-  })
-  .build()
-
-// Generate TypeScript SDK
-const sdkCode = generateSDK([CustomerResource])
-writeFileSync('sdk.ts', sdkCode)
-
-// Generate OpenAPI 3.0 spec
-const openApiSpec = generateOpenAPI([CustomerResource])
-writeFileSync('openapi.json', JSON.stringify(openApiSpec, null, 2))
-
-// Generate CLI command structure
-const cliCommands = generateCLI([CustomerResource])
-
-// Generate MCP tools for AI agents
-const mcpTools = generateMCPTools([CustomerResource])
-```
-
-#### Generated Artifacts
-
-| Generator | Output | Description |
-|-----------|--------|-------------|
-| `generateSDK()` | TypeScript SDK | Type-safe client with CRUD + custom actions |
-| `generateOpenAPI()` | OpenAPI 3.0 | JSON/YAML spec for documentation |
-| `generateCLI()` | CLI structure | Commander.js compatible commands |
-| `generateMCPTools()` | MCP tools | AI-agent compatible tool definitions |
-| `generateTypes()` | TypeScript types | Interfaces from resource definitions |
-
-See [SDK Generation documentation](./docs/SDK_GENERATION.md) for comprehensive examples.
-
 ### Middleware & Utilities
 
 #### `@dotdo/auth`
@@ -504,43 +325,6 @@ const api = createAPI({
   }
 })
 ```
-
-#### `@dotdo/observability`
-
-Comprehensive observability with structured logging, distributed tracing, and metrics.
-
-```typescript
-import {
-  createStructuredLogger,
-  createTracer,
-  observability,
-  createDOObservability
-} from '@dotdo/observability'
-
-// Structured logging
-const logger = createStructuredLogger({ service: 'my-service' })
-logger.info('User created', { userId: '123' })
-
-// Distributed tracing (W3C Trace Context compatible)
-const tracer = createTracer({ name: 'my-service' })
-tracer.startActiveSpan('processOrder', (span) => {
-  span.setAttribute('order.id', orderId)
-  // ... process order
-})
-
-// Hono middleware
-app.use('/*', observability({ service: 'my-api' }))
-
-// DO integration
-const obs = createDOObservability({ service: 'my-do' })
-```
-
-**Subpath imports** for tree-shaking:
-- `@dotdo/observability/logger` - Structured logging only
-- `@dotdo/observability/tracing` - Distributed tracing only
-- `@dotdo/observability/metrics` - Metrics collection only
-- `@dotdo/observability/middleware` - Hono middleware only
-- `@dotdo/observability/context` - Context propagation only
 
 ---
 
@@ -596,16 +380,12 @@ The graph model makes these natural. No foreign keys, no join tables—just Thin
 
 ### Extended Primitives
 
-> **Note:** Extended primitives (fsx, gitx, bashx, npmx) exist as separate submodules but are **not wired automatically** to the `$` context. See the [Primitives Status](#primitives-status) section for details.
-
 #### fsx: Filesystem on SQLite
 
-When wired to the `$` context:
-
 ```typescript
-// Requires manual wiring - see Primitives Status section
-await $.fs.writeFile('data/report.json', JSON.stringify(data))
-await $.fs.readFile('content/index.mdx', { encoding: 'utf-8' })
+await $.fs.write('data/report.json', data)
+await $.fs.read('content/index.mdx')
+await $.fs.glob('**/*.ts')
 await $.fs.mkdir('uploads', { recursive: true })
 ```
 
@@ -616,14 +396,11 @@ Full POSIX semantics implemented on DO SQLite:
 
 #### gitx: Git Operations
 
-When wired to the `$` context:
-
 ```typescript
-// Requires manual wiring - see Primitives Status section
-await $.git.sync()
-await $.git.add('src/index.ts')
+await $.git.clone('https://github.com/org/repo')
+await $.git.checkout('feature-branch')
 await $.git.commit('feat: add new feature')
-await $.git.push()
+await $.git.push('origin', 'main')
 ```
 
 Complete Git internals reimplemented for edge:
@@ -633,12 +410,9 @@ Complete Git internals reimplemented for edge:
 
 #### bashx: Shell Without VMs
 
-When wired to the `$` context:
-
 ```typescript
-// Requires manual wiring - see Primitives Status section
-const result = await $.bash.exec('ls', ['-la'])
-await $.bash.run('npm install && npm run build')
+const result = await $.bash`npm install && npm run build`
+await $.bash`ffmpeg -i input.mp4 -c:v libx264 output.mp4`
 ```
 
 Shell execution without spawning VMs:
@@ -648,257 +422,58 @@ Shell execution without spawning VMs:
 
 ---
 
-## Primitives Status
-
-This section documents the implementation status of extended primitives (fsx, gitx, bashx, npmx).
-
-### Summary
-
-| Primitive | Package | Status | `$` Context Wiring |
-|-----------|---------|--------|-------------------|
-| **fsx** | `fsx/` submodule | Implemented | **Automatic** (via mixin) or Manual |
-| **gitx** | `gitx/` submodule | Implemented | **Automatic** (via mixin) or Manual |
-| **bashx** | `bashx/` submodule | Implemented | **Automatic** (via mixin) or Manual |
-| **npmx** | `npmx/` submodule | Implemented | **Automatic** (via mixin) or Manual |
-
-### Current Architecture
-
-The primitives are **implemented** in separate submodule directories (`fsx/`, `gitx/`, `bashx/`, `npmx/`) and are re-exported from `do/primitives/index.ts`.
-
-**Two wiring options:**
-
-1. **Automatic** - Use the `DOWithPrimitives` mixin (recommended)
-2. **Manual** - Wire primitives yourself for full control
-
-### How to Wire Primitives
-
-#### Option 1: DOWithPrimitives Mixin (Recommended)
-
-The simplest way to add primitives is the `DOWithPrimitives` mixin - one line to enable all primitives:
-
-```typescript
-import { DO, DOWithPrimitives } from '@dotdo/do'
-
-// One-line integration - just extend DOWithPrimitives
-export class MyApp extends DOWithPrimitives(DO) {
-  async handleRequest() {
-    // All primitives available via $ context
-    await this.$.fs.writeFile('/config.json', JSON.stringify(config))
-    const files = await this.$.fs.readdir('/data')
-  }
-}
-
-// With explicit configuration
-export class DevEnv extends DOWithPrimitives(DO, {
-  fs: { basePath: '/workspace' },
-  bash: { executor: containerExecutor },
-  git: { repo: 'org/repo', branch: 'main' }
-}) {
-  async setupProject() {
-    await this.$.git.sync()
-    await this.$.bash.exec('npm', ['install'])
-  }
-}
-
-// Selective enablement
-export class FilesOnly extends DOWithPrimitives(DO, {
-  fs: true,      // Enable filesystem
-  git: false,    // Disable git
-  bash: false,   // Disable bash
-  npm: false     // Disable npm
-}) {
-  // Only $.fs is available
-}
-```
-
-**Features:**
-- **Lazy initialization** - Primitives are created on first access
-- **Auto-wiring** - Automatically wires to R2 bindings and SQLite storage
-- **Composable** - Works with other mixins: `DOWithPrimitives(WithAuth(DO))`
-- **Type-safe** - Full TypeScript support with capability checking
-
-```typescript
-// Check primitive availability at runtime
-if (this.hasPrimitive('git')) {
-  await this.$.git.commit('feat: new feature')
-}
-
-// Get list of available primitives
-const available = this.getAvailablePrimitives() // ['fs', 'git', 'bash']
-```
-
-#### Option 2: Manual Wiring
-
-For full control, wire primitives manually:
-
-```typescript
-import { DO, createContext, type FsCapability, type GitCapability, type BashCapability } from '@dotdo/do'
-import { FSx, MemoryBackend } from '@dotdo/do/primitives'
-
-export class MyDOWithPrimitives extends DO {
-  constructor(state: DurableObjectState, env: Env) {
-    super(state, env)
-
-    // Create primitive implementations
-    const fsCapability = createFsCapability(state)
-    const gitCapability = createGitCapability(state, env)
-    const bashCapability = createBashCapability(fsCapability)
-
-    // Override $ with primitives wired
-    this.$ = createContext(state, env, {
-      fs: fsCapability,
-      git: gitCapability,
-      bash: bashCapability,
-    })
-  }
-}
-
-// Helper to create FsCapability from FSx
-function createFsCapability(state: DurableObjectState): FsCapability {
-  const fsx = new FSx({ backend: new MemoryBackend() })
-  return {
-    name: 'fs',
-    readFile: (path, opts) => fsx.readFile(path, opts),
-    writeFile: (path, data) => fsx.writeFile(path, data),
-    exists: (path) => fsx.exists(path),
-    mkdir: (path, opts) => fsx.mkdir(path, opts),
-    readdir: (path) => fsx.readdir(path),
-    stat: (path) => fsx.stat(path),
-    unlink: (path) => fsx.unlink(path),
-    rmdir: (path) => fsx.rmdir(path),
-    rm: (path, opts) => fsx.rm(path, opts),
-  }
-}
-```
-
-### Capability Interfaces
-
-Each primitive has a defined capability interface:
-
-**FsCapability** (`$.fs`):
-- `readFile(path, options?)` - Read file contents
-- `writeFile(path, data)` - Write file
-- `exists(path)` - Check if path exists
-- `mkdir(path, options?)` - Create directory
-- `readdir(path)` - List directory contents
-- `stat(path)` - Get file/directory stats
-- `unlink(path)` - Delete file
-- `rmdir(path)` - Delete directory
-- `rm(path, options?)` - Remove file or directory
-
-**GitCapability** (`$.git`):
-- `binding` - Repository binding info (repo, branch, commit)
-- `sync()` - Sync with remote
-- `push()` - Push changes
-- `status()` - Get repository status
-- `add(files)` - Stage files
-- `commit(message)` - Create commit
-- `diff()` - Get diff output
-- `log()` - Get commit history
-- `pull()` - Pull from remote
-
-**BashCapability** (`$.bash`):
-- `exec(command, args?, options?)` - Execute command with args
-- `run(script)` - Run shell script
-- `parse(input)` - Parse shell script to AST
-- `analyze(input)` - Analyze command safety
-- `isDangerous(input)` - Check if command is dangerous
-
-**NpmCapability** (`$.npm`):
-- `install(packages?, options?)` - Install packages
-- `uninstall(packages)` - Remove packages
-- `run(script, args?)` - Run npm script
-- `list(options?)` - List installed packages
-- `search(query)` - Search npm registry
-- `info(name, version?)` - Get package info
-
-### Implementation Status
-
-The `DOWithPrimitives` mixin provides:
-
-- **Automatic wiring via env bindings** - Detects R2 bindings and SQLite storage automatically
-- **Lazy initialization** - Primitives are created on first access for efficiency
-- **Composable mixins** - Use `DOWithPrimitives(WithAuth(DO))` to combine capabilities
-- **Pre-built DO variant** - `DOWithPrimitives(DO)` provides all primitives with zero configuration
-
-See [ADR-004](./docs/adr/ADR-004-workflow-context-modules.md) for the composable modules design.
-
----
-
 ## Storage Architecture
 
-### Tiered Storage (Implemented)
-
-The `@dotdo/db` package provides a working tiered storage system:
+### Tiered Storage
 
 ```
 +---------------------------------------------------------------------+
-|                    HOT: Cloudflare Cache API                        |
-|  Free, fastest, ephemeral, global edge. Auto-promotes on access.    |
-+-----------------------------+---------------------------------------+
-                              | Promotion/Demotion
-                              v
-+---------------------------------------------------------------------+
-|                  WARM: DO SQLite                                    |
-|  Active working set. 50ms reads. 10GB per shard. Source of truth.   |
-+-----------------------------+---------------------------------------+
-                              | Archive on demand
-                              v
-+---------------------------------------------------------------------+
-|                  COLD: R2 Object Storage                            |
-|  Durable, unlimited, $0 egress. For archival and large datasets.    |
-+---------------------------------------------------------------------+
-```
-
-**Available now:**
-- `TieredStorageAdapter` - Unified interface across all three tiers
-- Auto-promotion based on access patterns (configurable threshold)
-- Manual promotion/demotion with event callbacks
-- Statistics tracking for all tiers
-- Write-through option for immediate cold tier durability
-
-```typescript
-import { createTieredStorageAdapter, createCacheLayer, R2StorageLayer } from '@dotdo/db'
-
-const tieredStorage = createTieredStorageAdapter({
-  cacheLayer: await createCacheLayer({ cacheName: 'dotdo', ttlSeconds: 300, baseUrl: 'https://cache.dotdo.dev' }),
-  doStorage: sqliteAdapter,  // Your DO's SQLite storage
-  r2Layer: new R2StorageLayer({ bucket: env.R2_BUCKET, prefix: 'dotdo/' }),
-  promotionThreshold: 3,     // Promote after 3 accesses
-  autoPromote: true,
-})
-
-// Data flows through tiers automatically
-const data = await tieredStorage.get('key')  // Checks hot → warm → cold
-await tieredStorage.put('key', value)        // Writes to warm by default
-```
-
-### Future: Analytics Pipeline (Roadmap)
-
-The following architecture is planned for cross-DO analytics:
-
-```
-+---------------------------------------------------------------------+
-|                    HOT: DO SQLite (per-shard)                       |
+|                    HOT: DO SQLite                                   |
+|  Active working set. 50ms reads. 10GB per shard.                    |
 +-----------------------------+---------------------------------------+
                               | Cloudflare Pipelines (streaming)
                               v
 +---------------------------------------------------------------------+
 |                  WARM: R2 + Iceberg/Parquet                         |
-|  Cross-DO queries. Partitioned by (ns, type, visibility)            |
+|  Cross-DO queries. 100-150ms. Partitioned by (ns, type, visibility) |
 +-----------------------------+---------------------------------------+
-                              | R2 SQL / ClickHouse connector
+                              | R2 SQL / ClickHouse
                               v
 +---------------------------------------------------------------------+
 |                  COLD: ClickHouse + R2 Archive                      |
-|  Analytics, aggregations, time-series.                              |
+|  Analytics, aggregations, time-series. Pennies per TB.              |
 +---------------------------------------------------------------------+
 ```
 
-**Planned features:**
-- Automatic archival to R2 with Iceberg table format
-- Cross-DO SQL queries via R2 SQL or ClickHouse
-- Pipeline-as-WAL for zero data loss on DO eviction
+Data flows automatically:
+- Old versions archive to R2
+- Analytics stream to Iceberg
+- Query with SQL across all tiers
+
+**R2 has $0 egress.** Your analytics cost pennies, not thousands.
+
+### Pipeline-as-WAL
+
+The unified storage module implements **Pipeline-as-WAL** (Write-Ahead Log):
+
+```
+Write Path:
+  Client → PipelineEmitter → Pipeline (WAL) → ACK
+                ↓
+         InMemoryState
+                ↓
+         LazyCheckpointer → SQLite (batched)
+
+Read Path:
+  Client → InMemoryState (O(1)) → Response
+```
+
+**Key invariant:** Events are durable in Pipeline BEFORE local SQLite persistence.
+
+**Benefits:**
+- Zero data loss on DO eviction
+- Immediate ACK to clients
+- ~95% reduction in SQLite write operations
 
 ---
 
@@ -936,7 +511,7 @@ npx vitest --project=do           # DO tests (miniflare)
 
 ### Benchmarks
 
-Performance regression tests are run in CI to prevent performance degradation. All benchmarks are located in [`tests/benchmarks/`](./tests/benchmarks/).
+Performance regression tests are run in CI to prevent performance degradation:
 
 ```bash
 npm run benchmark                # Run all benchmarks
@@ -946,13 +521,11 @@ npm run benchmark:update         # Update baseline with current results
 npm run benchmark:report         # Generate detailed report
 ```
 
-**Benchmark suites** (in `tests/benchmarks/`):
-- [`rpc-latency.bench.ts`](./tests/benchmarks/rpc-latency.bench.ts) - RPC call latency (simple, complex args, concurrent, large responses)
-- [`storage.bench.ts`](./tests/benchmarks/storage.bench.ts) - Storage operations (read, write, batch, large values, list)
-- [`do-instantiation.bench.ts`](./tests/benchmarks/do-instantiation.bench.ts) - DO instantiation time (base, subclass, with routes)
-- [`websocket.bench.ts`](./tests/benchmarks/websocket.bench.ts) - WebSocket throughput (serialization, broadcast, connection tracking)
-- [`entity-relationship.bench.ts`](./tests/benchmarks/entity-relationship.bench.ts) - Entity and relationship operations
-- [`query-builder.bench.ts`](./tests/benchmarks/query-builder.bench.ts) - Query builder performance
+**Benchmark suites:**
+- `rpc-latency.bench.ts` - RPC call latency (simple, complex args, concurrent, large responses)
+- `storage.bench.ts` - Storage operations (read, write, batch, large values, list)
+- `do-instantiation.bench.ts` - DO instantiation time (base, subclass, with routes)
+- `websocket.bench.ts` - WebSocket throughput (serialization, broadcast, connection tracking)
 
 **CI Integration:**
 - Benchmarks run automatically on every PR to main
@@ -999,76 +572,6 @@ Check out the examples in the v1 reference implementation (`.worktrees/v1/exampl
 - `deploy/fly`, `deploy/railway`, `deploy/render` - Platform-specific
 
 ---
-
-## Troubleshooting
-
-### Common Issues
-
-#### "Module not found" errors
-
-Make sure you've installed dependencies:
-```bash
-npm install
-```
-
-If using the monorepo, ensure workspaces are linked:
-```bash
-npm install --workspaces
-```
-
-#### "Durable Object binding not found"
-
-Check your `wrangler.toml` has the DO binding configured:
-```toml
-[durable_objects]
-bindings = [
-  { name = "MY_DO", class_name = "MyDO" }
-]
-```
-
-The binding name in your code must match `wrangler.toml`.
-
-#### Type errors with Cloudflare Workers types
-
-Install the latest Workers types:
-```bash
-npm install --save-dev @cloudflare/workers-types@latest
-```
-
-Add to `tsconfig.json`:
-```json
-{
-  "compilerOptions": {
-    "types": ["@cloudflare/workers-types"]
-  }
-}
-```
-
-#### Tests fail with "env is not defined"
-
-For Vitest tests, use the `cloudflare:test` import:
-```typescript
-import { env } from 'cloudflare:test'
-
-// NOT: import { env } from 'cloudflare:workers'
-```
-
-#### Vitest processes hanging
-
-Kill orphaned processes:
-```bash
-pkill -9 -f vitest
-pkill -9 -f vite
-```
-
-Use `npx vitest run` instead of watch mode for CI.
-
-### Getting Help
-
-- **Documentation** - Start with [CLAUDE.md](./CLAUDE.md) and package READMEs
-- **Examples** - Browse `.worktrees/v1/examples/` for working code
-- **Issues** - Report bugs and request features at [GitHub Issues](https://github.com/dot-do/dotdo/issues)
-- **Enterprise Support** - Contact [enterprise@dotdo.dev](mailto:enterprise@dotdo.dev)
 
 ## Development
 
@@ -1128,8 +631,8 @@ bd sync --from-main                   # Sync beads updates
 
 - **Runtime:** Cloudflare Workers (V8 isolates, 0ms cold starts)
 - **Storage:** Durable Objects (SQLite, single-threaded consistency)
-- **Object Storage:** R2 ($0 egress, tiered with Cache API)
-- **Analytics:** ClickHouse integration (roadmap)
+- **Object Storage:** R2 ($0 egress, Iceberg/Parquet)
+- **Analytics:** ClickHouse (time-series, aggregations)
 - **RPC:** Cap'n Web (promise pipelining)
 
 ---
@@ -1188,7 +691,6 @@ The runtime handles the hard parts—state management, sharding, replication, an
 
 - **[CLAUDE.md](./CLAUDE.md)** - Guidance for Claude Code when working with this codebase
 - **[AGENTS.md](./AGENTS.md)** - AI agent specifications and patterns
-- **[Benchmarks](./tests/benchmarks/)** - Performance benchmarks and regression tests
 - **[v1 Reference](./.worktrees/v1/README.md)** - Previous implementation documentation
 - **[Unified Storage](./.worktrees/v1/objects/unified-storage/README.md)** - Pipeline-as-WAL architecture
 
@@ -1206,23 +708,24 @@ Join the dotdo community to get help, share ideas, and connect with other develo
 
 ### Get Involved
 
-- **[GitHub Issues](https://github.com/dot-do/dotdo/issues)** - Report bugs and request features
+- **[GitHub Discussions](https://github.com/dot-do/dotdo/discussions)** - Ask questions, share ideas, and show what you've built
+- **[Discord](https://workers.do/discord)** - Real-time chat with the community
 - **[Contributing Guidelines](./CONTRIBUTING.md)** - Learn how to contribute to dotdo
 - **[Code of Conduct](./CODE_OF_CONDUCT.md)** - Our community standards
 
 ### Ways to Contribute
 
 - **Report bugs** - Found something broken? [Open an issue](https://github.com/dot-do/dotdo/issues/new?template=bug_report.yml)
-- **Suggest features** - Have an idea? [Open a feature request](https://github.com/dot-do/dotdo/issues/new?template=feature_request.yml)
+- **Suggest features** - Have an idea? [Start a discussion](https://github.com/dot-do/dotdo/discussions/categories/ideas)
 - **Submit PRs** - Check out our [contributing guide](./CONTRIBUTING.md)
+- **Share your projects** - Built something cool? [Show it off](https://github.com/dot-do/dotdo/discussions/categories/show-and-tell)
 
 ---
 
 ## Support
 
-- **Questions:** [Open an issue](https://github.com/dot-do/dotdo/issues/new) for help and questions
-- **Bugs:** [Report bugs](https://github.com/dot-do/dotdo/issues/new?template=bug_report.yml)
-- **Features:** [Request features](https://github.com/dot-do/dotdo/issues/new?template=feature_request.yml)
+- **Questions:** Use [GitHub Discussions](https://github.com/dot-do/dotdo/discussions/categories/q-a) for Q&A
+- **Issues:** [Report bugs](https://github.com/dot-do/dotdo/issues/new?template=bug_report.yml) or [request features](https://github.com/dot-do/dotdo/issues/new?template=feature_request.yml)
 - **Enterprise:** Contact [enterprise@dotdo.dev](mailto:enterprise@dotdo.dev)
 
 ---

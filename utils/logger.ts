@@ -4,32 +4,7 @@
  * Provides a centralized logging interface with configurable log levels.
  * All logs are prefixed with [dotdo] for easy identification.
  *
- * ## Request-Scoped Logging (Recommended for Workers)
- *
- * In Cloudflare Workers, module-level state is shared across requests.
- * Use request-scoped logging to avoid configuration leakage:
- *
  * @example
- * ```ts
- * import { createScopedLogger, runWithLogContext, getContextLogger } from './utils/logger'
- *
- * // Option 1: Create a scoped logger with its own config
- * const log = createScopedLogger({ level: LogLevel.DEBUG, prefix: '[MyService]' })
- * log.info('Isolated from global config')
- *
- * // Option 2: Use AsyncLocalStorage for automatic request scoping
- * await runWithLogContext({ level: LogLevel.DEBUG }, async () => {
- *   const log = getContextLogger()
- *   log.info('This uses request-scoped config')
- * })
- * ```
- *
- * ## Legacy Global Config (Deprecated)
- *
- * The global config functions still work but are deprecated for Workers:
- *
- * @example
- * ```ts
  * import { logger, setLogLevel, LogLevel } from './utils/logger'
  *
  * // Use the logger
@@ -38,11 +13,8 @@
  * logger.warn('Warning message')
  * logger.error('Error message', error)
  *
- * // Configure log level (DEPRECATED - use createScopedLogger instead)
+ * // Configure log level
  * setLogLevel(LogLevel.WARN) // Only warn and error will be logged
- * ```
- *
- * @see do-6eza - Request-scoped logger configuration
  */
 
 /**
@@ -83,8 +55,6 @@ let config: LoggerConfig = {
 /**
  * Set the global log level
  * @param level - The minimum log level to display
- * @deprecated Use `createScopedLogger()` or `runWithLogContext()` for request-scoped configuration.
- * Global config is problematic in Workers where module state is shared across requests.
  */
 export function setLogLevel(level: LogLevel): void {
   config.level = level
@@ -92,7 +62,6 @@ export function setLogLevel(level: LogLevel): void {
 
 /**
  * Get the current log level
- * @deprecated Use `createScopedLogger()` or `runWithLogContext()` for request-scoped configuration.
  */
 export function getLogLevel(): LogLevel {
   return config.level
@@ -101,8 +70,6 @@ export function getLogLevel(): LogLevel {
 /**
  * Set the log prefix
  * @param prefix - The prefix to use for all log messages
- * @deprecated Use `createScopedLogger()` or `runWithLogContext()` for request-scoped configuration.
- * Global config is problematic in Workers where module state is shared across requests.
  */
 export function setLogPrefix(prefix: string): void {
   config.prefix = prefix
@@ -110,7 +77,6 @@ export function setLogPrefix(prefix: string): void {
 
 /**
  * Get the current log prefix
- * @deprecated Use `createScopedLogger()` or `runWithLogContext()` for request-scoped configuration.
  */
 export function getLogPrefix(): string {
   return config.prefix
@@ -119,8 +85,6 @@ export function getLogPrefix(): string {
 /**
  * Configure the logger
  * @param newConfig - Partial configuration to merge
- * @deprecated Use `createScopedLogger()` or `runWithLogContext()` for request-scoped configuration.
- * Global config is problematic in Workers where module state is shared across requests.
  */
 export function configureLogger(newConfig: Partial<LoggerConfig>): void {
   config = { ...config, ...newConfig }
@@ -155,14 +119,11 @@ export function parseLogLevel(level: string | undefined): LogLevel {
 /**
  * Initialize logger from environment variable
  * Reads DOTDO_LOG_LEVEL environment variable if available
- * @deprecated Use `createScopedLogger()` with explicit config for request-scoped configuration.
  */
 export function initLoggerFromEnv(): void {
   // Check for environment variable (works in Node.js)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const processEnv = (globalThis as any).process?.env
-  if (processEnv?.DOTDO_LOG_LEVEL) {
-    setLogLevel(parseLogLevel(processEnv.DOTDO_LOG_LEVEL))
+  if (typeof process !== 'undefined' && process.env?.DOTDO_LOG_LEVEL) {
+    setLogLevel(parseLogLevel(process.env.DOTDO_LOG_LEVEL))
   }
 }
 
@@ -170,14 +131,9 @@ export function initLoggerFromEnv(): void {
  * Create a logger with a custom prefix
  * Useful for creating module-specific loggers
  *
- * NOTE: This function still uses the global log level.
- * For fully isolated loggers, use `createScopedLogger()` instead.
- *
  * @example
  * const wsLogger = createLogger('[WebSocket]')
  * wsLogger.info('Connection established')
- *
- * @deprecated Use `createScopedLogger()` for fully isolated loggers with their own config.
  */
 export function createLogger(prefix: string): Logger {
   return {
@@ -204,221 +160,9 @@ export function createLogger(prefix: string): Logger {
   }
 }
 
-// ============================================================================
-// Request-Scoped Logging (Recommended for Workers)
-// ============================================================================
-
-/**
- * Create a fully isolated logger with its own configuration.
- *
- * Unlike `createLogger()` which only customizes the prefix but shares the
- * global log level, `createScopedLogger()` creates a completely independent
- * logger with its own configuration.
- *
- * This is the recommended approach for Cloudflare Workers where module-level
- * state is shared across requests.
- *
- * @param scopedConfig - Configuration for this logger instance
- * @returns A Logger instance with isolated configuration
- *
- * @example
- * ```ts
- * // Create a logger with its own config
- * const log = createScopedLogger({
- *   level: LogLevel.DEBUG,
- *   prefix: '[MyService]'
- * })
- *
- * // This logger ignores global config changes
- * setLogLevel(LogLevel.SILENT) // Has no effect on `log`
- * log.debug('Still works!') // Logs because this logger's level is DEBUG
- * ```
- *
- * @see do-6eza - Request-scoped logger configuration
- */
-export function createScopedLogger(scopedConfig: LoggerConfig): Logger {
-  // Capture config at creation time - fully isolated from global state
-  const loggerConfig = { ...scopedConfig }
-
-  return {
-    debug: (message: string, ...args: unknown[]) => {
-      if (loggerConfig.level <= LogLevel.DEBUG) {
-        console.debug(loggerConfig.prefix, message, ...args)
-      }
-    },
-    info: (message: string, ...args: unknown[]) => {
-      if (loggerConfig.level <= LogLevel.INFO) {
-        console.info(loggerConfig.prefix, message, ...args)
-      }
-    },
-    warn: (message: string, ...args: unknown[]) => {
-      if (loggerConfig.level <= LogLevel.WARN) {
-        console.warn(loggerConfig.prefix, message, ...args)
-      }
-    },
-    error: (message: string, ...args: unknown[]) => {
-      if (loggerConfig.level <= LogLevel.ERROR) {
-        console.error(loggerConfig.prefix, message, ...args)
-      }
-    },
-  }
-}
-
-/**
- * Minimal AsyncLocalStorage interface for type safety.
- * Compatible with Node.js AsyncLocalStorage and Cloudflare Workers.
- */
-interface AsyncLocalStorageInterface<T> {
-  run<R>(store: T, callback: () => R): R
-  getStore(): T | undefined
-}
-
-/**
- * AsyncLocalStorage instance for request-scoped logging config.
- * Lazily initialized to avoid issues in environments without AsyncLocalStorage.
- */
-let logAsyncLocalStorage: AsyncLocalStorageInterface<LoggerConfig> | null = null
-
-/**
- * Lazy initialization of AsyncLocalStorage.
- * Works in Node.js, Cloudflare Workers, and other compatible runtimes.
- */
-async function getLogAsyncLocalStorage(): Promise<AsyncLocalStorageInterface<LoggerConfig>> {
-  if (!logAsyncLocalStorage) {
-    try {
-      // Try dynamic import for Node.js/Workers environments
-      const moduleName = 'node:async_hooks'
-      const asyncHooks = await (import(moduleName) as Promise<{
-        AsyncLocalStorage: new <T>() => AsyncLocalStorageInterface<T>
-      }>)
-      logAsyncLocalStorage = new asyncHooks.AsyncLocalStorage<LoggerConfig>()
-    } catch {
-      // Fallback: Stack-based implementation for non-ALS environments
-      const contextStack: LoggerConfig[] = []
-
-      logAsyncLocalStorage = {
-        run<R>(store: LoggerConfig, callback: () => R): R {
-          contextStack.push(store)
-
-          const result = callback()
-
-          // Handle async callbacks
-          const isPromiseLike = (val: unknown): val is PromiseLike<unknown> =>
-            val !== null &&
-            typeof val === 'object' &&
-            typeof (val as PromiseLike<unknown>).then === 'function'
-
-          if (isPromiseLike(result)) {
-            const resultPromise = Promise.resolve(result).finally(() => {
-              contextStack.pop()
-            })
-            return resultPromise as unknown as R
-          }
-
-          contextStack.pop()
-          return result
-        },
-        getStore(): LoggerConfig | undefined {
-          return contextStack[contextStack.length - 1]
-        },
-      }
-    }
-  }
-  return logAsyncLocalStorage!
-}
-
-/**
- * Run a function with request-scoped logging configuration.
- *
- * Within the callback, `getContextLogger()` will return a logger
- * using the provided configuration, completely isolated from global state.
- *
- * @param logConfig - Logging configuration for this request scope
- * @param fn - The async function to run with the scoped config
- * @returns The result of the function
- *
- * @example
- * ```ts
- * // In request handler
- * await runWithLogContext({ level: LogLevel.DEBUG, prefix: '[Request-123]' }, async () => {
- *   const log = getContextLogger()
- *   log.debug('Processing request...') // Uses request-specific config
- *
- *   await processRequest()
- *
- *   log.info('Request completed')
- * })
- * ```
- *
- * @see do-6eza - Request-scoped logger configuration
- */
-export async function runWithLogContext<T>(
-  logConfig: LoggerConfig,
-  fn: () => Promise<T>
-): Promise<T> {
-  const als = await getLogAsyncLocalStorage()
-  return als.run(logConfig, fn)
-}
-
-/**
- * Get a logger using the current request-scoped configuration.
- *
- * If called within `runWithLogContext()`, returns a logger using that config.
- * Otherwise, returns a logger using the global config (for backward compatibility).
- *
- * @returns A Logger instance using request-scoped or global config
- *
- * @example
- * ```ts
- * // Within runWithLogContext - uses scoped config
- * await runWithLogContext({ level: LogLevel.DEBUG, prefix: '[Scoped]' }, async () => {
- *   const log = getContextLogger()
- *   log.debug('Uses scoped config')
- * })
- *
- * // Outside runWithLogContext - uses global config
- * const log = getContextLogger()
- * log.info('Uses global config')
- * ```
- *
- * @see do-6eza - Request-scoped logger configuration
- */
-export function getContextLogger(): Logger {
-  const scopedConfig = logAsyncLocalStorage?.getStore()
-
-  if (scopedConfig) {
-    // Return a logger using the request-scoped config
-    return createScopedLogger(scopedConfig)
-  }
-
-  // Fallback to global logger for backward compatibility
-  return logger
-}
-
-/**
- * Get the current request-scoped logging configuration, if any.
- *
- * @returns The current LoggerConfig from AsyncLocalStorage, or undefined
- *
- * @example
- * ```ts
- * await runWithLogContext({ level: LogLevel.DEBUG, prefix: '[Test]' }, async () => {
- *   const config = getLogContext()
- *   console.log(config?.level) // LogLevel.DEBUG
- * })
- * ```
- */
-export function getLogContext(): LoggerConfig | undefined {
-  return logAsyncLocalStorage?.getStore()
-}
-
 /**
  * Default logger instance with [dotdo] prefix
  * Uses the global configuration for log level
- *
- * @deprecated For Workers, use `createScopedLogger()` or `runWithLogContext()`
- * to avoid configuration leakage between requests. The global logger shares
- * mutable state across all requests in the same isolate.
  */
 export const logger: Logger = {
   debug: (message: string, ...args: unknown[]) => {
