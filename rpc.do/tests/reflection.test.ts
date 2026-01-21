@@ -21,7 +21,7 @@ function createMockTransport(
   }
 }
 
-// Type alias for the dynamic proxy returned by createClient
+// RPC client returns a dynamic Proxy with arbitrary property access; `any` is unavoidable
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DynamicProxy = any
 

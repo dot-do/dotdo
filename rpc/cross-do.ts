@@ -17,7 +17,7 @@ export { DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER }
  */
 function getCorrelationIdFromContext(): string | undefined {
   try {
-    // Dynamic import check - only works if observability is being used
+    // Dynamic require avoids hard dependency on observability package
     // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
     const obs = require('../observability/context')
     if (typeof obs.getCorrelationId === 'function') {

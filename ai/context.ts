@@ -195,8 +195,8 @@ let asyncLocalStorage: AsyncLocalStorageInterface<RequestContext> | null = null
 async function getAsyncLocalStorage(): Promise<AsyncLocalStorageInterface<RequestContext>> {
   if (!asyncLocalStorage) {
     try {
-      // Try dynamic import for Node.js/Workers environments
-      // Use dynamic import with type assertion to avoid TypeScript Node.js dependency
+      // Dynamic import for cross-platform compatibility (Node.js vs Workers)
+      // Using string variable for module name avoids bundler resolution issues
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const moduleName = 'node:async_hooks'
       const asyncHooks = await (import(moduleName) as Promise<{

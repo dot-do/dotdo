@@ -60,6 +60,7 @@ let asyncLocalStorage: AsyncLocalStorageType<ObservabilityContext> | undefined
 // AsyncLocalStorage is available in Cloudflare Workers as of 2024
 // but we provide a fallback for testing environments
 try {
+  // AsyncLocalStorage is a global in Workers but not in standard TypeScript lib
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const AsyncLocalStorageClass = (globalThis as any).AsyncLocalStorage
   if (typeof AsyncLocalStorageClass !== 'undefined') {

@@ -1,9 +1,60 @@
-// @dotdo/do - THE Durable Object for Digital Objects
-// DO = Durable Object = Digital Object
+/**
+ * @dotdo/do - THE Durable Object for Digital Objects
+ *
+ * DO = Durable Object = Digital Object
+ *
+ * This module provides the core DO class that serves as the foundation for building
+ * Durable Objects with built-in entity storage, event handling, WebSocket support,
+ * and scheduling capabilities.
+ *
+ * @module @dotdo/do
+ *
+ * @example
+ * ```typescript
+ * import { DO, createContext, type WorkflowContext } from '@dotdo/do'
+ *
+ * // Extend DO for custom behavior
+ * class MyDO extends DO {
+ *   protected routes(app: Hono): void {
+ *     app.get('/custom', (c) => c.json({ custom: true }))
+ *   }
+ * }
+ *
+ * // Use WorkflowContext for event handling and scheduling
+ * const $ = createContext(state, env)
+ * $.on.Customer.signup((event) => {
+ *   console.log('New customer:', event.payload)
+ * })
+ * ```
+ */
 
-export { DO, type DOEnv, type DOOptions } from './DO'
+/**
+ * The base DO class - THE Durable Object for Digital Objects.
+ *
+ * Uses composition over inheritance by delegating to specialized handlers:
+ * - StorageHandler: Entity management (things, events, relationships)
+ * - RPCHandler: RPC endpoint handling (/rpc)
+ * - WebSocketHandler: WebSocket connection management
+ *
+ * @stable
+ * @since 1.0.0
+ */
+export { DO, type DOEnv, type DOOptions, type DOMetricsConfig } from './DO'
 
-// TypeScript type generation (do-iidr.4)
+/**
+ * TypeScript type generation utilities.
+ *
+ * Generates TypeScript .d.ts definitions for DO interfaces dynamically.
+ * Used by SDK/CLI auto-generation tools.
+ *
+ * @example
+ * ```typescript
+ * import { generateTypes } from '@dotdo/do'
+ *
+ * const result = generateTypes({ includeComments: true })
+ * console.log(result.types) // TypeScript definitions
+ * ```
+ */
 export {
   generateTypes,
   clearTypeCache,
@@ -13,7 +64,21 @@ export {
   type FieldDefinition,
 } from './types-gen'
 
-// Composable mixins for building DOs (do-6epx)
+/**
+ * Composable mixins for building custom DOs with specific capabilities.
+ *
+ * Use mixins to add storage, WebSocket, RPC, or auth capabilities
+ * to your Durable Object classes.
+ *
+ * @example
+ * ```typescript
+ * import { WithStorage, WithWebSocket } from '@dotdo/do'
+ *
+ * class MyDO extends WithWebSocket(WithStorage(DurableObject)) {
+ *   // Has both storage and WebSocket capabilities
+ * }
+ * ```
+ */
 export {
   // Storage mixin
   WithStorage,
@@ -39,6 +104,36 @@ export {
   type ComposedType,
   type InstanceOf
 } from './mixins'
+
+/**
+ * Creates a WorkflowContext ($) for event handling, scheduling, and cross-DO RPC.
+ *
+ * The WorkflowContext provides a fluent DSL for:
+ * - Event handlers: $.on.Noun.verb(handler)
+ * - Scheduling: $.every.Monday.at('9am')(handler)
+ * - Cross-DO RPC: $.Customer(id).method()
+ *
+ * @param state - The DurableObjectState
+ * @param env - The environment containing DO namespace bindings
+ * @param options - Optional configuration
+ * @returns A WorkflowContext instance
+ *
+ * @example
+ * ```typescript
+ * const $ = createContext(state, env)
+ *
+ * // Event handling
+ * $.on.Customer.signup((event) => {
+ *   console.log('New signup:', event.payload.email)
+ * })
+ *
+ * // Scheduling
+ * $.every.day.at('6pm')(() => sendDailySummary())
+ *
+ * // Cross-DO RPC
+ * const profile = await $.Customer('user-123').getProfile()
+ * ```
+ */
 export { createContext, createTypedContext } from './context'
 export type { WorkflowContext, $ } from './context'
 // Primitive capability types (do-ibsi)
@@ -50,6 +145,17 @@ export type {
   PrimitivesConfig,
   CreateContextOptions,
 } from './workflow'
+/**
+ * Entity management for DOs with built-in CRUD operations.
+ *
+ * @example
+ * ```typescript
+ * import { EntityManager } from '@dotdo/do'
+ *
+ * const entities = new EntityManager(storage)
+ * await entities.create('Customer', { name: 'Alice', email: 'alice@example.com' })
+ * ```
+ */
 export { EntityManager, withEntities, type EntityManagerOptions } from './entities'
 
 // Type-safe WorkflowContext types (do-ebio)
@@ -107,7 +213,27 @@ export type {
   CreateTypedContextOptions,
 } from './types'
 
-// Type-safe DO binding registry (do-hsfo)
+/**
+ * Type-safe DO binding registry for cross-DO communication.
+ *
+ * Provides type-safe access to DO namespace bindings with automatic
+ * stub creation and ID management.
+ *
+ * @example
+ * ```typescript
+ * import { getBinding, getStub, createBindingAccessor } from '@dotdo/do'
+ *
+ * // Get a DO namespace binding
+ * const customerNs = getBinding(env, 'CUSTOMER')
+ *
+ * // Get a typed stub for a specific ID
+ * const customerStub = getStub<CustomerDO>(env.CUSTOMER, 'user-123')
+ *
+ * // Create a reusable binding accessor
+ * const accessor = createBindingAccessor(env, 'CUSTOMER')
+ * const stub = accessor.get('user-123')
+ * ```
+ */
 export {
   // Core types
   type AnyDurableObjectNamespace,
@@ -142,8 +268,27 @@ export type {
   AuditAction
 } from '../db'
 
-// Workflow module - standalone WorkflowContext DSL (do-b3pv)
-// Re-export additional utilities from the workflow module
+/**
+ * Workflow utilities for cross-DO RPC, scheduling, and event handling.
+ *
+ * Provides low-level utilities for building advanced workflow patterns
+ * including cross-DO communication, stub caching, and schedule management.
+ *
+ * @example
+ * ```typescript
+ * import { createDOAccessor, createDORPCProxy } from '@dotdo/do'
+ *
+ * // Create a DO accessor for type-safe RPC
+ * const accessor = createDOAccessor(env, 'CUSTOMER')
+ * const customerProxy = accessor('user-123')
+ * const profile = await customerProxy.getProfile()
+ *
+ * // Manage schedules programmatically
+ * import { getSchedules, executeSchedule } from '@dotdo/do'
+ * const schedules = getSchedules()
+ * await executeSchedule('daily-report')
+ * ```
+ */
 export {
   // Cross-DO RPC utilities
   createDOAccessor,
@@ -163,7 +308,24 @@ export {
   type InvokeHandlersResult,
 } from './workflow'
 
-// Event handler system ($.on.Noun.verb) - backward compatible re-exports
+/**
+ * Event handler system ($.on.Noun.verb) for declarative event routing.
+ *
+ * Enables Noun.verb style event handlers with automatic pattern matching.
+ *
+ * @example
+ * ```typescript
+ * import { createOnProxy, invokeHandlers } from '@dotdo/do'
+ *
+ * const on = createOnProxy()
+ * on.Customer.signup((event) => {
+ *   console.log('Customer signed up:', event.payload)
+ * })
+ *
+ * // Invoke matching handlers
+ * await invokeHandlers('Customer.signup', { email: 'test@example.com' })
+ * ```
+ */
 export {
   createOnProxy,
   matchHandlers,
@@ -177,7 +339,22 @@ export {
   type NounEventProxy
 } from './on'
 
-// Scheduling DSL ($.every.Monday.at9am) - backward compatible re-exports
+/**
+ * Scheduling DSL ($.every.Monday.at('9am')) for declarative scheduling.
+ *
+ * Provides a fluent interface for registering recurring tasks with
+ * cron-like semantics.
+ *
+ * @example
+ * ```typescript
+ * import { createEveryProxy } from '@dotdo/do'
+ *
+ * const every = createEveryProxy()
+ * every.Monday.at('9am')(() => generateWeeklyReport())
+ * every.hour(() => checkForUpdates())
+ * every.day.at('6pm')(() => sendDailySummary())
+ * ```
+ */
 export {
   createEveryProxy,
   type ScheduleHandler,
@@ -185,7 +362,23 @@ export {
   type ScheduleRegistration
 } from './schedule'
 
-// Fire-and-forget error tracking (do-9bmr)
+/**
+ * Fire-and-forget error tracking for async operations.
+ *
+ * Captures and stores errors from fire-and-forget operations
+ * for later inspection and debugging.
+ *
+ * @example
+ * ```typescript
+ * import { trackFireAndForget, createSQLiteErrorStore } from '@dotdo/do'
+ *
+ * const errorStore = createSQLiteErrorStore(storage)
+ * trackFireAndForget(asyncOperation(), errorStore)
+ *
+ * // Later: inspect errors
+ * const errors = await errorStore.list({ limit: 10 })
+ * ```
+ */
 export {
   createInMemoryErrorStore,
   createSQLiteErrorStore,
@@ -197,7 +390,25 @@ export {
   type ErrorStats
 } from './fire-and-forget-errors'
 
-// WebSocket management
+/**
+ * WebSocket management for real-time communication.
+ *
+ * Provides WebSocket connection management with automatic tracking,
+ * broadcasting, and connection lifecycle handling.
+ *
+ * @example
+ * ```typescript
+ * import { WebSocketManager } from '@dotdo/do'
+ *
+ * const wsManager = new WebSocketManager()
+ *
+ * // Accept a WebSocket connection
+ * wsManager.accept(websocket, { userId: 'user-123' })
+ *
+ * // Broadcast to all connected clients
+ * wsManager.broadcast({ type: 'update', data: { ... } })
+ * ```
+ */
 export {
   WebSocketManager,
   // Message size limits (do-nyah)
@@ -210,7 +421,23 @@ export {
   type ConnectionHandler
 } from './websocket'
 
-// WebSocket hibernation with reconnection protocol (do-hb5s)
+/**
+ * WebSocket hibernation for resource-efficient long-lived connections.
+ *
+ * Uses Cloudflare's WebSocket hibernation feature to reduce costs
+ * when connections are idle.
+ *
+ * @example
+ * ```typescript
+ * import { HibernationManager, estimateHibernationSavings } from '@dotdo/do'
+ *
+ * const hibernation = new HibernationManager(ctx)
+ * hibernation.accept(websocket, { roomId: 'room-123' })
+ *
+ * // Estimate cost savings
+ * const savings = estimateHibernationSavings(1000) // 1000 connections
+ * ```
+ */
 export {
   HibernationManager,
   type HibernationAttachment,
@@ -222,7 +449,29 @@ export {
   createHibernationPayload,
 } from './hibernation'
 
-// WebSocket reconnection protocol (do-hb5s)
+/**
+ * WebSocket reconnection protocol for reliable real-time communication.
+ *
+ * Implements a session-based reconnection protocol that preserves state
+ * across disconnections, with event buffering and automatic recovery.
+ *
+ * @example
+ * ```typescript
+ * import { SessionManager, createClientState, handleDisconnect } from '@dotdo/do'
+ *
+ * // Server side
+ * const sessions = new SessionManager()
+ * const sessionId = sessions.create(websocket)
+ *
+ * // Client side (reconnection)
+ * const clientState = createClientState()
+ * const shouldResume = shouldAttemptResume(clientState)
+ * if (shouldResume) {
+ *   const resumeMsg = createResumeMessage(clientState.sessionId, clientState.lastEventId)
+ *   websocket.send(JSON.stringify(resumeMsg))
+ * }
+ * ```
+ */
 export {
   SessionManager,
   type SessionState,
@@ -261,7 +510,22 @@ export {
   isProtocolMessage,
 } from './websocket-reconnection'
 
-// Admin interface hooks
+/**
+ * Admin interface hooks for DO state inspection and management.
+ *
+ * Provides administrative access to DO internals for debugging,
+ * monitoring, and operational tasks.
+ *
+ * @example
+ * ```typescript
+ * import { AdminDO, createAdminHooks } from '@dotdo/do'
+ *
+ * const admin = createAdminHooks(storage)
+ * const health = await admin.getHealth()
+ * const state = await admin.inspectState()
+ * const entities = await admin.listEntities({ type: 'Customer', limit: 50 })
+ * ```
+ */
 export {
   AdminDO,
   createAdminHooks,
@@ -277,7 +541,34 @@ export {
   type HealthCheck
 } from './admin'
 
-// DO-level authentication guards (do-nuwe)
+/**
+ * DO-level authentication guards for secure access control.
+ *
+ * Provides authentication and authorization for DO method calls,
+ * including caller detection, HMAC signing for DO-to-DO calls,
+ * and role-based access control.
+ *
+ * Security: Use extractCallerInfoWithVerification (not extractCallerInfo)
+ * to properly verify DO-to-DO signatures and prevent header spoofing.
+ *
+ * @example
+ * ```typescript
+ * import { createDOAuthGuard, requireWorkerCaller, doAuthMiddleware } from '@dotdo/do'
+ *
+ * // Create an auth guard
+ * const guard = createDOAuthGuard({
+ *   requireAuth: true,
+ *   allowedCallers: ['worker', 'do']
+ * })
+ *
+ * // Use as Hono middleware
+ * app.use('/admin/*', doAuthMiddleware({ requireWorkerCaller: true }))
+ *
+ * // Manually check caller type
+ * const callerInfo = await extractCallerInfoWithVerification(request)
+ * if (callerInfo.type !== 'worker') throw new Error('Unauthorized')
+ * ```
+ */
 export {
   // Core guard
   createDOAuthGuard,
@@ -321,7 +612,24 @@ export {
   addWorkerHeaders,
 } from './auth'
 
-// Third-party integration registry (do-laux)
+/**
+ * Third-party integration registry for managing external service connections.
+ *
+ * Provides a unified interface for registering, configuring, and using
+ * integrations with third-party services like Stripe, SendGrid, etc.
+ *
+ * @example
+ * ```typescript
+ * import { IntegrationRegistry, registerIntegration, getIntegration } from '@dotdo/do'
+ *
+ * // Register an integration
+ * registerIntegration('stripe', { apiKey: process.env.STRIPE_KEY })
+ *
+ * // Use the integration
+ * const stripe = getIntegration('stripe')
+ * const customer = await stripe.createCustomer({ email: 'user@example.com' })
+ * ```
+ */
 export {
   IntegrationRegistry,
   IntegrationRegistryError,
@@ -346,7 +654,18 @@ export {
   type IntegrationSummary,
 } from '../integrations'
 
-// Example integrations
+/**
+ * Stripe integration for payment processing.
+ *
+ * @example
+ * ```typescript
+ * import { createStripeIntegration } from '@dotdo/do'
+ *
+ * const stripe = createStripeIntegration({ apiKey: process.env.STRIPE_KEY })
+ * const customer = await stripe.createCustomer({ email: 'user@example.com' })
+ * const payment = await stripe.createPaymentIntent({ amount: 1000, currency: 'usd' })
+ * ```
+ */
 export {
   StripeIntegration,
   createStripeIntegration,
@@ -357,6 +676,21 @@ export {
   type StripeMethods,
 } from '../integrations/stripe'
 
+/**
+ * SendGrid integration for email delivery.
+ *
+ * @example
+ * ```typescript
+ * import { createSendGridIntegration } from '@dotdo/do'
+ *
+ * const sendgrid = createSendGridIntegration({ apiKey: process.env.SENDGRID_KEY })
+ * await sendgrid.sendEmail({
+ *   to: 'user@example.com',
+ *   subject: 'Welcome!',
+ *   html: '<h1>Welcome to our service</h1>'
+ * })
+ * ```
+ */
 export {
   SendGridIntegration,
   createSendGridIntegration,

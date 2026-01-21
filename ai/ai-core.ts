@@ -18,10 +18,10 @@
 
 import type { ZodTypeAny } from 'zod'
 
-// Type aliases for AI SDK models
-// We define these locally because the 'ai' package's type exports may not resolve
-// correctly under moduleResolution: "bundler" with the complex GlobalProviderModelId type.
-// These types match the actual shape expected by the AI SDK functions.
+// Type aliases for AI SDK models.
+// The 'ai' package's type exports don't resolve correctly under moduleResolution: "bundler"
+// due to the complex GlobalProviderModelId type. Using `any` avoids import errors while
+// maintaining runtime compatibility with the AI SDK functions.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LanguageModel = any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -955,7 +955,7 @@ export async function streamText(
   const modelName = typeof options.model === 'string' ? options.model : 'unknown'
 
   try {
-    // Import from ai package (not the local ai folder)
+    // Dynamic import of 'ai' package; using `any` because its type exports don't resolve properly
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const aiModule = await import('ai') as any
 
@@ -1074,7 +1074,7 @@ export async function embedText(
 
   // Use real AI SDK with the model
   try {
-    // Import embed from ai package (not the local ai folder)
+    // Dynamic import of 'ai' package; using `any` because its type exports don't resolve properly
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const aiModule = await import('ai') as any
     const embed = aiModule.embed as (options: { model: unknown; value: string }) => Promise<{ embedding: number[] }>

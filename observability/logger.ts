@@ -272,7 +272,7 @@ export function createStructuredLogger(options: Partial<LoggerConfig> = {}): Str
     let correlationId: string | undefined
     if (!boundContext.correlationId) {
       try {
-        // Avoid circular dependency - use dynamic require
+        // Dynamic require avoids circular dependency between logger and context modules
         // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
         const ctxModule = require('./context')
         correlationId = ctxModule.getCorrelationId?.() || undefined

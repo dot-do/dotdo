@@ -46,6 +46,13 @@ import {
   DEFAULT_EXPOSE_HEADERS
 } from './utils/cors'
 
+// Import observability for metrics collection
+import {
+  createDOObservability,
+  extractDOContextFromHeaders,
+  type DOObservabilityConfig,
+} from '../observability'
+
 const logger = createLogger('[DO]')
 
 /**
@@ -176,6 +183,38 @@ export interface CORSOptions {
 }
 
 /**
+ * Metrics configuration for DO instances.
+ *
+ * @stable
+ * @since 1.1.0
+ */
+export interface DOMetricsConfig {
+  /**
+   * Enable metrics collection.
+   * @default false
+   */
+  enabled?: boolean
+
+  /**
+   * Enable distributed tracing.
+   * @default true (when metrics enabled)
+   */
+  enableTracing?: boolean
+
+  /**
+   * Enable structured logging for observability.
+   * @default true (when metrics enabled)
+   */
+  enableLogging?: boolean
+
+  /**
+   * Custom service name for metrics.
+   * @default 'dotdo-do'
+   */
+  serviceName?: string
+}
+
+/**
  * Configuration options for DO instances.
  *
  * @stable
@@ -193,6 +232,16 @@ export interface DOOptions {
   cors?: boolean | CORSOptions
   /** Enable debug logging for handlers */
   debug?: boolean
+
+  /**
+   * Metrics configuration for observability.
+   * When enabled, collects timing metrics for requests, storage operations,
+   * RPC calls, and WebSocket messages.
+   *
+   * @stable
+   * @since 1.1.0
+   */
+  metrics?: boolean | DOMetricsConfig
 }
 
 /**
@@ -223,12 +272,18 @@ export class DO implements DurableObject {
   // Integration registry
   private _integrations: IntegrationRegistry
 
+  // Observability system for metrics, tracing, and logging
+  private readonly observability: ReturnType<typeof createDOObservability> | null
+
   constructor(state: DurableObjectState, env: DOEnv, options: DOOptions = {}) {
     this.state = state
     this.env = env
     this.app = new Hono()
 
     const debug = options.debug ?? false
+
+    // Initialize observability if metrics are enabled
+    this.observability = this.initializeObservability(state, options.metrics)
 
     // Initialize handler registry
     this.handlers = new DOHandlerRegistry({ debug })
@@ -254,6 +309,44 @@ export class DO implements DurableObject {
 
     // Setup default routes
     this.setupRoutes()
+  }
+
+  /**
+   * Initialize the observability system based on configuration.
+   */
+  private initializeObservability(
+    state: DurableObjectState,
+    metricsConfig?: boolean | DOMetricsConfig
+  ): ReturnType<typeof createDOObservability> | null {
+    // Metrics disabled by default
+    if (!metricsConfig) {
+      return null
+    }
+
+    // Simple boolean: enable with defaults
+    if (metricsConfig === true) {
+      return createDOObservability({
+        doId: state.id,
+        doClassName: this.constructor.name,
+        enableMetrics: true,
+        enableTracing: true,
+        enableLogging: true,
+      })
+    }
+
+    // Full configuration object
+    if (!metricsConfig.enabled) {
+      return null
+    }
+
+    return createDOObservability({
+      serviceName: metricsConfig.serviceName,
+      doId: state.id,
+      doClassName: this.constructor.name,
+      enableMetrics: true,
+      enableTracing: metricsConfig.enableTracing ?? true,
+      enableLogging: metricsConfig.enableLogging ?? true,
+    })
   }
 
   /**
@@ -381,14 +474,36 @@ export class DO implements DurableObject {
       this.routesInitialized = true
     }
 
-    // Get response from Hono app
-    const response = await this.app.fetch(request)
+    // Extract observability context from incoming request headers
+    const incomingContext = this.observability
+      ? extractDOContextFromHeaders(request.headers)
+      : undefined
+
+    // Create request context for tracing and correlation
+    const requestContext = this.observability?.createRequestContext(
+      incomingContext?.correlationId,
+      incomingContext?.traceContext
+    )
+
+    // Track the request with metrics if enabled
+    const response = this.observability
+      ? await this.observability.wrapMethod(
+          'fetch',
+          async () => this.app.fetch(request),
+          requestContext
+        )
+      : await this.app.fetch(request)
 
     // Add telemetry headers
     // X-DO-Colo: The Cloudflare colo where this DO instance is located
     const colo = this.getColoFromRequest(request)
     const headers = new Headers(response.headers)
     headers.set('X-DO-Colo', colo)
+
+    // Add correlation ID header for request tracing
+    if (requestContext?.correlationId) {
+      headers.set('X-Correlation-ID', requestContext.correlationId)
+    }
 
     return new Response(response.body, {
       status: response.status,
@@ -415,7 +530,26 @@ export class DO implements DurableObject {
 
   // Alarm handler (for scheduling)
   async alarm(): Promise<void> {
-    // Override in subclass or use $ scheduling
+    if (!this.observability) {
+      // No metrics - just return (override in subclass)
+      return
+    }
+
+    const startTime = Date.now()
+    let success = true
+
+    try {
+      // Track alarm execution with metrics
+      await this.observability.wrapMethod('alarm', async () => {
+        // Base implementation does nothing - override in subclass
+      })
+    } catch (error) {
+      success = false
+      throw error
+    } finally {
+      const duration = Date.now() - startTime
+      this.observability.trackAlarmExecution(success, duration)
+    }
   }
 
   /**
@@ -615,7 +749,6 @@ export class DO implements DurableObject {
         if (name && args !== undefined && body) {
           // Create a simple function based on the pattern
           const argNames = args.split(',').map(a => a.trim()).filter(a => a)
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
           exports[name] = (...values: unknown[]) => {
             // Simple expression evaluation for basic arithmetic
             const localScope: Record<string, unknown> = {}
@@ -1126,7 +1259,13 @@ export class DO implements DurableObject {
    * By default, routes to WebSocketHandler
    */
   async webSocketMessage(ws: WebSocket, message: ArrayBuffer | string): Promise<void> {
-    await this.websocketHandler.handleMessage(ws, message)
+    if (this.observability) {
+      await this.observability.wrapMethod('webSocketMessage', async () => {
+        await this.websocketHandler.handleMessage(ws, message)
+      })
+    } else {
+      await this.websocketHandler.handleMessage(ws, message)
+    }
   }
 
   /**
@@ -1135,6 +1274,11 @@ export class DO implements DurableObject {
    */
   async webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
     this.websocketHandler.handleClose(ws)
+
+    // Track WebSocket disconnection
+    if (this.observability) {
+      this.observability.updateWebSocketCount(-1)
+    }
   }
 
   /**
@@ -1146,5 +1290,49 @@ export class DO implements DurableObject {
     const errorMessage = error instanceof Error ? error.message : 'Unknown WebSocket error'
     logger.error('WebSocket error:', errorMessage, error)
     this.websocketHandler.handleError(ws, error)
+
+    // Track WebSocket disconnection on error
+    if (this.observability) {
+      this.observability.updateWebSocketCount(-1)
+    }
+  }
+
+  /**
+   * Track a new WebSocket connection.
+   * Call this when accepting a new WebSocket connection.
+   *
+   * @protected
+   */
+  protected trackWebSocketConnection(): void {
+    if (this.observability) {
+      this.observability.updateWebSocketCount(1)
+    }
+  }
+
+  /**
+   * Track a storage operation for metrics.
+   * Call this when performing storage operations.
+   *
+   * @param operation - The operation type ('get', 'put', 'delete', 'list', 'transaction')
+   * @param attributes - Optional additional attributes
+   * @protected
+   */
+  protected trackStorageOperation(
+    operation: string,
+    attributes?: Record<string, string | number | boolean>
+  ): void {
+    if (this.observability) {
+      this.observability.trackStorageOperation(operation, attributes)
+    }
+  }
+
+  /**
+   * Get the collected metrics for export/inspection.
+   * Only available when metrics are enabled.
+   *
+   * @returns Collected metrics or undefined if metrics disabled
+   */
+  getMetrics(): ReturnType<ReturnType<typeof createDOObservability>['meter']['collect']> | undefined {
+    return this.observability?.meter.collect()
   }
 }
