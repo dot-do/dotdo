@@ -131,7 +131,7 @@ interface MinimalDOState {
 export function WithWebSocket<TBase extends Constructor>(
   Base: TBase,
   options: WithWebSocketOptions = {}
-) {
+): TBase & Constructor<HasWebSocket> {
   const {
     enableHeartbeat = false,
     heartbeatInterval = 30000,
@@ -142,7 +142,7 @@ export function WithWebSocket<TBase extends Constructor>(
     private _websocketManager: WebSocketManager
     private _heartbeatIntervalId: number | null = null
 
-    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args
+    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
@@ -256,7 +256,7 @@ export function WithWebSocket<TBase extends Constructor>(
         this._heartbeatIntervalId = null
       }
     }
-  }
+  } as TBase & Constructor<HasWebSocket>
 }
 
 // =============================================================================

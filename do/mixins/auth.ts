@@ -53,7 +53,7 @@ import {
   DO_SIGNATURE_HEADER,
   DO_TIMESTAMP_HEADER
 } from '../auth'
-import type { Constructor } from './storage'
+import type { Constructor, HasDurableObjectState } from './storage'
 
 // =============================================================================
 // Types
@@ -151,7 +151,7 @@ export interface WithAuthOptions extends DOAuthGuardConfig {
 export function WithAuth<TBase extends Constructor>(
   Base: TBase,
   options: WithAuthOptions = {}
-) {
+): TBase & Constructor<HasAuth> {
   const { doInternalSecret, ...guardConfig } = options
 
   // Set DO internal secret if provided
@@ -162,7 +162,7 @@ export function WithAuth<TBase extends Constructor>(
   return class AuthMixin extends Base implements HasAuth {
     private _authGuard: DOAuthGuard
 
-    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args
+    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
@@ -274,8 +274,9 @@ export function WithAuth<TBase extends Constructor>(
      * ```
      */
     async canAccess(request: Request): Promise<boolean> {
-      // Get DO ID from instance if available
-      const doId = (this as any).state?.id?.toString() ?? 'unknown'
+      // Get DO ID from instance if available - using type assertion for state access
+      const instance = this as unknown as HasDurableObjectState
+      const doId = instance.state?.id?.toString() ?? 'unknown'
       return this._authGuard.canAccess(request, doId)
     }
 
@@ -350,7 +351,7 @@ export function WithAuth<TBase extends Constructor>(
     ): Promise<Headers> {
       return createDOToDoHeaders(sourceDoId, targetPath, correlationId)
     }
-  }
+  } as TBase & Constructor<HasAuth>
 }
 
 // =============================================================================

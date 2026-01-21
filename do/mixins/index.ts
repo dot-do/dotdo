@@ -42,7 +42,9 @@ export {
   type Constructor,
   type HasStorage,
   type WithStorageOptions,
-  type MixinInstance
+  type MixinInstance,
+  type HasDurableObjectState,
+  type HasEnv
 } from './storage'
 
 // =============================================================================
@@ -123,9 +125,18 @@ export {
 // =============================================================================
 
 /**
+ * Generic mixin function type.
+ * Represents a function that takes a constructor and returns an extended constructor.
+ * Uses `unknown` for the base parameter to be as permissive as possible while maintaining type safety.
+ *
+ * @template TReturn - The return type of the mixin function
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MixinFn<TReturn = any> = (base: Constructor<any>) => TReturn
+
+/**
  * Type helper for inferring the composed class type from multiple mixins.
- * The `any` parameters are required because mixin functions accept arbitrary
- * base class constructors with varying signatures.
+ * Combines the return types of up to 4 mixin functions.
  *
  * @example
  * ```typescript
@@ -136,17 +147,16 @@ export {
  * >
  * ```
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ComposedType<
-  T1 extends (base: any) => any,
-  T2 extends (base: any) => any = (base: any) => any,
-  T3 extends (base: any) => any = (base: any) => any,
-  T4 extends (base: any) => any = (base: any) => any
+  T1 extends MixinFn,
+  T2 extends MixinFn = MixinFn<Constructor>,
+  T3 extends MixinFn = MixinFn<Constructor>,
+  T4 extends MixinFn = MixinFn<Constructor>
 > = ReturnType<T1> & ReturnType<T2> & ReturnType<T3> & ReturnType<T4>
 
 /**
  * Utility type to get the instance type of a composed mixin.
- * The `any[]` is required by TypeScript's conditional type inference for constructor types.
+ * Uses `unknown[]` for args where possible but falls back to `any[]` for inference.
  *
  * @example
  * ```typescript
@@ -156,3 +166,16 @@ export type ComposedType<
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type InstanceOf<T> = T extends new (...args: any[]) => infer R ? R : never
+
+/**
+ * Helper type to ensure a class has the required mixin capabilities.
+ * Use this to type-check that a composed class has specific features.
+ *
+ * @example
+ * ```typescript
+ * function requiresStorage<T extends HasStorage>(instance: T) {
+ *   return instance.things.list()
+ * }
+ * ```
+ */
+export type RequiresMixin<T, M> = T extends M ? T : never

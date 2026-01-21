@@ -35,7 +35,7 @@ import {
   type DOStubFactory,
   type CrossDORPCConfig
 } from '../workflow/rpc'
-import type { Constructor } from './storage'
+import type { Constructor, HasEnv } from './storage'
 import { createLogger } from '../../utils/logger'
 
 const logger = createLogger('[WithRPC]')
@@ -152,14 +152,14 @@ export interface RPCResponse<T = unknown> {
 export function WithRPC<TBase extends Constructor>(
   Base: TBase,
   options: WithRPCOptions = {}
-) {
+): TBase & Constructor<HasRPC> {
   const { rpcPath = '/rpc', debug = false } = options
 
   return class RPCMixin extends Base implements HasRPC {
     private _stubCache: Map<string, DOStubProxy>
     private _rpcConfig: CrossDORPCConfig | null = null
 
-    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args
+    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
@@ -201,7 +201,9 @@ export function WithRPC<TBase extends Constructor>(
      */
     getDOStub(bindingName: string, id: string | DurableObjectId): DOStubProxy {
       // Get env from instance if available
-      const env = (this as any).env ?? (this as any)._env
+      // Using HasEnv type assertion for type-safe property access
+      const instance = this as unknown as HasEnv
+      const env = instance.env
       if (!env) {
         throw new Error('Environment not available for RPC. Ensure env is passed to constructor.')
       }
@@ -311,7 +313,7 @@ export function WithRPC<TBase extends Constructor>(
         }
       })
     }
-  }
+  } as TBase & Constructor<HasRPC>
 }
 
 // =============================================================================

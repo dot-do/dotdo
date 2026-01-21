@@ -39,11 +39,67 @@ import type {
 
 /**
  * Constructor type for mixin pattern.
- * The `any[]` is required by TypeScript's mixin pattern (TS2545) - more specific
- * constructor signatures cannot be composed with arbitrary base classes.
+ *
+ * TypeScript's mixin pattern requires `any[]` for constructor arguments (TS2545).
+ * The type safety in this module comes from:
+ * 1. Interface constraints (HasStorage, HasAuth, etc.) on mixin return types
+ * 2. Generic constraints on mixin functions (TBase extends Constructor)
+ * 3. Type helper utilities (MixinInstance, InstanceOf) for extracting types
+ *
+ * @template T - The instance type returned by the constructor (constrained to object)
+ *
+ * @example
+ * ```typescript
+ * // Constructor type allows composing mixins
+ * class MyDO extends WithAuth(WithStorage(BaseDO)) {
+ *   // TypeScript infers: this has HasStorage & HasAuth
+ * }
+ * ```
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Constructor<T = object> = new (...args: any[]) => T
+
+/**
+ * Base interface for classes that have DurableObjectState.
+ * Use this constraint when a mixin needs to access state properties.
+ *
+ * @example
+ * ```typescript
+ * function WithStateAccess<TBase extends Constructor<HasDurableObjectState>>(Base: TBase) {
+ *   return class extends Base {
+ *     getStateId() {
+ *       return this.state?.id?.toString() // Type-safe access
+ *     }
+ *   }
+ * }
+ * ```
+ */
+export interface HasDurableObjectState {
+  state?: DurableObjectState
+}
+
+/**
+ * Base interface for classes that have environment bindings.
+ * Use this constraint when a mixin needs to access env properties.
+ *
+ * @example
+ * ```typescript
+ * interface MyEnv {
+ *   DATABASE: DurableObjectNamespace
+ * }
+ *
+ * function WithDatabase<TBase extends Constructor<HasEnv<MyEnv>>>(Base: TBase) {
+ *   return class extends Base {
+ *     getDatabase() {
+ *       return this.env?.DATABASE // Type-safe access
+ *     }
+ *   }
+ * }
+ * ```
+ */
+export interface HasEnv<E = unknown> {
+  env?: E
+}
 
 /**
  * Interface for classes that have storage capabilities
@@ -120,11 +176,11 @@ export interface WithStorageOptions {
 export function WithStorage<TBase extends Constructor>(
   Base: TBase,
   options: WithStorageOptions = {}
-) {
+): TBase & Constructor<HasStorage> {
   return class StorageMixin extends Base implements HasStorage {
     private _entityManager: EntityManager
 
-    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args
+    // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
@@ -280,7 +336,7 @@ export function WithStorage<TBase extends Constructor>(
     query<T extends StorableData = StorableData>(): QueryBuilder<T> {
       return this._entityManager.query<T>()
     }
-  }
+  } as TBase & Constructor<HasStorage>
 }
 
 /**
