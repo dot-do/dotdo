@@ -680,8 +680,15 @@ export class HibernationManager {
       this.enableReconnection()
     }
 
-    const session = this.sessionManager!.createSession(ws, clientId, metadata)
-    const initMessage = this.sessionManager!.createInitMessage(session)
+    // sessionManager is guaranteed to be initialized after enableReconnection()
+    const sessionManager = this.sessionManager
+    if (!sessionManager) {
+      // This should never happen, but satisfies TypeScript without non-null assertion
+      throw new Error('Session manager initialization failed')
+    }
+
+    const session = sessionManager.createSession(ws, clientId, metadata)
+    const initMessage = sessionManager.createInitMessage(session)
 
     // Send session.init message
     this.send(ws, initMessage)
