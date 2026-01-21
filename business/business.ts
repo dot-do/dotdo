@@ -349,12 +349,13 @@ class ObjectiveBuilder {
     name: string,
     options: { target: number; metric?: MetricRef; unit?: string }
   ): this {
-    this._keyResults.push({
+    const keyResult: { name: string; target: number; metric?: MetricRef; unit?: string } = {
       name,
-      target: options.target,
-      metric: options.metric,
-      unit: options.unit
-    })
+      target: options.target
+    }
+    if (options.metric !== undefined) keyResult.metric = options.metric
+    if (options.unit !== undefined) keyResult.unit = options.unit
+    this._keyResults.push(keyResult)
     return this
   }
 
@@ -420,7 +421,7 @@ class AggregateBuilder {
 
   count(field?: string): this {
     this._operation = 'count'
-    this._field = field
+    if (field !== undefined) this._field = field
     return this
   }
 
@@ -490,12 +491,12 @@ class AggregateBuilder {
 
     const query: ParsedQuery = {
       operation: this._operation,
-      field: this._field,
-      collection: this._collection,
-      where: this._where,
-      groupBy: this._groupBy,
-      timeRange: this._timeRange
+      collection: this._collection
     }
+    if (this._field !== undefined) query.field = this._field
+    if (this._where !== undefined) query.where = this._where
+    if (this._groupBy !== undefined) query.groupBy = this._groupBy
+    if (this._timeRange !== undefined) query.timeRange = this._timeRange
 
     return (this.business as any).executeAggregation(query)
   }
@@ -573,35 +574,74 @@ function parseQueryTemplate(
   const byMatch = query.match(/by\s+(\w+)/)
   const lastMatch = query.match(/last\s+(\d+)\s+(hours?|days?|weeks?|months?)/)
 
-  if (!operationMatch || !fromMatch) {
+  if (!operationMatch || !fromMatch || !fromMatch[1] || !operationMatch[1]) {
     throw new Error('Invalid query syntax')
   }
 
-  return {
+  const result: ParsedQuery = {
     operation: operationMatch[1] as ParsedQuery['operation'],
-    field: operationMatch[2] || undefined,
-    collection: fromMatch[1],
-    where: whereMatch ? parseWhereClause(whereMatch[1]) : undefined,
-    groupBy: byMatch?.[1],
-    timeRange: lastMatch
-      ? {
-          value: parseInt(lastMatch[1]),
-          unit: lastMatch[2].replace(/s$/, '') as 'hours' | 'days' | 'weeks' | 'months'
-        }
-      : undefined
+    collection: fromMatch[1]
   }
+
+  // Only assign optional properties if they have values
+  const fieldValue = operationMatch[2]
+  if (fieldValue) result.field = fieldValue
+
+  if (whereMatch && whereMatch[1]) {
+    result.where = parseWhereClause(whereMatch[1])
+  }
+
+  if (byMatch && byMatch[1]) {
+    result.groupBy = byMatch[1]
+  }
+
+  if (lastMatch && lastMatch[1] && lastMatch[2]) {
+    result.timeRange = {
+      value: parseInt(lastMatch[1]),
+      unit: lastMatch[2].replace(/s$/, '') as 'hours' | 'days' | 'weeks' | 'months'
+    }
+  }
+
+  return result
 }
 
-function parseWhereClause(clause: string): Record<string, unknown> {
+/**
+ * Parse a where clause string into a conditions object.
+ *
+ * Supports:
+ * - Quoted strings: `status = "completed"` -> { status: 'completed' }
+ * - Single-quoted strings: `status = 'completed'` -> { status: 'completed' }
+ * - Unquoted strings: `status = completed` -> { status: 'completed' }
+ * - Numbers: `amount = 100` -> { amount: 100 }
+ * - Booleans: `active = true` -> { active: true }
+ * - Null: `deleted = null` -> { deleted: null }
+ * - Multiple conditions: `status = "done" and amount = 100`
+ *
+ * @param clause - The where clause string to parse
+ * @returns A record of field names to their values
+ *
+ * @example
+ * ```typescript
+ * parseWhereClause('status = completed') // { status: 'completed' }
+ * parseWhereClause('status = "completed" and amount = 100') // { status: 'completed', amount: 100 }
+ * ```
+ */
+export function parseWhereClause(clause: string): Record<string, unknown> {
   // Simple parser for "key = value" conditions
   const conditions: Record<string, unknown> = {}
   const parts = clause.split(/\s+and\s+/i)
 
   for (const part of parts) {
     const match = part.match(/(\w+)\s*=\s*(.+)/)
-    if (match) {
-      const [, key, value] = match
-      conditions[key] = JSON.parse(value)
+    if (match && match[1] && match[2]) {
+      const key = match[1]
+      const value = match[2]
+      try {
+        conditions[key] = JSON.parse(value)
+      } catch {
+        // Treat as unquoted string literal - trim and remove surrounding quotes if present
+        conditions[key] = value.trim().replace(/^['"]|['"]$/g, '')
+      }
     }
   }
 
