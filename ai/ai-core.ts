@@ -83,9 +83,12 @@ export interface SimpleSchema {
 // Provider Configuration
 // ============================================================================
 
-export type Provider = 'openai' | 'anthropic' | 'google' | 'cloudflare'
+// Import Provider from router (don't re-export to avoid duplicate exports in index.ts)
+// Note: AIProviderConfig in router.ts has different fields (model vs accountId/defaultModel)
+// so we define AIProviderConfig here for ai-core specific configuration
+import type { Provider } from './router'
 
-export interface ProviderConfig {
+export interface AIProviderConfig {
   provider: Provider
   apiKey?: string
   accountId?: string
@@ -93,13 +96,13 @@ export interface ProviderConfig {
 }
 
 // Global provider registry
-const providers = new Map<Provider, ProviderConfig>()
+const providers = new Map<Provider, AIProviderConfig>()
 let defaultProvider: Provider | null = null
 
 /**
  * Configure a provider for AI operations
  */
-export function configureProvider(config: ProviderConfig): void {
+export function configureProvider(config: AIProviderConfig): void {
   providers.set(config.provider, config)
 
   // Set as default if it's the first provider
@@ -111,7 +114,7 @@ export function configureProvider(config: ProviderConfig): void {
 /**
  * Get provider configuration
  */
-export function getProvider(provider?: Provider): ProviderConfig | undefined {
+export function getProvider(provider?: Provider): AIProviderConfig | undefined {
   if (provider) {
     return providers.get(provider)
   }

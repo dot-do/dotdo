@@ -4,7 +4,7 @@
 
 export * from './template'
 export * from './promise'
-export * from './providers'
+// Note: ./providers just re-exports from ./router, so we skip it to avoid duplicate exports
 export * from './router'
 export * from './stream'
 export * from './tracking'

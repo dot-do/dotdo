@@ -4,7 +4,8 @@
 import type { AIMeta } from './promise'
 import { countTokens as countTokensTiktoken, estimateCost as estimateCostTiktoken } from './tokens'
 
-export type Provider = 'openai' | 'anthropic' | 'google' | 'cloudflare'
+// Import Provider from router to avoid duplicate exports in index.ts
+import type { Provider } from './router'
 
 export interface ModelConfig {
   inputCostPer1M: number
