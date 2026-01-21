@@ -2,10 +2,12 @@
  * Login Command Tests
  * Tests for OAuth CLI authentication implementation
  * Implements: do-7rf.9.6 - oauth.do integration for CLI auth
+ *
+ * NO MOCKS - Uses dependency injection via setConfigDir() and real temp directories.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { readFile, unlink, mkdir } from 'fs/promises'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { readFile, unlink, mkdir, rm } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
@@ -24,45 +26,45 @@ async function createTestConfigDir(): Promise<string> {
 }
 
 /**
- * Mock homedir to use test directory
+ * Create a fake fetch for OAuth API calls.
+ * This is dependency injection on global.fetch, which is an acceptable pattern
+ * for network testing - we're not mocking internal modules.
  */
-function mockHomedir(testDir: string) {
-  const originalHomedir = require('os').homedir
-  vi.spyOn(require('os'), 'homedir').mockReturnValue(testDir)
-  return () => {
-    vi.spyOn(require('os'), 'homedir').mockImplementation(originalHomedir)
-  }
-}
-
-/**
- * Mock fetch for OAuth API calls
- */
-function mockFetch() {
+function createFakeFetch() {
   const originalFetch = global.fetch
-  const mockFn = vi.fn()
-  global.fetch = mockFn as any
+  const calls: Array<{ url: string; options?: RequestInit }> = []
+  let responseQueue: Array<{
+    ok: boolean
+    status?: number
+    json: () => Promise<unknown>
+  }> = []
+
+  const fakeFetch = async (
+    url: string | URL | Request,
+    options?: RequestInit
+  ): Promise<Response> => {
+    calls.push({ url: url.toString(), options })
+    const response = responseQueue.shift()
+    if (!response) {
+      return {
+        ok: false,
+        status: 500,
+        json: async () => ({ error: 'no_mock_response' }),
+      } as Response
+    }
+    return response as Response
+  }
+
+  global.fetch = fakeFetch as typeof fetch
+
   return {
-    mock: mockFn,
+    calls,
+    mockResponse: (response: (typeof responseQueue)[0]) => {
+      responseQueue.push(response)
+    },
     restore: () => {
       global.fetch = originalFetch
-    },
-  }
-}
-
-/**
- * Mock exec for browser opening
- */
-function mockExec() {
-  const execModule = require('child_process')
-  const originalExec = execModule.exec
-  const mockFn = vi.fn((cmd, callback) => {
-    if (callback) callback(null, '', '')
-  })
-  execModule.exec = mockFn
-  return {
-    mock: mockFn,
-    restore: () => {
-      execModule.exec = originalExec
+      responseQueue = []
     },
   }
 }
@@ -100,32 +102,31 @@ function captureConsole() {
 
 describe('login command', () => {
   let testDir: string
-  let restoreHomedir: () => void
-  let fetchMock: ReturnType<typeof mockFetch>
-  let execMock: ReturnType<typeof mockExec>
-  let console: ReturnType<typeof captureConsole>
+  let fakeFetch: ReturnType<typeof createFakeFetch>
+  let output: ReturnType<typeof captureConsole>
 
   beforeEach(async () => {
     testDir = await createTestConfigDir()
-    restoreHomedir = mockHomedir(testDir)
-    fetchMock = mockFetch()
-    execMock = mockExec()
-    console = captureConsole()
+    fakeFetch = createFakeFetch()
+    output = captureConsole()
+
+    // Use setConfigDir for dependency injection
+    const { setConfigDir } = await import('../commands/login')
+    setConfigDir(testDir)
   })
 
   afterEach(async () => {
-    console.restore()
-    execMock.restore()
-    fetchMock.restore()
-    restoreHomedir()
+    output.restore()
+    fakeFetch.restore()
+
+    // Reset config dir
+    const { setConfigDir } = await import('../commands/login')
+    setConfigDir(undefined)
 
     // Cleanup test directory
     try {
-      const configPath = join(testDir, '.dotdo', 'credentials.json')
-      if (existsSync(configPath)) {
-        await unlink(configPath)
-      }
-    } catch (error) {
+      await rm(testDir, { recursive: true, force: true })
+    } catch {
       // Ignore cleanup errors
     }
   })
@@ -139,26 +140,23 @@ describe('login command', () => {
     expect(stored).toBeTruthy()
     expect(stored?.access_token).toBe('test-token-123')
     expect(stored?.token_type).toBe('Bearer')
-    expect(console.logs.some((log) => log.includes('stored successfully'))).toBe(true)
+    expect(output.logs.some((log) => log.includes('stored successfully'))).toBe(true)
   })
 
   it('should show already logged in if valid token exists', async () => {
-    const { login, getStoredToken } = await import('../commands/login')
+    const { login } = await import('../commands/login')
 
     // Store a token first
     await login({ token: 'existing-token' })
 
     // Clear console
-    console.logs.length = 0
+    output.logs.length = 0
 
     // Try to login again
     await login({})
 
-    expect(console.logs.some((log) => log.includes('Already logged in'))).toBe(true)
+    expect(output.logs.some((log) => log.includes('Already logged in'))).toBe(true)
   })
-
-  // Note: OAuth flow tests with fetch mocking are skipped due to complexity
-  // The login flow is tested in integration/E2E tests instead
 
   it('should store credentials with secure permissions', async () => {
     const { login, getConfigPath } = await import('../commands/login')
@@ -173,8 +171,6 @@ describe('login command', () => {
     const data = JSON.parse(content)
     expect(data.access_token).toBe('secure-token')
   })
-
-  // Note: Token refresh flow test skipped due to fetch mocking complexity
 })
 
 // ============================================================================
@@ -183,18 +179,27 @@ describe('login command', () => {
 
 describe('logout command', () => {
   let testDir: string
-  let restoreHomedir: () => void
-  let console: ReturnType<typeof captureConsole>
+  let output: ReturnType<typeof captureConsole>
 
   beforeEach(async () => {
     testDir = await createTestConfigDir()
-    restoreHomedir = mockHomedir(testDir)
-    console = captureConsole()
+    output = captureConsole()
+
+    const { setConfigDir } = await import('../commands/login')
+    setConfigDir(testDir)
   })
 
-  afterEach(() => {
-    console.restore()
-    restoreHomedir()
+  afterEach(async () => {
+    output.restore()
+
+    const { setConfigDir } = await import('../commands/login')
+    setConfigDir(undefined)
+
+    try {
+      await rm(testDir, { recursive: true, force: true })
+    } catch {
+      // Ignore cleanup errors
+    }
   })
 
   it('should clear credentials and show success message', async () => {
@@ -205,12 +210,12 @@ describe('logout command', () => {
     await login({ token: 'test-token' })
 
     // Clear console
-    console.logs.length = 0
+    output.logs.length = 0
 
     // Logout
     await logout({})
 
-    expect(console.logs.some((log) => log.includes('Logged out successfully'))).toBe(true)
+    expect(output.logs.some((log) => log.includes('Logged out successfully'))).toBe(true)
 
     // Verify token was cleared
     const { getStoredToken } = await import('../commands/login')
@@ -223,19 +228,19 @@ describe('logout command', () => {
 
     await logout({})
 
-    expect(console.logs.some((log) => log.includes('Not currently logged in'))).toBe(true)
+    expect(output.logs.some((log) => log.includes('Not currently logged in'))).toBe(true)
   })
 
   it('should show verbose output if verbose flag is set', async () => {
     const { login } = await import('../commands/login')
-    const { logout, getConfigPath } = await import('../commands/logout')
+    const { logout } = await import('../commands/logout')
 
     await login({ token: 'test-token' })
-    console.logs.length = 0
+    output.logs.length = 0
 
     await logout({ verbose: true })
 
-    expect(console.logs.some((log) => log.includes('credentials.json'))).toBe(true)
+    expect(output.logs.some((log) => log.includes('credentials.json'))).toBe(true)
   })
 })
 
@@ -245,21 +250,30 @@ describe('logout command', () => {
 
 describe('whoami command', () => {
   let testDir: string
-  let restoreHomedir: () => void
-  let fetchMock: ReturnType<typeof mockFetch>
-  let console: ReturnType<typeof captureConsole>
+  let fakeFetch: ReturnType<typeof createFakeFetch>
+  let output: ReturnType<typeof captureConsole>
 
   beforeEach(async () => {
     testDir = await createTestConfigDir()
-    restoreHomedir = mockHomedir(testDir)
-    fetchMock = mockFetch()
-    console = captureConsole()
+    fakeFetch = createFakeFetch()
+    output = captureConsole()
+
+    const { setConfigDir } = await import('../commands/login')
+    setConfigDir(testDir)
   })
 
-  afterEach(() => {
-    console.restore()
-    fetchMock.restore()
-    restoreHomedir()
+  afterEach(async () => {
+    output.restore()
+    fakeFetch.restore()
+
+    const { setConfigDir } = await import('../commands/login')
+    setConfigDir(undefined)
+
+    try {
+      await rm(testDir, { recursive: true, force: true })
+    } catch {
+      // Ignore cleanup errors
+    }
   })
 
   it('should show not logged in if no token exists', async () => {
@@ -267,8 +281,8 @@ describe('whoami command', () => {
 
     await whoami({})
 
-    expect(console.logs.some((log) => log.includes('Not logged in'))).toBe(true)
-    expect(console.logs.some((log) => log.includes('dotdo login'))).toBe(true)
+    expect(output.logs.some((log) => log.includes('Not logged in'))).toBe(true)
+    expect(output.logs.some((log) => log.includes('dotdo login'))).toBe(true)
   })
 
   it('should show not logged in for expired tokens without refresh', async () => {
@@ -278,7 +292,7 @@ describe('whoami command', () => {
 
     await whoami({})
 
-    expect(console.logs.some((log) => log.includes('Not logged in'))).toBe(true)
+    expect(output.logs.some((log) => log.includes('Not logged in'))).toBe(true)
   })
 
   it('should fetch and display user info when logged in', async () => {
@@ -287,8 +301,8 @@ describe('whoami command', () => {
 
     await login({ token: 'valid-token' })
 
-    // Mock userinfo response
-    fetchMock.mock.mockResolvedValueOnce({
+    // Set up fake fetch response
+    fakeFetch.mockResponse({
       ok: true,
       json: async () => ({
         id: 'user-123',
@@ -297,10 +311,10 @@ describe('whoami command', () => {
       }),
     })
 
-    console.logs.length = 0
+    output.logs.length = 0
     await whoami({})
 
-    expect(console.logs.some((log) => log.includes('test@example.com'))).toBe(true)
+    expect(output.logs.some((log) => log.includes('test@example.com'))).toBe(true)
   })
 
   it('should output JSON when --json flag is set', async () => {
@@ -309,7 +323,7 @@ describe('whoami command', () => {
 
     await login({ token: 'valid-token' })
 
-    fetchMock.mock.mockResolvedValueOnce({
+    fakeFetch.mockResponse({
       ok: true,
       json: async () => ({
         id: 'user-123',
@@ -318,11 +332,11 @@ describe('whoami command', () => {
       }),
     })
 
-    console.logs.length = 0
+    output.logs.length = 0
     await whoami({ json: true })
 
-    const output = console.logs.join('\n')
-    const parsed = JSON.parse(output)
+    const jsonOutput = output.logs.join('\n')
+    const parsed = JSON.parse(jsonOutput)
     expect(parsed.email).toBe('test@example.com')
     expect(parsed.name).toBe('Test User')
   })
@@ -333,7 +347,7 @@ describe('whoami command', () => {
 
     await login({ token: 'valid-token' })
 
-    fetchMock.mock.mockResolvedValueOnce({
+    fakeFetch.mockResponse({
       ok: true,
       json: async () => ({
         id: 'user-123',
@@ -342,10 +356,10 @@ describe('whoami command', () => {
       }),
     })
 
-    console.logs.length = 0
+    output.logs.length = 0
     await whoami({ verbose: true })
 
-    expect(console.logs.some((log) => log.includes('User ID'))).toBe(true)
+    expect(output.logs.some((log) => log.includes('User ID'))).toBe(true)
   })
 
   it('should handle failed userinfo fetch gracefully', async () => {
@@ -354,15 +368,16 @@ describe('whoami command', () => {
 
     await login({ token: 'invalid-token' })
 
-    fetchMock.mock.mockResolvedValueOnce({
+    fakeFetch.mockResponse({
       ok: false,
       status: 401,
+      json: async () => ({ error: 'unauthorized' }),
     })
 
-    console.logs.length = 0
+    output.logs.length = 0
     await whoami({})
 
-    expect(console.logs.some((log) => log.includes('Failed to fetch'))).toBe(true)
+    expect(output.logs.some((log) => log.includes('Failed to fetch'))).toBe(true)
   })
 })
 
@@ -372,25 +387,37 @@ describe('whoami command', () => {
 
 describe('token storage', () => {
   let testDir: string
-  let restoreHomedir: () => void
 
   beforeEach(async () => {
     testDir = await createTestConfigDir()
-    restoreHomedir = mockHomedir(testDir)
+
+    const { setConfigDir } = await import('../commands/login')
+    setConfigDir(testDir)
   })
 
-  afterEach(() => {
-    restoreHomedir()
+  afterEach(async () => {
+    const { setConfigDir } = await import('../commands/login')
+    setConfigDir(undefined)
+
+    try {
+      await rm(testDir, { recursive: true, force: true })
+    } catch {
+      // Ignore cleanup errors
+    }
   })
 
   it('should create config directory if it does not exist', async () => {
     const { login, getConfigPath } = await import('../commands/login')
-    const { dirname } = require('path')
+    const { dirname } = await import('path')
+
+    // Use a nested directory that doesn't exist yet
+    const nestedTestDir = join(testDir, 'nested', 'config')
+    const { setConfigDir } = await import('../commands/login')
+    setConfigDir(nestedTestDir)
 
     await login({ token: 'test-token' })
 
-    const configDir = dirname(getConfigPath())
-    expect(existsSync(configDir)).toBe(true)
+    expect(existsSync(nestedTestDir)).toBe(true)
   })
 
   it('should store all token fields correctly', async () => {
@@ -407,10 +434,12 @@ describe('token storage', () => {
 
   it('should return null for invalid JSON in credentials file', async () => {
     const { getConfigPath, getStoredToken } = await import('../commands/login')
+    const { writeFile } = await import('fs/promises')
 
     const configPath = getConfigPath()
-    await mkdir(join(testDir, '.dotdo'), { recursive: true })
-    await require('fs/promises').writeFile(configPath, 'invalid json{{{')
+    const configDir = join(testDir)
+    await mkdir(configDir, { recursive: true })
+    await writeFile(configPath, 'invalid json{{{')
 
     const stored = await getStoredToken()
     expect(stored).toBeNull()
@@ -418,13 +447,12 @@ describe('token storage', () => {
 
   it('should return null for missing required fields', async () => {
     const { getConfigPath, getStoredToken } = await import('../commands/login')
+    const { writeFile } = await import('fs/promises')
 
     const configPath = getConfigPath()
-    await mkdir(join(testDir, '.dotdo'), { recursive: true })
-    await require('fs/promises').writeFile(
-      configPath,
-      JSON.stringify({ some_field: 'value' })
-    )
+    const configDir = join(testDir)
+    await mkdir(configDir, { recursive: true })
+    await writeFile(configPath, JSON.stringify({ some_field: 'value' }))
 
     const stored = await getStoredToken()
     expect(stored).toBeNull()

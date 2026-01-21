@@ -1,21 +1,102 @@
 {
   "name": "@dotdo/do",
   "version": "0.0.1",
+  "description": "THE Durable Object for Digital Objects - core DO class with SQLite storage",
   "type": "module",
-  "main": "index.ts",
-  "types": "index.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./DO": {
+      "types": "./dist/DO.d.ts",
+      "import": "./dist/DO.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js"
+    },
+    "./entities": {
+      "types": "./dist/entities.d.ts",
+      "import": "./dist/entities.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    },
+    "./bindings": {
+      "types": "./dist/bindings.d.ts",
+      "import": "./dist/bindings.js"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "import": "./dist/auth.js"
+    },
+    "./websocket": {
+      "types": "./dist/websocket.d.ts",
+      "import": "./dist/websocket.js"
+    },
+    "./circuit-breaker": {
+      "types": "./dist/circuit-breaker.d.ts",
+      "import": "./dist/circuit-breaker.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "dotdo",
+    "durable-objects",
+    "digital-objects",
+    "cloudflare",
+    "workers",
+    "sqlite",
+    "edge"
+  ],
+  "author": "dot-do",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/dotdo",
+    "directory": "do"
+  },
+  "homepage": "https://dotdo.dev",
+  "bugs": {
+    "url": "https://github.com/dot-do/dotdo/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@dotdo/auth": "workspace:*",
     "@dotdo/db": "workspace:*",
+    "@dotdo/integrations": "workspace:*",
+    "@dotdo/observability": "workspace:*",
     "@dotdo/rpc": "workspace:*",
-    "hono": "^4.7.0"
+    "ai-evaluate": "workspace:../primitives/packages/ai-evaluate",
+    "digital-workers": "workspace:../primitives/packages/digital-workers",
+    "hono": "^4.11.4",
+    "language-models": "workspace:../primitives/packages/language-models"
   },
   "devDependencies": {
-    "typescript": "^5.7.0"
+    "@dotdo/test-utils": "workspace:*",
+    "typescript": "^5.7.3"
   }
 }

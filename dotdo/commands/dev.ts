@@ -1,6 +1,14 @@
-import { spawn, type ChildProcess } from 'child_process'
-import { resolve, join } from 'path'
-import { existsSync } from 'fs'
+import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions as NodeSpawnOptions } from 'child_process'
+import { findWrangler } from './utils'
+
+/**
+ * Spawn function type for dependency injection
+ */
+export type SpawnFn = (
+  command: string,
+  args: string[],
+  options?: NodeSpawnOptions
+) => ChildProcess
 
 export interface DevServerOptions {
   port?: number
@@ -11,6 +19,8 @@ export interface DevServerOptions {
   liveReload?: boolean
   localProtocol?: 'http' | 'https'
   persist?: boolean
+  /** Dependency injection for spawn function (for testing) */
+  spawn?: SpawnFn
 }
 
 export interface DevServer {
@@ -32,6 +42,7 @@ export function startDevServer(options: DevServerOptions = {}): DevServer {
     liveReload = false,
     localProtocol,
     persist = false,
+    spawn = nodeSpawn,
   } = options
 
   // Find wrangler binary
@@ -81,7 +92,7 @@ export function startDevServer(options: DevServerOptions = {}): DevServer {
   // Display startup banner
   displayBanner(port, { inspect, persist, liveReload })
 
-  // Spawn wrangler process
+  // Spawn wrangler process using injected or default spawn
   const childProcess = spawn(wranglerPath, args, {
     cwd,
     stdio: 'pipe',
@@ -133,38 +144,6 @@ export function startDevServer(options: DevServerOptions = {}): DevServer {
       }
     },
   }
-}
-
-/**
- * Find wrangler binary in node_modules or global install
- */
-function findWrangler(): string {
-  // Try local node_modules first
-  const localWrangler = resolve(
-    process.cwd(),
-    'node_modules',
-    '.bin',
-    'wrangler'
-  )
-  if (existsSync(localWrangler)) {
-    return localWrangler
-  }
-
-  // Try workspace root
-  const workspaceWrangler = resolve(
-    process.cwd(),
-    '..',
-    '..',
-    'node_modules',
-    '.bin',
-    'wrangler'
-  )
-  if (existsSync(workspaceWrangler)) {
-    return workspaceWrangler
-  }
-
-  // Fall back to global wrangler
-  return 'wrangler'
 }
 
 /**

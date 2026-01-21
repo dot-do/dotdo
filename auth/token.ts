@@ -3,6 +3,15 @@ import type { MiddlewareHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { jwtVerify, type JWTPayload } from 'jose'
 import type { AuthUser } from './middleware'
+import {
+  TokenValidationError,
+  MissingTokenError,
+  InvalidAuthHeaderError,
+  MissingSubjectError,
+  TokenExpiredError,
+  mapJoseError,
+  getWWWAuthenticateHeader,
+} from './errors'
 
 export interface TokenPayload extends JWTPayload {
   sub: string
@@ -36,12 +45,42 @@ export interface ExpirationCheckOptions {
 }
 
 /**
- * Extract Bearer token from Authorization header or cookies
+ * Result of token extraction with detailed error information
+ */
+export interface TokenExtractionResult {
+  /** The extracted token, or null if extraction failed */
+  token: string | null
+  /** Error details if extraction failed */
+  error?: TokenValidationError
+}
+
+/**
+ * Extract Bearer token from Authorization header or cookies.
+ *
+ * @param request - The incoming request
+ * @param options - Extraction options (cookie name)
+ * @returns The extracted token or null
  */
 export function extractToken(
   request: Request,
   options: TokenExtractionOptions = {}
 ): string | null {
+  const result = extractTokenWithError(request, options)
+  return result.token
+}
+
+/**
+ * Extract Bearer token with detailed error information.
+ * Use this when you need to know why extraction failed.
+ *
+ * @param request - The incoming request
+ * @param options - Extraction options (cookie name)
+ * @returns Result with token and optional error details
+ */
+export function extractTokenWithError(
+  request: Request,
+  options: TokenExtractionOptions = {}
+): TokenExtractionResult {
   const { cookieName = 'auth_token' } = options
 
   // Try Authorization header first
@@ -49,12 +88,31 @@ export function extractToken(
   if (authHeader) {
     const trimmed = authHeader.trim()
     const parts = trimmed.split(/\s+/) // Split on any whitespace
-    const scheme = parts[0]
-    const token = parts[1]
-    if (parts.length === 2 && scheme === 'Bearer' && token) {
-      return token.trim()
+
+    if (parts.length === 0 || !parts[0]) {
+      return {
+        token: null,
+        error: new InvalidAuthHeaderError('missing_scheme'),
+      }
     }
-    return null
+
+    const scheme = parts[0]
+    if (scheme !== 'Bearer') {
+      return {
+        token: null,
+        error: new InvalidAuthHeaderError('wrong_scheme'),
+      }
+    }
+
+    if (parts.length < 2 || !parts[1]) {
+      return {
+        token: null,
+        error: new InvalidAuthHeaderError('missing_token'),
+      }
+    }
+
+    const token = parts[1].trim()
+    return { token }
   }
 
   // Try cookie
@@ -62,10 +120,15 @@ export function extractToken(
   if (cookieHeader) {
     const cookies = parseCookies(cookieHeader)
     const token = cookies[cookieName]
-    return token ? token.trim() : null
+    if (token) {
+      return { token: token.trim() }
+    }
   }
 
-  return null
+  return {
+    token: null,
+    error: new MissingTokenError(cookieName ? 'both' : 'header'),
+  }
 }
 
 /**
@@ -83,7 +146,12 @@ function parseCookies(cookieHeader: string): Record<string, string> {
 }
 
 /**
- * Verify JWT signature and validate claims
+ * Verify JWT signature and validate claims.
+ *
+ * @param token - The JWT string to verify
+ * @param options - Verification options including secret and expected claims
+ * @returns The verified token payload
+ * @throws {TokenValidationError} If verification fails (with specific error type)
  */
 export async function verifyTokenSignature(
   token: string,
@@ -99,18 +167,19 @@ export async function verifyTokenSignature(
   const secretKey = typeof secret === 'string' ? new TextEncoder().encode(secret) : secret
 
   try {
-    const { payload } = await jwtVerify(token, secretKey, {
-      issuer,
-      audience,
-    })
+    const verifyOptions: Parameters<typeof jwtVerify>[2] = {}
+    if (issuer !== undefined) verifyOptions.issuer = issuer
+    if (audience !== undefined) verifyOptions.audience = audience
+
+    const { payload } = await jwtVerify(token, secretKey, verifyOptions)
 
     return payload as TokenPayload
   } catch (error) {
-    // Re-throw with more specific error message
-    if (error instanceof Error) {
-      throw new Error(error.message)
-    }
-    throw error
+    // Map jose errors to our specific error types for better debugging
+    throw mapJoseError(error, {
+      expectedIssuer: issuer,
+      expectedAudience: audience,
+    })
   }
 }
 
@@ -155,7 +224,13 @@ function payloadToAuthUser(payload: TokenPayload): AuthUser {
 }
 
 /**
- * Hono middleware for JWT token validation
+ * Hono middleware for JWT token validation.
+ *
+ * Validates JWT tokens from Authorization header or cookies.
+ * Provides detailed error messages for debugging while remaining secure.
+ *
+ * @param options - Middleware configuration options
+ * @returns Hono middleware handler
  */
 export function validateToken(options: TokenValidationOptions): MiddlewareHandler {
   const {
@@ -173,33 +248,48 @@ export function validateToken(options: TokenValidationOptions): MiddlewareHandle
       return next()
     }
 
-    // Extract token
-    const token = extractToken(c.req.raw, { cookieName })
+    // Extract token with detailed error information
+    const extractionResult = extractTokenWithError(c.req.raw, {
+      ...(cookieName !== undefined && { cookieName }),
+    })
 
-    if (!token) {
-      c.header('WWW-Authenticate', 'Bearer realm="dotdo", error="invalid_token"')
-      throw new HTTPException(401, { message: 'Authorization required' })
+    if (!extractionResult.token) {
+      const error = extractionResult.error || new MissingTokenError('header')
+      c.header('WWW-Authenticate', getWWWAuthenticateHeader(error))
+      throw new HTTPException(error.statusCode, {
+        message: error.message,
+        cause: error,
+      })
     }
+
+    const token = extractionResult.token
 
     try {
       // Verify signature and claims
       const payload = await verifyTokenSignature(token, {
         secret,
-        issuer,
-        audience,
+        ...(issuer !== undefined && { issuer }),
+        ...(audience !== undefined && { audience }),
       })
 
-      // Check expiration
+      // Check expiration (double-check since jose may have clock tolerance)
       const expCheck = checkTokenExpiration(payload, { refreshThreshold })
 
       if (expCheck.expired) {
-        c.header('WWW-Authenticate', 'Bearer realm="dotdo", error="invalid_token"')
-        throw new HTTPException(401, { message: 'Token expired' })
+        const error = new TokenExpiredError(payload.exp)
+        c.header('WWW-Authenticate', getWWWAuthenticateHeader(error))
+        throw new HTTPException(error.statusCode, {
+          message: error.message,
+          cause: error,
+        })
       }
 
       // Set refresh hint header if token is close to expiration
       if (expCheck.shouldRefresh) {
         c.header('X-Token-Refresh-Hint', 'true')
+        if (expCheck.expiresIn !== null) {
+          c.header('X-Token-Expires-In', String(expCheck.expiresIn))
+        }
       }
 
       // Set user and token in context
@@ -209,15 +299,24 @@ export function validateToken(options: TokenValidationOptions): MiddlewareHandle
 
       return next()
     } catch (error) {
-      // Handle validation errors
+      // Re-throw HTTPExceptions as-is
       if (error instanceof HTTPException) {
         throw error
       }
 
-      c.header('WWW-Authenticate', 'Bearer realm="dotdo", error="invalid_token"')
+      // Convert to TokenValidationError if not already
+      const tokenError = error instanceof TokenValidationError
+        ? error
+        : mapJoseError(error, {
+            expectedIssuer: issuer,
+            expectedAudience: audience,
+          })
 
-      const message = error instanceof Error ? error.message : 'Invalid token'
-      throw new HTTPException(401, { message })
+      c.header('WWW-Authenticate', getWWWAuthenticateHeader(tokenError))
+      throw new HTTPException(tokenError.statusCode, {
+        message: tokenError.message,
+        cause: tokenError,
+      })
     }
   }
 }

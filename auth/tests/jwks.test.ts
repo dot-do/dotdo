@@ -99,18 +99,22 @@ describe('JWKS Support', () => {
 
   describe('fetchJwks', () => {
     it('should fetch JWKS from URL', async () => {
-      const mockFetch = vi.fn().mockResolvedValue(createJwksResponse([rsaJwk]))
+      const calls: string[] = []
+      const mockFetch = async (input: RequestInfo | URL) => {
+        calls.push(input.toString())
+        return createJwksResponse([rsaJwk])
+      }
       vi.stubGlobal('fetch', mockFetch)
 
       const jwks = await fetchJwks('https://id.org.ai/.well-known/jwks.json')
 
-      expect(mockFetch).toHaveBeenCalledWith('https://id.org.ai/.well-known/jwks.json')
+      expect(calls).toContain('https://id.org.ai/.well-known/jwks.json')
       expect(jwks.keys).toHaveLength(1)
       expect(jwks.keys[0].kid).toBe('rsa-key-1')
     })
 
     it('should throw on non-200 response', async () => {
-      const mockFetch = vi.fn().mockResolvedValue(new Response('Not Found', { status: 404 }))
+      const mockFetch = async () => new Response('Not Found', { status: 404 })
       vi.stubGlobal('fetch', mockFetch)
 
       await expect(fetchJwks('https://id.org.ai/.well-known/jwks.json')).rejects.toThrow(
@@ -119,22 +123,20 @@ describe('JWKS Support', () => {
     })
 
     it('should throw on invalid JSON', async () => {
-      const mockFetch = vi.fn().mockResolvedValue(
+      const mockFetch = async () =>
         new Response('not json', {
           headers: { 'Content-Type': 'application/json' },
         })
-      )
       vi.stubGlobal('fetch', mockFetch)
 
       await expect(fetchJwks('https://id.org.ai/.well-known/jwks.json')).rejects.toThrow()
     })
 
     it('should throw on missing keys array', async () => {
-      const mockFetch = vi.fn().mockResolvedValue(
+      const mockFetch = async () =>
         new Response(JSON.stringify({}), {
           headers: { 'Content-Type': 'application/json' },
         })
-      )
       vi.stubGlobal('fetch', mockFetch)
 
       await expect(fetchJwks('https://id.org.ai/.well-known/jwks.json')).rejects.toThrow(
@@ -169,7 +171,7 @@ describe('JWKS Support', () => {
 
     beforeEach(() => {
       const responseFactory = createJwksResponseFactory([rsaJwk, ecJwk])
-      const mockFetch = vi.fn().mockImplementation(() => Promise.resolve(responseFactory()))
+      const mockFetch = async () => responseFactory()
       vi.stubGlobal('fetch', mockFetch)
 
       client = createJwksClient({
@@ -200,7 +202,11 @@ describe('JWKS Support', () => {
 
     it('should cache JWKS and not refetch within TTL', async () => {
       const responseFactory = createJwksResponseFactory([rsaJwk])
-      const mockFetch = vi.fn().mockImplementation(() => Promise.resolve(responseFactory()))
+      let callCount = 0
+      const mockFetch = async () => {
+        callCount++
+        return responseFactory()
+      }
       vi.stubGlobal('fetch', mockFetch)
 
       const cachedClient = createJwksClient({
@@ -213,14 +219,18 @@ describe('JWKS Support', () => {
       // Second call should use cache
       await cachedClient.getKey('rsa-key-1')
 
-      expect(mockFetch).toHaveBeenCalledTimes(1)
+      expect(callCount).toBe(1)
     })
 
     it('should refetch after cache expires', async () => {
       vi.useFakeTimers()
 
       const responseFactory = createJwksResponseFactory([rsaJwk])
-      const mockFetch = vi.fn().mockImplementation(() => Promise.resolve(responseFactory()))
+      let callCount = 0
+      const mockFetch = async () => {
+        callCount++
+        return responseFactory()
+      }
       vi.stubGlobal('fetch', mockFetch)
 
       const shortTtlClient = createJwksClient({
@@ -230,21 +240,25 @@ describe('JWKS Support', () => {
 
       // First call
       await shortTtlClient.getKey('rsa-key-1')
-      expect(mockFetch).toHaveBeenCalledTimes(1)
+      expect(callCount).toBe(1)
 
       // Advance time past TTL
       vi.advanceTimersByTime(2000)
 
       // Second call should refetch
       await shortTtlClient.getKey('rsa-key-1')
-      expect(mockFetch).toHaveBeenCalledTimes(2)
+      expect(callCount).toBe(2)
 
       vi.useRealTimers()
     })
 
     it('should clear cache when clearCache is called', async () => {
       const responseFactory = createJwksResponseFactory([rsaJwk])
-      const mockFetch = vi.fn().mockImplementation(() => Promise.resolve(responseFactory()))
+      let callCount = 0
+      const mockFetch = async () => {
+        callCount++
+        return responseFactory()
+      }
       vi.stubGlobal('fetch', mockFetch)
 
       const cachedClient = createJwksClient({
@@ -256,23 +270,23 @@ describe('JWKS Support', () => {
       cachedClient.clearCache()
       await cachedClient.getKey('rsa-key-1')
 
-      expect(mockFetch).toHaveBeenCalledTimes(2)
+      expect(callCount).toBe(2)
     })
   })
 
   describe('Key rotation handling', () => {
     it('should refetch JWKS when kid not found (key rotation)', async () => {
       let callCount = 0
-      const mockFetch = vi.fn().mockImplementation(() => {
+      const mockFetch = async () => {
         callCount++
         if (callCount === 1) {
           // First fetch returns only old key
-          return Promise.resolve(createJwksResponse([rsaJwk]))
+          return createJwksResponse([rsaJwk])
         } else {
           // Second fetch returns new key after rotation
-          return Promise.resolve(createJwksResponse([{ ...rsaJwk, kid: 'new-key-1' }]))
+          return createJwksResponse([{ ...rsaJwk, kid: 'new-key-1' }])
         }
-      })
+      }
       vi.stubGlobal('fetch', mockFetch)
 
       const client = createJwksClient({
@@ -283,17 +297,17 @@ describe('JWKS Support', () => {
 
       // First call populates cache with old key
       await client.getKey('rsa-key-1')
-      expect(mockFetch).toHaveBeenCalledTimes(1)
+      expect(callCount).toBe(1)
 
       // New key not in cache - should trigger refetch
       const newKey = await client.getKey('new-key-1')
-      expect(mockFetch).toHaveBeenCalledTimes(2)
+      expect(callCount).toBe(2)
       expect(newKey).toBeDefined()
     })
 
     it('should throw if key still not found after refetch', async () => {
       const responseFactory = createJwksResponseFactory([rsaJwk])
-      const mockFetch = vi.fn().mockImplementation(() => Promise.resolve(responseFactory()))
+      const mockFetch = async () => responseFactory()
       vi.stubGlobal('fetch', mockFetch)
 
       const client = createJwksClient({
@@ -309,7 +323,11 @@ describe('JWKS Support', () => {
       vi.useFakeTimers()
 
       const responseFactory = createJwksResponseFactory([rsaJwk])
-      const mockFetch = vi.fn().mockImplementation(() => Promise.resolve(responseFactory()))
+      let callCount = 0
+      const mockFetch = async () => {
+        callCount++
+        return responseFactory()
+      }
       vi.stubGlobal('fetch', mockFetch)
 
       const client = createJwksClient({
@@ -321,16 +339,16 @@ describe('JWKS Support', () => {
 
       // First attempt with missing key - fetches once initially
       await expect(client.getKey('missing-1')).rejects.toThrow()
-      const callsAfterFirst = mockFetch.mock.calls.length
+      const callsAfterFirst = callCount
 
       // Immediate second attempt should not refetch (within cooldown)
       await expect(client.getKey('missing-2')).rejects.toThrow()
-      expect(mockFetch).toHaveBeenCalledTimes(callsAfterFirst) // No additional fetch
+      expect(callCount).toBe(callsAfterFirst) // No additional fetch
 
       // After cooldown, should refetch
       vi.advanceTimersByTime(11000)
       await expect(client.getKey('missing-3')).rejects.toThrow()
-      expect(mockFetch).toHaveBeenCalledTimes(callsAfterFirst + 1)
+      expect(callCount).toBe(callsAfterFirst + 1)
 
       vi.useRealTimers()
     })
@@ -341,7 +359,7 @@ describe('JWKS Support', () => {
 
     beforeEach(() => {
       const responseFactory = createJwksResponseFactory([rsaJwk, ecJwk])
-      const mockFetch = vi.fn().mockImplementation(() => Promise.resolve(responseFactory()))
+      const mockFetch = async () => responseFactory()
       vi.stubGlobal('fetch', mockFetch)
 
       client = createJwksClient({
@@ -460,7 +478,7 @@ describe('JWKS Support', () => {
 
     beforeEach(() => {
       const responseFactory = createJwksResponseFactory([rsaJwk, ecJwk])
-      const mockFetch = vi.fn().mockImplementation(() => Promise.resolve(responseFactory()))
+      const mockFetch = async () => responseFactory()
       vi.stubGlobal('fetch', mockFetch)
 
       client = createJwksClient({
@@ -694,7 +712,7 @@ describe('JWKS Support', () => {
 
       const token = await jwt.sign(symmetricSecret)
 
-      const mockFetch = vi.fn().mockResolvedValue(createJwksResponse([rsaJwk]))
+      const mockFetch = async () => createJwksResponse([rsaJwk])
       vi.stubGlobal('fetch', mockFetch)
 
       const client = createJwksClient({
@@ -708,7 +726,9 @@ describe('JWKS Support', () => {
 
   describe('Error handling', () => {
     it('should provide meaningful error for network failures', async () => {
-      const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'))
+      const mockFetch = async () => {
+        throw new Error('Network error')
+      }
       vi.stubGlobal('fetch', mockFetch)
 
       await expect(fetchJwks('https://id.org.ai/.well-known/jwks.json')).rejects.toThrow(
@@ -718,9 +738,7 @@ describe('JWKS Support', () => {
 
     it('should provide meaningful error for invalid key format', async () => {
       const invalidJwk = { kty: 'invalid', kid: 'bad-key' }
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValue(createJwksResponse([invalidJwk as unknown as JWK]))
+      const mockFetch = async () => createJwksResponse([invalidJwk as unknown as JWK])
       vi.stubGlobal('fetch', mockFetch)
 
       const client = createJwksClient({

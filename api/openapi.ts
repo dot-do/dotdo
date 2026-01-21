@@ -2,6 +2,18 @@
 import type { Hono } from 'hono'
 import type { ZodTypeAny } from 'zod'
 import type { ResourceDefinition } from './resource'
+import type { StorableData } from '@dotdo/db'
+
+// Hono internal route type for extracting routes from Hono apps
+interface HonoRoute {
+  method?: string
+  path?: string
+}
+
+// Type for Hono app with routes (internal structure)
+interface HonoAppWithRoutes {
+  routes?: HonoRoute[]
+}
 
 // OpenAPI 3.0 types
 export interface OpenAPISpec {
@@ -17,10 +29,10 @@ export interface OpenAPISpec {
 export interface InfoObject {
   title: string
   version: string
-  description?: string
-  termsOfService?: string
-  contact?: ContactObject
-  license?: LicenseObject
+  description?: string | undefined
+  termsOfService?: string | undefined
+  contact?: ContactObject | undefined
+  license?: LicenseObject | undefined
 }
 
 export interface ContactObject {
@@ -55,14 +67,14 @@ export interface PathItemObject {
 }
 
 export interface OperationObject {
-  summary?: string
-  description?: string
-  tags?: string[]
-  operationId?: string
-  parameters?: ParameterObject[]
-  requestBody?: RequestBodyObject
+  summary?: string | undefined
+  description?: string | undefined
+  tags?: string[] | undefined
+  operationId?: string | undefined
+  parameters?: ParameterObject[] | undefined
+  requestBody?: RequestBodyObject | undefined
   responses: ResponsesObject
-  security?: SecurityRequirementObject[]
+  security?: SecurityRequirementObject[] | undefined
 }
 
 export interface ParameterObject {
@@ -140,17 +152,21 @@ export interface TagObject {
   description?: string
 }
 
+// Simplified operation configuration for user-facing API
+// Uses { schema: string } shorthand for requestBody instead of full RequestBodyObject
+type OperationConfig = Omit<Partial<OperationObject>, 'requestBody' | 'responses'> & {
+  requestBody?: { schema: string }
+  responses?: Record<string, { schema?: string; description?: string }>
+}
+
 // Generator configuration
 export interface GenerateOpenAPIOptions {
   app: Hono
   info?: Partial<InfoObject>
   servers?: ServerObject[]
   schemas?: Record<string, ZodTypeAny>
-  resources?: ResourceDefinition<any>[]
-  operations?: Record<string, Partial<OperationObject> & {
-    requestBody?: { schema: string }
-    responses?: Record<string, { schema?: string; description?: string }>
-  }>
+  resources?: ResourceDefinition<StorableData>[]
+  operations?: Record<string, OperationConfig>
   security?: Record<string, Omit<SecuritySchemeObject, 'type'> & { type: SecuritySchemeObject['type'] }>
   tags?: TagObject[]
 }
@@ -285,12 +301,15 @@ export class OpenAPIGenerator {
     const matches = honoPath.matchAll(/:([^/]+)/g)
 
     for (const match of matches) {
-      params.push({
-        name: match[1],
-        in: 'path',
-        required: true,
-        schema: { type: 'string' }
-      })
+      const paramName = match[1]
+      if (paramName !== undefined) {
+        params.push({
+          name: paramName,
+          in: 'path',
+          required: true,
+          schema: { type: 'string' }
+        })
+      }
     }
 
     return params
@@ -334,7 +353,7 @@ export function generateOpenAPI(options: GenerateOpenAPIOptions): OpenAPISpec {
 
   // Extract routes from Hono app
   const paths: PathsObject = {}
-  const routes = (app as any).routes || []
+  const routes = (app as HonoAppWithRoutes).routes || []
 
   // Process routes from Hono
   for (const route of routes) {
@@ -517,7 +536,7 @@ export function specToYAML(spec: OpenAPISpec): string {
     return '  '.repeat(level)
   }
 
-  function valueToYAML(value: any, level = 0): string {
+  function valueToYAML(value: unknown, level = 0): string {
     if (value === null || value === undefined) {
       return 'null'
     }
