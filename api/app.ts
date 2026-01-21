@@ -7,9 +7,14 @@ import type { MiddlewareHandler } from 'hono'
 import { authMiddleware } from '../auth/middleware'
 import { getErrorMessage } from '../rpc/errors'
 import { HealthService, DiscoveryService } from './services'
+import { rateLimitMiddleware, type RateLimitConfig, type RateLimitTier } from './middleware/rate-limit'
+import { bodySizeLimitMiddleware, DEFAULT_MAX_BODY_SIZE } from './middleware/body-size-limit'
 
 export interface APIOptions {
   basePath?: string
+  cors?: {
+    allowedOrigins?: string[]
+  }
   auth?: {
     enabled?: boolean
     skipPaths?: string[]
@@ -17,6 +22,26 @@ export interface APIOptions {
     audience?: string
     secret?: string
     publicKey?: string
+  }
+  rateLimit?: {
+    /** Enable rate limiting (default: false) */
+    enabled?: boolean
+    /** Key strategy for rate limiting: 'ip' (default), 'tenant', 'user', 'tenant+user' */
+    keyStrategy?: RateLimitConfig['keyStrategy']
+    /** Default tier for rate limiting (default: 'free') */
+    defaultTier?: string
+    /** Custom tier configurations */
+    tiers?: Record<string, RateLimitTier>
+    /** Override limits for specific tenants */
+    tenantOverrides?: Record<string, Partial<RateLimitTier>>
+    /** Override limits for specific users */
+    userOverrides?: Record<string, Partial<RateLimitTier>>
+    /** Paths to skip rate limiting (default: ['/health', '/ready']) */
+    skipPaths?: string[]
+    /** Fail open on storage errors (default: true) */
+    failOpen?: boolean
+    /** Window strategy: 'sliding' (default) or 'fixed' */
+    windowStrategy?: 'sliding' | 'fixed'
   }
 }
 
@@ -72,7 +97,7 @@ function loggingMiddleware(): MiddlewareHandler {
 }
 
 export function createAPI(options?: APIOptions) {
-  const { basePath = '', auth } = options || {}
+  const { basePath = '', auth, rateLimit } = options || {}
 
   // Create services (business logic layer)
   const healthService = new HealthService({ serviceName: 'dotdo-api' })
@@ -125,11 +150,31 @@ export function createAPI(options?: APIOptions) {
       origin: '*',
       allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-API-Key'],
-      exposeHeaders: ['X-Request-ID'],
+      exposeHeaders: ['X-Request-ID', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset', 'Retry-After'],
       maxAge: 86400,
       credentials: true
     })
   )
+
+  // Rate limiting middleware (optional)
+  if (rateLimit?.enabled) {
+    const defaultSkipPaths = ['/health', '/ready']
+    const skipPaths = [...defaultSkipPaths, ...(rateLimit.skipPaths || [])]
+
+    baseApp.use(
+      '*',
+      rateLimitMiddleware({
+        keyStrategy: rateLimit.keyStrategy ?? 'ip',
+        defaultTier: rateLimit.defaultTier ?? 'free',
+        ...(rateLimit.tiers && { tiers: rateLimit.tiers }),
+        ...(rateLimit.tenantOverrides && { tenantOverrides: rateLimit.tenantOverrides }),
+        ...(rateLimit.userOverrides && { userOverrides: rateLimit.userOverrides }),
+        skipPaths,
+        failOpen: rateLimit.failOpen ?? true,
+        windowStrategy: rateLimit.windowStrategy ?? 'sliding',
+      })
+    )
+  }
 
   // Auth middleware (optional)
   if (auth?.enabled) {

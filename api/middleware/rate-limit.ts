@@ -554,9 +554,9 @@ export function rateLimitMiddleware(config: RateLimitConfig): MiddlewareHandler 
       return next()
     }
 
-    // Extract context from Hono context (if available)
-    const tenantId = c.get('tenantId') as string | undefined
-    const userId = c.get('userId') as string | undefined
+    // Extract context from Hono context or request headers (for overrides to work)
+    const tenantId = c.get('tenantId') as string | undefined ?? c.req.header('X-Tenant-ID')
+    const userId = c.get('userId') as string | undefined ?? c.req.header('X-User-ID')
     const tier = c.get('tier') as string | undefined
 
     const result = await rateLimiter.check(c.req.raw, {

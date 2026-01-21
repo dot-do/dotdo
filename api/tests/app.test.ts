@@ -627,6 +627,348 @@ describe('api/app.ts - createAPI', () => {
     })
   })
 
+  describe('Rate Limiting Integration', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-01-15T12:00:00.000Z'))
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('should not apply rate limiting when not enabled', async () => {
+      const app = createAPI()
+
+      // Make many requests - should all succeed without rate limiting
+      for (let i = 0; i < 200; i++) {
+        const res = await app.request('http://localhost/health')
+        expect(res.status).toBe(200)
+      }
+    })
+
+    it('should apply rate limiting when enabled', async () => {
+      const app = createAPI({
+        rateLimit: {
+          enabled: true,
+          keyStrategy: 'ip',
+          tiers: {
+            test: { name: 'test', requestsPerWindow: 3, windowMs: 60000 },
+          },
+          defaultTier: 'test',
+        },
+      })
+
+      // Add a test route (health is skipped by default)
+      app.get('/api/test', (c) => c.json({ ok: true }))
+
+      // First 3 requests should succeed
+      for (let i = 0; i < 3; i++) {
+        const res = await app.request('http://localhost/api/test', {
+          headers: { 'CF-Connecting-IP': '192.168.1.1' }
+        })
+        expect(res.status).toBe(200)
+      }
+
+      // 4th request should be rate limited
+      const res = await app.request('http://localhost/api/test', {
+        headers: { 'CF-Connecting-IP': '192.168.1.1' }
+      })
+      expect(res.status).toBe(429)
+    })
+
+    it('should skip health endpoint by default', async () => {
+      const app = createAPI({
+        rateLimit: {
+          enabled: true,
+          keyStrategy: 'ip',
+          tiers: {
+            test: { name: 'test', requestsPerWindow: 1, windowMs: 60000 },
+          },
+          defaultTier: 'test',
+        },
+      })
+
+      // Health should not be rate limited even after many requests
+      for (let i = 0; i < 10; i++) {
+        const res = await app.request('http://localhost/health', {
+          headers: { 'CF-Connecting-IP': '192.168.1.1' }
+        })
+        expect(res.status).toBe(200)
+      }
+    })
+
+    it('should skip ready endpoint by default', async () => {
+      const app = createAPI({
+        rateLimit: {
+          enabled: true,
+          keyStrategy: 'ip',
+          tiers: {
+            test: { name: 'test', requestsPerWindow: 1, windowMs: 60000 },
+          },
+          defaultTier: 'test',
+        },
+      })
+
+      // Ready should not be rate limited even after many requests
+      for (let i = 0; i < 10; i++) {
+        const res = await app.request('http://localhost/ready', {
+          headers: { 'CF-Connecting-IP': '192.168.1.1' }
+        })
+        expect(res.status).toBe(200)
+      }
+    })
+
+    it('should include rate limit headers in response', async () => {
+      const app = createAPI({
+        rateLimit: {
+          enabled: true,
+          keyStrategy: 'ip',
+          tiers: {
+            test: { name: 'test', requestsPerWindow: 100, windowMs: 60000 },
+          },
+          defaultTier: 'test',
+        },
+      })
+
+      app.get('/api/test', (c) => c.json({ ok: true }))
+
+      const res = await app.request('http://localhost/api/test', {
+        headers: { 'CF-Connecting-IP': '192.168.1.1' }
+      })
+
+      expect(res.status).toBe(200)
+      expect(res.headers.get('X-RateLimit-Limit')).toBe('100')
+      expect(res.headers.get('X-RateLimit-Remaining')).toBe('99')
+      expect(res.headers.get('X-RateLimit-Reset')).toBeDefined()
+    })
+
+    it('should return 429 with proper error body when rate limited', async () => {
+      const app = createAPI({
+        rateLimit: {
+          enabled: true,
+          keyStrategy: 'ip',
+          tiers: {
+            test: { name: 'test', requestsPerWindow: 1, windowMs: 60000 },
+          },
+          defaultTier: 'test',
+        },
+      })
+
+      app.get('/api/test', (c) => c.json({ ok: true }))
+
+      // First request succeeds
+      await app.request('http://localhost/api/test', {
+        headers: { 'CF-Connecting-IP': '192.168.1.1' }
+      })
+
+      // Second request should be rate limited
+      const res = await app.request('http://localhost/api/test', {
+        headers: { 'CF-Connecting-IP': '192.168.1.1' }
+      })
+
+      expect(res.status).toBe(429)
+
+      const body = await res.json() as { message: string; code: string; details?: { retryAfter?: number } }
+      expect(body.code).toBe('RATE_LIMIT')
+      expect(body.message).toMatch(/rate limit/i)
+      expect(body.details?.retryAfter).toBeGreaterThan(0)
+    })
+
+    it('should include Retry-After header when rate limited', async () => {
+      const app = createAPI({
+        rateLimit: {
+          enabled: true,
+          keyStrategy: 'ip',
+          tiers: {
+            test: { name: 'test', requestsPerWindow: 1, windowMs: 60000 },
+          },
+          defaultTier: 'test',
+        },
+      })
+
+      app.get('/api/test', (c) => c.json({ ok: true }))
+
+      // First request succeeds
+      await app.request('http://localhost/api/test', {
+        headers: { 'CF-Connecting-IP': '192.168.1.1' }
+      })
+
+      // Second request should be rate limited with Retry-After
+      const res = await app.request('http://localhost/api/test', {
+        headers: { 'CF-Connecting-IP': '192.168.1.1' }
+      })
+
+      expect(res.status).toBe(429)
+      expect(res.headers.get('Retry-After')).toBeDefined()
+      expect(parseInt(res.headers.get('Retry-After')!, 10)).toBeGreaterThan(0)
+    })
+
+    it('should support per-tenant rate limiting', async () => {
+      const app = createAPI({
+        rateLimit: {
+          enabled: true,
+          keyStrategy: 'tenant',
+          tiers: {
+            test: { name: 'test', requestsPerWindow: 2, windowMs: 60000 },
+          },
+          defaultTier: 'test',
+        },
+      })
+
+      app.get('/api/test', (c) => c.json({ ok: true }))
+
+      // Tenant A: exhaust limit
+      for (let i = 0; i < 2; i++) {
+        const res = await app.request('http://localhost/api/test', {
+          headers: { 'X-Tenant-ID': 'tenant-a' }
+        })
+        expect(res.status).toBe(200)
+      }
+      const tenantARateLimited = await app.request('http://localhost/api/test', {
+        headers: { 'X-Tenant-ID': 'tenant-a' }
+      })
+      expect(tenantARateLimited.status).toBe(429)
+
+      // Tenant B: should have its own quota
+      const tenantBRes = await app.request('http://localhost/api/test', {
+        headers: { 'X-Tenant-ID': 'tenant-b' }
+      })
+      expect(tenantBRes.status).toBe(200)
+    })
+
+    it('should support per-user rate limiting', async () => {
+      const app = createAPI({
+        rateLimit: {
+          enabled: true,
+          keyStrategy: 'user',
+          tiers: {
+            test: { name: 'test', requestsPerWindow: 2, windowMs: 60000 },
+          },
+          defaultTier: 'test',
+        },
+      })
+
+      app.get('/api/test', (c) => c.json({ ok: true }))
+
+      // User A: exhaust limit
+      for (let i = 0; i < 2; i++) {
+        const res = await app.request('http://localhost/api/test', {
+          headers: { 'X-User-ID': 'user-a' }
+        })
+        expect(res.status).toBe(200)
+      }
+      const userARateLimited = await app.request('http://localhost/api/test', {
+        headers: { 'X-User-ID': 'user-a' }
+      })
+      expect(userARateLimited.status).toBe(429)
+
+      // User B: should have its own quota
+      const userBRes = await app.request('http://localhost/api/test', {
+        headers: { 'X-User-ID': 'user-b' }
+      })
+      expect(userBRes.status).toBe(200)
+    })
+
+    it('should support custom skip paths', async () => {
+      const app = createAPI({
+        rateLimit: {
+          enabled: true,
+          keyStrategy: 'ip',
+          tiers: {
+            test: { name: 'test', requestsPerWindow: 1, windowMs: 60000 },
+          },
+          defaultTier: 'test',
+          skipPaths: ['/public'],
+        },
+      })
+
+      app.get('/public', (c) => c.json({ public: true }))
+      app.get('/api/test', (c) => c.json({ ok: true }))
+
+      // First request to /api/test uses the quota
+      await app.request('http://localhost/api/test', {
+        headers: { 'CF-Connecting-IP': '192.168.1.1' }
+      })
+
+      // Second request to /api/test should be rate limited
+      const rateLimitedRes = await app.request('http://localhost/api/test', {
+        headers: { 'CF-Connecting-IP': '192.168.1.1' }
+      })
+      expect(rateLimitedRes.status).toBe(429)
+
+      // /public should not be rate limited (skipped)
+      for (let i = 0; i < 10; i++) {
+        const publicRes = await app.request('http://localhost/public', {
+          headers: { 'CF-Connecting-IP': '192.168.1.1' }
+        })
+        expect(publicRes.status).toBe(200)
+      }
+    })
+
+    it('should support tenant overrides for higher limits', async () => {
+      const app = createAPI({
+        rateLimit: {
+          enabled: true,
+          keyStrategy: 'tenant',
+          tiers: {
+            test: { name: 'test', requestsPerWindow: 2, windowMs: 60000 },
+          },
+          defaultTier: 'test',
+          tenantOverrides: {
+            'vip-tenant': { requestsPerWindow: 100 },
+          },
+        },
+      })
+
+      app.get('/api/test', (c) => c.json({ ok: true }))
+
+      // Regular tenant hits limit after 2 requests
+      for (let i = 0; i < 2; i++) {
+        await app.request('http://localhost/api/test', {
+          headers: { 'X-Tenant-ID': 'regular' }
+        })
+      }
+      const regularRes = await app.request('http://localhost/api/test', {
+        headers: { 'X-Tenant-ID': 'regular' }
+      })
+      expect(regularRes.status).toBe(429)
+
+      // VIP tenant has higher limit (check headers to verify)
+      const vipRes = await app.request('http://localhost/api/test', {
+        headers: { 'X-Tenant-ID': 'vip-tenant' }
+      })
+      expect(vipRes.status).toBe(200)
+      // VIP should have much higher limit - the headers reflect the effective tier
+      expect(parseInt(vipRes.headers.get('X-RateLimit-Limit')!, 10)).toBe(100)
+    })
+
+    it('should expose rate limit headers via CORS', async () => {
+      const app = createAPI({
+        rateLimit: {
+          enabled: true,
+          keyStrategy: 'ip',
+        },
+      })
+
+      app.get('/api/test', (c) => c.json({ ok: true }))
+
+      const res = await app.request('http://localhost/api/test', {
+        method: 'OPTIONS',
+        headers: {
+          'Origin': 'https://example.com',
+          'Access-Control-Request-Method': 'GET'
+        }
+      })
+
+      const exposedHeaders = res.headers.get('Access-Control-Expose-Headers')
+      expect(exposedHeaders).toContain('X-RateLimit-Limit')
+      expect(exposedHeaders).toContain('X-RateLimit-Remaining')
+      expect(exposedHeaders).toContain('X-RateLimit-Reset')
+      expect(exposedHeaders).toContain('Retry-After')
+    })
+  })
+
   describe('basePath Routing', () => {
     it('should mount routes under basePath', async () => {
       const app = createAPI({ basePath: '/api/v1' })

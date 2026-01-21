@@ -186,12 +186,117 @@ export interface AuditLogConfig {
 
 /**
  * Default audit log configuration
+ *
+ * maskFields patterns use case-insensitive substring matching.
+ * A field like "userPassword" will match "password", "accessToken" will match "token", etc.
  */
 export const defaultAuditConfig: AuditLogConfig = {
   enabled: true,
   minLevel: 'info',
   retentionDays: 90,
-  maskFields: ['password', 'token', 'secret', 'apiKey', 'ssn', 'creditCard']
+  maskFields: [
+    // Authentication & Authorization
+    'password',
+    'passwd',
+    'pwd',
+    'token',
+    'accesstoken',
+    'refreshtoken',
+    'bearer',
+    'jwt',
+    'session',
+    'cookie',
+    'auth',
+    'credential',
+    'secret',
+    'apikey',
+    'api_key',
+    'privatekey',
+    'private_key',
+    'publickey', // Sometimes sensitive in context
+    'signingkey',
+    'encryptionkey',
+    'masterkey',
+
+    // Personal Identifiable Information (PII)
+    'ssn',
+    'socialsecurity',
+    'social_security',
+    'nationalid',
+    'national_id',
+    'taxid',
+    'tax_id',
+    'driverslicense',
+    'drivers_license',
+    'passport',
+    'dob',
+    'dateofbirth',
+    'date_of_birth',
+    'birthdate',
+
+    // Financial Data
+    'creditcard',
+    'credit_card',
+    'cardnumber',
+    'card_number',
+    'cvv',
+    'cvc',
+    'securitycode',
+    'security_code',
+    'expiry',
+    'expiration',
+    'bankaccount',
+    'bank_account',
+    'accountnumber',
+    'account_number',
+    'routingnumber',
+    'routing_number',
+    'iban',
+    'swift',
+    'bic',
+    'pin',
+
+    // Contact Information (optionally sensitive)
+    'phone',
+    'mobile',
+    'cellphone',
+    'email', // Often logged but consider masking in some contexts
+
+    // Healthcare (HIPAA)
+    'healthrecord',
+    'health_record',
+    'medicalrecord',
+    'medical_record',
+    'diagnosis',
+    'prescription',
+    'patientid',
+    'patient_id',
+
+    // OAuth & Third-party
+    'clientsecret',
+    'client_secret',
+    'appsecret',
+    'app_secret',
+    'consumerkey',
+    'consumer_key',
+    'consumersecret',
+    'consumer_secret',
+    'oauthtoken',
+    'oauth_token',
+
+    // Encryption & Security
+    'salt',
+    'hash',
+    'cipher',
+    'nonce',
+    'iv', // Initialization vector
+
+    // Database & Infrastructure
+    'connectionstring',
+    'connection_string',
+    'dbpassword',
+    'db_password'
+  ]
 }
 
 /**
