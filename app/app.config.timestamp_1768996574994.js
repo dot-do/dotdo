@@ -13,6 +13,7 @@ var app_config_default = defineConfig({
   },
   vite: {
     plugins: [tailwindcss()]
+    // Vite version mismatch between root and @tanstack/start-config
   },
   // Enable static export for Cloudflare Pages
   react: {
