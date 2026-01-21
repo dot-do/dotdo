@@ -81,7 +81,7 @@ class RESTClient implements DataClient {
   private timeout: number
   private optimistic: boolean
   private cache: boolean
-  private token?: string
+  private token?: string | undefined
   private cacheStore: Map<string, Thing> = new Map()
   private updateListeners: Set<UpdateListener> = new Set()
   private optimisticCounter = 0
@@ -288,7 +288,7 @@ class TanStackDBClient implements DataClient {
   private ws: WebSocket | null = null
   private baseUrl: string
   private timeout: number
-  private token?: string
+  private token?: string | undefined
   private pendingRequests: Map<string, (value: unknown) => void> = new Map()
   private requestCounter = 0
   private updateListeners: Set<UpdateListener> = new Set()
