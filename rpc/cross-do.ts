@@ -168,7 +168,7 @@ export function createCrossDOClient<T extends object>(
           const response = await stub.fetch(url, { ...init, headers })
           if (!response.ok) {
             const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
-            const errorBody = await response.json().catch(() => null)
+            const errorBody = await response.json().catch(() => null) as { message?: string } | null
 
             // If the response is a structured error, deserialize it
             if (errorBody && isSerializedError(errorBody)) {
@@ -219,7 +219,7 @@ export function createCrossDOClient<T extends object>(
 
         if (!response.ok) {
           const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
-          const errorBody = await response.json().catch(() => null)
+          const errorBody = await response.json().catch(() => null) as { message?: string } | null
 
           // If the response is a structured error, deserialize it
           if (errorBody && isSerializedError(errorBody)) {

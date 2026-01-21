@@ -49,15 +49,35 @@ export interface BulkUpdateItem<T extends StorableData = StorableData> {
 }
 
 /**
+ * Cursor-based pagination result
+ */
+export interface CursorResult<T> {
+  items: T[]
+  cursor?: string
+  hasMore: boolean
+}
+
+/**
+ * Options for cursor-based pagination
+ */
+export interface CursorOptions {
+  cursor?: string
+  limit?: number
+  type?: string
+}
+
+/**
  * ThingsStore interface with generic type parameter
  * T defaults to StorableData for backward compatibility
  */
 export interface ThingsStore<T extends StorableData = StorableData> {
   create<D extends Partial<T> & { $type: string }>(data: D): Promise<Thing<T> & D>
   get(id: string): Promise<Thing<T> | null>
+  getMany?(ids: string[]): Promise<Map<string, Thing<T>>>
   update<U extends ThingUpdate<T>>(id: string, data: U): Promise<Thing<T>>
   delete(id: string): Promise<void>
   list(options?: { type?: string; limit?: number; offset?: number }): Promise<Thing<T>[]>
+  listWithCursor?(options?: CursorOptions): Promise<CursorResult<Thing<T>>>
   bulkCreate<D extends Partial<T> & { $type: string }>(things: D[]): Promise<(Thing<T> & D)[]>
   bulkUpdate(items: BulkUpdateItem<T>[]): Promise<Thing<T>[]>
   bulkDelete(ids: string[]): Promise<void>

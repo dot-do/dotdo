@@ -13,10 +13,29 @@
  * @module do/fire-and-forget-errors
  */
 
-import type { SqlStorage } from '../db/sqlite'
+import type { SqlStorage, SqlRunResult } from '../db/sqlite'
 import { createLogger } from '../utils/logger'
 
 const logger = createLogger('[FireAndForget]')
+
+/**
+ * Sync-only SqlStorage interface for DO contexts where SQL is always sync.
+ * This is a subset of SqlStorage that returns values directly (not Promises).
+ */
+interface SyncSqlStorage {
+  exec(sql: string): { results: Array<Record<string, unknown>> }
+  prepare(sql: string): {
+    bind(...values: unknown[]): {
+      first(): Record<string, unknown> | null
+      all(): { results: Array<Record<string, unknown>> }
+      run(): SqlRunResult
+    }
+    // Direct calls without bind (when no parameters needed)
+    first(): Record<string, unknown> | null
+    all(): { results: Array<Record<string, unknown>> }
+    run(): SqlRunResult
+  }
+}
 
 /**
  * Represents a captured error from a fire-and-forget operation
@@ -348,7 +367,7 @@ export function createInMemoryErrorStore(): FireAndForgetErrorStore {
 /**
  * Create a SQLite-backed fire-and-forget error store
  */
-export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore {
+export function createSQLiteErrorStore(sql: SyncSqlStorage): FireAndForgetErrorStore {
   // Initialize table if needed (assumes migration has been run)
   // Table schema is in the migration
 
@@ -426,15 +445,15 @@ export function createSQLiteErrorStore(sql: SqlStorage): FireAndForgetErrorStore
       return result.results.map(mapRowToError)
     },
 
-    get(id) {
-      const row = sql.prepare('SELECT * FROM fire_and_forget_errors WHERE id = ?')
+    async get(id) {
+      const row = await sql.prepare('SELECT * FROM fire_and_forget_errors WHERE id = ?')
         .bind(id)
         .first()
 
       return row ? mapRowToError(row) : null
     },
 
-    markRecovered(id) {
+    async markRecovered(id) {
       const result = sql.prepare(`
         UPDATE fire_and_forget_errors
         SET recovered = 1, recovered_at = ?
@@ -1009,7 +1028,7 @@ export function createInMemoryRetryQueue(
  * Create a SQLite-backed retry queue
  */
 export function createSQLiteRetryQueue(
-  sql: SqlStorage,
+  sql: SyncSqlStorage,
   errorStore: FireAndForgetErrorStore,
   options: RetryQueueOptions = {}
 ): RetryQueue {
@@ -1091,8 +1110,8 @@ export function createSQLiteRetryQueue(
       return id
     },
 
-    get(id) {
-      const row = sql.prepare('SELECT * FROM retry_queue WHERE id = ?')
+    async get(id) {
+      const row = await sql.prepare('SELECT * FROM retry_queue WHERE id = ?')
         .bind(id)
         .first()
 
@@ -1384,16 +1403,17 @@ export function createEnhancedErrorStore(
       }
     },
 
-    queryFailedHandlers(options) {
+    queryFailedHandlers(options): Array<{ error: FireAndForgetError; retryStatus?: RetryQueueItem }> {
       const errors = baseStore.query(options)
       const retryItems = retryQueue.query()
 
       return errors.map(error => {
         const retryStatus = retryItems.find(item => item.errorId === error.id)
-        return {
-          error,
-          retryStatus
+        const result: { error: FireAndForgetError; retryStatus?: RetryQueueItem } = { error }
+        if (retryStatus) {
+          result.retryStatus = retryStatus
         }
+        return result
       })
     }
   }

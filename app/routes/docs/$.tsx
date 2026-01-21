@@ -32,7 +32,8 @@ const docs: DocMeta[] = [
 export const Route = createFileRoute('/docs/$')({
   component: DocsPageComponent,
   loader: async ({ params }) => {
-    const slug = (params._ as string) || 'index'
+    // Type cast needed for splat route params which are accessed via '_'
+    const slug = ((params as Record<string, string>)['_'] as string) || 'index'
 
     // In a real implementation, this would load MDX content at build time
     // using fumadocs-mdx loader

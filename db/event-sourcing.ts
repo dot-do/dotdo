@@ -238,7 +238,18 @@ export function withEventSourcing<T extends StorableData = StorableData>(
     },
 
     async getMany(ids) {
-      return store.getMany(ids)
+      if (store.getMany) {
+        return store.getMany(ids)
+      }
+      // Fallback: implement getMany using individual get calls
+      const result = new Map<string, Thing<T>>()
+      for (const id of ids) {
+        const item = await store.get(id)
+        if (item) {
+          result.set(id, item)
+        }
+      }
+      return result
     },
 
     async update(id, data) {
@@ -295,7 +306,16 @@ export function withEventSourcing<T extends StorableData = StorableData>(
     },
 
     async listWithCursor(options) {
-      return store.listWithCursor(options)
+      if (store.listWithCursor) {
+        return store.listWithCursor(options)
+      }
+      // Fallback: implement using list with offset-based pagination
+      const items = await store.list({
+        type: options?.type,
+        limit: options?.limit,
+        offset: 0 // cursor-based not supported in fallback
+      })
+      return { items, hasMore: false }
     },
 
     async bulkCreate(items) {
@@ -441,7 +461,17 @@ export function withRelationshipEventSourcing<M extends StorableData = StorableD
     },
 
     async findWithCursor(options) {
-      return store.findWithCursor(options)
+      if (store.findWithCursor) {
+        return store.findWithCursor(options)
+      }
+      // Fallback: implement using find
+      const items = await store.find({
+        subject: options?.subject,
+        predicate: options?.predicate,
+        object: options?.object
+      })
+      const limited = options?.limit ? items.slice(0, options.limit) : items
+      return { items: limited, hasMore: false }
     },
 
     async getRelated(subjectId, predicate) {

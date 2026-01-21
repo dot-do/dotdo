@@ -210,7 +210,7 @@ export class SourceDO implements DurableObject {
   }
 
   async broadcastToTargets(targetIds: string[], _message: string): Promise<string[]> {
-    const $ = new CrossDOContext(this.env as unknown as Record<string, DurableObjectNamespace>)
+    const $ = new CrossDOContext(this.env as unknown as Record<string, DurableObjectNamespace>) as unknown as { TARGET_DO: <D extends object>(id?: string | DurableObjectId) => D & { broadcast: <M extends keyof D>(ids: string[], method: M, ...args: unknown[]) => Promise<unknown[]> } }
     const results = await $.TARGET_DO<TargetDOInterface>().broadcast(
       targetIds,
       'getId'

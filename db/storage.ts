@@ -93,9 +93,22 @@ export interface StorageAdapter {
    * document their behavior.
    *
    * @param fn The function to execute within the transaction
+   * @param options Optional transaction options
    * @returns The result of the function
    */
-  transaction<T>(fn: () => Promise<T>): Promise<T>
+  transaction<T>(fn: () => Promise<T>, options?: { allowNesting?: boolean }): Promise<T>
+
+  /**
+   * Check if currently inside a transaction
+   * @returns true if inside a transaction
+   */
+  inTransaction?(): boolean
+
+  /**
+   * Check if the adapter supports nested transactions
+   * @returns true if nested transactions are supported
+   */
+  supportsNestedTransactions?(): boolean
 
   /**
    * Check if a key exists without fetching its value

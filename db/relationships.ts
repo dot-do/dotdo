@@ -36,6 +36,23 @@ export type RelationshipInput<M extends StorableData = StorableData> =
 export type RelationshipQuery = Partial<Pick<BaseRelationship, 'subject' | 'predicate' | 'object'>>
 
 /**
+ * Cursor-based pagination result for relationships
+ */
+export interface RelationshipCursorResult<M extends StorableData = StorableData> {
+  items: Relationship<M>[]
+  cursor?: string
+  hasMore: boolean
+}
+
+/**
+ * Options for cursor-based relationship queries
+ */
+export interface RelationshipCursorOptions extends RelationshipQuery {
+  cursor?: string
+  limit?: number
+}
+
+/**
  * RelationshipsStore interface with generic type parameter
  * M defaults to StorableData for backward compatibility
  */
@@ -43,6 +60,7 @@ export interface RelationshipsStore<M extends StorableData = StorableData> {
   add(rel: RelationshipInput<M>): Promise<Relationship<M>>
   remove(rel: Pick<BaseRelationship, 'subject' | 'predicate' | 'object'>): Promise<void>
   find(query: RelationshipQuery): Promise<Relationship<M>[]>
+  findWithCursor?(options: RelationshipCursorOptions): Promise<RelationshipCursorResult<M>>
 
   // Convenience methods
   getRelated(subjectId: string, predicate: string): Promise<string[]>

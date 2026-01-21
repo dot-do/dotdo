@@ -9,11 +9,15 @@ import type {
   ListOptions as DOListOptions,
 } from '../primitives/packages/digital-objects/src/types.js'
 import type { Thing, ThingsStore } from './things'
+import { toThingId } from './branded-types'
 
 /**
- * Extended ThingsStore with digital-objects features
+ * Extended ThingsStore with digital-objects features.
+ * Overrides create signature since digital-objects may transform data.
  */
-export interface DigitalObjectsThingsStore extends ThingsStore {
+export interface DigitalObjectsThingsStore extends Omit<ThingsStore, 'create'> {
+  // Override create with simplified return type
+  create(data: { $type: string } & Record<string, unknown>, options?: ValidationOptions): Promise<Thing>
   // Expose noun management
   getNoun(name: string): Promise<Noun | null>
   listNouns(): Promise<Noun[]>
@@ -36,13 +40,14 @@ export interface ValidationOptions {
  * - updatedAt (Date) -> $updatedAt (number)
  * - data.* -> * (flatten data fields to top level)
  */
-function mapToDbThing<T extends Record<string, unknown>>(doThing: DOThing<T>): Thing {
+function mapToDbThing(doThing: DOThing<unknown>): Thing {
+  const data = doThing.data as Record<string, unknown> | null
   return {
-    $id: doThing.id,
+    $id: toThingId(doThing.id),
     $type: doThing.noun,
     $createdAt: doThing.createdAt.getTime(),
     $updatedAt: doThing.updatedAt.getTime(),
-    ...doThing.data,
+    ...(data ?? {}),
   }
 }
 
@@ -142,7 +147,7 @@ export function createDigitalObjectsAdapter(
       }
     },
 
-    async list(listOptions = {}) {
+    async list(listOptions: { type?: string; limit?: number; offset?: number; where?: Record<string, unknown>; orderBy?: string; order?: 'asc' | 'desc' } = {}) {
       const { type, limit, offset, where, orderBy, order } = listOptions
 
       if (!type) {
