@@ -480,11 +480,21 @@ function formatOutput(data: unknown, format: string = 'table') {
 }
 
 /**
- * Ask for user confirmation
+ * Ask for user confirmation via readline
  */
 async function askConfirmation(message: string): Promise<boolean> {
-  // TODO: Implement interactive confirmation
-  return true
+  const readline = await import('readline')
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  })
+
+  return new Promise((resolve) => {
+    rl.question(\`\${message} (y/N): \`, (answer) => {
+      rl.close()
+      resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes')
+    })
+  })
 }
 
 /**

@@ -3,7 +3,7 @@
 // Implements JOIN support for relationship traversal (do-zt9t)
 // Implements bounded queries to prevent unbounded result sets (do-bgr1)
 
-import type { Thing, ThingsStore } from './things'
+import type { Thing, ThingsStore, BaseThing } from './things'
 import type { RelationshipsStore } from './relationships'
 import type { JsonValue, StorableData } from './types'
 import { toThingId } from './branded-types'
@@ -185,8 +185,8 @@ export interface QueryOptions<T extends StorableData = StorableData> {
 }
 
 /**
- * Extended Thing type with joined data
- * Note: _joined is omitted from index signature compatibility via intersection
+ * Extended Thing type with joined data.
+ * The _joined property is a runtime-only field not meant for storage.
  */
 export type ThingWithJoins = Thing & {
   _joined?: Record<string, Thing[]>

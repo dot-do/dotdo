@@ -241,8 +241,21 @@ export class MCPGenerator {
   }
 
   /**
-   * Create a handler function for a CRUD operation
-   * Note: These handlers are placeholders that would be connected to actual API calls
+   * Create a default handler function for a CRUD operation.
+   *
+   * DESIGN NOTE: These handlers return mock data for demonstration/testing purposes.
+   * In production use, replace these handlers with actual API calls by:
+   *
+   * 1. Overriding the handler property on generated tools:
+   *    ```ts
+   *    const tools = generator.generateTools(resources)
+   *    tools.forEach(tool => {
+   *      tool.handler = createRealHandler(tool.name, apiClient)
+   *    })
+   *    ```
+   *
+   * 2. Or using the MCP tool definitions without handlers and implementing
+   *    your own tool execution logic in your MCP server.
    */
   private createHandler(
     resource: ResourceDefinition,
@@ -258,8 +271,8 @@ export class MCPGenerator {
         throw new Error(`Invalid input: ${result.error.message}`)
       }
 
-      // Placeholder response - in real implementation, this would call the API
-      // Cast params to object type for spreading - safe because we validate with schema above
+      // Default mock responses for demonstration/testing
+      // Replace with actual API calls in production (see DESIGN NOTE above)
       const paramsObj = params as Record<string, unknown>
       switch (operation) {
         case 'create':
