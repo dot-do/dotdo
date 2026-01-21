@@ -185,9 +185,9 @@ type IsRelationOptional<T extends string> =
 // =============================================================================
 
 /**
- * Infer TypeScript type for a single field
+ * Infer TypeScript type for a single field (internal, with schema context)
  */
-type InferFieldType<
+type InferFieldTypeWithSchema<
   TSchema extends RawDatabaseSchema,
   TField extends string
 > =
@@ -217,9 +217,9 @@ type InferRawFieldType<
   TField extends RawFieldDefinition
 > =
   TField extends string
-    ? InferFieldType<TSchema, TField>
+    ? InferFieldTypeWithSchema<TSchema, TField>
     : TField extends [infer Inner extends string]
-    ? InferFieldType<TSchema, Inner>[]
+    ? InferFieldTypeWithSchema<TSchema, Inner>[]
     : unknown
 
 /**
@@ -505,3 +505,111 @@ export type DataFields<TSchema extends RawDatabaseSchema, TEntity extends keyof 
       : K
     : K
 }[keyof TSchema[TEntity]]
+
+// =============================================================================
+// Exported Field Type Inference Utilities (do-lekf.7)
+// =============================================================================
+
+/**
+ * Infer TypeScript type from an IceType field definition string.
+ * This is the public, exported version of the field type inference.
+ *
+ * @example
+ * ```typescript
+ * type Sku = InferFieldType<'string!'>      // string
+ * type Price = InferFieldType<'decimal(10,2)!'> // number
+ * type Tags = InferFieldType<'string[]'>    // string[]
+ * type Active = InferFieldType<'boolean?'>  // boolean | undefined
+ * type Vendor = InferFieldType<'-> Vendor?'> // unknown (relations need schema context)
+ * ```
+ */
+export type InferFieldType<T extends string> =
+  // Relation fields return unknown without schema context
+  IsRelation<T> extends true
+    ? unknown
+    // Array types
+    : IsArray<T> extends true
+    ? IsOptional<T> extends true
+      ? MapPrimitiveType<ExtractBaseType<T>>[] | undefined
+      : MapPrimitiveType<ExtractBaseType<T>>[]
+    // Scalar types
+    : IsRequired<T> extends true
+    ? MapPrimitiveType<ExtractBaseType<T>>
+    : MapPrimitiveType<ExtractBaseType<T>> | undefined
+
+/**
+ * Infer TypeScript type from a relation field definition.
+ * Returns the relation target entity type or unknown if not in schema.
+ *
+ * @example
+ * ```typescript
+ * // For a schema with Product and Vendor entities:
+ * type VendorRef = InferRelationType<Schema, '-> Vendor?'>  // Vendor | undefined
+ * type Products = InferRelationType<Schema, '<- Product.vendor[]'> // Product[]
+ * ```
+ */
+export type InferRelationType<
+  TSchema extends RawDatabaseSchema,
+  TField extends string
+> =
+  IsRelation<TField> extends true
+    ? ExtractRelationTarget<TField> extends keyof TSchema
+      ? IsRelationArray<TField> extends true
+        ? InferEntity<TSchema, ExtractRelationTarget<TField> & keyof TSchema>[]
+        : IsRelationOptional<TField> extends true
+        ? InferEntity<TSchema, ExtractRelationTarget<TField> & keyof TSchema> | undefined
+        : InferEntity<TSchema, ExtractRelationTarget<TField> & keyof TSchema>
+      : unknown
+    : never
+
+/**
+ * Extract the relation operator from a relation field definition.
+ *
+ * @example
+ * ```typescript
+ * type Op = InferRelationOperator<'-> Vendor?'>  // '->'
+ * type BackOp = InferRelationOperator<'<- Product.vendor[]'>  // '<-'
+ * ```
+ */
+export type InferRelationOperator<T extends string> =
+  T extends `-> ${string}` | `->${string}` ? '->'
+  : T extends `<- ${string}` | `<-${string}` ? '<-'
+  : T extends `~> ${string}` | `~>${string}` ? '~>'
+  : T extends `<~ ${string}` | `<~${string}` ? '<~'
+  : never
+
+/**
+ * Extract the relation target entity name from a relation field definition.
+ *
+ * @example
+ * ```typescript
+ * type Target = InferRelationTarget<'-> Vendor?'>  // 'Vendor'
+ * type BackTarget = InferRelationTarget<'<- Product.vendor[]'>  // 'Product'
+ * ```
+ */
+export type InferRelationTarget<T extends string> = ExtractRelationTarget<T>
+
+/**
+ * Check if a field is a prompt/AI-generated field.
+ * Prompt fields are strings that contain spaces (natural language prompts).
+ *
+ * @example
+ * ```typescript
+ * type IsPrompt1 = IsPromptField<'string!'>  // false
+ * type IsPrompt2 = IsPromptField<'A compelling description'>  // true
+ * ```
+ */
+export type IsPromptField<T extends string> =
+  T extends `${string} ${string}` ? true : false
+
+/**
+ * Check if a field definition represents an indexed/unique field.
+ *
+ * @example
+ * ```typescript
+ * type Indexed1 = IsIndexedField<'string!#'>  // true
+ * type Indexed2 = IsIndexedField<'string!'>  // false
+ * ```
+ */
+export type IsIndexedField<T extends string> =
+  T extends `${string}#${string}` ? true : false
