@@ -12,7 +12,7 @@ import type { OnProxy, EventHandler } from './events'
 import type { ScheduleRegistration } from './schedule'
 import type { DOStubProxy, CircuitBreakerRPCConfig } from './rpc'
 import type { FireAndForgetErrorStore } from '../fire-and-forget-errors'
-import type { IntegrationRegistry, IntegrationConfig } from '../../integrations'
+import type { IntegrationRegistry, IntegrationConfig } from '@dotdo/integrations'
 
 // Re-export for external use
 export type { CircuitBreakerRPCConfig }

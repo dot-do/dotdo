@@ -19,7 +19,7 @@ import {
   createInMemoryErrorStore,
   extractErrorInfo,
 } from '../fire-and-forget-errors'
-import { IntegrationRegistry } from '../../integrations'
+import { IntegrationRegistry } from '@dotdo/integrations'
 import { createLogger } from '../../utils/logger'
 import {
   runWithWorkflowContextSync,

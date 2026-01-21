@@ -22,7 +22,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { createContext, type WorkflowContext } from './context'
 import type { ThingsStore, EventsStore, RelationshipsStore, AuditLogStore, AuditContext, QueryBuilder } from '../db'
-import { IntegrationRegistry } from '../integrations'
+import { IntegrationRegistry } from '@dotdo/integrations'
 import { createLogger } from '../utils/logger'
 
 // Import handlers for composition
