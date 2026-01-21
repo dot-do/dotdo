@@ -540,3 +540,825 @@ describe('XSS Prevention in Link Generation', () => {
     })
   })
 })
+
+// ============================================================================
+// Link Href Templating Tests (Issue do-tnd7 requirement 1)
+// ============================================================================
+
+describe('Link Href Templating', () => {
+  const baseUrl = 'https://api.example.com'
+
+  describe('Resource and ID interpolation', () => {
+    it('should correctly interpolate resource name in href', () => {
+      const links = generateLinks('customers', 'cust-456', baseUrl)
+
+      expect(links.self.href).toBe('https://api.example.com/customers/cust-456')
+      expect(links.collection.href).toBe('https://api.example.com/customers')
+      expect(links.update.href).toBe('https://api.example.com/customers/cust-456')
+      expect(links.delete.href).toBe('https://api.example.com/customers/cust-456')
+    })
+
+    it('should handle resource names with dashes', () => {
+      const links = generateLinks('order-items', 'item-123', baseUrl)
+
+      expect(links.self.href).toBe('https://api.example.com/order-items/item-123')
+      expect(links.collection.href).toBe('https://api.example.com/order-items')
+    })
+
+    it('should handle resource names with underscores', () => {
+      const links = generateLinks('line_items', 'li_abc', baseUrl)
+
+      expect(links.self.href).toBe('https://api.example.com/line_items/li_abc')
+    })
+
+    it('should handle IDs with special characters (URL-safe)', () => {
+      const links = generateLinks('users', 'user_2024-01-21', baseUrl)
+
+      expect(links.self.href).toBe('https://api.example.com/users/user_2024-01-21')
+    })
+
+    it('should handle UUID-style IDs', () => {
+      const links = generateLinks('resources', '550e8400-e29b-41d4-a716-446655440000', baseUrl)
+
+      expect(links.self.href).toBe('https://api.example.com/resources/550e8400-e29b-41d4-a716-446655440000')
+    })
+
+    it('should handle numeric IDs as strings', () => {
+      const links = generateLinks('users', '12345', baseUrl)
+
+      expect(links.self.href).toBe('https://api.example.com/users/12345')
+    })
+  })
+
+  describe('Base URL variations', () => {
+    it('should handle base URLs with trailing paths', () => {
+      const apiBaseUrl = 'https://api.example.com/v2/api'
+      const links = generateLinks('users', '123', apiBaseUrl)
+
+      expect(links.self.href).toBe('https://api.example.com/v2/api/users/123')
+      expect(links.collection.href).toBe('https://api.example.com/v2/api/users')
+    })
+
+    it('should handle base URLs with port numbers', () => {
+      const links = generateLinks('items', 'test', 'https://example.com:3000')
+
+      expect(links.self.href).toBe('https://example.com:3000/items/test')
+    })
+
+    it('should handle localhost URLs', () => {
+      const links = generateLinks('users', '1', 'http://localhost:8787')
+
+      expect(links.self.href).toBe('http://localhost:8787/users/1')
+    })
+  })
+
+  describe('Pagination query string templating', () => {
+    it('should include page and limit in self href', () => {
+      const links = generateCollectionLinks('users', baseUrl, {
+        page: 2,
+        limit: 25,
+        total: 100
+      })
+
+      expect(links.self.href).toBe('https://api.example.com/users?page=2&limit=25')
+    })
+
+    it('should correctly calculate pagination hrefs', () => {
+      const links = generateCollectionLinks('users', baseUrl, {
+        page: 2,
+        limit: 25,
+        total: 100
+      })
+
+      expect(links.prev.href).toBe('https://api.example.com/users?page=1&limit=25')
+      expect(links.next.href).toBe('https://api.example.com/users?page=3&limit=25')
+      expect(links.first.href).toBe('https://api.example.com/users?page=1&limit=25')
+      expect(links.last.href).toBe('https://api.example.com/users?page=4&limit=25')
+    })
+
+    it('should correctly calculate last page for non-evenly-divisible totals', () => {
+      const links = generateCollectionLinks('items', baseUrl, {
+        page: 1,
+        limit: 10,
+        total: 27
+      })
+
+      // 27 items / 10 per page = 3 pages (ceil)
+      expect(links.last.href).toBe('https://api.example.com/items?page=3&limit=10')
+    })
+  })
+})
+
+// ============================================================================
+// Nested Resource Links Tests (Issue do-tnd7 requirement 2)
+// ============================================================================
+
+describe('Nested Resource Links', () => {
+  const baseUrl = 'https://api.example.com'
+
+  describe('hasMany relations', () => {
+    it('should generate nested resource hrefs for hasMany relations', () => {
+      const links = generateLinks('users', '123', baseUrl, {
+        relations: {
+          orders: { resource: 'orders', type: 'hasMany' },
+          posts: { resource: 'posts', type: 'hasMany' },
+          comments: { resource: 'comments', type: 'hasMany' }
+        }
+      })
+
+      expect(links.orders.href).toBe('https://api.example.com/users/123/orders')
+      expect(links.posts.href).toBe('https://api.example.com/users/123/posts')
+      expect(links.comments.href).toBe('https://api.example.com/users/123/comments')
+    })
+
+    it('should use related rel for hasMany relations (RFC 8288)', () => {
+      const links = generateLinks('users', '1', baseUrl, {
+        relations: {
+          orders: { resource: 'orders', type: 'hasMany' }
+        }
+      })
+
+      expect(links.orders.rel).toBe('related')
+    })
+  })
+
+  describe('hasOne relations', () => {
+    it('should generate nested resource hrefs for hasOne relations', () => {
+      const links = generateLinks('users', '456', baseUrl, {
+        relations: {
+          profile: { resource: 'profiles', type: 'hasOne' },
+          settings: { resource: 'settings', type: 'hasOne' }
+        }
+      })
+
+      expect(links.profile.href).toBe('https://api.example.com/users/456/profile')
+      expect(links.settings.href).toBe('https://api.example.com/users/456/settings')
+    })
+
+    it('should use item rel for hasOne relations (RFC 8288)', () => {
+      const links = generateLinks('users', '1', baseUrl, {
+        relations: {
+          profile: { resource: 'profiles', type: 'hasOne' }
+        }
+      })
+
+      expect(links.profile.rel).toBe('item')
+    })
+  })
+
+  describe('mixed relation types', () => {
+    it('should generate correct hrefs for mixed relation types', () => {
+      const links = generateLinks('organizations', 'org-789', baseUrl, {
+        relations: {
+          members: { resource: 'users', type: 'hasMany' },
+          owner: { resource: 'users', type: 'hasOne' },
+          teams: { resource: 'teams', type: 'hasMany' },
+          billing: { resource: 'billing', type: 'hasOne' }
+        }
+      })
+
+      expect(links.members.href).toBe('https://api.example.com/organizations/org-789/members')
+      expect(links.owner.href).toBe('https://api.example.com/organizations/org-789/owner')
+      expect(links.teams.href).toBe('https://api.example.com/organizations/org-789/teams')
+      expect(links.billing.href).toBe('https://api.example.com/organizations/org-789/billing')
+    })
+  })
+
+  describe('action links', () => {
+    it('should generate action links nested under resource', () => {
+      const links = generateLinks('orders', 'order-100', baseUrl, {
+        actions: ['ship', 'cancel', 'refund', 'archive']
+      })
+
+      expect(links.ship.href).toBe('https://api.example.com/orders/order-100/ship')
+      expect(links.cancel.href).toBe('https://api.example.com/orders/order-100/cancel')
+      expect(links.refund.href).toBe('https://api.example.com/orders/order-100/refund')
+      expect(links.archive.href).toBe('https://api.example.com/orders/order-100/archive')
+    })
+  })
+
+  describe('combined relations and actions', () => {
+    it('should handle resources with both relations and actions', () => {
+      const links = generateLinks('subscriptions', 'sub-50', baseUrl, {
+        relations: {
+          invoices: { resource: 'invoices', type: 'hasMany' },
+          plan: { resource: 'plans', type: 'hasOne' }
+        },
+        actions: ['upgrade', 'downgrade', 'pause', 'resume']
+      })
+
+      // Relation links
+      expect(links.invoices.href).toBe('https://api.example.com/subscriptions/sub-50/invoices')
+      expect(links.plan.href).toBe('https://api.example.com/subscriptions/sub-50/plan')
+
+      // Action links
+      expect(links.upgrade.href).toBe('https://api.example.com/subscriptions/sub-50/upgrade')
+      expect(links.downgrade.href).toBe('https://api.example.com/subscriptions/sub-50/downgrade')
+      expect(links.pause.href).toBe('https://api.example.com/subscriptions/sub-50/pause')
+      expect(links.resume.href).toBe('https://api.example.com/subscriptions/sub-50/resume')
+    })
+  })
+
+  describe('relation naming', () => {
+    it('should use relation name as path segment, not resource name', () => {
+      const links = generateLinks('users', '1', baseUrl, {
+        relations: {
+          'recent-orders': { resource: 'orders', type: 'hasMany' }
+        }
+      })
+
+      expect(links['recent-orders'].href).toBe('https://api.example.com/users/1/recent-orders')
+    })
+  })
+})
+
+// ============================================================================
+// Conditional Link Generation Tests (Issue do-tnd7 requirement 3)
+// ============================================================================
+
+describe('Conditional Link Generation', () => {
+  const baseUrl = 'https://api.example.com'
+
+  describe('relations and actions', () => {
+    it('should not include relation links when no relations configured', () => {
+      const links = generateLinks('simple-resources', 'res-1', baseUrl)
+
+      // Should only have standard CRUD links
+      expect(Object.keys(links)).toEqual(['self', 'update', 'delete', 'collection'])
+    })
+
+    it('should not include action links when no actions configured', () => {
+      const links = generateLinks('basic', 'id-1', baseUrl)
+
+      expect(links.activate).toBeUndefined()
+      expect(links.deactivate).toBeUndefined()
+    })
+
+    it('should include relation links only when relations are configured', () => {
+      const linksWithoutRelations = generateLinks('users', '1', baseUrl)
+      const linksWithRelations = generateLinks('users', '1', baseUrl, {
+        relations: { posts: { resource: 'posts', type: 'hasMany' } }
+      })
+
+      expect(linksWithoutRelations.posts).toBeUndefined()
+      expect(linksWithRelations.posts).toBeDefined()
+    })
+
+    it('should include action links only when actions are configured', () => {
+      const linksWithoutActions = generateLinks('orders', '1', baseUrl)
+      const linksWithActions = generateLinks('orders', '1', baseUrl, {
+        actions: ['ship']
+      })
+
+      expect(linksWithoutActions.ship).toBeUndefined()
+      expect(linksWithActions.ship).toBeDefined()
+    })
+
+    it('should handle empty relations object', () => {
+      const links = generateLinks('users', '1', baseUrl, {
+        relations: {}
+      })
+
+      // Should only have standard CRUD links
+      expect(Object.keys(links)).toEqual(['self', 'update', 'delete', 'collection'])
+    })
+
+    it('should handle empty actions array', () => {
+      const links = generateLinks('users', '1', baseUrl, {
+        actions: []
+      })
+
+      // Should only have standard CRUD links
+      expect(Object.keys(links)).toEqual(['self', 'update', 'delete', 'collection'])
+    })
+  })
+
+  describe('pagination links', () => {
+    it('should conditionally include prev link based on page number', () => {
+      const firstPageLinks = generateCollectionLinks('items', baseUrl, { page: 1, limit: 10, total: 50 })
+      const middlePageLinks = generateCollectionLinks('items', baseUrl, { page: 3, limit: 10, total: 50 })
+
+      expect(firstPageLinks.prev).toBeUndefined()
+      expect(firstPageLinks.first).toBeUndefined()
+      expect(middlePageLinks.prev).toBeDefined()
+      expect(middlePageLinks.first).toBeDefined()
+    })
+
+    it('should conditionally include next link based on total items', () => {
+      const lastPageLinks = generateCollectionLinks('items', baseUrl, { page: 5, limit: 10, total: 50 })
+      const notLastPageLinks = generateCollectionLinks('items', baseUrl, { page: 4, limit: 10, total: 50 })
+
+      expect(lastPageLinks.next).toBeUndefined()
+      expect(lastPageLinks.last).toBeUndefined()
+      expect(notLastPageLinks.next).toBeDefined()
+      expect(notLastPageLinks.last).toBeDefined()
+    })
+
+    it('should not include next/last links when total is not provided', () => {
+      const links = generateCollectionLinks('items', baseUrl, { page: 2, limit: 10 })
+
+      // Without total, we can still show prev (based on page > 1)
+      expect(links.prev).toBeDefined()
+      expect(links.first).toBeDefined()
+      // But cannot show next/last without knowing total
+      expect(links.next).toBeUndefined()
+      expect(links.last).toBeUndefined()
+    })
+
+    it('should not include any pagination links for single page results', () => {
+      const links = generateCollectionLinks('items', baseUrl, { page: 1, limit: 10, total: 5 })
+
+      expect(links.prev).toBeUndefined()
+      expect(links.next).toBeUndefined()
+      expect(links.first).toBeUndefined()
+      expect(links.last).toBeUndefined()
+    })
+  })
+
+  describe('error response links', () => {
+    it('should conditionally include help link in error links', () => {
+      const linksWithDocs = generateErrorLinks(baseUrl, { docsPath: '/docs' })
+      const linksWithoutDocs = generateErrorLinks(baseUrl, {})
+
+      expect(linksWithDocs.help).toBeDefined()
+      expect(linksWithoutDocs.help).toBeUndefined()
+    })
+
+    it('should conditionally include health link in error links', () => {
+      const linksWithHealth = generateErrorLinks(baseUrl, { healthPath: '/health' })
+      const linksWithoutHealth = generateErrorLinks(baseUrl, {})
+
+      expect(linksWithHealth.health).toBeDefined()
+      expect(linksWithoutHealth.health).toBeUndefined()
+    })
+  })
+
+  describe('API root links', () => {
+    it('should conditionally include openapi links in API root', () => {
+      const linksWithOpenAPI = generateAPIRootLinks({
+        baseUrl,
+        openapi: { json: '/openapi.json', yaml: '/openapi.yaml' }
+      })
+      const linksWithoutOpenAPI = generateAPIRootLinks({ baseUrl })
+
+      expect(linksWithOpenAPI.describedby).toBeDefined()
+      expect(linksWithOpenAPI['describedby-yaml']).toBeDefined()
+      expect(linksWithoutOpenAPI.describedby).toBeUndefined()
+      expect(linksWithoutOpenAPI['describedby-yaml']).toBeUndefined()
+    })
+
+    it('should include only JSON openapi link when yaml not provided', () => {
+      const links = generateAPIRootLinks({
+        baseUrl,
+        openapi: { json: '/openapi.json' }
+      })
+
+      expect(links.describedby).toBeDefined()
+      expect(links['describedby-yaml']).toBeUndefined()
+    })
+
+    it('should conditionally include help link based on docsPath', () => {
+      const withDocs = generateAPIRootLinks({ baseUrl, docsPath: '/docs' })
+      const withoutDocs = generateAPIRootLinks({ baseUrl })
+
+      expect(withDocs.help).toBeDefined()
+      expect(withoutDocs.help).toBeUndefined()
+    })
+
+    it('should conditionally include health link based on healthPath', () => {
+      const withHealth = generateAPIRootLinks({ baseUrl, healthPath: '/health' })
+      const withoutHealth = generateAPIRootLinks({ baseUrl })
+
+      expect(withHealth.health).toBeDefined()
+      expect(withoutHealth.health).toBeUndefined()
+    })
+  })
+})
+
+// ============================================================================
+// Link Metadata Tests (Issue do-tnd7 requirement 4)
+// ============================================================================
+
+describe('Link Metadata (method, schema, title)', () => {
+  const baseUrl = 'https://api.example.com'
+
+  describe('method property', () => {
+    it('should set correct HTTP methods for CRUD links', () => {
+      const links = generateLinks('resources', 'res-1', baseUrl)
+
+      expect(links.self.method).toBe('GET')
+      expect(links.update.method).toBe('PUT')
+      expect(links.delete.method).toBe('DELETE')
+      expect(links.collection.method).toBe('GET')
+    })
+
+    it('should set POST method for create links', () => {
+      const links = generateCollectionLinks('items', baseUrl)
+
+      expect(links.create.method).toBe('POST')
+    })
+
+    it('should set POST method for action links', () => {
+      const links = generateLinks('orders', '1', baseUrl, {
+        actions: ['ship', 'cancel', 'refund']
+      })
+
+      expect(links.ship.method).toBe('POST')
+      expect(links.cancel.method).toBe('POST')
+      expect(links.refund.method).toBe('POST')
+    })
+
+    it('should set GET method for relation links', () => {
+      const links = generateLinks('users', '1', baseUrl, {
+        relations: {
+          orders: { resource: 'orders', type: 'hasMany' },
+          profile: { resource: 'profiles', type: 'hasOne' }
+        }
+      })
+
+      expect(links.orders.method).toBe('GET')
+      expect(links.profile.method).toBe('GET')
+    })
+
+    it('should set GET method for pagination links', () => {
+      const links = generateCollectionLinks('items', baseUrl, {
+        page: 2, limit: 10, total: 50
+      })
+
+      expect(links.self.method).toBe('GET')
+      expect(links.prev.method).toBe('GET')
+      expect(links.next.method).toBe('GET')
+      expect(links.first.method).toBe('GET')
+      expect(links.last.method).toBe('GET')
+    })
+
+    it('should set GET method for API root links', () => {
+      const links = generateAPIRootLinks({
+        baseUrl,
+        resources: { users: { path: '/users' } },
+        openapi: { json: '/openapi.json' },
+        docsPath: '/docs',
+        healthPath: '/health'
+      })
+
+      expect(links.self.method).toBe('GET')
+      expect(links.users.method).toBe('GET')
+      expect(links.describedby.method).toBe('GET')
+      expect(links.help.method).toBe('GET')
+      expect(links.health.method).toBe('GET')
+    })
+
+    it('should set GET method for error links', () => {
+      const links = generateErrorLinks(baseUrl, {
+        docsPath: '/docs',
+        healthPath: '/health'
+      })
+
+      expect(links.root.method).toBe('GET')
+      expect(links.help.method).toBe('GET')
+      expect(links.health.method).toBe('GET')
+    })
+  })
+
+  describe('title property', () => {
+    it('should include title for CRUD links', () => {
+      const links = generateLinks('customers', 'cust-1', baseUrl)
+
+      expect(links.self.title).toBe('Get customers')
+      expect(links.update.title).toBe('Update customers')
+      expect(links.delete.title).toBe('Delete customers')
+      expect(links.collection.title).toBe('List all customers')
+    })
+
+    it('should include title for create links', () => {
+      const links = generateCollectionLinks('products', baseUrl)
+
+      expect(links.create.title).toBe('Create products')
+    })
+
+    it('should include title for action links', () => {
+      const links = generateLinks('orders', '1', baseUrl, {
+        actions: ['ship', 'cancel']
+      })
+
+      expect(links.ship.title).toBe('ship orders')
+      expect(links.cancel.title).toBe('cancel orders')
+    })
+
+    it('should include title for relation links', () => {
+      const links = generateLinks('users', '1', baseUrl, {
+        relations: {
+          orders: { resource: 'orders', type: 'hasMany' }
+        }
+      })
+
+      expect(links.orders.title).toBe('Get orders for users')
+    })
+
+    it('should include title for API root links', () => {
+      const links = generateAPIRootLinks({
+        baseUrl,
+        resources: {
+          users: { path: '/users', title: 'User management' }
+        },
+        openapi: { json: '/openapi.json', yaml: '/openapi.yaml' },
+        docsPath: '/docs',
+        healthPath: '/health'
+      })
+
+      expect(links.self.title).toBe('API Root')
+      expect(links.users.title).toBe('User management')
+      expect(links.describedby.title).toBe('OpenAPI specification (JSON)')
+      expect(links['describedby-yaml'].title).toBe('OpenAPI specification (YAML)')
+      expect(links.help.title).toBe('API documentation')
+      expect(links.health.title).toBe('Health check endpoint')
+    })
+
+    it('should use default title when not provided in resource config', () => {
+      const links = generateAPIRootLinks({
+        baseUrl,
+        resources: {
+          items: { path: '/items' } // No title provided
+        }
+      })
+
+      expect(links.items.title).toBe('items collection')
+    })
+
+    it('should include title for error links', () => {
+      const links = generateErrorLinks(baseUrl, {
+        docsPath: '/docs',
+        healthPath: '/health'
+      })
+
+      expect(links.root.title).toBe('API Root')
+      expect(links.help.title).toBe('API documentation')
+      expect(links.health.title).toBe('Health check endpoint')
+    })
+  })
+
+  describe('rel property (RFC 8288 standard relations)', () => {
+    it('should set correct rel for CRUD links', () => {
+      const links = generateLinks('resources', '1', baseUrl)
+
+      expect(links.self.rel).toBe('self')
+      expect(links.update.rel).toBe('edit')  // RFC 8288 standard
+      expect(links.delete.rel).toBe('delete')
+      expect(links.collection.rel).toBe('collection')
+    })
+
+    it('should use RFC 8288 rel types for relation links', () => {
+      const links = generateLinks('users', '1', baseUrl, {
+        relations: {
+          orders: { resource: 'orders', type: 'hasMany' },
+          profile: { resource: 'profiles', type: 'hasOne' }
+        }
+      })
+
+      expect(links.orders.rel).toBe('related')  // hasMany -> related
+      expect(links.profile.rel).toBe('item')     // hasOne -> item
+    })
+
+    it('should use action name as rel for action links', () => {
+      const links = generateLinks('resources', '1', baseUrl, {
+        actions: ['activate', 'archive']
+      })
+
+      expect(links.activate.rel).toBe('activate')
+      expect(links.archive.rel).toBe('archive')
+    })
+
+    it('should set create-form rel for create links (RFC 8288)', () => {
+      const links = generateCollectionLinks('users', baseUrl)
+
+      expect(links.create.rel).toBe('create-form')
+    })
+
+    it('should set collection rel for resource links in API root', () => {
+      const links = generateAPIRootLinks({
+        baseUrl,
+        resources: {
+          users: { path: '/users' },
+          orders: { path: '/orders' }
+        }
+      })
+
+      expect(links.users.rel).toBe('collection')
+      expect(links.orders.rel).toBe('collection')
+    })
+
+    it('should set describedby rel for OpenAPI links', () => {
+      const links = generateAPIRootLinks({
+        baseUrl,
+        openapi: { json: '/openapi.json', yaml: '/openapi.yaml' }
+      })
+
+      expect(links.describedby.rel).toBe('describedby')
+      expect(links['describedby-yaml'].rel).toBe('describedby')
+    })
+
+    it('should set up rel for error root link', () => {
+      const links = generateErrorLinks(baseUrl)
+
+      expect(links.root.rel).toBe('up')
+    })
+
+    it('should set help rel for docs link', () => {
+      const links = generateAPIRootLinks({
+        baseUrl,
+        docsPath: '/docs'
+      })
+
+      expect(links.help.rel).toBe('help')
+    })
+
+    it('should set health rel for health link in API root', () => {
+      const links = generateAPIRootLinks({
+        baseUrl,
+        healthPath: '/health'
+      })
+
+      expect(links.health.rel).toBe('health')
+    })
+
+    it('should set related rel for health link in error links', () => {
+      const links = generateErrorLinks(baseUrl, { healthPath: '/health' })
+
+      expect(links.health.rel).toBe('related')
+    })
+  })
+
+  describe('link structure validation', () => {
+    it('should produce links that pass validation for all CRUD operations', () => {
+      const links = generateLinks('things', 'thing-1', baseUrl)
+
+      expectValidLink(links.self, 'self', 'GET')
+      expectValidLink(links.update, 'edit', 'PUT')
+      expectValidLink(links.delete, 'delete', 'DELETE')
+      expectValidLink(links.collection, 'collection', 'GET')
+    })
+
+    it('should produce valid links for relations', () => {
+      const links = generateLinks('users', '1', baseUrl, {
+        relations: {
+          posts: { resource: 'posts', type: 'hasMany' }
+        }
+      })
+
+      expectValidLink(links.posts, 'related', 'GET')
+    })
+
+    it('should produce valid links for actions', () => {
+      const links = generateLinks('items', '1', baseUrl, {
+        actions: ['process']
+      })
+
+      expectValidLink(links.process, 'process', 'POST')
+    })
+
+    it('should produce valid links for collection pagination', () => {
+      const links = generateCollectionLinks('items', baseUrl, {
+        page: 2, limit: 10, total: 50
+      })
+
+      expectValidLink(links.self, 'self', 'GET')
+      expectValidLink(links.create, 'create-form', 'POST')
+      expectValidLink(links.prev, 'prev', 'GET')
+      expectValidLink(links.next, 'next', 'GET')
+      expectValidLink(links.first, 'first', 'GET')
+      expectValidLink(links.last, 'last', 'GET')
+    })
+
+    it('should produce valid links for API root', () => {
+      const links = generateAPIRootLinks({
+        baseUrl,
+        resources: { users: { path: '/users' } },
+        openapi: { json: '/openapi.json' },
+        docsPath: '/docs',
+        healthPath: '/health'
+      })
+
+      expectValidLink(links.self, 'self', 'GET')
+      expectValidLink(links.users, 'collection', 'GET')
+      expectValidLink(links.describedby, 'describedby', 'GET')
+      expectValidLink(links.help, 'help', 'GET')
+      expectValidLink(links.health, 'health', 'GET')
+    })
+
+    it('should produce valid links for error responses', () => {
+      const links = generateErrorLinks(baseUrl, {
+        docsPath: '/docs',
+        healthPath: '/health'
+      })
+
+      expectValidLink(links.root, 'up', 'GET')
+      expectValidLink(links.help, 'help', 'GET')
+      expectValidLink(links.health, 'related', 'GET')
+    })
+  })
+})
+
+// ============================================================================
+// Edge Cases and Robustness Tests
+// ============================================================================
+
+describe('Edge Cases', () => {
+  const baseUrl = 'https://api.example.com'
+
+  it('should handle single-item collections', () => {
+    const items = [{ id: 'only-one' }]
+    const result = withCollectionLinks(items, 'items', baseUrl, item => item.id)
+
+    expect(result.data).toHaveLength(1)
+    expect(result.data[0]._links.self.href).toBe('https://api.example.com/items/only-one')
+  })
+
+  it('should handle empty collections', () => {
+    const items: { id: string }[] = []
+    const result = withCollectionLinks(items, 'items', baseUrl, item => item.id)
+
+    expect(result.data).toHaveLength(0)
+    expect(result._links.create).toBeDefined()
+  })
+
+  it('should handle page 0 gracefully (normalizes to page 1)', () => {
+    const links = generateCollectionLinks('items', baseUrl, {
+      page: 0,
+      limit: 10,
+      total: 50
+    })
+
+    // With page 0, should normalize to page 1
+    expect(links.self).toBeDefined()
+    expect(links.self.href).toContain('page=1')
+  })
+
+  it('should handle negative limit gracefully (normalizes to 1)', () => {
+    const links = generateCollectionLinks('items', baseUrl, {
+      page: 1,
+      limit: -10,
+      total: 50
+    })
+
+    expect(links.self).toBeDefined()
+    expect(links.self.href).toContain('limit=1')
+  })
+
+  it('should handle total 0', () => {
+    const links = generateCollectionLinks('items', baseUrl, {
+      page: 1,
+      limit: 10,
+      total: 0
+    })
+
+    expect(links.self).toBeDefined()
+    expect(links.next).toBeUndefined()
+    expect(links.last).toBeUndefined()
+  })
+
+  it('should handle very large page numbers', () => {
+    const links = generateCollectionLinks('items', baseUrl, {
+      page: 999999,
+      limit: 10,
+      total: 10000000
+    })
+
+    expect(links.self.href).toContain('page=999999')
+    expect(links.prev).toBeDefined()
+  })
+
+  it('should cap limit at 1000', () => {
+    const links = generateCollectionLinks('items', baseUrl, {
+      page: 1,
+      limit: 9999999,
+      total: 100
+    })
+
+    expect(links.self.href).toContain('limit=1000')
+  })
+
+  it('should handle API root with no resources', () => {
+    const links = generateAPIRootLinks({
+      baseUrl,
+      resources: {}
+    })
+
+    expect(links.self).toBeDefined()
+    // Should not throw and should return at least self link
+    expect(Object.keys(links).length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('should handle API root with only baseUrl', () => {
+    const links = generateAPIRootLinks({ baseUrl })
+
+    expect(links.self.href).toBe('https://api.example.com/')
+  })
+
+  it('should generate API root with default values', () => {
+    const root = generateAPIRoot({ baseUrl })
+
+    expect(root.name).toBe('API')
+    expect(root.version).toBe('1.0.0')
+    expect(root.description).toBe('Self-describing HATEOAS API')
+  })
+})
