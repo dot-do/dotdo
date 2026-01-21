@@ -259,13 +259,15 @@ export class MCPGenerator {
       }
 
       // Placeholder response - in real implementation, this would call the API
+      // Cast params to object type for spreading - safe because we validate with schema above
+      const paramsObj = params as Record<string, unknown>
       switch (operation) {
         case 'create':
-          return { id: 'generated-id', ...params }
+          return { id: 'generated-id', ...paramsObj }
         case 'get':
-          return { id: (params as { id: string }).id, ...params }
+          return { id: (params as { id: string }).id, ...paramsObj }
         case 'update':
-          return { id: 'existing-id', ...params }
+          return { id: 'existing-id', ...paramsObj }
         case 'delete':
           return { success: true, id: (params as { id: string }).id }
         case 'list':
