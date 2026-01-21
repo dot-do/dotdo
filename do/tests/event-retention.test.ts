@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { createEventsStore, type EventsStore, type Event } from '@dotdo/db'
+import { createEventsStore, type EventsStore } from '../../db'
 import { DO } from '../DO'
 
 // Mock DurableObjectState for DO tests
@@ -120,8 +120,7 @@ describe('Event Retention Policy (do-luhm.6)', () => {
     })
   })
 
-  // Skip until cleanup() and retention policy methods are implemented
-  describe.skip('cleanup()', () => {
+  describe('cleanup()', () => {
     it('should enforce retention policy on old events by count', async () => {
       // Create many events
       for (let i = 0; i < 200; i++) {
@@ -193,7 +192,7 @@ describe('Event Retention Policy (do-luhm.6)', () => {
       expect(events.length).toBe(10)
 
       // Verify we kept the newest ones (order 40-49)
-      const orders = events.map((e: unknown) => (e as { payload: { order: number } }).payload.order).sort((a: number, b: number) => a - b)
+      const orders = events.map((e: any) => e.payload.order).sort((a: number, b: number) => a - b)
       expect(orders[0]).toBeGreaterThanOrEqual(40)
     })
 
@@ -225,8 +224,7 @@ describe('Event Retention Policy (do-luhm.6)', () => {
     })
   })
 
-  // Skip until storage monitoring methods are implemented
-  describe.skip('Storage monitoring', () => {
+  describe('Storage monitoring', () => {
     it('should report storage usage', async () => {
       // Add some events
       for (let i = 0; i < 100; i++) {
@@ -297,13 +295,12 @@ describe('Event Retention Policy (do-luhm.6)', () => {
     })
   })
 
-  // Skip until event archiving methods are implemented
-  describe.skip('Event archiving', () => {
+  describe('Event archiving', () => {
     it('should archive old events before deletion', async () => {
-      const archivedEvents: Event[] = []
+      const archivedEvents: any[] = []
 
       // FAILS: setArchiveHandler() method does not exist
-      await (store as any).setArchiveHandler(async (events: Event[]) => {
+      await (store as any).setArchiveHandler(async (events: any[]) => {
         archivedEvents.push(...events)
         return { archived: events.length, location: 'r2://bucket/events/archive-001.json' }
       })
@@ -365,8 +362,7 @@ describe('Event Retention Policy (do-luhm.6)', () => {
     })
   })
 
-  // Skip until DO integration retention methods are implemented
-  describe.skip('DO integration', () => {
+  describe('DO integration', () => {
     let doInstance: DO
     let mockState: DurableObjectState
 
@@ -419,8 +415,7 @@ describe('Event Retention Policy (do-luhm.6)', () => {
     })
   })
 
-  // Skip until performance/incremental cleanup methods are implemented
-  describe.skip('Performance considerations', () => {
+  describe('Performance considerations', () => {
     it('should cleanup efficiently without blocking', async () => {
       // Create many events
       for (let i = 0; i < 1000; i++) {

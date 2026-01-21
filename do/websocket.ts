@@ -11,34 +11,9 @@
  * - Reconnection handling with connection IDs
  */
 
-import { createScopedLogger, LogLevel } from '@dotdo/utils'
+import { createLogger } from '../utils/logger'
 
-const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[WebSocketManager]' })
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-/**
- * Maximum WebSocket message size in bytes (1 MB).
- *
- * This limit helps prevent DoS attacks where malicious clients send
- * extremely large messages to exhaust server memory. Messages exceeding
- * this limit will be rejected with an error response.
- *
- * Note: Cloudflare Workers have a 128MB memory limit per isolate,
- * and DOs share this limit. A 1MB max message size provides a reasonable
- * balance between functionality and protection.
- */
-export const MAX_WEBSOCKET_MESSAGE_SIZE = 1024 * 1024 // 1 MB
-
-/**
- * WebSocket close codes for message size violations
- */
-export const WEBSOCKET_CLOSE_CODES = {
-  /** Message too large - client sent a message exceeding size limit */
-  MESSAGE_TOO_LARGE: 1009,
-} as const
+const logger = createLogger('[WebSocketManager]')
 
 // ============================================================================
 // Types
@@ -407,37 +382,8 @@ export class WebSocketManager {
    * Handle incoming WebSocket message
    * Routes to appropriate handlers based on message type
    * Updates connection activity timestamp
-   *
-   * @throws Rejects oversized messages with error response (does not throw)
-   *
-   * Message size limits:
-   * - Maximum message size: 1 MB (MAX_WEBSOCKET_MESSAGE_SIZE)
-   * - Oversized messages receive an error response and are not processed
-   * - Binary and string messages are both subject to size limits
    */
   async handleMessage(ws: WebSocket, message: ArrayBuffer | string): Promise<void> {
-    // Validate message size to prevent DoS attacks
-    const messageSize = message instanceof ArrayBuffer ? message.byteLength : message.length
-    if (messageSize > MAX_WEBSOCKET_MESSAGE_SIZE) {
-      logger.warn('WebSocket message exceeds size limit:', {
-        size: messageSize,
-        limit: MAX_WEBSOCKET_MESSAGE_SIZE,
-        connectionId: this.connections.get(ws)?.connectionId,
-      })
-      try {
-        ws.send(JSON.stringify({
-          type: 'error',
-          error: 'Message too large',
-          code: WEBSOCKET_CLOSE_CODES.MESSAGE_TOO_LARGE,
-          maxSize: MAX_WEBSOCKET_MESSAGE_SIZE,
-          receivedSize: messageSize,
-        }))
-      } catch {
-        // Ignore send errors
-      }
-      return
-    }
-
     // Update last activity time
     const metadata = this.connections.get(ws)
     if (metadata) {

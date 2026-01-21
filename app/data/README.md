@@ -20,7 +20,7 @@ import { createDataClient } from './data'
 
 const client = createDataClient({
   mode: 'rest',
-  baseUrl: 'https://api.example.com.ai',
+  baseUrl: 'https://api.example.com',
 })
 
 // CRUD operations
@@ -36,7 +36,7 @@ await client.delete('customers', '123')
 ```typescript
 const client = createDataClient({
   mode: 'tanstack-db',
-  baseUrl: 'wss://api.example.com.ai',
+  baseUrl: 'wss://api.example.com',
 })
 
 // Subscribe to real-time updates
@@ -55,7 +55,7 @@ const customer = await client.create('customers', { name: 'Charlie' })
 ```typescript
 const client = createDataClient({
   mode: 'rest',
-  baseUrl: 'https://api.example.com.ai',
+  baseUrl: 'https://api.example.com',
   optimistic: true,
 })
 
@@ -74,7 +74,7 @@ client.onUpdate((update) => {
 ```typescript
 const client = createDataClient({
   mode: 'rest',
-  baseUrl: 'https://api.example.com.ai',
+  baseUrl: 'https://api.example.com',
   cache: true,
 })
 
@@ -97,7 +97,7 @@ const customer3 = await client.get('customers', '123') // Fresh data
 ```typescript
 const client = createDataClient({
   mode: 'rest',
-  baseUrl: 'https://api.example.com.ai',
+  baseUrl: 'https://api.example.com',
 })
 
 // Switch to WebSocket mode at runtime
@@ -115,7 +115,7 @@ import { QueryClient, QueryClientProvider, useQuery, useMutation } from '@tansta
 
 const client = createDataClient({
   mode: 'rest',
-  baseUrl: 'https://api.example.com.ai',
+  baseUrl: 'https://api.example.com',
 })
 
 const queryFunctions = createQueryFunctions(client)
