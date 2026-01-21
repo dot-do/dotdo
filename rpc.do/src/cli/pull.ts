@@ -11,13 +11,13 @@ export interface PullOptions {
   /** The RPC endpoint URL */
   endpoint: string
   /** Custom output path (default: .do/$.d.ts relative to cwd) */
-  outPath?: string
+  outPath?: string | undefined
   /** Working directory (default: process.cwd()) */
-  cwd?: string
+  cwd?: string | undefined
   /** Callback for progress updates */
-  onProgress?: (message: string) => void
+  onProgress?: ((message: string) => void) | undefined
   /** Request timeout in milliseconds (default: 30000) */
-  timeout?: number
+  timeout?: number | undefined
 }
 
 /**

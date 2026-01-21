@@ -9,3 +9,6 @@ export * from './client'
 
 // Transport layer
 export * from './transport'
+
+// Auth module (OAuth device flow, token store, auth transport)
+export * from './auth'
