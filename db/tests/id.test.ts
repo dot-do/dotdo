@@ -17,15 +17,15 @@ import { isThingId, isEventId, type ThingId, type EventId } from '../branded-typ
 
 describe('generateId', () => {
   describe('format', () => {
-    it('should generate ID in format: {timestamp-base36}-{random-6-chars}', () => {
+    it('should generate ID in format: {timestamp-base36}-{random-12-chars}', () => {
       const id = generateId()
       const parts = id.split('-')
 
       expect(parts.length).toBe(2)
       // Timestamp part should be alphanumeric (base36)
       expect(parts[0]).toMatch(/^[a-z0-9]+$/)
-      // Random part should be exactly 6 characters
-      expect(parts[1]).toMatch(/^[a-z0-9]{6}$/)
+      // Random part should be exactly 12 characters (improved collision resistance do-1knp.5)
+      expect(parts[1]).toMatch(/^[a-z0-9]{12}$/)
     })
 
     it('should generate valid ThingId that passes isThingId check', () => {
@@ -127,25 +127,52 @@ describe('generateId', () => {
   })
 
   describe('random suffix', () => {
-    it('should generate 6-character random suffix', () => {
+    it('should generate 12-character random suffix (improved collision resistance do-1knp.5)', () => {
       for (let i = 0; i < 20; i++) {
         const id = generateId()
         const randomPart = id.split('-')[1]
-        expect(randomPart.length).toBe(6)
+        expect(randomPart.length).toBe(12)
       }
     })
 
-    it('should generate suffix from Math.random in base36', () => {
-      const mockRandom = 0.123456789
-      vi.spyOn(Math, 'random').mockReturnValue(mockRandom)
-      vi.spyOn(Date, 'now').mockReturnValue(1705555555555)
-
-      try {
+    it('should use crypto.randomUUID for better entropy', () => {
+      // We can't easily mock crypto.randomUUID, but we can verify
+      // the output is using base36 characters
+      for (let i = 0; i < 20; i++) {
         const id = generateId()
         const randomPart = id.split('-')[1]
-        const expectedRandom = mockRandom.toString(36).slice(2, 8)
+        // Should only contain base36 characters (0-9, a-z)
+        expect(randomPart).toMatch(/^[a-z0-9]+$/)
+      }
+    })
+  })
 
-        expect(randomPart).toBe(expectedRandom)
+  describe('collision resistance (do-1knp.5)', () => {
+    it('should generate unique IDs in high-throughput scenarios (10000 rapid calls)', () => {
+      const ids = new Set<string>()
+      const count = 10000
+
+      for (let i = 0; i < count; i++) {
+        ids.add(generateId())
+      }
+
+      expect(ids.size).toBe(count)
+    })
+
+    it('should not collide even with same timestamp (mocked)', () => {
+      const mockTimestamp = 1705555555555
+      vi.spyOn(Date, 'now').mockReturnValue(mockTimestamp)
+
+      try {
+        const ids = new Set<string>()
+        const count = 1000
+
+        for (let i = 0; i < count; i++) {
+          ids.add(generateId())
+        }
+
+        // All IDs should be unique even with same timestamp
+        expect(ids.size).toBe(count)
       } finally {
         vi.restoreAllMocks()
       }
@@ -159,7 +186,7 @@ describe('generateId', () => {
 
 describe('generateEventId', () => {
   describe('format', () => {
-    it('should generate ID in format: evt-{timestamp-base36}-{random-4-chars}', () => {
+    it('should generate ID in format: evt-{timestamp-base36}-{random-8-chars}', () => {
       const id = generateEventId()
       const parts = id.split('-')
 
@@ -167,8 +194,8 @@ describe('generateEventId', () => {
       expect(parts[0]).toBe('evt')
       // Timestamp part should be alphanumeric (base36)
       expect(parts[1]).toMatch(/^[a-z0-9]+$/)
-      // Random part should be exactly 4 characters
-      expect(parts[2]).toMatch(/^[a-z0-9]{4}$/)
+      // Random part should be exactly 8 characters (improved collision resistance do-1knp.5)
+      expect(parts[2]).toMatch(/^[a-z0-9]{8}$/)
     })
 
     it('should start with evt- prefix', () => {
@@ -263,25 +290,50 @@ describe('generateEventId', () => {
   })
 
   describe('random suffix', () => {
-    it('should generate 4-character random suffix', () => {
+    it('should generate 8-character random suffix (improved collision resistance do-1knp.5)', () => {
       for (let i = 0; i < 20; i++) {
         const id = generateEventId()
         const randomPart = id.split('-')[2]
-        expect(randomPart.length).toBe(4)
+        expect(randomPart.length).toBe(8)
       }
     })
 
-    it('should generate suffix from Math.random in base36', () => {
-      const mockRandom = 0.123456789
-      vi.spyOn(Math, 'random').mockReturnValue(mockRandom)
-      vi.spyOn(Date, 'now').mockReturnValue(1705555555555)
-
-      try {
+    it('should use crypto.randomUUID for better entropy', () => {
+      for (let i = 0; i < 20; i++) {
         const id = generateEventId()
         const randomPart = id.split('-')[2]
-        const expectedRandom = mockRandom.toString(36).slice(2, 6)
+        // Should only contain base36 characters (0-9, a-z)
+        expect(randomPart).toMatch(/^[a-z0-9]+$/)
+      }
+    })
+  })
 
-        expect(randomPart).toBe(expectedRandom)
+  describe('collision resistance (do-1knp.5)', () => {
+    it('should generate unique event IDs in high-throughput scenarios (10000 rapid calls)', () => {
+      const ids = new Set<string>()
+      const count = 10000
+
+      for (let i = 0; i < count; i++) {
+        ids.add(generateEventId())
+      }
+
+      expect(ids.size).toBe(count)
+    })
+
+    it('should not collide even with same timestamp (mocked)', () => {
+      const mockTimestamp = 1705555555555
+      vi.spyOn(Date, 'now').mockReturnValue(mockTimestamp)
+
+      try {
+        const ids = new Set<string>()
+        const count = 1000
+
+        for (let i = 0; i < count; i++) {
+          ids.add(generateEventId())
+        }
+
+        // All IDs should be unique even with same timestamp
+        expect(ids.size).toBe(count)
       } finally {
         vi.restoreAllMocks()
       }
@@ -349,13 +401,13 @@ describe('ID Generation - Cross-Function Tests', () => {
       const thingId = generateId()
       const eventId = generateEventId()
 
-      // Thing IDs: timestamp(~8-9 chars) + hyphen + random(6 chars) = ~15-16 chars
-      expect(thingId.length).toBeGreaterThanOrEqual(10)
-      expect(thingId.length).toBeLessThanOrEqual(20)
+      // Thing IDs: timestamp(~8-9 chars) + hyphen + random(12 chars) = ~21-22 chars
+      expect(thingId.length).toBeGreaterThanOrEqual(15)
+      expect(thingId.length).toBeLessThanOrEqual(25)
 
-      // Event IDs: evt(3) + hyphen + timestamp(~8-9) + hyphen + random(4) = ~18-19 chars
-      expect(eventId.length).toBeGreaterThanOrEqual(15)
-      expect(eventId.length).toBeLessThanOrEqual(25)
+      // Event IDs: evt(3) + hyphen + timestamp(~8-9) + hyphen + random(8) = ~22-23 chars
+      expect(eventId.length).toBeGreaterThanOrEqual(18)
+      expect(eventId.length).toBeLessThanOrEqual(28)
     }
   })
 })
