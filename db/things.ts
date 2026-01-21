@@ -2,12 +2,21 @@
 // Generic types added per do-jqrj
 // Storage abstraction added per do-68rr
 // Branded types added per do-e3my
+// Input validation added per do-c8s8
 
 import type { StorableData, JsonValue } from './types'
 import type { StorageAdapter } from './storage'
 import type { ThingId } from './branded-types'
 import { toThingId } from './branded-types'
 import { generateId } from './id'
+import {
+  validateThingInput,
+  validateThingUpdate,
+  validateId,
+  validateIds,
+  validateListOptions,
+  validateBulkUpdateItems
+} from './validation'
 
 /**
  * Base Thing interface with system fields.

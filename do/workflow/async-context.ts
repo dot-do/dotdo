@@ -14,7 +14,7 @@
  * @module do/workflow/async-context
  */
 
-import type { WorkflowContext } from './context'
+import type { WorkflowContext } from './types'
 
 /**
  * Request context that is propagated across async boundaries.
