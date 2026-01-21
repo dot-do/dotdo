@@ -138,6 +138,48 @@ describe('fire-and-forget-errors module', () => {
         expect(errors[0]!.context).toEqual({ customerId: 'cust-123' })
         expect(errors[0]!.attempts).toBe(3)
       })
+
+      it('should evict oldest errors when maxSize is exceeded (bounded storage)', () => {
+        // Create a store with small maxSize to test eviction
+        const boundedStore = createInMemoryErrorStore({ maxSize: 3 })
+
+        // Add 5 errors
+        for (let i = 1; i <= 5; i++) {
+          boundedStore.track({
+            operation: 'test',
+            message: `Error ${i}`,
+            errorType: 'Error',
+            retriable: false
+          })
+        }
+
+        // Should only have 3 errors (oldest 2 evicted)
+        expect(boundedStore.count()).toBe(3)
+
+        // Verify we have the 3 most recent errors (newest first due to sorting)
+        const errors = boundedStore.query()
+        expect(errors[0]!.message).toBe('Error 5')
+        expect(errors[1]!.message).toBe('Error 4')
+        expect(errors[2]!.message).toBe('Error 3')
+      })
+
+      it('should use default maxSize of 1000', () => {
+        // The default store should accept many errors without issue
+        const defaultStore = createInMemoryErrorStore()
+
+        // Add 100 errors (well under the 1000 default)
+        for (let i = 0; i < 100; i++) {
+          defaultStore.track({
+            operation: 'test',
+            message: `Error ${i}`,
+            errorType: 'Error',
+            retriable: false
+          })
+        }
+
+        // All 100 should be stored
+        expect(defaultStore.count()).toBe(100)
+      })
     })
 
     describe('query()', () => {

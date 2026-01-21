@@ -23,6 +23,132 @@ import type { Context, MiddlewareHandler, Next } from 'hono'
 import { RateLimitError, ValidationError } from '@dotdo/rpc'
 
 // ============================================================================
+// JWT UTILITIES (for rate limiting - decodes without verification)
+// ============================================================================
+
+/**
+ * Decoded JWT payload structure for rate limiting purposes.
+ * Only includes claims relevant to user identification.
+ */
+interface JWTRateLimitPayload {
+  /** Subject (user ID) - standard JWT claim */
+  sub?: string
+  /** JWT ID - useful for tracking */
+  jti?: string
+  /** User ID - alternative claim some systems use */
+  user_id?: string
+  /** Email - can be used as fallback identifier */
+  email?: string
+}
+
+/**
+ * Base64URL decode (RFC 4648) - used for JWT payload decoding.
+ * Handles the URL-safe base64 variant used in JWTs.
+ *
+ * @param str - Base64URL encoded string
+ * @returns Decoded UTF-8 string
+ * @throws Error if the string is not valid base64
+ */
+function base64UrlDecode(str: string): string {
+  // Replace URL-safe characters with standard base64
+  let base64 = str.replace(/-/g, '+').replace(/_/g, '/')
+  // Add padding if necessary
+  const paddingNeeded = (4 - (base64.length % 4)) % 4
+  base64 += '='.repeat(paddingNeeded)
+
+  // Decode using atob (available in workers/browser environments)
+  try {
+    const binary = atob(base64)
+    // Convert binary string to UTF-8
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i)
+    }
+    return new TextDecoder().decode(bytes)
+  } catch {
+    throw new Error('Invalid base64 encoding')
+  }
+}
+
+/**
+ * Decode a JWT payload without verification.
+ *
+ * This function extracts the payload from a JWT token for rate limiting purposes.
+ * It does NOT verify the signature - this is intentional for rate limiting where:
+ * 1. Performance matters (no crypto operations)
+ * 2. The token may be verified later by auth middleware
+ * 3. We just need an identifier to track requests
+ *
+ * WARNING: Do not use this for authentication. Use proper JWT verification
+ * from @dotdo/auth for security-sensitive operations.
+ *
+ * @param token - The JWT token string (without "Bearer " prefix)
+ * @returns The decoded payload, or null if the token is invalid
+ *
+ * @issue do-e9tp - Properly decode JWT instead of substring extraction
+ */
+function decodeJWTPayloadUnsafe(token: string): JWTRateLimitPayload | null {
+  try {
+    // JWT format: header.payload.signature
+    const parts = token.split('.')
+    if (parts.length !== 3) {
+      return null
+    }
+
+    const payloadB64 = parts[1]
+    if (!payloadB64) {
+      return null
+    }
+
+    const payloadJson = base64UrlDecode(payloadB64)
+    const payload: unknown = JSON.parse(payloadJson)
+
+    // Ensure payload is an object
+    if (typeof payload !== 'object' || payload === null) {
+      return null
+    }
+
+    return payload as JWTRateLimitPayload
+  } catch {
+    // Invalid JWT format - return null rather than throwing
+    return null
+  }
+}
+
+/**
+ * Extract user ID from a JWT payload.
+ * Checks common claims in order of preference: sub, user_id, jti, email
+ *
+ * @param payload - The decoded JWT payload
+ * @returns The user ID string, or null if no suitable claim found
+ *
+ * @issue do-e9tp - Extract user ID correctly from JWT claims
+ */
+function extractUserIdFromJWTPayload(payload: JWTRateLimitPayload): string | null {
+  // Standard JWT subject claim (most common for user ID)
+  if (payload.sub && typeof payload.sub === 'string') {
+    return payload.sub
+  }
+
+  // Alternative user_id claim (used by some auth providers)
+  if (payload.user_id && typeof payload.user_id === 'string') {
+    return payload.user_id
+  }
+
+  // JWT ID can serve as a unique identifier
+  if (payload.jti && typeof payload.jti === 'string') {
+    return payload.jti
+  }
+
+  // Fall back to email if available
+  if (payload.email && typeof payload.email === 'string') {
+    return payload.email
+  }
+
+  return null
+}
+
+// ============================================================================
 // TYPES
 // ============================================================================
 

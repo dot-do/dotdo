@@ -111,6 +111,10 @@ describe('Hono App Setup', () => {
         href: expect.stringContaining('/health'),
         rel: 'health'
       })
+      expect(body._links.ready).toMatchObject({
+        href: expect.stringContaining('/ready'),
+        rel: 'ready'
+      })
     })
   })
 

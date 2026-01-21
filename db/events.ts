@@ -572,6 +572,60 @@ export function createEventsStoreWithAdapter<P extends JsonValue = JsonValue>(
       return replayedEvents
     },
 
+    getDLQStats(): DLQStats {
+      if (deadLetterQueue.length === 0) {
+        return {
+          total: 0,
+          byEventType: {},
+          byErrorType: {},
+          averageAttempts: 0,
+          uniqueEvents: 0
+        }
+      }
+
+      const byEventType: Record<string, number> = {}
+      const byErrorType: Record<string, number> = {}
+      const uniqueEventIds = new Set<string>()
+      let totalAttempts = 0
+      let oldestEntry: number | undefined
+      let newestEntry: number | undefined
+
+      for (const entry of deadLetterQueue) {
+        // Count by event type
+        const eventType = entry.event.type
+        byEventType[eventType] = (byEventType[eventType] || 0) + 1
+
+        // Extract error type from lastError (e.g., "NetworkError: ..." -> "NetworkError")
+        const errorMatch = entry.lastError.match(/^(\w+Error|Error):?/)
+        const errorType = errorMatch ? errorMatch[1] : 'UnknownError'
+        byErrorType[errorType] = (byErrorType[errorType] || 0) + 1
+
+        // Track unique events
+        uniqueEventIds.add(entry.event.$id)
+
+        // Aggregate attempts
+        totalAttempts += entry.attempts
+
+        // Track oldest/newest
+        if (oldestEntry === undefined || entry.timestamp < oldestEntry) {
+          oldestEntry = entry.timestamp
+        }
+        if (newestEntry === undefined || entry.timestamp > newestEntry) {
+          newestEntry = entry.timestamp
+        }
+      }
+
+      return {
+        total: deadLetterQueue.length,
+        byEventType,
+        byErrorType,
+        oldestEntry,
+        newestEntry,
+        averageAttempts: deadLetterQueue.length > 0 ? totalAttempts / deadLetterQueue.length : 0,
+        uniqueEvents: uniqueEventIds.size
+      }
+    },
+
     // Validation failure tracking
     addValidationFailure(failure) {
       validationFailures.push({ ...failure, timestamp: Date.now() })

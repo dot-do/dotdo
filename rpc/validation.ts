@@ -354,3 +354,355 @@ export const ArgSchemas = {
     }
   }
 }
+
+// ============================================================================
+// Zod Schema Validation
+// ============================================================================
+
+/**
+ * A Zod schema for a single RPC method argument
+ */
+export interface ZodArgSchema {
+  /** Argument name for error messages */
+  name: string
+  /** Zod schema for validation */
+  schema: ZodType
+}
+
+/**
+ * Zod-based method schema definition
+ */
+export interface ZodMethodSchema {
+  /** Array of Zod argument schemas in order */
+  args: ZodArgSchema[]
+}
+
+/**
+ * Registry of Zod method schemas for an RPC target
+ */
+export type ZodMethodSchemaRegistry = Record<string, ZodMethodSchema>
+
+/**
+ * Format a Zod error issue into a human-readable message
+ */
+function formatZodIssue(issue: ZodIssue): string {
+  // Handle different issue types with appropriate messages
+  switch (issue.code) {
+    case 'invalid_type':
+      return `expected ${issue.expected}, got ${issue.received}`
+    case 'invalid_string':
+      if (issue.validation === 'email') return 'invalid email format'
+      if (issue.validation === 'url') return 'invalid URL format'
+      if (issue.validation === 'uuid') return 'invalid UUID format'
+      if (issue.validation === 'regex') return 'does not match required pattern'
+      return `invalid string (${issue.validation})`
+    case 'too_small':
+      if (issue.type === 'string') {
+        return issue.minimum === 1 ? 'cannot be empty' : `must be at least ${issue.minimum} characters`
+      }
+      if (issue.type === 'array') {
+        return `must have at least ${issue.minimum} items`
+      }
+      if (issue.type === 'number') {
+        return `must be ${issue.inclusive ? 'at least' : 'greater than'} ${issue.minimum}`
+      }
+      return `too small (minimum: ${issue.minimum})`
+    case 'too_big':
+      if (issue.type === 'string') {
+        return `must be at most ${issue.maximum} characters`
+      }
+      if (issue.type === 'array') {
+        return `must have at most ${issue.maximum} items`
+      }
+      if (issue.type === 'number') {
+        return `must be ${issue.inclusive ? 'at most' : 'less than'} ${issue.maximum}`
+      }
+      return `too big (maximum: ${issue.maximum})`
+    case 'invalid_enum_value':
+      return `must be one of: ${issue.options.join(', ')}`
+    case 'invalid_union':
+      return 'does not match any of the expected types'
+    case 'invalid_literal':
+      return `must be ${JSON.stringify(issue.expected)}`
+    case 'custom':
+      return issue.message
+    default:
+      return issue.message
+  }
+}
+
+/**
+ * Convert Zod errors to RPC validation error format
+ */
+export function formatZodErrors(error: ZodError, argName: string, argIndex: number): Array<{ field: string; message: string }> {
+  return error.issues.map(issue => {
+    const path = issue.path.length > 0 ? `.${issue.path.join('.')}` : ''
+    return {
+      field: `args[${argIndex}] (${argName}${path})`,
+      message: formatZodIssue(issue)
+    }
+  })
+}
+
+/**
+ * Validate a single argument against a Zod schema
+ *
+ * @param value - The value to validate
+ * @param schema - The Zod schema to validate against
+ * @param argName - The argument name for error messages
+ * @param argIndex - The argument index for error messages
+ * @returns Array of validation errors (empty if valid)
+ */
+export function validateZodArg(
+  value: unknown,
+  schema: ZodType,
+  argName: string,
+  argIndex: number
+): Array<{ field: string; message: string }> {
+  const result = schema.safeParse(value)
+  if (result.success) {
+    return []
+  }
+  return formatZodErrors(result.error, argName, argIndex)
+}
+
+/**
+ * Validate RPC method arguments against a Zod-based schema
+ *
+ * @param args - The arguments array to validate
+ * @param schema - The Zod method schema with argument definitions
+ * @throws ValidationError if validation fails
+ *
+ * @example
+ * ```typescript
+ * const schema: ZodMethodSchema = {
+ *   args: [
+ *     { name: 'email', schema: z.string().email() },
+ *     { name: 'age', schema: z.number().min(0).max(150) },
+ *     { name: 'tags', schema: z.array(z.string()).optional() }
+ *   ]
+ * }
+ *
+ * validateZodArgs(['user@example.com', 25], schema) // OK
+ * validateZodArgs(['invalid-email', -5], schema) // Throws ValidationError
+ * ```
+ */
+export function validateZodArgs(args: unknown[], schema: ZodMethodSchema): void {
+  const errors: Array<{ field: string; message: string }> = []
+
+  // Validate each defined argument
+  for (let i = 0; i < schema.args.length; i++) {
+    const argSchema = schema.args[i]
+    if (!argSchema) continue
+    const value = args[i]
+    const argErrors = validateZodArg(value, argSchema.schema, argSchema.name, i)
+    errors.push(...argErrors)
+  }
+
+  // If there are errors, throw a ValidationError with all of them
+  if (errors.length > 0) {
+    throw ValidationError.withErrors(errors)
+  }
+}
+
+/**
+ * Define a Zod-based method schema
+ *
+ * @example
+ * ```typescript
+ * const schema = defineZodMethodSchema([
+ *   { name: 'id', schema: z.string().min(1) },
+ *   { name: 'data', schema: z.object({ name: z.string() }) }
+ * ])
+ * ```
+ */
+export function defineZodMethodSchema(args: ZodArgSchema[]): ZodMethodSchema {
+  return { args }
+}
+
+/**
+ * Create a complete Zod schema registry for an RPC target
+ *
+ * @example
+ * ```typescript
+ * const schemas = createZodSchemaRegistry({
+ *   'users.create': {
+ *     args: [
+ *       { name: 'data', schema: z.object({ name: z.string(), email: z.string().email() }) }
+ *     ]
+ *   },
+ *   'users.get': {
+ *     args: [
+ *       { name: 'id', schema: z.string().min(1) }
+ *     ]
+ *   }
+ * })
+ * ```
+ */
+export function createZodSchemaRegistry(schemas: ZodMethodSchemaRegistry): ZodMethodSchemaRegistry {
+  return schemas
+}
+
+/**
+ * Lookup a Zod method schema from a registry
+ *
+ * @param registry - The Zod schema registry
+ * @param methodPath - The method path (e.g., 'users.create')
+ * @returns The Zod method schema or undefined if not found
+ */
+export function getZodMethodSchema(registry: ZodMethodSchemaRegistry, methodPath: string): ZodMethodSchema | undefined {
+  return registry[methodPath]
+}
+
+/**
+ * Helper to create common Zod-based argument schemas
+ */
+export const ZodArgSchemas = {
+  /** Required string argument */
+  string(name: string): ZodArgSchema {
+    return { name, schema: z.string() }
+  },
+
+  /** Required non-empty string argument */
+  nonEmptyString(name: string): ZodArgSchema {
+    return { name, schema: z.string().min(1) }
+  },
+
+  /** Required number argument */
+  number(name: string): ZodArgSchema {
+    return { name, schema: z.number() }
+  },
+
+  /** Required finite number argument (rejects NaN and Infinity) */
+  finiteNumber(name: string): ZodArgSchema {
+    return { name, schema: z.number().finite() }
+  },
+
+  /** Required integer argument */
+  integer(name: string): ZodArgSchema {
+    return { name, schema: z.number().int() }
+  },
+
+  /** Required positive integer argument */
+  positiveInt(name: string): ZodArgSchema {
+    return { name, schema: z.number().int().positive() }
+  },
+
+  /** Required non-negative integer argument */
+  nonNegativeInt(name: string): ZodArgSchema {
+    return { name, schema: z.number().int().nonnegative() }
+  },
+
+  /** Required boolean argument */
+  boolean(name: string): ZodArgSchema {
+    return { name, schema: z.boolean() }
+  },
+
+  /** Required object argument (any shape) */
+  object(name: string): ZodArgSchema {
+    return { name, schema: z.object({}).passthrough() }
+  },
+
+  /** Required array argument (any items) */
+  array(name: string): ZodArgSchema {
+    return { name, schema: z.array(z.unknown()) }
+  },
+
+  /** Optional string argument */
+  optionalString(name: string): ZodArgSchema {
+    return { name, schema: z.string().optional() }
+  },
+
+  /** Optional number argument */
+  optionalNumber(name: string): ZodArgSchema {
+    return { name, schema: z.number().optional() }
+  },
+
+  /** Required ID argument (non-empty string) */
+  id(name: string = 'id'): ZodArgSchema {
+    return { name, schema: z.string().min(1) }
+  },
+
+  /** Required email argument */
+  email(name: string = 'email'): ZodArgSchema {
+    return { name, schema: z.string().email() }
+  },
+
+  /** Required URL argument */
+  url(name: string = 'url'): ZodArgSchema {
+    return { name, schema: z.string().url() }
+  },
+
+  /** Required UUID argument */
+  uuid(name: string = 'uuid'): ZodArgSchema {
+    return { name, schema: z.string().uuid() }
+  },
+
+  /** Required date string (ISO format) argument */
+  dateString(name: string = 'date'): ZodArgSchema {
+    return { name, schema: z.string().datetime() }
+  },
+
+  /** Nullable type (string or null) */
+  nullable(name: string, schema: ZodType): ZodArgSchema {
+    return { name, schema: schema.nullable() }
+  },
+
+  /** Custom schema argument */
+  custom<T>(name: string, schema: ZodType<T>): ZodArgSchema {
+    return { name, schema }
+  }
+}
+
+// ============================================================================
+// Combined Schema Support (Zod + Custom)
+// ============================================================================
+
+/**
+ * Union type for method schemas - supports both custom ArgSchema and Zod schemas
+ */
+export type AnyMethodSchema = MethodSchema | ZodMethodSchema
+
+/**
+ * Union type for schema registries - supports both custom and Zod registries
+ */
+export type AnySchemaRegistry = MethodSchemaRegistry | ZodMethodSchemaRegistry
+
+/**
+ * Type guard to check if a schema is a Zod-based schema
+ */
+export function isZodMethodSchema(schema: AnyMethodSchema): schema is ZodMethodSchema {
+  if (!schema.args || schema.args.length === 0) return false
+  const firstArg = schema.args[0]
+  // ZodArgSchema has 'schema' property with a Zod type
+  return firstArg !== undefined && 'schema' in firstArg && firstArg.schema instanceof ZodType
+}
+
+/**
+ * Validate RPC method arguments against any schema type (custom or Zod)
+ *
+ * @param args - The arguments array to validate
+ * @param schema - The method schema (either custom ArgSchema or Zod)
+ * @throws ValidationError if validation fails
+ */
+export function validateAnyArgs(args: unknown[], schema: AnyMethodSchema): void {
+  if (isZodMethodSchema(schema)) {
+    validateZodArgs(args, schema)
+  } else {
+    validateArgs(args, schema)
+  }
+}
+
+/**
+ * Get a method schema from either a custom or Zod registry
+ */
+export function getAnyMethodSchema(
+  registry: AnySchemaRegistry,
+  methodPath: string
+): AnyMethodSchema | undefined {
+  return registry[methodPath]
+}
+
+// Re-export Zod for convenience
+export { z }
+export type { ZodType, ZodError, ZodIssue }

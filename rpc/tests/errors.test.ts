@@ -1119,4 +1119,49 @@ describe('RetryWithCircuitBreaker', () => {
     expect(metrics.lastRetryDelayMs).toBeGreaterThanOrEqual(100)
     expect(metrics.lastRetryDelayMs).toBeLessThanOrEqual(125)
   })
+
+  it('should throw ValidationError for negative maxRetries in constructor', () => {
+    expect(() => {
+      new RetryWithCircuitBreaker({
+        retry: { maxRetries: -1 },
+      })
+    }).toThrow('maxRetries must be >= 0')
+
+    expect(() => {
+      new RetryWithCircuitBreaker({
+        retry: { maxRetries: -1 },
+      })
+    }).toThrow(ValidationError)
+  })
+
+  it('should include error details for negative maxRetries', () => {
+    try {
+      new RetryWithCircuitBreaker({
+        retry: { maxRetries: -10 },
+      })
+      expect.fail('Should have thrown')
+    } catch (error) {
+      expect(error).toBeInstanceOf(ValidationError)
+      if (error instanceof ValidationError) {
+        expect(error.details).toEqual({
+          field: 'maxRetries',
+          value: -10,
+          constraint: 'non-negative integer',
+        })
+      }
+    }
+  })
+
+  it('should work with maxRetries = 0 in constructor', async () => {
+    const resilient = new RetryWithCircuitBreaker({
+      retry: { maxRetries: 0, initialDelay: 100 },
+      circuitBreaker: { failureThreshold: 5 },
+    })
+
+    const error = new RPCError(RPCErrorCode.NETWORK_ERROR, 'Network failed')
+    const fn = vi.fn().mockRejectedValue(error)
+
+    await expect(resilient.execute(fn)).rejects.toThrow('Network failed')
+    expect(fn).toHaveBeenCalledTimes(1) // Called once, no retries
+  })
 })

@@ -16,11 +16,22 @@ import {
   buildUser,
   buildSession,
   buildEvent,
+  DbFactory,
+  Fixtures,
+  buildDbThing,
+  buildDbRelationship,
+  buildDbEvent,
+  buildApiKey,
   type GraphThing,
   type GraphRelationship,
   type User,
   type Session,
   type Event,
+  type DbThing,
+  type DbRelationship,
+  type DbEvent,
+  type ApiKey,
+  type TokenPayload,
 } from './factory'
 
 // ============================================================================

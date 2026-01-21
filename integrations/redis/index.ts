@@ -465,6 +465,100 @@ export class RedisIntegration implements Integration<RedisConfig, RedisMethods> 
       return successResult('PONG', `req_${generateId()}`)
     },
   }
+
+  // ============================================================================
+  // EVENT HOOKS (do-07dn)
+  // Redis uses Pub/Sub for event delivery, not HTTP webhooks.
+  // onEvent() handles subscription messages; no handleWebhook() needed.
+  // ============================================================================
+
+  /**
+   * Register a handler for Redis Pub/Sub events.
+   * In a real implementation, this would subscribe to Redis channels
+   * and call handlers when messages are received.
+   */
+  onEvent(handler: IntegrationWebhookHandler): void {
+    this.eventHandlers.push(handler)
+  }
+
+  /**
+   * Emit an event to all registered handlers.
+   * Called internally when Pub/Sub messages are received.
+   */
+  private async emitEvent(type: string, payload: unknown, channel?: string): Promise<void> {
+    const event: IntegrationEvent = {
+      integration: this.name,
+      type,
+      payload,
+      timestamp: new Date(),
+      webhookId: channel, // Use channel as webhook ID for Pub/Sub
+    }
+
+    for (const handler of this.eventHandlers) {
+      try {
+        await handler(event)
+      } catch (error) {
+        // Call error hook if configured
+        if (this.hooks.onError) {
+          await this.hooks.onError(
+            { code: 'EVENT_HANDLER_ERROR', message: String(error), originalError: error },
+            { integration: this.name, method: 'emitEvent' }
+          )
+        }
+      }
+    }
+  }
+
+  // ============================================================================
+  // OBSERVABILITY HOOKS (do-07dn)
+  // ============================================================================
+
+  /**
+   * Configure observability hooks for method calls and errors.
+   */
+  setHooks(hooks: IntegrationHooks): void {
+    this.hooks = hooks
+  }
+
+  /**
+   * Helper to wrap method calls with hooks.
+   * Call this at the start and end of method implementations for full observability.
+   */
+  private async invokeWithHooks<T>(
+    method: string,
+    args: unknown[],
+    fn: () => Promise<IntegrationResult<T>>
+  ): Promise<IntegrationResult<T>> {
+    const context: MethodCallContext = {
+      method,
+      args,
+      timestamp: new Date(),
+    }
+
+    // Call before hook
+    if (this.hooks.onMethodCall?.before) {
+      await this.hooks.onMethodCall.before(context)
+    }
+
+    let result: IntegrationResult<T>
+    try {
+      result = await fn()
+    } catch (error) {
+      result = errorResult('UNEXPECTED_ERROR', String(error), error)
+    }
+
+    // Call after hook
+    if (this.hooks.onMethodCall?.after) {
+      await this.hooks.onMethodCall.after(context, result as IntegrationResult)
+    }
+
+    // Call error hook on failure
+    if (!result.success && this.hooks.onError) {
+      await this.hooks.onError(result.error!, { integration: this.name, method, args })
+    }
+
+    return result
+  }
 }
 
 /**

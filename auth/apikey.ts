@@ -251,20 +251,20 @@ export class ApiKeyManager {
    */
   private deserializeApiKey(stored: Record<string, unknown>): ApiKey {
     return {
-      id: stored.keyId as string,
-      name: stored.name as string,
-      hashedKey: stored.hashedKey as string,
-      prefix: stored.prefix as string,
-      scopes: JSON.parse(stored.scopes as string) as string[],
-      active: stored.active as boolean,
-      createdAt: new Date(stored.createdAt as number),
-      expiresAt: stored.expiresAt ? new Date(stored.expiresAt as number) : undefined,
-      revokedAt: stored.revokedAt ? new Date(stored.revokedAt as number) : undefined,
-      lastUsedAt: stored.lastUsedAt ? new Date(stored.lastUsedAt as number) : undefined,
-      metadata: stored.metadata ? JSON.parse(stored.metadata as string) : undefined,
-      rateLimit: stored.rateLimitMaxRequests !== undefined ? {
-        maxRequests: stored.rateLimitMaxRequests as number,
-        windowMs: stored.rateLimitWindowMs as number
+      id: stored['keyId'] as string,
+      name: stored['name'] as string,
+      hashedKey: stored['hashedKey'] as string,
+      prefix: stored['prefix'] as string,
+      scopes: JSON.parse(stored['scopes'] as string) as string[],
+      active: stored['active'] as boolean,
+      createdAt: new Date(stored['createdAt'] as number),
+      expiresAt: stored['expiresAt'] ? new Date(stored['expiresAt'] as number) : undefined,
+      revokedAt: stored['revokedAt'] ? new Date(stored['revokedAt'] as number) : undefined,
+      lastUsedAt: stored['lastUsedAt'] ? new Date(stored['lastUsedAt'] as number) : undefined,
+      metadata: stored['metadata'] ? JSON.parse(stored['metadata'] as string) : undefined,
+      rateLimit: stored['rateLimitMaxRequests'] !== undefined ? {
+        maxRequests: stored['rateLimitMaxRequests'] as number,
+        windowMs: stored['rateLimitWindowMs'] as number
       } : undefined
     }
   }

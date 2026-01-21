@@ -11,7 +11,6 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Hono } from 'hono'
-import { createAPI } from '../app'
 import {
   generateLinks,
   generateCollectionLinks,
@@ -68,10 +67,11 @@ interface TestOrder {
 }
 
 /**
- * Creates a test API with HATEOAS-enabled resource endpoints
+ * Creates a test API with HATEOAS-enabled resource endpoints.
+ * Uses a fresh Hono app to avoid conflicts with existing routes.
  */
 function createTestAPI() {
-  const app = createAPI()
+  const app = new Hono()
 
   // In-memory data stores for testing
   const users: TestUser[] = [

@@ -851,8 +851,22 @@ export class TieredStorageAdapter implements StorageAdapter {
   /**
    * Execute a function within a transaction
    */
-  async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    return this.doStorage.transaction(fn)
+  async transaction<T>(fn: () => Promise<T>, options?: import('./storage').TransactionOptions): Promise<T> {
+    return this.doStorage.transaction(fn, options)
+  }
+
+  /**
+   * Check if currently inside a transaction
+   */
+  inTransaction(): boolean {
+    return this.doStorage.inTransaction?.() ?? false
+  }
+
+  /**
+   * Check if the adapter supports nested transactions
+   */
+  supportsNestedTransactions(): boolean {
+    return this.doStorage.supportsNestedTransactions?.() ?? false
   }
 
   /**

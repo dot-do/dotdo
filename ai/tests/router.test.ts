@@ -176,6 +176,141 @@ describe('Router', () => {
 
       await expect(router.execute('test prompt')).rejects.toThrow('Max retries exceeded')
     })
+
+    describe('robust rate limit detection', () => {
+      it('should detect rate limit by HTTP status code 429', async () => {
+        const router = new Router()
+
+        const error = new Error('Request failed') as Error & { status: number }
+        error.status = 429
+
+        const mockExecute = vi.fn()
+          .mockRejectedValueOnce(error)
+          .mockResolvedValueOnce({ result: 'Success' })
+
+        router._setExecutor(mockExecute)
+
+        const result = await router.execute('test prompt')
+        expect(result.retries).toBeGreaterThan(0)
+      })
+
+      it('should detect rate limit by statusCode 429', async () => {
+        const router = new Router()
+
+        const error = new Error('Request failed') as Error & { statusCode: number }
+        error.statusCode = 429
+
+        const mockExecute = vi.fn()
+          .mockRejectedValueOnce(error)
+          .mockResolvedValueOnce({ result: 'Success' })
+
+        router._setExecutor(mockExecute)
+
+        const result = await router.execute('test prompt')
+        expect(result.retries).toBeGreaterThan(0)
+      })
+
+      it('should detect rate limit by error code string', async () => {
+        const router = new Router()
+
+        const error = new Error('Request failed') as Error & { code: string }
+        error.code = 'rate_limit_exceeded'
+
+        const mockExecute = vi.fn()
+          .mockRejectedValueOnce(error)
+          .mockResolvedValueOnce({ result: 'Success' })
+
+        router._setExecutor(mockExecute)
+
+        const result = await router.execute('test prompt')
+        expect(result.retries).toBeGreaterThan(0)
+      })
+
+      it('should detect rate limit by error code 429', async () => {
+        const router = new Router()
+
+        const error = new Error('Request failed') as Error & { code: number }
+        error.code = 429
+
+        const mockExecute = vi.fn()
+          .mockRejectedValueOnce(error)
+          .mockResolvedValueOnce({ result: 'Success' })
+
+        router._setExecutor(mockExecute)
+
+        const result = await router.execute('test prompt')
+        expect(result.retries).toBeGreaterThan(0)
+      })
+
+      it('should detect rate limit by error name RateLimitError', async () => {
+        const router = new Router()
+
+        const error = new Error('Request failed')
+        error.name = 'RateLimitError'
+
+        const mockExecute = vi.fn()
+          .mockRejectedValueOnce(error)
+          .mockResolvedValueOnce({ result: 'Success' })
+
+        router._setExecutor(mockExecute)
+
+        const result = await router.execute('test prompt')
+        expect(result.retries).toBeGreaterThan(0)
+      })
+
+      it('should detect rate limit by error name TooManyRequestsError', async () => {
+        const router = new Router()
+
+        const error = new Error('Request failed')
+        error.name = 'TooManyRequestsError'
+
+        const mockExecute = vi.fn()
+          .mockRejectedValueOnce(error)
+          .mockResolvedValueOnce({ result: 'Success' })
+
+        router._setExecutor(mockExecute)
+
+        const result = await router.execute('test prompt')
+        expect(result.retries).toBeGreaterThan(0)
+      })
+
+      it.each([
+        'Too many requests',
+        'Quota exceeded',
+        'Resource exhausted',
+        'Request throttled',
+        'You have exceeded your requests per minute limit',
+        'TPM limit reached',
+        'Server is overloaded, try again later',
+        'Error 429: Too Many Requests',
+        'retry-after: 60',
+        'Capacity exceeded for this endpoint'
+      ])('should detect rate limit from message: "%s"', async (errorMessage) => {
+        const router = new Router()
+
+        const mockExecute = vi.fn()
+          .mockRejectedValueOnce(new Error(errorMessage))
+          .mockResolvedValueOnce({ result: 'Success' })
+
+        router._setExecutor(mockExecute)
+
+        const result = await router.execute('test prompt')
+        expect(result.retries).toBeGreaterThan(0)
+      })
+
+      it('should NOT detect non-rate-limit errors', async () => {
+        const router = new Router({ fallback: ['anthropic'] })
+
+        const mockExecute = vi.fn()
+          .mockRejectedValue(new Error('Authentication failed'))
+
+        router._setExecutor(mockExecute)
+
+        // Non-rate-limit error should fail immediately without retry
+        await expect(router.execute('test prompt')).rejects.toThrow('All providers failed')
+        expect(mockExecute).toHaveBeenCalledTimes(1)
+      })
+    })
   })
 
   describe('load balancing', () => {

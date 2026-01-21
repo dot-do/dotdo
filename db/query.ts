@@ -612,22 +612,26 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
       if (typeof fieldOrConditions === 'string') {
         validateFieldName(fieldOrConditions)
         options.where = { ...(options.where || {}), [fieldOrConditions]: value } as Partial<T>
-        options.whereConditions!.push({
-          field: fieldOrConditions,
-          operator: '=',
-          value: value ?? null
-        })
+        if (options.whereConditions) {
+          options.whereConditions.push({
+            field: fieldOrConditions,
+            operator: '=',
+            value: value ?? null
+          })
+        }
       } else {
         for (const field of Object.keys(fieldOrConditions)) {
           validateFieldName(field)
         }
         options.where = { ...(options.where || {}), ...fieldOrConditions } as Partial<T>
         for (const [field, val] of Object.entries(fieldOrConditions)) {
-          options.whereConditions!.push({
-            field,
-            operator: '=',
-            value: val
-          })
+          if (options.whereConditions) {
+            options.whereConditions.push({
+              field,
+              operator: '=',
+              value: val
+            })
+          }
         }
       }
       return builder
@@ -635,7 +639,9 @@ export function createQueryWithJoins<T extends StorableData = StorableData>(
 
     whereOp(field: string, operator: WhereOperator, value: JsonValue | JsonValue[]) {
       validateFieldName(field)
-      options.whereConditions!.push({ field, operator, value })
+      if (options.whereConditions) {
+        options.whereConditions.push({ field, operator, value })
+      }
       return builder
     },
 

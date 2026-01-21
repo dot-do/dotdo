@@ -330,8 +330,24 @@ export function createContext(
     })
   }
 
+  /**
+   * Result of processing an event through handlers.
+   * Used to surface failures instead of silently continuing.
+   */
+  interface ProcessEventResult {
+    /** Whether all handlers succeeded */
+    success: boolean
+    /** Number of handlers that succeeded */
+    succeededCount: number
+    /** Number of handlers that failed */
+    failedCount: number
+    /** Errors from failed handlers (for surfacing to callers) */
+    errors: Array<{ handlerIndex: number; error: Error; attempts: number }>
+  }
+
   // Helper function to process an event (invoke handlers with retry logic)
-  async function processEvent(emitted: Event, eventType: string, payload: unknown): Promise<void> {
+  // Returns result with failure information instead of silently continuing (do-snrw)
+  async function processEvent(emitted: Event, eventType: string, payload: unknown): Promise<ProcessEventResult> {
     // Get durability config for this event type (supports per-type configuration)
     const config = events.getDurabilityConfig(eventType)
     const retryOptions: RetryOptions = {
@@ -343,9 +359,19 @@ export function createContext(
     // Use invokeHandlers which includes retry logic
     const result = await invokeHandlers(eventType, emitted, handlers, retryOptions)
 
+    // Collect errors for surfacing to caller (do-snrw: surface errors instead of silently continuing)
+    const collectedErrors: Array<{ handlerIndex: number; error: Error; attempts: number }> = []
+
     // Handle failed handlers - add to DLQ, track validation failures, and track in error store
     for (const [i, failure] of result.failed.entries()) {
       const errorInfo = extractErrorInfo(failure.error)
+
+      // Collect error for return value (do-snrw)
+      collectedErrors.push({
+        handlerIndex: i,
+        error: failure.error ?? new Error('Unknown error'),
+        attempts: failure.attempts
+      })
 
       // Track in fire-and-forget error store
       fireAndForgetErrors.track({
@@ -436,6 +462,14 @@ export function createContext(
         }
       }
     }
+
+    // Return result with failure information - callers can decide how to handle (do-snrw)
+    return {
+      success: result.failed.length === 0,
+      succeededCount: result.succeeded.length,
+      failedCount: result.failed.length,
+      errors: collectedErrors
+    }
   }
 
   // Subscribe to events from the store to handle replayed events only
@@ -446,10 +480,23 @@ export function createContext(
       return
     }
 
-    // Process replayed events with retry logic
-    processEvent(event, event.type, event.payload).catch((err) => {
-      logger.error(`Error processing replayed event "${event.type}":`, err)
-    })
+    // Process replayed events with retry logic (do-snrw: surface failures)
+    processEvent(event, event.type, event.payload)
+      .then((result) => {
+        if (!result.success) {
+          // Log each failed handler with its error (do-snrw: don't silently continue)
+          for (const failure of result.errors) {
+            logger.error(
+              `Handler ${failure.handlerIndex} for replayed event "${event.type}" failed after ${failure.attempts} attempt(s):`,
+              failure.error.message,
+              { eventType: event.type, handlerIndex: failure.handlerIndex, attempts: failure.attempts }
+            )
+          }
+        }
+      })
+      .catch((err) => {
+        logger.error(`Error processing replayed event "${event.type}":`, err)
+      })
   })
 
   // Create the base context object

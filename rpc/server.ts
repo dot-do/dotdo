@@ -20,9 +20,14 @@ import {
 } from './errors'
 import {
   validateArgs,
+  validateZodArgs,
   getMethodSchema,
+  getZodMethodSchema,
   isValidRPCMethod,
+  isZodMethodSchema,
   type MethodSchemaRegistry,
+  type ZodMethodSchemaRegistry,
+  type AnySchemaRegistry,
 } from './validation'
 import {
   executePipeline,
@@ -52,8 +57,8 @@ export interface RPCServerOptions {
   target: object
   /** Optional whitelist of allowed method names or glob patterns (e.g., 'users.*') */
   whitelist?: string[]
-  /** Optional schema registry for argument validation */
-  schemas?: MethodSchemaRegistry
+  /** Optional schema registry for argument validation (supports both custom ArgSchema and Zod schemas) */
+  schemas?: AnySchemaRegistry
   /** Options for pipeline execution */
   pipeline?: PipelineExecutorOptions
   /** Enable pipeline support (default: true) */
@@ -65,7 +70,7 @@ export interface RPCServerOptions {
  */
 export interface RPCServerApp extends ReturnType<typeof createHonoApp> {
   updateWhitelist(whitelist: string[]): void
-  updateSchemas(schemas: MethodSchemaRegistry): void
+  updateSchemas(schemas: AnySchemaRegistry): void
 }
 
 function createHonoApp() {

@@ -1,5 +1,6 @@
 // Stripe Integration Stub
 // Example integration for the dotdo integration registry (do-laux)
+// Hooks pattern standardized in do-07dn
 
 import type {
   Integration,
@@ -9,6 +10,8 @@ import type {
   IntegrationResult,
   IntegrationWebhookHandler,
   IntegrationEvent,
+  IntegrationHooks,
+  MethodCallContext,
 } from '../types'
 import { successResult, errorResult } from '../registry'
 import { verifyStripeSignature } from '../webhook-verify'

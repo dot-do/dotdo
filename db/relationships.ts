@@ -45,9 +45,9 @@ export type RelationshipQuery = Partial<Pick<BaseRelationship, 'subject' | 'pred
  * Query options for cursor-based pagination
  */
 export interface RelationshipCursorQueryOptions extends CursorPaginationOptions {
-  subject?: string
+  subject?: ThingId | string
   predicate?: string
-  object?: string
+  object?: ThingId | string
 }
 
 /**
@@ -114,21 +114,21 @@ export interface RelationshipsStore<M extends StorableData = StorableData> {
    * Get object IDs related to a subject by a predicate.
    * Convenience method equivalent to find({subject, predicate}).map(r => r.object)
    *
-   * @param subjectId - The subject entity ID
+   * @param subjectId - The subject entity ID (accepts ThingId or string for backward compatibility)
    * @param predicate - The relationship type (verb)
    * @returns Array of related object IDs
    */
-  getRelated(subjectId: string, predicate: string): Promise<string[]>
+  getRelated(subjectId: ThingId | string, predicate: string): Promise<string[]>
 
   /**
    * Get subject IDs that are related to an object by a predicate.
    * Reverse of getRelated - finds who points to the object.
    *
-   * @param objectId - The object entity ID
+   * @param objectId - The object entity ID (accepts ThingId or string for backward compatibility)
    * @param predicate - The relationship type (verb)
    * @returns Array of subject IDs that have this relationship
    */
-  getRelatedTo(objectId: string, predicate: string): Promise<string[]>
+  getRelatedTo(objectId: ThingId | string, predicate: string): Promise<string[]>
 }
 
 /**

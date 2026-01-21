@@ -220,33 +220,48 @@ export function createAPI(options?: APIOptions) {
   })
 
   // Root endpoint with API discovery (HATEOAS)
+  // This makes the entire API discoverable from a single entry point
   routeApp.get('/', (c) => {
     const baseUrl = new URL(c.req.url).origin + basePath
 
-    return c.json({
+    // Get all registered resources to make them discoverable
+    const registeredResources = getAllResources()
+    const resources: Record<string, { path: string; title: string; description?: string }> = {}
+
+    for (const [name, definition] of Object.entries(registeredResources)) {
+      resources[name.toLowerCase()] = {
+        path: definition.routes?.list?.path || `/${name.toLowerCase()}`,
+        title: `${name} collection`,
+        description: `CRUD operations for ${name}`
+      }
+    }
+
+    // Generate fully discoverable API root with HATEOAS links
+    const apiRoot = generateAPIRoot({
       name: 'dotdo API',
       version: '1.0.0',
       description: 'Self-describing HATEOAS API',
-      _links: {
-        self: {
-          href: `${baseUrl}/`,
-          rel: 'self',
-          method: 'GET'
-        },
-        health: {
-          href: `${baseUrl}/health`,
-          rel: 'health',
-          method: 'GET',
-          title: 'Liveness check endpoint'
-        },
-        ready: {
-          href: `${baseUrl}/ready`,
-          rel: 'ready',
-          method: 'GET',
-          title: 'Readiness check endpoint'
-        }
-      }
+      baseUrl,
+      resources,
+      openapi: {
+        json: '/openapi.json',
+        yaml: '/openapi.yaml'
+      },
+      docsPath: '/docs',
+      healthPath: '/health'
     })
+
+    // Add readiness check link (not in standard generateAPIRoot)
+    apiRoot._links['ready'] = {
+      href: `${baseUrl}/ready`,
+      rel: 'related',
+      method: 'GET',
+      title: 'Readiness check endpoint',
+      type: 'application/json',
+      name: 'ready'
+    }
+
+    return c.json(apiRoot)
   })
 
   // Mount routes (either at root or under basePath)
@@ -257,14 +272,21 @@ export function createAPI(options?: APIOptions) {
   }
 
   // 404 handler for the base app (handles all not found routes)
+  // Includes HATEOAS links to help users discover the correct endpoints
   baseApp.notFound((c) => {
     const requestId = c.get('requestId') || 'unknown'
+    const baseUrl = new URL(c.req.url).origin + basePath
+
     return c.json(
       {
         error: 'Not Found',
         status: 404,
         path: c.req.path,
-        requestId
+        requestId,
+        _links: generateErrorLinks(baseUrl, {
+          docsPath: '/docs',
+          healthPath: '/health'
+        })
       },
       404
     )
