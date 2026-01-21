@@ -135,8 +135,8 @@ interface WithPrimitivesContext {
   [key: string]: unknown
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Constructor<T = object> = new (...args: any[]) => T
+// Import Constructor from @dotdo/utils - the canonical source for mixin types
+import type { Constructor } from '@dotdo/utils'
 
 interface HasWorkflowContext {
   $: { [key: string]: unknown }
