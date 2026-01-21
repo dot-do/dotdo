@@ -18,6 +18,12 @@ export {
   type DoOptions,
   type DOStubFactory,
   type CreateContextOptions,
+  // Primitive capability types (do-ibsi)
+  type FsCapability,
+  type GitCapability,
+  type BashCapability,
+  type NpmCapability,
+  type PrimitivesConfig,
 } from './context'
 
 // Event handler DSL ($.on.Noun.verb)

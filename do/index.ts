@@ -41,6 +41,15 @@ export {
 } from './mixins'
 export { createContext, createTypedContext } from './context'
 export type { WorkflowContext, $ } from './context'
+// Primitive capability types (do-ibsi)
+export type {
+  FsCapability,
+  GitCapability,
+  BashCapability,
+  NpmCapability,
+  PrimitivesConfig,
+  CreateContextOptions,
+} from './workflow'
 export { EntityManager, withEntities, type EntityManagerOptions } from './entities'
 
 // Type-safe WorkflowContext types (do-ebio)

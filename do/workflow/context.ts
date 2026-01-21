@@ -54,6 +54,16 @@ export interface WorkflowContext {
   // Integration registry for third-party services
   integrations: IntegrationRegistry
 
+  // Extended primitives (fsx, gitx, bashx, npmx)
+  /** Filesystem operations - available when wired via primitives config */
+  fs?: FsCapability
+  /** Git operations - available when wired via primitives config */
+  git?: GitCapability
+  /** Bash command execution - available when wired via primitives config */
+  bash?: BashCapability
+  /** NPM package management - available when wired via primitives config */
+  npm?: NpmCapability
+
   // Cross-DO RPC (Proxy-based)
   // Accessed dynamically via $.Customer(id), $.Worker(id), etc.
   [doName: string]: DOStubFactory | unknown
@@ -111,9 +121,117 @@ type EveryProxy = {
 }
 
 /**
+ * FsCapability interface for filesystem operations via $.fs
+ */
+export interface FsCapability {
+  name: 'fs'
+  initialized?: boolean
+  initialize?(): Promise<void>
+  dispose?(): Promise<void>
+  readFile(path: string, options?: { encoding?: string }): Promise<string | Uint8Array>
+  writeFile(path: string, data: string | Uint8Array): Promise<void>
+  exists(path: string): Promise<boolean>
+  mkdir(path: string, options?: { recursive?: boolean }): Promise<void>
+  readdir(path: string): Promise<string[]>
+  stat(path: string): Promise<{
+    isFile(): boolean
+    isDirectory(): boolean
+    isSymbolicLink(): boolean
+    size: number
+    mode: number
+    mtime: Date
+    atime: Date
+    ctime: Date
+    birthtime: Date
+  }>
+  unlink(path: string): Promise<void>
+  rmdir(path: string): Promise<void>
+  rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void>
+}
+
+/**
+ * GitCapability interface for git operations via $.git
+ */
+export interface GitCapability {
+  name: 'git'
+  binding: {
+    repo: string
+    branch: string
+    commit?: string
+    lastSync?: Date
+  }
+  initialize?(): Promise<void>
+  dispose?(): Promise<void>
+  sync(): Promise<{ success: boolean; objectsFetched: number; filesWritten: number; commit?: string }>
+  push(): Promise<{ success: boolean; objectsPushed: number; commit?: string }>
+  status(): Promise<{ branch: string; head?: string; staged: string[]; unstaged: string[]; clean: boolean }>
+  add(files: string | string[]): Promise<void>
+  commit(message: string): Promise<{ hash: string }>
+  diff(): Promise<string>
+  log(): Promise<Array<{ hash: string; message: string }>>
+  pull(): Promise<void>
+}
+
+/**
+ * BashCapability interface for command execution via $.bash
+ */
+export interface BashCapability {
+  name: 'bash'
+  initialize?(): Promise<void>
+  dispose?(): Promise<void>
+  exec(command: string, args?: string[], options?: { timeout?: number; cwd?: string }): Promise<{
+    command: string
+    stdout: string
+    stderr: string
+    exitCode: number
+  }>
+  run(script: string): Promise<{ command: string; stdout: string; stderr: string; exitCode: number }>
+  parse(input: string): unknown
+  analyze(input: string): {
+    classification: { type: string; impact: string; reversible: boolean }
+    intent: { commands: string[]; reads: string[]; writes: string[]; deletes: string[]; network: boolean; elevated: boolean }
+  }
+  isDangerous(input: string): { dangerous: boolean; reason?: string }
+}
+
+/**
+ * NpmCapability interface for npm operations via $.npm
+ */
+export interface NpmCapability {
+  name: 'npm'
+  initialize?(): Promise<void>
+  dispose?(): Promise<void>
+  install(packages?: string[], options?: { dev?: boolean; exact?: boolean }): Promise<{
+    installed: Array<{ name: string; version: string }>
+    removed: Array<{ name: string; version: string }>
+    updated: Array<{ name: string; from: string; to: string }>
+    stats: { resolved: number; cached: number; duration: number }
+  }>
+  uninstall(packages: string[]): Promise<void>
+  run(script: string, args?: string[]): Promise<{ exitCode: number; output: string }>
+  list(options?: { depth?: number }): Promise<Array<{ name: string; version: string }>>
+  search(query: string): Promise<Array<{ name: string; version: string; description?: string }>>
+  info(name: string, version?: string): Promise<{ name: string; version: string; description?: string; dependencies?: Record<string, string> }>
+}
+
+/**
+ * Primitives configuration for WorkflowContext
+ */
+export interface PrimitivesConfig {
+  /** Filesystem capability */
+  fs?: FsCapability
+  /** Git capability */
+  git?: GitCapability
+  /** Bash command execution capability */
+  bash?: BashCapability
+  /** NPM package management capability */
+  npm?: NpmCapability
+}
+
+/**
  * Options for creating a WorkflowContext
  */
-export interface CreateContextOptions {
+export interface CreateContextOptions extends PrimitivesConfig {
   /** Custom error store for fire-and-forget errors */
   errorStore?: FireAndForgetErrorStore
   /** Custom integration registry instance (shared across contexts if desired) */
@@ -365,6 +483,12 @@ export function createContext(
 
     // Integration registry for third-party services
     integrations,
+
+    // Extended primitives (fsx, gitx, bashx, npmx) - wired via options (do-ibsi)
+    fs: options?.fs,
+    git: options?.git,
+    bash: options?.bash,
+    npm: options?.npm,
 
     // Context propagation methods (do-nexi)
     run<T>(fn: () => T): T {
