@@ -33,6 +33,7 @@
     "ai/**/*.ts",
     "mcp/**/*.ts",
     "app/**/*.ts",
+    "app/**/*.tsx",
     "business/**/*.ts",
     "utils/**/*.ts",
     "observability/**/*.ts",
@@ -41,6 +42,9 @@
     "testing/**/*.ts",
     "test-utils/**/*.ts",
     "clickhouse/**/*.ts",
-    "apps/**/*.ts"
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "vitest.config.ts",
+    "types/**/*.d.ts"
   ]
 }

@@ -635,7 +635,7 @@ export class BusinessDO extends DO {
 
     if (!this._finance) {
       // Dynamic import to avoid bundling when not used
-      const finance = await import('../finance/src/client') as unknown as FinanceClientModule
+      const finance = await import('../business/finance/client') as unknown as FinanceClientModule
       const financeConfig = {
         stripeApiKey: this.config.finance.stripeApiKey,
         webhookSecret: this.config.finance.webhookSecret,
@@ -1036,7 +1036,7 @@ export class BusinessDO extends DO {
     }
 
     // For now, return the default value
-    // TODO: Implement rule evaluation based on user properties
+    // Rule-based targeting (user properties, segments) not yet implemented
     return flagData.value
   }
 
