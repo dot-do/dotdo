@@ -35,6 +35,8 @@
 // await manager.revoke(apiKey.id)
 // ```
 
+import type { Context, Next, MiddlewareHandler } from 'hono'
+
 export interface ApiKey {
   id: string
   name: string
@@ -391,12 +393,10 @@ export class ApiKeyAuth {
 export function createApiKeyMiddleware(manager: ApiKeyManager, options: {
   header?: string
   requireScopes?: string[]
-} = {}) {
+} = {}): MiddlewareHandler {
   const { header = 'X-API-Key', requireScopes = [] } = options
 
-  // Hono middleware types are generic; using `any` avoids coupling to specific Hono version
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return async (c: any, next: any) => {
+  return async (c: Context, next: Next) => {
     const key = c.req.header(header)
 
     if (!key) {

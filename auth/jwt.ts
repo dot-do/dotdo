@@ -17,6 +17,7 @@ import {
   mapJoseError,
   getWWWAuthenticateHeader,
 } from './errors'
+import type { AuthUser } from './middleware'
 
 /**
  * Options for JWT verification
@@ -41,26 +42,16 @@ export interface JWTMiddlewareOptions extends VerifyJWTOptions {
 }
 
 /**
- * Authenticated user extracted from JWT
+ * Authenticated user extracted from JWT.
+ * Extends AuthUser for compatibility with the shared auth context.
  */
-export interface JWTUser {
-  /** User ID from the JWT subject (sub) claim */
-  id: string
-  /** User email from the email claim */
-  email?: string | undefined
-  /** User roles from the roles claim */
-  roles?: string[] | undefined
-  /** OAuth scopes from the scopes claim */
-  scopes?: string[] | undefined
+export interface JWTUser extends AuthUser {
+  // JWTUser currently has no additional fields beyond AuthUser.
+  // This type alias exists for explicit JWT-specific typing.
 }
 
-// Extend Hono context types
-declare module 'hono' {
-  interface ContextVariableMap {
-    user: JWTUser
-    token: string
-  }
-}
+// Note: ContextVariableMap is declared in middleware.ts
+// This module uses AuthUser through JWTUser extension
 
 /**
  * Verify a JWT token and return the payload.

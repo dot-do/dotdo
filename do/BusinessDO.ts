@@ -677,17 +677,21 @@ export class BusinessDO extends DO {
    * Products collection with analytics
    */
   get products(): ProductsCollection {
+    // Type assertion helper for creating product data compatible with ThingsStore
+    type ProductCreateData = { $type: 'Product' } & Omit<Product, '$type' | '$id'>
+
     return {
       // Basic CRUD delegating to things store
       create: async (data: Omit<Product, '$type' | '$id' | 'createdAt' | 'updatedAt'>) => {
         const now = Date.now()
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const product = await this.things.create({
+        const createData: ProductCreateData = {
           $type: 'Product',
           ...data,
           createdAt: now,
           updatedAt: now
-        } as any)
+        }
+        // ThingsStore.create accepts generic data with $type; cast through unknown for type safety
+        const product = await this.things.create(createData as unknown as { $type: string })
         return product as unknown as Product
       },
 
@@ -710,11 +714,12 @@ export class BusinessDO extends DO {
       },
 
       update: async (id: string, data: Partial<Product>) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const updated = await this.things.update(id, {
+        const updateData = {
           ...data,
           updatedAt: Date.now()
-        } as any)
+        }
+        // ThingsStore.update accepts partial data; cast through unknown for type safety
+        const updated = await this.things.update(id, updateData as unknown as Partial<Record<string, unknown>>)
         return updated as unknown as Product
       },
 
@@ -755,17 +760,21 @@ export class BusinessDO extends DO {
    * Services collection with analytics
    */
   get services(): ServicesCollection {
+    // Type assertion helper for creating service data compatible with ThingsStore
+    type ServiceCreateData = { $type: 'Service' } & Omit<Service, '$type' | '$id'>
+
     return {
       // Basic CRUD
       create: async (data: Omit<Service, '$type' | '$id' | 'createdAt' | 'updatedAt'>) => {
         const now = Date.now()
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const service = await this.things.create({
+        const createData: ServiceCreateData = {
           $type: 'Service',
           ...data,
           createdAt: now,
           updatedAt: now
-        } as any)
+        }
+        // ThingsStore.create accepts generic data with $type; cast through unknown for type safety
+        const service = await this.things.create(createData as unknown as { $type: string })
         return service as unknown as Service
       },
 
@@ -788,11 +797,12 @@ export class BusinessDO extends DO {
       },
 
       update: async (id: string, data: Partial<Service>) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const updated = await this.things.update(id, {
+        const updateData = {
           ...data,
           updatedAt: Date.now()
-        } as any)
+        }
+        // ThingsStore.update accepts partial data; cast through unknown for type safety
+        const updated = await this.things.update(id, updateData as unknown as Partial<Record<string, unknown>>)
         return updated as unknown as Service
       },
 
@@ -866,12 +876,14 @@ export class BusinessDO extends DO {
    * OKRs collection with health tracking
    */
   get okrs(): OKRsCollection {
+    // Type assertion helper for creating OKR data compatible with ThingsStore
+    type OKRCreateData = { $type: 'OKR' } & Omit<OKR, '$type' | '$id'>
+
     return {
       // Basic CRUD
       create: async (data: Omit<OKR, '$type' | '$id' | 'createdAt' | 'updatedAt'>) => {
         const now = Date.now()
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const okr = await this.things.create({
+        const createData: OKRCreateData = {
           $type: 'OKR',
           ...data,
           // Provide defaults only if not specified
@@ -879,7 +891,9 @@ export class BusinessDO extends DO {
           confidence: data.confidence ?? 50,
           createdAt: now,
           updatedAt: now
-        } as any)
+        }
+        // ThingsStore.create accepts generic data with $type; cast through unknown for type safety
+        const okr = await this.things.create(createData as unknown as { $type: string })
         return okr as unknown as OKR
       },
 
@@ -902,11 +916,12 @@ export class BusinessDO extends DO {
       },
 
       update: async (id: string, data: Partial<OKR>) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const updated = await this.things.update(id, {
+        const updateData = {
           ...data,
           updatedAt: Date.now()
-        } as any)
+        }
+        // ThingsStore.update accepts partial data; cast through unknown for type safety
+        const updated = await this.things.update(id, updateData as unknown as Partial<Record<string, unknown>>)
         return updated as unknown as OKR
       },
 
@@ -1032,37 +1047,47 @@ export class BusinessDO extends DO {
    * Set up event handlers for automatic metrics updates
    */
   private setupMetricsHandlers(): void {
+    // Event payload type for subscription events
+    interface SubscriptionEvent {
+      payload?: { mrr?: number; [key: string]: unknown }
+    }
+
+    // Event payload type for customer events
+    interface CustomerEvent {
+      payload?: Record<string, unknown>
+    }
+
     // Track subscription events for OKR updates
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.$.on.Subscription.created(async (event: any) => {
-      const mrr = event?.payload?.mrr ?? 0
+    this.$.on.Subscription.created(async (event: unknown) => {
+      const typedEvent = event as SubscriptionEvent
+      const mrr = typedEvent?.payload?.mrr ?? 0
       await this.updateOKRsFromMetric('mrr', mrr)
       if (this.config.analytics?.enabled) {
         await this.track({
           type: 'subscription.created',
-          properties: event?.payload ?? {}
+          properties: typedEvent?.payload ?? {}
         })
       }
     })
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.$.on.Subscription.cancelled(async (event: any) => {
+    this.$.on.Subscription.cancelled(async (event: unknown) => {
+      const typedEvent = event as SubscriptionEvent
       await this.updateOKRsFromMetric('churn', 1)
       if (this.config.analytics?.enabled) {
         await this.track({
           type: 'subscription.cancelled',
-          properties: event?.payload ?? {}
+          properties: typedEvent?.payload ?? {}
         })
       }
     })
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.$.on.Customer.created(async (event: any) => {
+    this.$.on.Customer.created(async (event: unknown) => {
+      const typedEvent = event as CustomerEvent
       await this.updateOKRsFromMetric('customers', 1)
       if (this.config.analytics?.enabled) {
         await this.track({
           type: 'customer.created',
-          properties: event?.payload ?? {}
+          properties: typedEvent?.payload ?? {}
         })
       }
     })

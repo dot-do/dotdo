@@ -41,10 +41,10 @@ export interface AuthOptions {
 }
 
 /**
- * Authenticated user information extracted from JWT claims.
+ * Authenticated user information extracted from JWT claims or API key.
  */
 export interface AuthUser {
-  /** User ID from the JWT subject (sub) claim. */
+  /** User ID from the JWT subject (sub) claim or API key ID. */
   id: string
   /** User email from the email claim. */
   email?: string | undefined
@@ -52,6 +52,8 @@ export interface AuthUser {
   roles?: string[] | undefined
   /** OAuth scopes from the scopes claim. */
   scopes?: string[] | undefined
+  /** Additional metadata from API keys. */
+  metadata?: Record<string, unknown> | undefined
 }
 
 declare module 'hono' {

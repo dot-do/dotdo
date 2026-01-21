@@ -53,6 +53,14 @@ interface AsyncLocalStorageType<T> {
 }
 
 /**
+ * Type for globalThis with optional AsyncLocalStorage.
+ * AsyncLocalStorage is available in Cloudflare Workers (2024+) and Node.js.
+ */
+interface GlobalWithAsyncLocalStorage {
+  AsyncLocalStorage?: new <T>() => AsyncLocalStorageType<T>
+}
+
+/**
  * AsyncLocalStorage instance (if available)
  */
 let asyncLocalStorage: AsyncLocalStorageType<ObservabilityContext> | undefined
@@ -61,8 +69,8 @@ let asyncLocalStorage: AsyncLocalStorageType<ObservabilityContext> | undefined
 // but we provide a fallback for testing environments
 try {
   // AsyncLocalStorage is a global in Workers but not in standard TypeScript lib
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const AsyncLocalStorageClass = (globalThis as any).AsyncLocalStorage
+  const globalWithALS = globalThis as GlobalWithAsyncLocalStorage
+  const AsyncLocalStorageClass = globalWithALS.AsyncLocalStorage
   if (typeof AsyncLocalStorageClass !== 'undefined') {
     asyncLocalStorage = new AsyncLocalStorageClass()
   }
