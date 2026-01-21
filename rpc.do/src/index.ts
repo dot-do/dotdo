@@ -53,6 +53,9 @@
 // Types
 export * from './types'
 
+// Errors
+export * from './errors'
+
 // Client
 export * from './client'
 

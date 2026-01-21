@@ -30,6 +30,17 @@ describe('rpc.do exports', () => {
     expect(typeof transport.TransportState).toBeDefined()
   })
 
+  it('exports RetryTransport from transport module', async () => {
+    const { RetryTransport, RetryPolicy, createRetryTransport } = await import('../src/transport')
+    expect(RetryTransport).toBeDefined()
+    expect(typeof RetryTransport).toBe('function')
+    expect(RetryPolicy).toBeDefined()
+    expect(RetryPolicy.aggressive).toBeDefined()
+    expect(RetryPolicy.conservative).toBeDefined()
+    expect(RetryPolicy.none).toBeDefined()
+    expect(typeof createRetryTransport).toBe('function')
+  })
+
   it('exports RPCMessage type', async () => {
     // Type-only exports are verified at compile time
     // We just verify the module loads
@@ -41,6 +52,33 @@ describe('rpc.do exports', () => {
     // Type-only exports are verified at compile time
     const mod = await import('../src')
     expect(mod).toBeDefined()
+  })
+
+  it('exports error classes', async () => {
+    const { RPCError, ValidationError, NotFoundError, AuthError, NetworkError, TimeoutError } = await import('../src')
+    expect(RPCError).toBeDefined()
+    expect(typeof RPCError).toBe('function')
+    expect(ValidationError).toBeDefined()
+    expect(typeof ValidationError).toBe('function')
+    expect(NotFoundError).toBeDefined()
+    expect(typeof NotFoundError).toBe('function')
+    expect(AuthError).toBeDefined()
+    expect(typeof AuthError).toBe('function')
+    expect(NetworkError).toBeDefined()
+    expect(typeof NetworkError).toBe('function')
+    expect(TimeoutError).toBeDefined()
+    expect(typeof TimeoutError).toBe('function')
+  })
+
+  it('exports error utilities', async () => {
+    const { fromSerializedError, isRPCError, isSerializedError, ErrorCode, ErrorHttpStatus } = await import('../src')
+    expect(typeof fromSerializedError).toBe('function')
+    expect(typeof isRPCError).toBe('function')
+    expect(typeof isSerializedError).toBe('function')
+    expect(ErrorCode).toBeDefined()
+    expect(ErrorCode.INTERNAL_ERROR).toBe('INTERNAL_ERROR')
+    expect(ErrorHttpStatus).toBeDefined()
+    expect(ErrorHttpStatus.INTERNAL_SERVER_ERROR).toBe(500)
   })
 })
 

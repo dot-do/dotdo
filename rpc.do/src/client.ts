@@ -43,6 +43,7 @@
 import type { RPCClientOptions, RPCResponse, SerializedError } from './types'
 import type { Transport } from './transport/types'
 import { FetchTransport, generateCorrelationId, CORRELATION_ID_HEADER } from './transport/fetch'
+import { fromSerializedError, RPCError } from './errors'
 
 // Import shared proxy utilities from @dotdo/do
 // These provide the core proxy patterns used across the codebase
@@ -115,7 +116,7 @@ function createTransportInvoker(
 
     // Handle error responses
     if (response.error) {
-      throw new Error(response.error.message)
+      throw fromSerializedError(response.error)
     }
 
     return response.result
@@ -146,7 +147,7 @@ function createMethodInvoker(
     })
 
     if (!response.ok) {
-      throw new Error(`RPC error: ${response.status}`)
+      throw new RPCError(`RPC error: ${response.status}`, 'RPC_ERROR', response.status)
     }
 
     return response.json()
@@ -247,7 +248,7 @@ function createCachedInvoker(
 
     // Handle error responses
     if (response.error) {
-      throw new Error(response.error.message)
+      throw fromSerializedError(response.error)
     }
 
     const result = response.result
