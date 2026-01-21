@@ -1,10 +1,12 @@
 // Hono app setup - see do-7rf.7.1
+// Route handlers are thin - they delegate to services for business logic
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import type { MiddlewareHandler } from 'hono'
 import { authMiddleware } from '../auth/middleware'
 import { getErrorMessage } from '../rpc/errors'
+import { HealthService, DiscoveryService } from './services'
 
 export interface APIOptions {
   basePath?: string
@@ -72,6 +74,14 @@ function loggingMiddleware(): MiddlewareHandler {
 export function createAPI(options?: APIOptions) {
   const { basePath = '', auth } = options || {}
 
+  // Create services (business logic layer)
+  const healthService = new HealthService({ serviceName: 'dotdo-api' })
+  const discoveryService = new DiscoveryService({
+    name: 'dotdo API',
+    version: '1.0.0',
+    description: 'Self-describing HATEOAS API'
+  })
+
   // Create base app
   const baseApp = new Hono()
 
@@ -123,7 +133,7 @@ export function createAPI(options?: APIOptions) {
 
   // Auth middleware (optional)
   if (auth?.enabled) {
-    const defaultSkipPaths = ['/health', '/']
+    const defaultSkipPaths = ['/health', '/ready', '/']
     const skipPaths = [...defaultSkipPaths, ...(auth.skipPaths || [])]
 
     baseApp.use(
@@ -141,37 +151,27 @@ export function createAPI(options?: APIOptions) {
   // Create a route app (either with basePath or without)
   const routeApp = new Hono()
 
-  // Health check endpoint
+  // Health check endpoint (liveness probe)
+  // Route handler is thin - delegates to HealthService for business logic
   routeApp.get('/health', (c) => {
-    return c.json({
-      status: 'ok',
-      service: 'dotdo-api',
-      timestamp: new Date().toISOString()
-    })
+    const health = healthService.getHealth()
+    return c.json(health)
+  })
+
+  // Readiness check endpoint (readiness probe)
+  // Route handler is thin - delegates to HealthService for business logic
+  routeApp.get('/ready', async (c) => {
+    const readiness = await healthService.getReadiness()
+    const statusCode = readiness.status === 'ready' ? 200 : 503
+    return c.json(readiness, statusCode)
   })
 
   // Root endpoint with API discovery (HATEOAS)
+  // Route handler is thin - delegates to DiscoveryService for business logic
   routeApp.get('/', (c) => {
     const baseUrl = new URL(c.req.url).origin + basePath
-
-    return c.json({
-      name: 'dotdo API',
-      version: '1.0.0',
-      description: 'Self-describing HATEOAS API',
-      _links: {
-        self: {
-          href: `${baseUrl}/`,
-          rel: 'self',
-          method: 'GET'
-        },
-        health: {
-          href: `${baseUrl}/health`,
-          rel: 'health',
-          method: 'GET',
-          title: 'Health check endpoint'
-        }
-      }
-    })
+    const apiRoot = discoveryService.getAPIRoot(baseUrl)
+    return c.json(apiRoot)
   })
 
   // Mount routes (either at root or under basePath)
@@ -182,17 +182,12 @@ export function createAPI(options?: APIOptions) {
   }
 
   // 404 handler for the base app (handles all not found routes)
+  // Route handler is thin - delegates to DiscoveryService for business logic
   baseApp.notFound((c) => {
     const requestId = c.get('requestId') || 'unknown'
-    return c.json(
-      {
-        error: 'Not Found',
-        status: 404,
-        path: c.req.path,
-        requestId
-      },
-      404
-    )
+    const baseUrl = new URL(c.req.url).origin + basePath
+    const errorResponse = discoveryService.getNotFoundError(baseUrl, c.req.path, requestId)
+    return c.json(errorResponse, 404)
   })
 
   return baseApp
