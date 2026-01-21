@@ -38,7 +38,8 @@ function AdminPortal() {
   })
 
   const [formData, setFormData] = useState<Record<string, unknown>>({})
-  const [websocket, setWebsocket] = useState<WebSocket | null>(null)
+  // WebSocket state stored for potential future use (e.g., sending messages)
+  const [_websocket, setWebsocket] = useState<WebSocket | null>(null)
 
   // Connect WebSocket for real-time updates
   useEffect(() => {

@@ -288,7 +288,7 @@ class TanStackDBClient implements DataClient {
   private ws: WebSocket | null = null
   private baseUrl: string
   private timeout: number
-  private token?: string | undefined
+  // Note: Token is passed through to REST fallback via options spread
   private pendingRequests: Map<string, (value: unknown) => void> = new Map()
   private requestCounter = 0
   private updateListeners: Set<UpdateListener> = new Set()
@@ -300,9 +300,8 @@ class TanStackDBClient implements DataClient {
   constructor(options: DataClientOptions) {
     this.baseUrl = options.baseUrl
     this.timeout = options.timeout || 30000
-    this.token = options.token
 
-    // Create REST fallback client
+    // Create REST fallback client (includes token from options)
     const restUrl = this.baseUrl.replace(/^wss?:\/\//, 'https://')
     this.restFallback = new RESTClient({
       ...options,
