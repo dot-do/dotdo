@@ -1108,9 +1108,9 @@ describe('Circuit Breaker Edge Cases', () => {
       await promise
 
       const metrics = resilient.getMetrics()
-      // With jitter, delay should be between 100 and 125 (100 + 25% jitter)
-      expect(metrics.lastRetryDelayMs).toBeGreaterThanOrEqual(100)
-      expect(metrics.lastRetryDelayMs).toBeLessThanOrEqual(125)
+      // With full jitter (jitter: true), delay is in range [0, 100ms]
+      expect(metrics.lastRetryDelayMs).toBeGreaterThanOrEqual(0)
+      expect(metrics.lastRetryDelayMs).toBeLessThanOrEqual(100)
     })
 
     it('should notify on all state transitions', async () => {

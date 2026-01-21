@@ -9,7 +9,7 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    include: ['tests/hateoas.test.ts'],
+    include: ['tests/hateoas.test.ts', 'tests/hateoas-e2e.test.ts'],
     globals: true,
     testTimeout: 10000,
   },

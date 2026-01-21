@@ -2,7 +2,7 @@
 // Prevents cascading failures by stopping requests when a threshold is reached
 
 import { CircuitOpenError } from './base'
-import { RetryOptions, retryWithBackoff } from './retry'
+import { RetryOptions, JitterStrategy, calculateJitteredDelay } from './retry'
 import { isRetryableError } from './base'
 
 /**
@@ -241,7 +241,7 @@ export class RetryWithCircuitBreaker {
       initialDelay: options.retry?.initialDelay ?? 1000,
       backoffFactor: options.retry?.backoffFactor ?? 2,
       maxDelay: options.retry?.maxDelay ?? 30000,
-      jitter: options.retry?.jitter ?? true, // Default to true for distributed systems
+      jitter: options.retry?.jitter ?? 'full', // Default to 'full' jitter for distributed systems
     }
     if (options.onStateChange !== undefined) {
       this.onStateChange = options.onStateChange
@@ -278,6 +278,7 @@ export class RetryWithCircuitBreaker {
 
     let lastError: unknown
     let attempt = 0
+    let previousDelay = initialDelay
 
     while (attempt <= maxRetries) {
       try {
@@ -297,14 +298,12 @@ export class RetryWithCircuitBreaker {
           throw error
         }
 
-        // Calculate delay with exponential backoff
-        let delay = Math.min(initialDelay * Math.pow(backoffFactor, attempt - 1), maxDelay)
+        // Calculate base delay with exponential backoff
+        const baseDelay = Math.min(initialDelay * Math.pow(backoffFactor, attempt - 1), maxDelay)
 
-        // Add jitter if requested (0-25% added to prevent thundering herd)
-        if (jitter) {
-          const jitterFactor = 0.25
-          delay = delay * (1 + Math.random() * jitterFactor)
-        }
+        // Apply jitter strategy to prevent thundering herd
+        const delay = calculateJitteredDelay(baseDelay, jitter, initialDelay, previousDelay)
+        previousDelay = delay > 0 ? delay : initialDelay
 
         this.lastRetryDelayMs = delay
 

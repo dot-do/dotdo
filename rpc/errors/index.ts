@@ -48,7 +48,9 @@ export {
 
 // Export retry utilities
 export {
+  type JitterStrategy,
   type RetryOptions,
+  calculateJitteredDelay,
   retryWithBackoff,
   withTimeout,
 } from './retry'

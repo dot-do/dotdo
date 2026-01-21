@@ -14,6 +14,8 @@ import {
   CircuitOpenError,
   isCircuitOpenError,
   RetryWithCircuitBreaker,
+  calculateJitteredDelay,
+  type JitterStrategy,
 } from '../errors'
 import { expectRPCError, expectRPCErrorType } from '../../test-utils'
 
@@ -233,6 +235,78 @@ describe('retryWithBackoff', () => {
     expect(fn).toHaveBeenCalledTimes(2)
   })
 
+  it('should support full jitter strategy (jitter: true)', async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Fail'))
+      .mockResolvedValue('success')
+
+    const promise = retryWithBackoff(fn, {
+      maxRetries: 2,
+      initialDelay: 100,
+      jitter: 'full',
+    })
+
+    await vi.runAllTimersAsync()
+
+    const result = await promise
+    expect(result).toBe('success')
+    expect(fn).toHaveBeenCalledTimes(2)
+  })
+
+  it('should support equal jitter strategy', async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Fail'))
+      .mockResolvedValue('success')
+
+    const promise = retryWithBackoff(fn, {
+      maxRetries: 2,
+      initialDelay: 100,
+      jitter: 'equal',
+    })
+
+    await vi.runAllTimersAsync()
+
+    const result = await promise
+    expect(result).toBe('success')
+    expect(fn).toHaveBeenCalledTimes(2)
+  })
+
+  it('should support decorrelated jitter strategy', async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Fail'))
+      .mockResolvedValue('success')
+
+    const promise = retryWithBackoff(fn, {
+      maxRetries: 2,
+      initialDelay: 100,
+      jitter: 'decorrelated',
+    })
+
+    await vi.runAllTimersAsync()
+
+    const result = await promise
+    expect(result).toBe('success')
+    expect(fn).toHaveBeenCalledTimes(2)
+  })
+
+  it('should support none jitter strategy (same as jitter: false)', async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Fail'))
+      .mockResolvedValue('success')
+
+    const promise = retryWithBackoff(fn, {
+      maxRetries: 2,
+      initialDelay: 100,
+      jitter: 'none',
+    })
+
+    await vi.runAllTimersAsync()
+
+    const result = await promise
+    expect(result).toBe('success')
+    expect(fn).toHaveBeenCalledTimes(2)
+  })
+
   it('should use default options when not provided', async () => {
     const fn = vi.fn()
       .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Fail'))
@@ -244,6 +318,75 @@ describe('retryWithBackoff', () => {
 
     const result = await promise
     expect(result).toBe('success')
+  })
+})
+
+describe('calculateJitteredDelay', () => {
+  it('should return exact delay with jitter: none', () => {
+    const delay = calculateJitteredDelay(100, 'none', 50, 50)
+    expect(delay).toBe(100)
+  })
+
+  it('should return exact delay with jitter: false', () => {
+    const delay = calculateJitteredDelay(100, false, 50, 50)
+    expect(delay).toBe(100)
+  })
+
+  it('should return value in [0, baseDelay] with full jitter', () => {
+    // Run multiple times to verify randomness bounds
+    for (let i = 0; i < 100; i++) {
+      const delay = calculateJitteredDelay(100, 'full', 50, 50)
+      expect(delay).toBeGreaterThanOrEqual(0)
+      expect(delay).toBeLessThanOrEqual(100)
+    }
+  })
+
+  it('should return value in [0, baseDelay] with jitter: true (alias for full)', () => {
+    for (let i = 0; i < 100; i++) {
+      const delay = calculateJitteredDelay(100, true, 50, 50)
+      expect(delay).toBeGreaterThanOrEqual(0)
+      expect(delay).toBeLessThanOrEqual(100)
+    }
+  })
+
+  it('should return value in [baseDelay/2, baseDelay] with equal jitter', () => {
+    for (let i = 0; i < 100; i++) {
+      const delay = calculateJitteredDelay(100, 'equal', 50, 50)
+      expect(delay).toBeGreaterThanOrEqual(50)
+      expect(delay).toBeLessThanOrEqual(100)
+    }
+  })
+
+  it('should return value in [initialDelay, min(previousDelay*3, baseDelay)] with decorrelated jitter', () => {
+    const initialDelay = 50
+    const previousDelay = 30
+    const baseDelay = 100
+
+    for (let i = 0; i < 100; i++) {
+      const delay = calculateJitteredDelay(baseDelay, 'decorrelated', initialDelay, previousDelay)
+      expect(delay).toBeGreaterThanOrEqual(initialDelay)
+      // previousDelay * 3 = 90, which is less than baseDelay (100), so max is 90
+      expect(delay).toBeLessThanOrEqual(90)
+    }
+  })
+
+  it('should cap decorrelated jitter at baseDelay', () => {
+    const initialDelay = 50
+    const previousDelay = 100 // previousDelay * 3 = 300
+    const baseDelay = 150 // But we cap at baseDelay
+
+    for (let i = 0; i < 100; i++) {
+      const delay = calculateJitteredDelay(baseDelay, 'decorrelated', initialDelay, previousDelay)
+      expect(delay).toBeGreaterThanOrEqual(initialDelay)
+      expect(delay).toBeLessThanOrEqual(baseDelay)
+    }
+  })
+
+  it('should handle unknown jitter strategy by returning baseDelay', () => {
+    // TypeScript won't allow invalid strategies at compile time,
+    // but at runtime we should handle it gracefully
+    const delay = calculateJitteredDelay(100, 'invalid' as JitterStrategy, 50, 50)
+    expect(delay).toBe(100)
   })
 })
 
@@ -1021,10 +1164,10 @@ describe('RetryWithCircuitBreaker', () => {
     expect(fn).toHaveBeenCalledTimes(1) // No retries for NOT_FOUND
   })
 
-  it('should use default jitter for distributed systems', async () => {
+  it('should use default full jitter for distributed systems', async () => {
     const resilient = new RetryWithCircuitBreaker({
       retry: { maxRetries: 1, initialDelay: 100 },
-      // jitter defaults to true
+      // jitter defaults to 'full'
     })
 
     const fn = vi.fn()
@@ -1035,9 +1178,37 @@ describe('RetryWithCircuitBreaker', () => {
     await vi.runAllTimersAsync()
     await promise
 
-    // Delay should include jitter (100ms + up to 25%)
+    // Full jitter: delay is in range [0, 100ms]
     const metrics = resilient.getMetrics()
-    expect(metrics.lastRetryDelayMs).toBeGreaterThanOrEqual(100)
-    expect(metrics.lastRetryDelayMs).toBeLessThanOrEqual(125)
+    expect(metrics.lastRetryDelayMs).toBeGreaterThanOrEqual(0)
+    expect(metrics.lastRetryDelayMs).toBeLessThanOrEqual(100)
+  })
+
+  it('should support all jitter strategies in RetryWithCircuitBreaker', async () => {
+    const strategies: Array<{ jitter: 'none' | 'full' | 'equal' | 'decorrelated'; minDelay: number; maxDelay: number }> = [
+      { jitter: 'none', minDelay: 100, maxDelay: 100 },
+      { jitter: 'full', minDelay: 0, maxDelay: 100 },
+      { jitter: 'equal', minDelay: 50, maxDelay: 100 },
+      { jitter: 'decorrelated', minDelay: 100, maxDelay: 100 }, // First retry: min is initialDelay
+    ]
+
+    for (const { jitter, minDelay, maxDelay } of strategies) {
+      const resilient = new RetryWithCircuitBreaker({
+        retry: { maxRetries: 1, initialDelay: 100, jitter },
+        circuitBreaker: { failureThreshold: 5, timeout: 30000 },
+      })
+
+      const fn = vi.fn()
+        .mockRejectedValueOnce(new RPCError(RPCErrorCode.NETWORK_ERROR, 'Fail'))
+        .mockResolvedValue('success')
+
+      const promise = resilient.execute(fn)
+      await vi.runAllTimersAsync()
+      await promise
+
+      const metrics = resilient.getMetrics()
+      expect(metrics.lastRetryDelayMs).toBeGreaterThanOrEqual(minDelay)
+      expect(metrics.lastRetryDelayMs).toBeLessThanOrEqual(maxDelay)
+    }
   })
 })
