@@ -1,0 +1,69 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dotdo-staging",
+  "main": "worker.ts",
+  "compatibility_date": "2025-01-15",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Staging settings - enable workers.dev for easy testing
+  "workers_dev": true,
+
+  // Optional: Custom staging domain
+  "routes": [
+    { "pattern": "api-staging.yourdomain.com/*", "zone_name": "yourdomain.com" }
+  ],
+
+  // Durable Object bindings (same as production)
+  "durable_objects": {
+    "bindings": [
+      { "name": "DO", "class_name": "DO" }
+    ]
+  },
+
+  // Migrations
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DO"]
+    }
+  ],
+
+  // Staging environment variables
+  "vars": {
+    "ENVIRONMENT": "staging",
+    "LOG_LEVEL": "debug"
+  },
+
+  // Separate R2 buckets for staging
+  "r2_buckets": [
+    {
+      "binding": "BACKUP_BUCKET",
+      "bucket_name": "dotdo-backups-staging"
+    },
+    {
+      "binding": "STORAGE",
+      "bucket_name": "dotdo-storage-staging"
+    }
+  ],
+
+  // Separate KV namespace for staging
+  "kv_namespaces": [
+    {
+      "binding": "CACHE",
+      "id": "your-staging-kv-namespace-id-here"
+    }
+  ],
+
+  // Analytics for staging
+  "analytics_engine_datasets": [
+    {
+      "binding": "ANALYTICS",
+      "dataset": "dotdo_staging"
+    }
+  ],
+
+  // Enable observability for debugging
+  "observability": {
+    "enabled": true
+  }
+}
