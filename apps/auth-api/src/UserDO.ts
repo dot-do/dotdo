@@ -91,7 +91,11 @@ async function verifyPassword(password: string, storedHash: string): Promise<boo
 
   let result = 0
   for (let i = 0; i < hashArray.length; i++) {
-    result |= hashArray[i] ^ originalHash[i]
+    const hashByte = hashArray[i]
+    const originalByte = originalHash[i]
+    if (hashByte !== undefined && originalByte !== undefined) {
+      result |= hashByte ^ originalByte
+    }
   }
 
   return result === 0
