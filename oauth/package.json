@@ -17,6 +17,14 @@
     "./state": {
       "import": "./src/core/state.ts",
       "types": "./src/core/state.ts"
+    },
+    "./storage": {
+      "import": "./src/storage/index.ts",
+      "types": "./src/storage/index.ts"
+    },
+    "./providers": {
+      "import": "./src/providers/index.ts",
+      "types": "./src/providers/index.ts"
     }
   },
   "scripts": {

@@ -37,3 +37,39 @@ export type {
   TokenResponse,
   OAuthError,
 } from './core/types'
+
+// Session storage
+export {
+  MemorySessionStore,
+  KVSessionStore,
+  D1SessionStore,
+  D1_SESSION_SCHEMA,
+} from './storage'
+
+export type {
+  SessionData,
+  SessionStore,
+  SessionStoreOptions,
+  KVSessionStoreOptions,
+  D1SessionStoreOptions,
+} from './storage'
+
+// Provider registry and built-in providers
+export {
+  ProviderRegistry,
+  defaultRegistry,
+  createGoogleProvider,
+  createGitHubProvider,
+  createMicrosoftProvider,
+  createCustomProvider,
+} from './providers'
+
+export type {
+  OAuthProvider,
+  OAuthProviderConfig,
+  UserInfo,
+  GoogleProviderConfig,
+  GitHubProviderConfig,
+  MicrosoftProviderConfig,
+  CustomProviderConfig,
+} from './providers'
