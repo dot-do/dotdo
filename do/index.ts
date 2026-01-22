@@ -1139,13 +1139,46 @@ export {
   type ClientContext,
   type ClientContextOptions,
   type Thing as ClientThing,
-  type ListResult,
-  type EventPayload,
+  type ListResult as ClientListResult,
+  type EventPayload as ClientEventPayload,
   type EventHandler as ClientEventHandler,
-  type UnsubscribeFn,
-  type ThingsAPI,
-  type EventsAPI,
-  type EntityProxy,
+  type UnsubscribeFn as ClientUnsubscribeFn,
+  type ThingsAPI as ClientThingsAPI,
+  type EventsAPI as ClientEventsAPI,
+  type EntityProxy as ClientEntityProxy,
   type OnProxy as ClientOnProxy,
-  type OnNounProxy,
+  type OnNounProxy as ClientOnNounProxy,
 } from './client'
+
+/**
+ * Shared Context Types (do-99vxp.3)
+ *
+ * These types define the common API surface between server-side $ (WorkflowContext)
+ * and client-side $ ($Context/$Client). Code using these interfaces works identically
+ * regardless of whether it runs inside a DO or connects remotely.
+ *
+ * @example
+ * ```typescript
+ * import type { SharedContextAPI, Thing, EventPayload } from '@dotdo/do'
+ *
+ * // This function works with both client and server $
+ * async function createCustomer($: SharedContextAPI, name: string): Promise<Thing> {
+ *   return $.things.create({ $type: 'Customer', name })
+ * }
+ *
+ * // Server-side
+ * const serverCustomer = await createCustomer($, 'Alice')
+ *
+ * // Client-side
+ * const clientCustomer = await createCustomer($Client('https://api.example.com'), 'Bob')
+ * ```
+ */
+export {
+  isServerContext,
+  isClientContext,
+  type SharedContextAPI,
+  type ServerContextExtensions,
+  type ClientContextExtensions,
+  // Note: Thing, ListResult, EventPayload, etc. are already exported from other modules
+  // Use SharedContextAPI.things.create() etc. for the unified interface
+} from './shared-context'

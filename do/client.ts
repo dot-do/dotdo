@@ -16,8 +16,24 @@
  * @module do/client
  */
 
+// Import shared types for unified $ interface
+import type {
+  Thing as SharedThing,
+  ListResult as SharedListResult,
+  EventPayload as SharedEventPayload,
+  EventHandler as SharedEventHandler,
+  UnsubscribeFn as SharedUnsubscribeFn,
+  ThingsAPI as SharedThingsAPI,
+  EventsAPI as SharedEventsAPI,
+  EntityProxy as SharedEntityProxy,
+  OnNounProxy as SharedOnNounProxy,
+  OnProxy as SharedOnProxy,
+  SharedContextAPI,
+  ClientContextExtensions,
+} from './shared-context'
+
 // ============================================================================
-// Types
+// Types - Re-export from shared for backward compatibility
 // ============================================================================
 
 export interface ClientContextOptions {
@@ -31,72 +47,25 @@ export interface ClientContextOptions {
   retries?: number
 }
 
-export interface Thing {
-  $id: string
-  $type: string
-  $createdAt?: number
-  $updatedAt?: number
-  [key: string]: unknown
-}
+// Re-export shared types with original names for backward compatibility
+export type Thing = SharedThing
+export type ListResult<T> = SharedListResult<T>
+export type EventPayload = SharedEventPayload
+export type EventHandler = SharedEventHandler
+export type UnsubscribeFn = SharedUnsubscribeFn
+export type ThingsAPI = SharedThingsAPI
+export type EventsAPI = SharedEventsAPI
+export type EntityProxy = SharedEntityProxy
+export type OnNounProxy = SharedOnNounProxy
+export type OnProxy = SharedOnProxy
 
-export interface ListResult<T> {
-  items: T[]
-  total: number
-  hasMore: boolean
-  cursor?: string
-}
-
-export interface EventPayload {
-  type: string
-  payload: unknown
-  $id: string
-  $timestamp: number
-}
-
-export type EventHandler = (event: EventPayload) => void | Promise<void>
-export type UnsubscribeFn = () => void
-
-export interface ThingsAPI {
-  create(data: { $type: string; [key: string]: unknown }): Promise<Thing>
-  get(id: string): Promise<Thing | null>
-  list(options: { $type: string; limit?: number; offset?: number; where?: Record<string, unknown> }): Promise<ListResult<Thing>>
-  update(id: string, data: Record<string, unknown>): Promise<Thing>
-  delete(id: string): Promise<{ deleted: boolean }>
-}
-
-export interface EventsAPI {
-  emit(event: { type: string; payload?: unknown }, options?: { fireAndForget?: boolean }): Promise<{ $id: string; $timestamp: number } | { queued: boolean }>
-  subscribe(event: string, handler: EventHandler): UnsubscribeFn
-  query(options: { type: string; since?: number }): Promise<{ items: EventPayload[]; total: number }>
-}
-
-export interface EntityProxy {
-  update(data: Record<string, unknown>): Promise<Thing>
-  [method: string]: (...args: unknown[]) => Promise<unknown>
-}
-
-export interface OnNounProxy {
-  [verb: string]: (handler: EventHandler) => UnsubscribeFn
-}
-
-export interface OnProxy {
-  [noun: string]: OnNounProxy
-}
-
-export interface ClientContext {
-  things: ThingsAPI
-  events: EventsAPI
-  on: OnProxy
-  connect(): Promise<void>
-  disconnect(): Promise<void>
-  isConnected(): boolean
-  onConnected(handler: () => void): void
-  onDisconnected(handler: () => void): void
-  onReconnecting(handler: () => void): void
-  onError(handler: (error: Error) => void): void
-  onHandlerError(handler: (error: Error, event: EventPayload) => void): void
-  use(middleware: (request: RequestInit) => RequestInit): void
-  useResponse(middleware: (response: unknown) => unknown): void
+/**
+ * ClientContext - the client-side $ context interface.
+ *
+ * Implements SharedContextAPI (common with server) plus ClientContextExtensions
+ * for connection management and middleware.
+ */
+export interface ClientContext extends SharedContextAPI, ClientContextExtensions {
   // Internal state (for testing)
   _tenant?: string
   _namespace?: string
@@ -106,7 +75,7 @@ export interface ClientContext {
   _isOnline?: boolean
   _offlineQueue?: Array<{ resolve: (value: unknown) => void; reject: (error: Error) => void; method: string; args: unknown[] }>
   _processOfflineQueue?: () => Promise<void>
-  // Entity proxy accessor
+  // Entity proxy accessor (from SharedContextAPI)
   [noun: string]: ((id: string) => EntityProxy) | unknown
 }
 

@@ -66,6 +66,8 @@ import { createInMemoryErrorStore, extractErrorInfo } from '../fire-and-forget-e
 import type { FireAndForgetErrorStore } from '../fire-and-forget-errors'
 import { IntegrationRegistry } from '@dotdo/integrations'
 import { createScopedLogger, LogLevel } from '@dotdo/utils'
+// Import shared context types for unified $ interface (do-99vxp.3)
+import type { ThingsAPI, EventsAPI, EventPayload as SharedEventPayload } from '../shared-context'
 import {
   runWithWorkflowContextSync,
   getContextMetadata,
@@ -463,6 +465,161 @@ export function createContext(
   return createDORPCProxy(baseContext) as WorkflowContext
 }
 
+// ============================================================================
+// SHARED INTERFACE HELPERS (do-99vxp.3)
+// These wrap internal stores to provide a unified API matching client-side $
+// ============================================================================
+
+/**
+ * Create the $.things API that wraps ThingsStore.
+ * Provides a unified interface matching the client-side $.things.
+ */
+function createThingsAPI(things?: ThingsStore): ThingsAPI {
+  return {
+    async create(data: { $type: string; [key: string]: unknown }) {
+      if (!things) {
+        throw new Error('Cannot use $.things without a things store. Pass { things: store } to createContext options.')
+      }
+      // Cast data to match ThingsStore signature
+      const result = await things.create(data as { $type: string } & Record<string, JsonValue | undefined>)
+      return result
+    },
+
+    async get(id: string) {
+      if (!things) {
+        throw new Error('Cannot use $.things without a things store. Pass { things: store } to createContext options.')
+      }
+      return things.get(id)
+    },
+
+    async list(options: { $type: string; limit?: number; offset?: number; cursor?: string; where?: Record<string, unknown> }) {
+      if (!things) {
+        throw new Error('Cannot use $.things without a things store. Pass { things: store } to createContext options.')
+      }
+      const results = await things.list({
+        type: options.$type,
+        limit: options.limit,
+        offset: options.offset,
+        // Note: cursor and where may require additional ThingsStore support
+      })
+      return {
+        items: results,
+        total: results.length, // Note: full count requires ThingsStore enhancement
+        hasMore: false, // Note: pagination requires ThingsStore enhancement
+      }
+    },
+
+    async update(id: string, data: Record<string, unknown>) {
+      if (!things) {
+        throw new Error('Cannot use $.things without a things store. Pass { things: store } to createContext options.')
+      }
+      // Cast data to match ThingsStore signature
+      return things.update(id, data as Record<string, JsonValue | undefined>)
+    },
+
+    async delete(id: string) {
+      if (!things) {
+        throw new Error('Cannot use $.things without a things store. Pass { things: store } to createContext options.')
+      }
+      await things.delete(id)
+      return { deleted: true }
+    },
+  }
+}
+
+/**
+ * Create the $.events API that wraps EventsStore.
+ * Provides a unified interface matching the client-side $.events.
+ */
+function createEventsAPI(events: EventsStore, handlers: Map<string, EventHandler[]>): EventsAPI {
+  return {
+    async emit(event: { type: string; payload?: unknown }, options?: { fireAndForget?: boolean }) {
+      const emitted = await events.emit({
+        type: event.type,
+        payload: (event.payload ?? null) as JsonValue,
+        source: 'api',
+      })
+
+      // If fire-and-forget, return queued status
+      if (options?.fireAndForget) {
+        // Process handlers asynchronously (fire-and-forget)
+        queueMicrotask(async () => {
+          const matchingHandlers = matchHandlers(event.type, handlers)
+          for (const handler of matchingHandlers) {
+            try {
+              await handler(emitted)
+            } catch (err) {
+              logger.error(`Error in handler for event "${event.type}":`, err)
+            }
+          }
+        })
+        return { queued: true }
+      }
+
+      // Otherwise, process handlers synchronously and return metadata
+      const matchingHandlers = matchHandlers(event.type, handlers)
+      for (const handler of matchingHandlers) {
+        try {
+          await handler(emitted)
+        } catch (err) {
+          logger.error(`Error in handler for event "${event.type}":`, err)
+        }
+      }
+
+      return { $id: emitted.$id, $timestamp: emitted.$timestamp }
+    },
+
+    subscribe(eventPattern: string, handler: (event: SharedEventPayload) => void | Promise<void>) {
+      // Register local handler
+      const existingHandlers = handlers.get(eventPattern) || []
+      // Wrap the handler to convert Event to SharedEventPayload
+      const wrappedHandler: EventHandler<Event> = (event: Event) => {
+        const sharedEvent: SharedEventPayload = {
+          type: event.type,
+          payload: event.payload,
+          $id: event.$id,
+          $timestamp: event.$timestamp,
+          source: event.source,
+        }
+        return handler(sharedEvent)
+      }
+      handlers.set(eventPattern, [...existingHandlers, wrappedHandler as EventHandler])
+
+      // Return unsubscribe function
+      return () => {
+        const currentHandlers = handlers.get(eventPattern)
+        if (currentHandlers) {
+          const index = currentHandlers.indexOf(wrappedHandler as EventHandler)
+          if (index >= 0) {
+            currentHandlers.splice(index, 1)
+          }
+        }
+      }
+    },
+
+    async query(options: { type: string; since?: number; until?: number; limit?: number }) {
+      // Query events from the store
+      const results = await events.query({
+        type: options.type,
+        limit: options.limit,
+        ...(options.since !== undefined && { since: options.since }),
+        ...(options.until !== undefined && { until: options.until }),
+      })
+
+      // Map to shared EventPayload interface
+      const items: SharedEventPayload[] = results.map((e: Event) => ({
+        type: e.type,
+        payload: e.payload,
+        $id: e.$id,
+        $timestamp: e.$timestamp,
+        source: e.source,
+      }))
+
+      return { items, total: items.length }
+    },
+  }
+}
+
 /**
  * Create the base context object with all workflow methods
  */
@@ -561,6 +718,17 @@ function createBaseContext(
 
     // Integration registry for third-party services
     integrations,
+
+    // =========================================================================
+    // SHARED INTERFACE (do-99vxp.3)
+    // These APIs match the client-side $Context for unified code
+    // =========================================================================
+
+    // Things API - wraps ThingsStore for shared interface compatibility
+    things: createThingsAPI(things),
+
+    // Events API - wraps EventsStore for shared interface compatibility
+    events: createEventsAPI(events, handlers),
 
     // Extended primitives (fsx, gitx, bashx, npmx) - wired via options (do-ibsi)
     fs: options?.fs,

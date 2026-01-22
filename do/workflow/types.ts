@@ -417,14 +417,68 @@ export interface WorkflowContextInternals {
   _evaluator?: CodeEvaluator
 }
 
+// Import shared context types for unified interface (do-99vxp.3)
+import type {
+  ThingsAPI as SharedThingsAPI,
+  EventsAPI as SharedEventsAPI,
+} from '../shared-context'
+
 /**
  * Public API for WorkflowContext.
  *
  * This interface defines the user-facing API for the $ context object.
  * It provides the fluent API for event handling, scheduling, cross-DO RPC,
  * and durability levels.
+ *
+ * Note: `things` and `events` are added to match the shared $ context interface
+ * (do-99vxp.3), allowing code to work identically on both client and server.
  */
 export interface WorkflowContextPublicAPI {
+  // =========================================================================
+  // SHARED INTERFACE (works on both client and server)
+  // See shared-context.ts for full documentation
+  // =========================================================================
+
+  /**
+   * CRUD operations for Things.
+   * Provides a unified API that matches the client-side $.things.
+   *
+   * @example
+   * ```typescript
+   * // Works identically on client and server
+   * const customer = await $.things.create({ $type: 'Customer', name: 'Alice' })
+   * const retrieved = await $.things.get(customer.$id)
+   * const customers = await $.things.list({ $type: 'Customer' })
+   * await $.things.update(customer.$id, { name: 'Alice Smith' })
+   * await $.things.delete(customer.$id)
+   * ```
+   */
+  things: SharedThingsAPI
+
+  /**
+   * Event emission and subscription.
+   * Provides a unified API that matches the client-side $.events.
+   *
+   * Note: On server, emit() persists to EventsStore and triggers handlers.
+   * subscribe() is less commonly used server-side (prefer $.on.Noun.verb).
+   *
+   * @example
+   * ```typescript
+   * // Works identically on client and server
+   * await $.events.emit({ type: 'Customer.signup', payload: { email } })
+   * const events = await $.events.query({ type: 'Customer.signup' })
+   * ```
+   */
+  events: SharedEventsAPI
+
+  // Event handlers (Proxy-based) - shared interface
+  on: OnProxy
+
+  // =========================================================================
+  // SERVER-ONLY EXTENSIONS
+  // These are not available on the client-side $Context
+  // =========================================================================
+
   // Durability levels
   /** Fire-and-forget event emission */
   send(event: { type: string; payload?: unknown }): void
@@ -432,9 +486,6 @@ export interface WorkflowContextPublicAPI {
   try<T>(action: () => Promise<T>, options?: TryOptions): Promise<T>
   /** Durable with retries */
   do<T>(action: () => Promise<T>, options?: DoOptions): Promise<T>
-
-  // Event handlers (Proxy-based)
-  on: OnProxy
 
   // Scheduling DSL
   every: EveryProxy
