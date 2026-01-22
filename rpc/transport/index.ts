@@ -4,7 +4,11 @@
 // Types
 export * from './types'
 
+// Error utilities for unified error handling across transports
+export * from './error-utils'
+
 // Transports
 export * from './fetch'
 export * from './websocket'
 export * from './stub'
+export * from './auto'

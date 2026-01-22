@@ -10,8 +10,8 @@
  * - Integration with workers.do API
  */
 
-// Note: oauth.do/node is external dependency that provides authentication
-// For now, we'll use a simplified implementation that can be swapped out
+import { getStoredToken, login, type StoredToken } from './login'
+import { createProgress } from '../utils/progress'
 
 export const name = 'deploy'
 export const description = 'Deploy to Cloudflare Workers'
@@ -47,9 +47,16 @@ type SpawnFn = (command: string[], options?: SpawnOptions) => SpawnedProcess
 interface RunOptions {
   spawn?: SpawnFn
   apiUrl?: string
-  skipAuth?: boolean // For testing/local development
+  /**
+   * Skip authentication check. ONLY for unit testing with mocked spawn.
+   * This allows tests to run without requiring OAuth flow.
+   * NEVER use in production code paths.
+   */
+  skipAuth?: boolean
   skipBuild?: boolean // Skip build step
   verbose?: boolean
+  /** Output as JSON for scripting */
+  json?: boolean
 }
 
 /**
@@ -59,6 +66,8 @@ interface RunResult {
   exitCode: number
   success: boolean
   deploymentUrl?: string
+  message?: string
+  error?: string
 }
 
 /**
@@ -70,22 +79,110 @@ interface AuthResult {
 }
 
 /**
- * Mock authentication function
- * TODO: Replace with actual oauth.do/node when available
+ * Known mock/test token patterns that should be rejected in production
+ */
+const MOCK_TOKEN_PATTERNS = [
+  'mock-token',
+  'test-token',
+  'fake-token',
+  'mock-token-for-development',
+]
+
+/**
+ * Check if a token looks like a mock/test token
+ */
+function isMockToken(token: string): boolean {
+  const lowerToken = token.toLowerCase()
+  return MOCK_TOKEN_PATTERNS.some(pattern => lowerToken.includes(pattern))
+}
+
+/**
+ * Check if a stored token is expired
+ */
+function isTokenExpired(token: StoredToken): boolean {
+  if (!token.expires_at) {
+    return false
+  }
+  return token.expires_at < Date.now()
+}
+
+/**
+ * Ensure user is logged in with a valid token
+ * Uses real OAuth flow via login.ts
  */
 async function ensureLoggedIn(options: {
   openBrowser?: boolean
   print?: (message: string) => void
 }): Promise<AuthResult> {
-  // For now, return a mock token
-  // In production, this would trigger OAuth flow via oauth.do
+  // First, check for DO_TOKEN environment variable (CI/CD use case)
+  const envToken = process.env['DO_TOKEN']
+  if (envToken) {
+    // Reject mock tokens in production deployments
+    if (isMockToken(envToken)) {
+      throw new Error(
+        'Mock tokens cannot be used for deployment. Please set a valid DO_TOKEN or run `dotdo login`.'
+      )
+    }
+    if (options.print) {
+      options.print('[Auth] Using token from DO_TOKEN environment variable')
+    }
+    return {
+      token: envToken,
+      isNewLogin: false,
+    }
+  }
+
+  // Check for stored token from previous login
+  const storedToken = await getStoredToken()
+
+  if (storedToken) {
+    // Validate the stored token
+    if (isMockToken(storedToken.access_token)) {
+      throw new Error(
+        'Stored token appears to be a mock token. Please run `dotdo login` to authenticate.'
+      )
+    }
+
+    // Check if token is expired
+    if (isTokenExpired(storedToken)) {
+      if (options.print) {
+        options.print('[Auth] Stored token is expired, initiating login flow...')
+      }
+      // Fall through to trigger login
+    } else {
+      if (options.print) {
+        options.print('[Auth] Using stored token from previous login')
+      }
+      return {
+        token: storedToken.access_token,
+        isNewLogin: false,
+      }
+    }
+  }
+
+  // No valid token found, trigger OAuth login flow
   if (options.print) {
-    options.print('[Auth] Mock authentication - TODO: Implement oauth.do/node')
+    options.print('[Auth] No valid token found, initiating OAuth login flow...')
+  }
+
+  await login({ noBrowser: !options.openBrowser })
+
+  // Get the newly stored token
+  const newToken = await getStoredToken()
+  if (!newToken) {
+    throw new Error('Login completed but no token was stored. Please try again.')
+  }
+
+  // Final validation - ensure we didn't somehow get a mock token
+  if (isMockToken(newToken.access_token)) {
+    throw new Error(
+      'Authentication returned an invalid token. Please contact support.'
+    )
   }
 
   return {
-    token: process.env.DO_TOKEN || 'mock-token-for-development',
-    isNewLogin: false,
+    token: newToken.access_token,
+    isNewLogin: true,
   }
 }
 
@@ -122,39 +219,40 @@ function parseArgs(args: string[]): {
 /**
  * Build the project before deployment
  */
-async function buildProject(spawnFn: SpawnFn, verbose?: boolean): Promise<boolean> {
-  if (verbose) {
-    console.log('[Build] Building project...')
-  } else {
-    console.log('Building...')
-  }
+async function buildProject(spawnFn: SpawnFn, verbose?: boolean, jsonMode?: boolean): Promise<boolean> {
+  const progress = createProgress({ silent: jsonMode })
+  progress.start('Building project...')
 
   try {
     const proc = spawnFn(['bunx', 'wrangler', 'deploy', '--dry-run'], {
       env: process.env,
-      stdio: verbose ? ['inherit', 'inherit', 'inherit'] : ['inherit', 'pipe', 'pipe'],
+      stdio: (verbose && !jsonMode) ? ['inherit', 'inherit', 'inherit'] : ['inherit', 'pipe', 'pipe'],
     })
 
     const exitCode = await proc.exited
 
     if (exitCode === 0) {
-      if (verbose) {
-        console.log('[Build] Build completed successfully')
-      }
+      progress.succeed('Build completed')
       return true
     } else {
-      console.error('Build failed with exit code:', exitCode)
+      progress.fail('Build failed')
+      if (!jsonMode) {
+        console.error('Build failed with exit code:', exitCode)
+      }
       return false
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    progress.fail('Build failed')
 
-    // Check for common errors
-    if (message.includes('ENOENT') || message.includes('not found')) {
-      console.error('Failed to start wrangler. Please ensure wrangler is installed.')
-      console.error('Install with: bun add -D wrangler')
-    } else {
-      console.error('Build error:', message)
+    if (!jsonMode) {
+      // Check for common errors
+      if (message.includes('ENOENT') || message.includes('not found')) {
+        console.error('Failed to start wrangler. Please ensure wrangler is installed.')
+        console.error('Install with: bun add -D wrangler')
+      } else {
+        console.error('Build error:', message)
+      }
     }
 
     throw error
@@ -168,35 +266,62 @@ async function rollback(
   version: string | undefined,
   spawnFn: SpawnFn,
   env: Record<string, string | undefined>,
-  verbose?: boolean
+  verbose?: boolean,
+  jsonMode?: boolean
 ): Promise<RunResult> {
   if (!version) {
-    console.error('Rollback version not specified')
-    return { exitCode: 1, success: false }
+    const result: RunResult = { exitCode: 1, success: false, error: 'Rollback version not specified' }
+    if (jsonMode) {
+      console.log(JSON.stringify(result))
+    } else {
+      console.error('Rollback version not specified')
+    }
+    return result
   }
 
-  console.log(`Rolling back to version: ${version}`)
+  const progress = createProgress({ silent: jsonMode })
+  progress.start(`Rolling back to version: ${version}...`)
 
   try {
     // Wrangler uses: wrangler deployments rollback [<deployment-id>|--message <message>]
     const proc = spawnFn(['bunx', 'wrangler', 'deployments', 'rollback', version], {
       env,
-      stdio: ['inherit', 'inherit', 'inherit'],
+      stdio: jsonMode ? ['inherit', 'pipe', 'pipe'] : ['inherit', 'inherit', 'inherit'],
     })
 
     const exitCode = await proc.exited
     const success = exitCode === 0
 
-    if (success) {
-      console.log('Rollback completed successfully')
-    } else {
-      console.error('Rollback failed with exit code:', exitCode)
+    const result: RunResult = {
+      exitCode,
+      success,
+      message: success ? 'Rollback completed' : 'Rollback failed',
     }
 
-    return { exitCode, success }
+    if (jsonMode) {
+      console.log(JSON.stringify(result))
+    } else {
+      if (success) {
+        progress.succeed('Rollback completed')
+      } else {
+        progress.fail('Rollback failed')
+        console.error('Rollback failed with exit code:', exitCode)
+      }
+    }
+
+    return result
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error('Rollback error:', message)
+    progress.fail('Rollback failed')
+
+    const result: RunResult = { exitCode: 1, success: false, error: message }
+
+    if (jsonMode) {
+      console.log(JSON.stringify(result))
+    } else {
+      console.error('Rollback error:', message)
+    }
+
     throw error
   }
 }
@@ -217,6 +342,7 @@ function extractDeploymentUrl(output: string): string | undefined {
 export async function run(args: string[], options: RunOptions = {}): Promise<RunResult> {
   const spawnFn = options.spawn ?? defaultSpawn
   const verbose = options.verbose ?? false
+  const jsonMode = options.json ?? false
 
   // Parse arguments for rollback
   const { isRollback, rollbackVersion, remainingArgs } = parseArgs(args)
@@ -227,20 +353,42 @@ export async function run(args: string[], options: RunOptions = {}): Promise<Run
     try {
       const result = await ensureLoggedIn({
         openBrowser: true,
-        print: verbose ? console.log : undefined,
+        ...(verbose && !jsonMode && { print: console.log }),
       })
       token = result.token
 
-      if (result.isNewLogin) {
+      if (result.isNewLogin && !jsonMode) {
         console.log('Logged in successfully')
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.error('Authentication error:', message)
+
+      if (jsonMode) {
+        const result: RunResult = { exitCode: 1, success: false, error: `Authentication failed: ${message}` }
+        console.log(JSON.stringify(result))
+      } else {
+        console.error('Authentication error:', message)
+      }
       throw new Error(`Authentication failed: ${message}`)
     }
   } else {
-    token = process.env.DO_TOKEN || 'mock-token'
+    // skipAuth is only for unit testing with mocked spawn functions
+    // Still require a valid DO_TOKEN environment variable
+    const envToken = process.env['DO_TOKEN']
+    if (!envToken) {
+      throw new Error(
+        'DO_TOKEN environment variable is required when skipAuth is enabled. ' +
+        'This option is only for unit testing.'
+      )
+    }
+    // Reject mock tokens even in test mode to prevent accidental deployment
+    if (isMockToken(envToken)) {
+      throw new Error(
+        'Mock tokens cannot be used for deployment, even in test mode. ' +
+        'Use a valid token or ensure your test properly mocks the spawn function.'
+      )
+    }
+    token = envToken
   }
 
   // Build environment with token
@@ -250,40 +398,52 @@ export async function run(args: string[], options: RunOptions = {}): Promise<Run
   }
 
   if (options.apiUrl) {
-    env.DO_API_URL = options.apiUrl
+    env['DO_API_URL'] = options.apiUrl
   }
 
   // Handle rollback
   if (isRollback) {
-    return rollback(rollbackVersion, spawnFn, env, verbose)
+    return rollback(rollbackVersion, spawnFn, env, verbose, jsonMode)
   }
 
   // Build project first (unless --dry-run or --skip-build)
   if (!remainingArgs.includes('--dry-run') && !options.skipBuild) {
-    const buildSuccess = await buildProject(spawnFn, verbose)
+    const buildSuccess = await buildProject(spawnFn, verbose, jsonMode)
     if (!buildSuccess) {
-      return { exitCode: 1, success: false }
+      const result: RunResult = { exitCode: 1, success: false, error: 'Build failed' }
+      if (jsonMode) {
+        console.log(JSON.stringify(result))
+      }
+      return result
     }
   }
 
   // Deploy
-  console.log('Deploying...')
+  const progress = createProgress({ silent: jsonMode })
+  progress.start('Deploying to Cloudflare Workers...')
 
   let proc: SpawnedProcess
   try {
     proc = spawnFn(['bunx', 'wrangler', 'deploy', ...remainingArgs], {
       env,
-      stdio: ['inherit', 'inherit', 'inherit'],
+      stdio: jsonMode ? ['inherit', 'pipe', 'pipe'] : ['inherit', 'inherit', 'inherit'],
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    progress.fail('Deployment failed')
 
-    // Check for common errors
-    if (message.includes('ENOENT') || message.includes('not found')) {
-      console.error('Failed to start wrangler. Please ensure wrangler is installed.')
-      console.error('Install with: bun add -D wrangler')
+    const result: RunResult = { exitCode: 1, success: false, error: message }
+
+    if (jsonMode) {
+      console.log(JSON.stringify(result))
     } else {
-      console.error('Failed to start deployment:', message)
+      // Check for common errors
+      if (message.includes('ENOENT') || message.includes('not found')) {
+        console.error('Failed to start wrangler. Please ensure wrangler is installed.')
+        console.error('Install with: bun add -D wrangler')
+      } else {
+        console.error('Failed to start deployment:', message)
+      }
     }
 
     throw error
@@ -292,13 +452,24 @@ export async function run(args: string[], options: RunOptions = {}): Promise<Run
   const exitCode = await proc.exited
   const success = exitCode === 0
 
-  if (success) {
-    console.log('Deployment completed successfully')
-  } else {
-    console.error('Deployment failed with exit code:', exitCode)
+  const result: RunResult = {
+    exitCode,
+    success,
+    message: success ? 'Deployment completed successfully' : 'Deployment failed',
   }
 
-  return { exitCode, success }
+  if (jsonMode) {
+    console.log(JSON.stringify(result))
+  } else {
+    if (success) {
+      progress.succeed('Deployment completed successfully')
+    } else {
+      progress.fail('Deployment failed')
+      console.error('Deployment failed with exit code:', exitCode)
+    }
+  }
+
+  return result
 }
 
 /**

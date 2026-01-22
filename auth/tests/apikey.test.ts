@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   ApiKeyManager,
   ApiKeyAuth,
@@ -11,7 +11,13 @@ describe('ApiKeyManager', () => {
   let manager: ApiKeyManager
 
   beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-15T12:00:00.000Z'))
     manager = new ApiKeyManager()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   describe('Key Generation', () => {
@@ -331,8 +337,8 @@ describe('ApiKeyManager', () => {
       const blocked = await manager.checkRateLimit(apiKey.id)
       expect(blocked).toBe(false)
 
-      // Wait for window to expire
-      await new Promise(resolve => setTimeout(resolve, 150))
+      // Advance time past window expiration (using fake timers for deterministic testing)
+      await vi.advanceTimersByTimeAsync(150)
 
       // Should be allowed again
       const allowed = await manager.checkRateLimit(apiKey.id)
@@ -371,7 +377,8 @@ describe('ApiKeyManager', () => {
       const firstUse = await manager.get(apiKey.id)
       const firstTime = firstUse!.lastUsedAt!
 
-      await new Promise(resolve => setTimeout(resolve, 10))
+      // Advance time (using fake timers for deterministic testing)
+      await vi.advanceTimersByTimeAsync(10)
 
       await manager.validate(key)
       const secondUse = await manager.get(apiKey.id)

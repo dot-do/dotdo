@@ -137,7 +137,215 @@ dotdo follows a clean layered architecture with strict dependency flow:
 
 ## Package Dependency Graph
 
-dotdo is organized as a **monorepo** with multiple internal packages. The v3 rewrite focuses on a minimal, clean dependency graph:
+dotdo is organized as a **monorepo** with 27+ internal packages. The v3 rewrite focuses on a minimal, clean dependency graph with strict tier boundaries.
+
+### Tier Overview
+
+```
+                    ┌─────────────────────────────────────────────┐
+                    │                   dotdo                      │
+                    │  @dotdo/ai, @dotdo/api, @dotdo/auth,        │
+                    │  @dotdo/db, @dotdo/do, @dotdo/mcp,          │
+                    │  @dotdo/rpc, rpc.do, commander, hono        │
+                    └──────────────────────┬──────────────────────┘
+                                           │
+          ┌────────────────────────────────┼────────────────────────────────┐
+          │                                │                                │
+          ▼                                ▼                                ▼
+┌─────────────────────┐     ┌─────────────────────┐      ┌─────────────────────┐
+│     @dotdo/api      │     │     @dotdo/mcp      │      │   @dotdo/business   │
+│  @dotdo/auth        │     │  @dotdo/db          │      │  @dotdo/do          │
+│  @dotdo/db          │     │  @dotdo/do          │      │  @dotdo/clickhouse  │
+│  @dotdo/do          │     │  @dotdo/rpc         │      │  @dotdo/business-   │
+│  @dotdo/observ.     │     │  hono               │      │    finance          │
+│  @dotdo/rpc         │     └─────────┬───────────┘      └──────────┬──────────┘
+│  hono               │               │                             │
+└─────────┬───────────┘               │                             │
+          │                           │                             │
+          └───────────────────────────┼─────────────────────────────┘
+                                      │
+                                      ▼
+                    ┌─────────────────────────────────────────────┐
+                    │                 @dotdo/do                    │
+                    │  @dotdo/auth, @dotdo/db, @dotdo/integrations │
+                    │  @dotdo/observability, @dotdo/rpc            │
+                    │  ai-evaluate*, digital-workers*              │
+                    │  language-models*, hono                      │
+                    └──────────────────────┬──────────────────────┘
+                                           │
+          ┌────────────────────────────────┼────────────────────────────────┐
+          │                                │                                │
+          ▼                                ▼                                ▼
+┌─────────────────────┐     ┌─────────────────────┐      ┌─────────────────────┐
+│     @dotdo/rpc      │     │     @dotdo/auth     │      │  @dotdo/observ.     │
+│  @dotdo/db          │     │  hono               │      │  hono               │
+│  capnweb            │     │  jose               │      └─────────────────────┘
+│  hono               │     │  id.org.ai*         │
+└─────────┬───────────┘     └─────────────────────┘
+          │
+          ▼
+┌─────────────────────┐     ┌─────────────────────┐
+│     @dotdo/db       │     │     @dotdo/ai       │
+│  zod                │     │  hono               │
+│  digital-objects*   │     │  js-tiktoken        │
+└─────────┬───────────┘     └─────────────────────┘
+          │
+          ▼
+┌─────────────────────┐
+│    @dotdo/core      │
+│    (no deps)        │
+└─────────────────────┘
+```
+
+*From primitives submodule
+
+### Complete Package List by Tier
+
+#### Tier 0: Foundation (Zero Runtime Dependencies)
+
+| Package | npm Name | Description | Dependencies |
+|---------|----------|-------------|--------------|
+| core | `@dotdo/core` | Core types and DBClient interface | None |
+| utils | `@dotdo/utils` | Shared utilities (proxy, logger, mixins) | None |
+| integrations | `@dotdo/integrations` | Third-party integration registry (Stripe, SendGrid) | None |
+
+#### Tier 1: Infrastructure
+
+| Package | npm Name | Description | Dependencies |
+|---------|----------|-------------|--------------|
+| db | `@dotdo/db` | Storage layer (Things, Events, Relationships) | `zod`, peer: `digital-objects` |
+| auth | `@dotdo/auth` | JWT authentication with jose | `hono`, `jose`, `id.org.ai` |
+| ai | `@dotdo/ai` | AI routing with template literals | `hono`, `js-tiktoken` |
+| observability | `@dotdo/observability` | Logging, tracing, metrics | `hono` |
+| oauth | `@dotdo/oauth` | OAuth 2.1 + PKCE core | `hono` |
+| clickhouse | `@dotdo/clickhouse` | ClickHouse WASM analytics | peer: `@cloudflare/workers-types` |
+
+#### Tier 2: RPC Layer
+
+| Package | npm Name | Description | Dependencies |
+|---------|----------|-------------|--------------|
+| rpc | `@dotdo/rpc` | Cap'n Web RPC (Client-Worker, Worker-DO, DO-DO) | `@dotdo/db`, `capnweb`, `hono` |
+| rpc.do | `rpc.do` | Cap'n Web RPC client/server CLI | `@dotdo/utils`, `commander`, `hono` |
+
+#### Tier 3: DO Layer
+
+| Package | npm Name | Description | Dependencies |
+|---------|----------|-------------|--------------|
+| do | `@dotdo/do` | THE Durable Object class with SQLite | `@dotdo/auth`, `@dotdo/db`, `@dotdo/integrations`, `@dotdo/observability`, `@dotdo/rpc`, `ai-evaluate`*, `digital-workers`*, `language-models`*, `hono` |
+
+#### Tier 4: API Layer
+
+| Package | npm Name | Description | Dependencies |
+|---------|----------|-------------|--------------|
+| api | `@dotdo/api` | HATEOAS API with OpenAPI | `@dotdo/auth`, `@dotdo/db`, `@dotdo/do`, `@dotdo/observability`, `@dotdo/rpc`, `hono` |
+| mcp | `@dotdo/mcp` | Model Context Protocol server | `@dotdo/db`, `@dotdo/do`, `@dotdo/rpc`, `hono` |
+
+#### Tier 5: SDKs & Meta
+
+| Package | npm Name | Description | Dependencies |
+|---------|----------|-------------|--------------|
+| sdk.do | `sdk.do` | Unified SDK (rpc.do + oauth) | `rpc.do`, `@dotdo/oauth` |
+| platform.do | `platform.do` | Platform SDK with typed $ context | `sdk.do` |
+| dotdo | `dotdo` | Main CLI, re-exports all modules | ALL @dotdo/* packages, `rpc.do`, `commander`, `hono` |
+| business | `@dotdo/business` | Business-as-Code | `@dotdo/do`, `@dotdo/clickhouse`, `@dotdo/business-finance` |
+| business/finance | `@dotdo/business-finance` | Financial primitives | TBD |
+
+#### Tier 6: Testing
+
+| Package | npm Name | Description | Dependencies |
+|---------|----------|-------------|--------------|
+| test-utils | `@dotdo/test-utils` | DO stub helpers, factories | peer: `vitest`, `miniflare` |
+| testing | `@dotdo/testing` | Custom assertion helpers | `@dotdo/db`, peer: `vitest` |
+
+### Dev Tool Packages (Capabilities)
+
+These packages provide development capabilities that run on pure V8 isolates:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        bashx.do                                      │
+│            (AI-enhanced bash execution with safety)                  │
+├─────────────────────────────────────────────────────────────────────┤
+│  @dotdo/fsx     │   @dotdo/npmx   │     gitx      │    (future)     │
+│  (Filesystem)   │  (NPM for edge) │   (Git impl)  │  postgres, etc. │
+└─────────────────┴─────────────────┴───────────────┴─────────────────┘
+```
+
+| Package | npm Name | Description | Dependencies |
+|---------|----------|-------------|--------------|
+| fsx | `@dotdo/fsx` | Virtual POSIX filesystem | `hono`, `miniflare`, `pako` |
+| bashx | `bashx.do` | Bash execution with AST safety | `@dotdo/fsx`, `dotdo`, `fflate`, `hono`, `pako` |
+| npmx | `@dotdo/npmx` | NPM/NPX for edge | `hono`, `semver`, `tar`, peer: `@dotdo/fsx`, `bashx.do` |
+| gitx | `gitx-monorepo` (private) | Git on Cloudflare | `fsx.do`, `hono`, `miniflare`, `pako` |
+
+### Primitives Submodule
+
+The `primitives/` directory is a git submodule from [primitives.org.ai](https://primitives.org.ai):
+
+| Package | Used By | Purpose |
+|---------|---------|---------|
+| `ai-core` | - | Core AI abstractions |
+| `ai-database` | - | AI-powered database operations |
+| `ai-evaluate` | `@dotdo/do` | LLM evaluation framework |
+| `ai-experiments` | - | A/B testing for AI |
+| `ai-functions` | - | Function calling primitives |
+| `ai-props` | - | AI component props |
+| `ai-providers` | - | Provider integrations |
+| `ai-tests` | - | AI testing utilities |
+| `ai-workflows` | - | Workflow orchestration |
+| `autonomous-agents` | - | Agent framework |
+| `business-as-code` | - | Business logic primitives |
+| `config` | - | Configuration management |
+| `digital-objects` | `@dotdo/db` (peer) | DO type definitions |
+| `digital-products` | - | Product abstractions |
+| `digital-tasks` | - | Task management |
+| `digital-tools` | - | Tool definitions |
+| `digital-workers` | `@dotdo/do` | Worker abstractions |
+| `human-in-the-loop` | - | HITL workflows |
+| `id.org.ai` | `@dotdo/auth` | Identity primitives |
+| `language-models` | `@dotdo/do` | LLM routing + providers |
+| `org.ai` | - | Organization primitives |
+| `services-as-software` | - | SaaS primitives |
+| `types` | - | Shared type definitions |
+
+### Package Naming Convention
+
+| Pattern | Example | Purpose |
+|---------|---------|---------|
+| `@dotdo/*` | `@dotdo/do`, `@dotdo/db` | Core framework packages |
+| `*.do` | `rpc.do`, `bashx.do` | Standalone services/tools |
+| `dotdo` | `dotdo` | Main CLI package |
+
+### External Dependencies
+
+| Dependency | Used By | Purpose |
+|------------|---------|---------|
+| `hono` | Most packages | HTTP framework |
+| `zod` | `@dotdo/db` | Schema validation |
+| `jose` | `@dotdo/auth` | JWT implementation |
+| `capnweb` | `@dotdo/rpc` | Cap'n Proto RPC |
+| `commander` | `dotdo`, `rpc.do` | CLI framework |
+| `semver` | `@dotdo/npmx` | Version resolution |
+| `tar` | `@dotdo/npmx` | Tarball handling |
+| `pako` | fsx, bashx, gitx | Compression |
+| `miniflare` | fsx, gitx, test-utils | Local DO testing |
+
+### Future Capabilities (Planned)
+
+```
+capabilities/
+├── fsx        ✓ Filesystem
+├── bashx      ✓ Shell execution
+├── npmx       ✓ Package management
+├── gitx       ✓ Version control
+├── postgres   ○ PostgreSQL (via pg-gateway)
+├── mongo      ○ MongoDB (via protocol)
+├── sqlite     ○ SQLite (native via DO)
+├── redis      ○ Redis (via protocol)
+└── db4        ○ Universal DB abstraction
+```
+
+### Legacy Diagram
 
 ```
 ┌──────────────────────────────────────────────────────────────┐

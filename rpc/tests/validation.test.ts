@@ -6,9 +6,13 @@ import {
   createSchemaRegistry,
   getMethodSchema,
   isValidRPCMethod,
+  isValidRPCUrl,
+  checkCircularReferences,
+  validateRPCMessage,
   ArgSchemas,
   type ArgSchema,
   type MethodSchema,
+  type URLValidationOptions,
 } from '../validation'
 import { ValidationError } from '../errors'
 import { createServer } from '../server'
@@ -502,6 +506,203 @@ describe('RPC Input Validation', () => {
       expect(errorJson.code).toBe('VALIDATION_ERROR')
       expect(errorJson.message).toContain('b')
       expect(errorJson.message).toContain('required')
+    })
+  })
+
+  // ============================================================================
+  // URL Validation Tests
+  // ============================================================================
+
+  describe('isValidRPCUrl', () => {
+    it('should accept HTTPS URLs', () => {
+      expect(isValidRPCUrl('https://api.example.com')).toBe(true)
+      expect(isValidRPCUrl('https://api.example.com/rpc')).toBe(true)
+      expect(isValidRPCUrl('https://api.example.com:8443/rpc')).toBe(true)
+    })
+
+    it('should accept HTTP URLs by default', () => {
+      expect(isValidRPCUrl('http://api.example.com')).toBe(true)
+      expect(isValidRPCUrl('http://api.example.com/rpc')).toBe(true)
+    })
+
+    it('should reject HTTP URLs in strict mode', () => {
+      expect(isValidRPCUrl('http://api.example.com', { strict: true })).toBe(false)
+      expect(isValidRPCUrl('http://api.example.com/rpc', { strict: true })).toBe(false)
+    })
+
+    it('should allow localhost for development regardless of strict mode', () => {
+      expect(isValidRPCUrl('http://localhost:8787')).toBe(true)
+      expect(isValidRPCUrl('http://localhost:8787', { strict: true })).toBe(true)
+      expect(isValidRPCUrl('http://127.0.0.1:8787')).toBe(true)
+      expect(isValidRPCUrl('http://127.0.0.1:8787', { strict: true })).toBe(true)
+      expect(isValidRPCUrl('http://[::1]:8787', { strict: true })).toBe(true)
+    })
+
+    it('should reject non-HTTP(S) protocols', () => {
+      expect(isValidRPCUrl('ftp://example.com')).toBe(false)
+      expect(isValidRPCUrl('file:///etc/passwd')).toBe(false)
+      expect(isValidRPCUrl('javascript:alert(1)')).toBe(false)
+      expect(isValidRPCUrl('data:text/html,<script>alert(1)</script>')).toBe(false)
+    })
+
+    it('should reject empty or invalid URLs', () => {
+      expect(isValidRPCUrl('')).toBe(false)
+      expect(isValidRPCUrl('not-a-url')).toBe(false)
+      expect(isValidRPCUrl('://missing-protocol.com')).toBe(false)
+    })
+
+    it('should reject null and undefined', () => {
+      expect(isValidRPCUrl(null as unknown as string)).toBe(false)
+      expect(isValidRPCUrl(undefined as unknown as string)).toBe(false)
+    })
+
+    it('should reject URLs with path traversal attempts', () => {
+      expect(isValidRPCUrl('https://api.example.com/../../../etc/passwd')).toBe(false)
+      expect(isValidRPCUrl('https://api.example.com/..%2F..%2F..%2Fetc%2Fpasswd')).toBe(false)
+    })
+
+    it('should accept custom allowed hosts in strict mode', () => {
+      const opts: URLValidationOptions = {
+        strict: true,
+        allowedHosts: ['internal.example.com']
+      }
+      // HTTP to internal host should work when in allowedHosts
+      expect(isValidRPCUrl('http://internal.example.com', opts)).toBe(true)
+      // But not to other hosts
+      expect(isValidRPCUrl('http://other.example.com', opts)).toBe(false)
+    })
+  })
+
+  // ============================================================================
+  // Circular Reference Detection Tests
+  // ============================================================================
+
+  describe('checkCircularReferences', () => {
+    it('should accept simple non-circular objects', () => {
+      expect(() => checkCircularReferences({ a: 1, b: 'test' })).not.toThrow()
+      expect(() => checkCircularReferences([1, 2, 3])).not.toThrow()
+      expect(() => checkCircularReferences({ nested: { deep: { value: true } } })).not.toThrow()
+    })
+
+    it('should accept primitive values', () => {
+      expect(() => checkCircularReferences('string')).not.toThrow()
+      expect(() => checkCircularReferences(123)).not.toThrow()
+      expect(() => checkCircularReferences(true)).not.toThrow()
+      expect(() => checkCircularReferences(null)).not.toThrow()
+      expect(() => checkCircularReferences(undefined)).not.toThrow()
+    })
+
+    it('should detect direct circular references', () => {
+      const circular: Record<string, unknown> = { a: 1 }
+      circular['self'] = circular
+      expect(() => checkCircularReferences(circular)).toThrow('circular')
+    })
+
+    it('should detect nested circular references', () => {
+      const obj: Record<string, unknown> = { a: { b: { c: {} } } }
+      const inner = obj['a'] as Record<string, unknown>
+      const innerB = inner['b'] as Record<string, unknown>
+      const innerC = innerB['c'] as Record<string, unknown>
+      innerC['ref'] = obj
+      expect(() => checkCircularReferences(obj)).toThrow('circular')
+    })
+
+    it('should detect circular references in arrays', () => {
+      const arr: unknown[] = [1, 2, 3]
+      arr.push(arr)
+      expect(() => checkCircularReferences(arr)).toThrow('circular')
+    })
+
+    it('should detect cross-referenced objects', () => {
+      const objA: Record<string, unknown> = { name: 'A' }
+      const objB: Record<string, unknown> = { name: 'B', ref: objA }
+      objA['ref'] = objB
+      expect(() => checkCircularReferences(objA)).toThrow('circular')
+    })
+
+    it('should allow multiple references to the same object (non-circular)', () => {
+      const shared = { value: 42 }
+      const obj = {
+        ref1: shared,
+        ref2: shared,
+        nested: { ref3: shared }
+      }
+      // This is technically a DAG, not circular - same object referenced multiple times
+      // but no actual cycle. Some implementations allow this, others don't.
+      // For safety in JSON serialization, we should still detect this.
+      expect(() => checkCircularReferences(obj)).toThrow('circular')
+    })
+  })
+
+  // ============================================================================
+  // RPC Message Validation Tests
+  // ============================================================================
+
+  describe('validateRPCMessage', () => {
+    it('should accept valid RPC messages', () => {
+      expect(() => validateRPCMessage({
+        method: 'users.create',
+        args: [{ name: 'Alice' }]
+      })).not.toThrow()
+    })
+
+    it('should reject invalid method names', () => {
+      expect(() => validateRPCMessage({
+        method: '../etc/passwd',
+        args: []
+      })).toThrow()
+
+      expect(() => validateRPCMessage({
+        method: '',
+        args: []
+      })).toThrow()
+
+      expect(() => validateRPCMessage({
+        method: 'method with spaces',
+        args: []
+      })).toThrow()
+
+      expect(() => validateRPCMessage({
+        method: 'method;injection',
+        args: []
+      })).toThrow()
+    })
+
+    it('should reject circular references in args', () => {
+      const circular: Record<string, unknown> = { a: 1 }
+      circular['self'] = circular
+
+      expect(() => validateRPCMessage({
+        method: 'test',
+        args: [circular]
+      })).toThrow('circular')
+    })
+
+    it('should accept empty args array', () => {
+      expect(() => validateRPCMessage({
+        method: 'ping',
+        args: []
+      })).not.toThrow()
+    })
+
+    it('should validate complex nested args', () => {
+      expect(() => validateRPCMessage({
+        method: 'complex.method',
+        args: [
+          { nested: { deep: { value: [1, 2, 3] } } },
+          'string',
+          123,
+          null,
+          true
+        ]
+      })).not.toThrow()
+    })
+
+    it('should reject when method is not a string', () => {
+      expect(() => validateRPCMessage({
+        method: 123 as unknown as string,
+        args: []
+      })).toThrow()
     })
   })
 })

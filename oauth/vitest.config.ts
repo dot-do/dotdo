@@ -1,0 +1,83 @@
+/**
+ * Vitest Configuration for OAuth Package Tests
+ *
+ * Uses @cloudflare/vitest-pool-workers to ensure oauth code
+ * works correctly in the Cloudflare Workers runtime.
+ *
+ * IMPORTANT: Tests using this config get access to:
+ * - PKCE generation and validation (Web Crypto API)
+ * - State token generation and validation
+ * - OAuth 2.1 utilities
+ *
+ * Usage:
+ *   npx vitest --config oauth/vitest.config.ts          # Run all oauth tests
+ *   npx vitest --config oauth/vitest.config.ts run      # Run once
+ *   npx vitest run oauth/tests/pkce.test.ts             # Run specific file
+ *
+ * @module oauth/vitest.config
+ */
+
+import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
+import { workspaceAliases } from '../vitest.config'
+
+export default defineWorkersConfig({
+  // Inherit workspace aliases for package resolution
+  resolve: {
+    alias: workspaceAliases,
+  },
+  test: {
+    name: 'oauth',
+
+    // Include ALL oauth tests
+    include: ['tests/**/*.test.ts'],
+
+    // Exclude only non-test files
+    exclude: ['**/node_modules/**'],
+
+    // CRITICAL: Limit concurrency to prevent resource exhaustion
+    maxConcurrency: 1,
+    maxWorkers: 1,
+    minWorkers: 1,
+    fileParallelism: false,
+
+    // Pool worker options
+    poolOptions: {
+      workers: {
+        wrangler: {
+          configPath: './wrangler.jsonc',
+        },
+        singleWorker: true,
+        isolatedStorage: false,
+        miniflare: {
+          durableObjectsPersist: false,
+          bindings: {
+            TEST_MODE: 'true',
+          },
+        },
+      },
+    },
+
+    // Test timeouts
+    testTimeout: 15000,
+    hookTimeout: 15000,
+
+    // Coverage configuration
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      include: ['src/**/*.ts'],
+      exclude: [
+        '**/*.test.ts',
+        '**/__tests__/**',
+        '**/node_modules/**',
+        'vitest.config.ts',
+      ],
+      thresholds: {
+        statements: 80,
+        branches: 80,
+        functions: 80,
+        lines: 80,
+      },
+    },
+  },
+})
