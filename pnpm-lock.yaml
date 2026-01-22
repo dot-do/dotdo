@@ -78,6 +78,9 @@ importers:
 
   ai:
     dependencies:
+      '@dotdo/utils':
+        specifier: workspace:^
+        version: link:../utils
       hono:
         specifier: ^4.11.4
         version: 4.11.4

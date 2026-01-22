@@ -69,9 +69,11 @@
     "@dotdo/do": "workspace:^",
     "@dotdo/rpc": "workspace:^",
     "@dotdo/utils": "workspace:^",
+    "ai-evaluate": "^2.1.5",
     "hono": "^4.11.4"
   },
   "devDependencies": {
+    "@types/node": "^22.15.27",
     "typescript": "^5.7.3"
   }
 }

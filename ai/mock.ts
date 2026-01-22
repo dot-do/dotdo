@@ -11,11 +11,10 @@
  */
 
 import { MockModelNotAllowedError } from './errors'
+import { createScopedLogger, LogLevel } from '@dotdo/utils'
 
-// Simple logger for mock module (avoids cross-package import)
-const logger = {
-  warn: (message: string) => console.warn('[ai-mock]', message),
-}
+// Create a scoped logger for the mock module
+const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[ai-mock]' })
 
 // ============================================================================
 // Internal Type Definitions
