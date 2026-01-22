@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/db",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Abstract storage layer for dotdo Digital Objects (Things, Relationships, Events)",
   "type": "module",
   "main": "./dist/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/auth",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "JWT-based authentication for dotdo using jose",
   "type": "module",
   "main": "./dist/index.js",
@@ -85,8 +85,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@dotdo/db": "workspace:^",
-    "@dotdo/utils": "workspace:^",
+    "@dotdo/db": "workspace:*",
+    "@dotdo/utils": "workspace:*",
     "hono": "^4.11.4",
     "jose": "^6.0.0",
     "id.org.ai": "^0.1.0"

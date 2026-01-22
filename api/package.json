@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/api",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Self-describing Hono API with HATEOAS for dotdo - auto-generates SDK, CLI, and MCP",
   "type": "module",
   "main": "./dist/index.js",
@@ -69,11 +69,11 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@dotdo/auth": "workspace:^",
-    "@dotdo/db": "workspace:^",
-    "@dotdo/do": "workspace:^",
-    "@dotdo/observability": "workspace:^",
-    "@dotdo/rpc": "workspace:^",
+    "@dotdo/auth": "workspace:*",
+    "@dotdo/db": "workspace:*",
+    "@dotdo/do": "workspace:*",
+    "@dotdo/observability": "workspace:*",
+    "@dotdo/rpc": "workspace:*",
     "hono": "^4.11.4"
   },
   "devDependencies": {

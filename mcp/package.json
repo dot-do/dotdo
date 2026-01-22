@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/mcp",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Model Context Protocol tools for AI agents in dotdo",
   "type": "module",
   "main": "./dist/index.js",
@@ -65,9 +65,9 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@dotdo/db": "workspace:^",
-    "@dotdo/do": "workspace:^",
-    "@dotdo/rpc": "workspace:^",
+    "@dotdo/db": "workspace:*",
+    "@dotdo/do": "workspace:*",
+    "@dotdo/rpc": "workspace:*",
     "hono": "^4.11.4"
   },
   "devDependencies": {

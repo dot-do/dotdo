@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/test-utils",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Shared test utilities for @dotdo packages - DO stub helpers, factories, assertions",
   "type": "module",
   "main": "./dist/index.js",
