@@ -468,7 +468,7 @@ export function safeParseRelationshipInput<M extends StorableData = StorableData
  * @param error - The ZodError to format
  * @returns Formatted ValidationError
  */
-export function formatValidationError(error: z.ZodError): ValidationError {
+export function formatValidationError(error: z.ZodError): ZodValidationError {
   return {
     message: 'Validation failed',
     errors: error.errors.map(e => ({

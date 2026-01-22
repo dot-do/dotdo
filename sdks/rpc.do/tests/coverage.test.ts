@@ -82,9 +82,9 @@ describe('Coverage Configuration', () => {
   })
 
   describe('coverage include patterns', () => {
-    it('should include src/**/*.ts pattern', () => {
+    it('should include **/*.ts pattern (source files at root level)', () => {
       expect(configContent).toMatch(/include:.*\[/)
-      expect(configContent).toMatch(/['"]src\/\*\*\/\*\.ts['"]/)
+      expect(configContent).toMatch(/['"]\*\*\/\*\.ts['"]/)
     })
   })
 

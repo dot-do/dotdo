@@ -16,7 +16,7 @@ import { describe, it, expect } from 'vitest'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
-const SRC_DIR = path.join(__dirname, '..', 'src')
+const SRC_DIR = path.join(__dirname, '..')
 
 // ============================================================================
 // Helpers
@@ -206,14 +206,21 @@ function getTypeScriptFiles(dir: string): string[] {
   const files: string[] = []
   const entries = fs.readdirSync(dir, { withFileTypes: true })
 
+  // Directories to skip (not part of public API or build artifacts)
+  const skipDirs = new Set(['cli', 'tests', 'dist', 'node_modules', '.turbo'])
+
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name)
     if (entry.isDirectory()) {
-      // Skip cli directory as it's implementation details, not public API
-      if (entry.name !== 'cli') {
+      if (!skipDirs.has(entry.name)) {
         files.push(...getTypeScriptFiles(fullPath))
       }
-    } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) {
+    } else if (
+      entry.name.endsWith('.ts') &&
+      !entry.name.endsWith('.test.ts') &&
+      !entry.name.endsWith('.config.ts') &&
+      entry.name !== 'test-entry.ts'
+    ) {
       files.push(fullPath)
     }
   }
