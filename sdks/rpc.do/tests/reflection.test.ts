@@ -2,8 +2,8 @@
 // Tests reflection capabilities: _types(), _schema(), .md, and Symbol handlers
 
 import { describe, it, expect, vi } from 'vitest'
-import type { Transport } from '../transport/types'
-import type { RPCMessage, RPCResponse } from '../types'
+import type { Transport } from '../src/transport/types'
+import type { RPCMessage, RPCResponse } from '../src/types'
 
 // ============================================================================
 // Helper: Create a mock transport for testing
@@ -41,7 +41,7 @@ describe('$._types() reflection', () => {
       }
       return Promise.resolve({ result: {} })
     })
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -75,7 +75,7 @@ export interface OrderEntity {
       }
       return Promise.resolve({ result: {} })
     })
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -114,7 +114,7 @@ describe('$._schema() reflection', () => {
       }
       return Promise.resolve({ result: {} })
     })
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -145,7 +145,7 @@ describe('$._schema() reflection', () => {
       }
       return Promise.resolve({ result: {} })
     })
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -178,7 +178,7 @@ describe('$.md reflection', () => {
       }
       return Promise.resolve({ result: {} })
     })
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -211,7 +211,7 @@ Create a new thing with the provided data.
       }
       return Promise.resolve({ result: {} })
     })
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -229,7 +229,7 @@ Create a new thing with the provided data.
 describe('console.log($) inspection', () => {
   it('Symbol.for("nodejs.util.inspect.custom") returns structured output', async () => {
     const mockTransport = createMockTransport()
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -248,7 +248,7 @@ describe('console.log($) inspection', () => {
 
   it('inspect output shows available namespaces', async () => {
     const mockTransport = createMockTransport()
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -261,7 +261,7 @@ describe('console.log($) inspection', () => {
 
   it('nested proxy inspection shows path', async () => {
     const mockTransport = createMockTransport()
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -281,7 +281,7 @@ describe('console.log($) inspection', () => {
 describe('Object.keys($) enumeration', () => {
   it('Object.keys($) returns available top-level resources', async () => {
     const mockTransport = createMockTransport()
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -297,7 +297,7 @@ describe('Object.keys($) enumeration', () => {
 
   it('Object.keys($) includes action methods', async () => {
     const mockTransport = createMockTransport()
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -311,7 +311,7 @@ describe('Object.keys($) enumeration', () => {
 
   it('for...in loop iterates over resources', async () => {
     const mockTransport = createMockTransport()
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -338,7 +338,7 @@ describe('Reflection caching', () => {
       }
       return Promise.resolve({ result: {} })
     })
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -360,7 +360,7 @@ describe('Reflection caching', () => {
       }
       return Promise.resolve({ result: {} })
     })
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -381,7 +381,7 @@ describe('Reflection caching', () => {
       }
       return Promise.resolve({ result: {} })
     })
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -410,7 +410,7 @@ describe('Reflection edge cases', () => {
       }
       return Promise.resolve({ result: {} })
     })
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -430,7 +430,7 @@ describe('Reflection edge cases', () => {
       }
       return Promise.resolve({ result: {} })
     })
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -439,7 +439,7 @@ describe('Reflection edge cases', () => {
 
   it('inspect symbol does not trigger RPC call', async () => {
     const mockTransport = createMockTransport()
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 
@@ -452,7 +452,7 @@ describe('Reflection edge cases', () => {
 
   it('Object.keys($) does not trigger RPC calls', async () => {
     const mockTransport = createMockTransport()
-    const { createClient } = await import('..')
+    const { createClient } = await import('../src')
 
     const $: DynamicProxy = createClient('http://test', { transport: mockTransport })
 

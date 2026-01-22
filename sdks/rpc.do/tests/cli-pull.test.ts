@@ -7,7 +7,7 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 
 // Module under test (will be created in GREEN phase)
-import { pull, type PullOptions } from '../cli/pull'
+import { pull, type PullOptions } from '../src/cli/pull'
 
 // ============================================================================
 // Helper: Create temp directory for testing file operations

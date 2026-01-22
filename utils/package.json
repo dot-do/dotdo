@@ -69,9 +69,6 @@
     "prepublishOnly": "npm run build",
     "clean": "rm -rf dist"
   },
-  "dependencies": {
-    "zod": "^3.24.0"
-  },
   "devDependencies": {
     "typescript": "^5.7.3"
   }

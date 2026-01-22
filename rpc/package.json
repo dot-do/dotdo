@@ -34,54 +34,6 @@
     "./cross-do": {
       "types": "./dist/cross-do.d.ts",
       "import": "./dist/cross-do.js"
-    },
-    "./secure": {
-      "types": "./dist/secure.d.ts",
-      "import": "./dist/secure.js"
-    },
-    "./transport": {
-      "types": "./dist/transport/index.d.ts",
-      "import": "./dist/transport/index.js"
-    },
-    "./circuit-breaker": {
-      "types": "./dist/circuit-breaker.d.ts",
-      "import": "./dist/circuit-breaker.js"
-    },
-    "./rate-limit": {
-      "types": "./dist/rate-limit.d.ts",
-      "import": "./dist/rate-limit.js"
-    },
-    "./logging": {
-      "types": "./dist/logging.d.ts",
-      "import": "./dist/logging.js"
-    },
-    "./headers": {
-      "types": "./dist/headers.d.ts",
-      "import": "./dist/headers.js"
-    },
-    "./types": {
-      "types": "./dist/types.d.ts",
-      "import": "./dist/types.js"
-    },
-    "./validation": {
-      "types": "./dist/validation.d.ts",
-      "import": "./dist/validation.js"
-    },
-    "./typed-client": {
-      "types": "./dist/typed-client.d.ts",
-      "import": "./dist/typed-client.js"
-    },
-    "./websocket-events": {
-      "types": "./dist/websocket-events.d.ts",
-      "import": "./dist/websocket-events.js"
-    },
-    "./connection-pool": {
-      "types": "./dist/connection-pool.d.ts",
-      "import": "./dist/connection-pool.js"
-    },
-    "./batch-rpc": {
-      "types": "./dist/batch-rpc.d.ts",
-      "import": "./dist/batch-rpc.js"
     }
   },
   "files": [
@@ -119,7 +71,6 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest",
-    "test:run": "vitest run",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
     "clean": "rm -rf dist"

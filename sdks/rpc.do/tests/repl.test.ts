@@ -9,11 +9,11 @@ import * as readline from 'node:readline'
 import { EventEmitter } from 'node:events'
 
 // Mock Transport for testing RPC calls
-import type { Transport } from '../transport/types'
-import type { RPCMessage, RPCResponse } from '../types'
+import type { Transport } from '../src/transport/types'
+import type { RPCMessage, RPCResponse } from '../src/types'
 
 // Module under test
-import { ReplService, type ReplServiceOptions, type ReplCommand } from '../cli/repl'
+import { ReplService, type ReplServiceOptions, type ReplCommand } from '../src/cli/repl'
 
 // Sample type definitions for testing (same as lsp.test.ts)
 const SAMPLE_TYPES = `

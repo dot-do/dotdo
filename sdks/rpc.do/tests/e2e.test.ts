@@ -18,10 +18,10 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { Miniflare } from 'miniflare'
-import { createClient } from '..'
-import type { RPCMessage, RPCResponse, DOSchema } from '../types'
-import { type Transport, TransportState } from '../transport/types'
-import { CORRELATION_ID_HEADER, generateCorrelationId } from '../transport/fetch'
+import { createClient } from '../src'
+import type { RPCMessage, RPCResponse, DOSchema } from '../src/types'
+import { type Transport, TransportState } from '../src/transport/types'
+import { CORRELATION_ID_HEADER, generateCorrelationId } from '../src/transport/fetch'
 
 // ============================================================================
 // TYPE DEFINITIONS

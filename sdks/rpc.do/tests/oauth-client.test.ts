@@ -30,7 +30,7 @@ describe('TokenStore', () => {
   })
 
   it('should read tokens from ~/.do/tokens.json', async () => {
-    const { TokenStore } = await import('../auth/token-store')
+    const { TokenStore } = await import('../src/auth/token-store')
 
     // Create test tokens file
     fs.mkdirSync(testDir, { recursive: true })
@@ -50,7 +50,7 @@ describe('TokenStore', () => {
   })
 
   it('should return null when no tokens exist', async () => {
-    const { TokenStore } = await import('../auth/token-store')
+    const { TokenStore } = await import('../src/auth/token-store')
 
     const store = new TokenStore(testTokensPath)
     const result = await store.getTokens()
@@ -59,7 +59,7 @@ describe('TokenStore', () => {
   })
 
   it('should write tokens to ~/.do/tokens.json', async () => {
-    const { TokenStore } = await import('../auth/token-store')
+    const { TokenStore } = await import('../src/auth/token-store')
 
     const store = new TokenStore(testTokensPath)
     await store.saveTokens({
@@ -75,7 +75,7 @@ describe('TokenStore', () => {
   })
 
   it('should create directory if it does not exist', async () => {
-    const { TokenStore } = await import('../auth/token-store')
+    const { TokenStore } = await import('../src/auth/token-store')
 
     const store = new TokenStore(testTokensPath)
     await store.saveTokens({
@@ -88,7 +88,7 @@ describe('TokenStore', () => {
   })
 
   it('should delete tokens', async () => {
-    const { TokenStore } = await import('../auth/token-store')
+    const { TokenStore } = await import('../src/auth/token-store')
 
     // Create test tokens file
     fs.mkdirSync(testDir, { recursive: true })
@@ -101,7 +101,7 @@ describe('TokenStore', () => {
   })
 
   it('should check if token is expired', async () => {
-    const { TokenStore } = await import('../auth/token-store')
+    const { TokenStore } = await import('../src/auth/token-store')
 
     fs.mkdirSync(testDir, { recursive: true })
     const expiredTokens = {
@@ -118,7 +118,7 @@ describe('TokenStore', () => {
   })
 
   it('should return false for non-expired token', async () => {
-    const { TokenStore } = await import('../auth/token-store')
+    const { TokenStore } = await import('../src/auth/token-store')
 
     fs.mkdirSync(testDir, { recursive: true })
     const validTokens = {
@@ -147,7 +147,7 @@ describe('DeviceFlow', () => {
   })
 
   it('should request device code from oauth.do/device/code', async () => {
-    const { DeviceFlow } = await import('../auth/device-flow')
+    const { DeviceFlow } = await import('../src/auth/device-flow')
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -184,7 +184,7 @@ describe('DeviceFlow', () => {
   })
 
   it('should include client_id and scope in device code request', async () => {
-    const { DeviceFlow } = await import('../auth/device-flow')
+    const { DeviceFlow } = await import('../src/auth/device-flow')
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -214,7 +214,7 @@ describe('DeviceFlow', () => {
   })
 
   it('should poll for token until authorization is complete', async () => {
-    const { DeviceFlow } = await import('../auth/device-flow')
+    const { DeviceFlow } = await import('../src/auth/device-flow')
 
     // First call: authorization pending
     mockFetch.mockResolvedValueOnce({
@@ -263,7 +263,7 @@ describe('DeviceFlow', () => {
   })
 
   it('should throw on slow_down error and increase interval', async () => {
-    const { DeviceFlow } = await import('../auth/device-flow')
+    const { DeviceFlow } = await import('../src/auth/device-flow')
 
     // First call: slow_down
     mockFetch.mockResolvedValueOnce({
@@ -302,7 +302,7 @@ describe('DeviceFlow', () => {
   })
 
   it('should throw on access_denied error', async () => {
-    const { DeviceFlow, DeviceFlowError } = await import('../auth/device-flow')
+    const { DeviceFlow, DeviceFlowError } = await import('../src/auth/device-flow')
 
     mockFetch.mockResolvedValueOnce({
       ok: false,
@@ -324,7 +324,7 @@ describe('DeviceFlow', () => {
   })
 
   it('should throw on expired_token error', async () => {
-    const { DeviceFlow, DeviceFlowError } = await import('../auth/device-flow')
+    const { DeviceFlow, DeviceFlowError } = await import('../src/auth/device-flow')
 
     mockFetch.mockResolvedValueOnce({
       ok: false,
@@ -357,7 +357,7 @@ describe('AuthTransport', () => {
   })
 
   it('should attach Authorization header when token is available', async () => {
-    const { AuthTransport } = await import('../auth/auth-transport')
+    const { AuthTransport } = await import('../src/auth/auth-transport')
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -395,7 +395,7 @@ describe('AuthTransport', () => {
   })
 
   it('should not attach Authorization header when no token is available', async () => {
-    const { AuthTransport } = await import('../auth/auth-transport')
+    const { AuthTransport } = await import('../src/auth/auth-transport')
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -424,7 +424,7 @@ describe('AuthTransport', () => {
   })
 
   it('should trigger token refresh on 401 response', async () => {
-    const { AuthTransport } = await import('../auth/auth-transport')
+    const { AuthTransport } = await import('../src/auth/auth-transport')
 
     // First call: 401 Unauthorized
     mockFetch.mockResolvedValueOnce({
@@ -480,7 +480,7 @@ describe('AuthTransport', () => {
   })
 
   it('should proactively refresh token when expired', async () => {
-    const { AuthTransport } = await import('../auth/auth-transport')
+    const { AuthTransport } = await import('../src/auth/auth-transport')
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -526,7 +526,7 @@ describe('AuthTransport', () => {
   })
 
   it('should use new token after refresh for retry', async () => {
-    const { AuthTransport } = await import('../auth/auth-transport')
+    const { AuthTransport } = await import('../src/auth/auth-transport')
 
     // First call: 401
     mockFetch.mockResolvedValueOnce({
@@ -595,7 +595,7 @@ describe('refreshToken', () => {
   })
 
   it('should exchange refresh token for new tokens', async () => {
-    const { refreshToken } = await import('../auth/refresh')
+    const { refreshToken } = await import('../src/auth/refresh')
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -636,7 +636,7 @@ describe('refreshToken', () => {
   })
 
   it('should throw on invalid refresh token', async () => {
-    const { refreshToken, RefreshError } = await import('../auth/refresh')
+    const { refreshToken, RefreshError } = await import('../src/auth/refresh')
 
     mockFetch.mockResolvedValueOnce({
       ok: false,
@@ -665,7 +665,7 @@ describe('refreshToken', () => {
 
 describe('ensureLoggedIn', () => {
   it('should return true when valid token exists', async () => {
-    const { ensureLoggedIn } = await import('../auth/index')
+    const { ensureLoggedIn } = await import('../src/auth/index')
 
     const mockTokenStore = {
       getTokens: vi.fn().mockResolvedValue({
@@ -684,7 +684,7 @@ describe('ensureLoggedIn', () => {
   })
 
   it('should return false when no token exists and no device flow available', async () => {
-    const { ensureLoggedIn } = await import('../auth/index')
+    const { ensureLoggedIn } = await import('../src/auth/index')
 
     const mockTokenStore = {
       getTokens: vi.fn().mockResolvedValue(null),
@@ -702,7 +702,7 @@ describe('ensureLoggedIn', () => {
   })
 
   it('should initiate device flow when interactive and no token', async () => {
-    const { ensureLoggedIn } = await import('../auth/index')
+    const { ensureLoggedIn } = await import('../src/auth/index')
 
     const mockTokenStore = {
       getTokens: vi.fn().mockResolvedValue(null),
@@ -746,7 +746,7 @@ describe('ensureLoggedIn', () => {
   })
 
   it('should refresh token when expired and refresh token is available', async () => {
-    const { ensureLoggedIn } = await import('../auth/index')
+    const { ensureLoggedIn } = await import('../src/auth/index')
 
     const mockTokenStore = {
       getTokens: vi
@@ -789,8 +789,8 @@ describe('ensureLoggedIn', () => {
 
 describe('Device Flow Integration', () => {
   it('should complete full device flow and store tokens', async () => {
-    const { DeviceFlow } = await import('../auth/device-flow')
-    const { TokenStore } = await import('../auth/token-store')
+    const { DeviceFlow } = await import('../src/auth/device-flow')
+    const { TokenStore } = await import('../src/auth/token-store')
     const testDir = path.join(os.tmpdir(), '.do-integration-test-' + Date.now())
     const testTokensPath = path.join(testDir, 'tokens.json')
 

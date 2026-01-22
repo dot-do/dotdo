@@ -2,7 +2,7 @@
 // Tests the Transport interface and concrete implementations in the rpc.do package
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { Transport, TransportState } from '../transport/types'
+import type { Transport, TransportState } from '../src/transport/types'
 
 // ============================================================================
 // Transport Interface Tests
@@ -10,7 +10,7 @@ import type { Transport, TransportState } from '../transport/types'
 
 describe('Transport interface', () => {
   it('FetchTransport sends POST to /rpc', async () => {
-    const { FetchTransport } = await import('../transport/fetch')
+    const { FetchTransport } = await import('../src/transport/fetch')
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -38,7 +38,7 @@ describe('Transport interface', () => {
   })
 
   it('FetchTransport attaches custom headers', async () => {
-    const { FetchTransport } = await import('../transport/fetch')
+    const { FetchTransport } = await import('../src/transport/fetch')
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -64,7 +64,7 @@ describe('Transport interface', () => {
   })
 
   it('Transport interface has required methods', async () => {
-    const { FetchTransport } = await import('../transport/fetch')
+    const { FetchTransport } = await import('../src/transport/fetch')
 
     const transport = new FetchTransport({
       url: 'https://api.example.com',
@@ -87,7 +87,7 @@ describe('FetchTransport', () => {
 
   describe('constructor', () => {
     it('should create transport with required url option', async () => {
-      const { FetchTransport } = await import('../transport/fetch')
+      const { FetchTransport } = await import('../src/transport/fetch')
 
       const transport = new FetchTransport({
         url: 'https://api.example.com',
@@ -99,7 +99,7 @@ describe('FetchTransport', () => {
     })
 
     it('should accept optional timeout', async () => {
-      const { FetchTransport } = await import('../transport/fetch')
+      const { FetchTransport } = await import('../src/transport/fetch')
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -125,7 +125,7 @@ describe('FetchTransport', () => {
     })
 
     it('should accept optional correlation ID', async () => {
-      const { FetchTransport, CORRELATION_ID_HEADER } = await import('../transport/fetch')
+      const { FetchTransport, CORRELATION_ID_HEADER } = await import('../src/transport/fetch')
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -154,7 +154,7 @@ describe('FetchTransport', () => {
 
   describe('send', () => {
     it('should send method and args in request body', async () => {
-      const { FetchTransport } = await import('../transport/fetch')
+      const { FetchTransport } = await import('../src/transport/fetch')
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -178,7 +178,7 @@ describe('FetchTransport', () => {
     })
 
     it('should return result from successful response', async () => {
-      const { FetchTransport } = await import('../transport/fetch')
+      const { FetchTransport } = await import('../src/transport/fetch')
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -198,7 +198,7 @@ describe('FetchTransport', () => {
     })
 
     it('should include correlation ID in response', async () => {
-      const { FetchTransport, CORRELATION_ID_HEADER } = await import('../transport/fetch')
+      const { FetchTransport, CORRELATION_ID_HEADER } = await import('../src/transport/fetch')
 
       const responseHeaders = new Headers()
       responseHeaders.set(CORRELATION_ID_HEADER, 'response-correlation-id')
@@ -220,7 +220,7 @@ describe('FetchTransport', () => {
     })
 
     it('should use message correlation ID over base correlation ID', async () => {
-      const { FetchTransport, CORRELATION_ID_HEADER } = await import('../transport/fetch')
+      const { FetchTransport, CORRELATION_ID_HEADER } = await import('../src/transport/fetch')
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -247,7 +247,7 @@ describe('FetchTransport', () => {
     })
 
     it('should generate correlation ID if not provided', async () => {
-      const { FetchTransport, CORRELATION_ID_HEADER } = await import('../transport/fetch')
+      const { FetchTransport, CORRELATION_ID_HEADER } = await import('../src/transport/fetch')
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -271,7 +271,7 @@ describe('FetchTransport', () => {
 
   describe('error handling', () => {
     it('should return error response on network failure', async () => {
-      const { FetchTransport } = await import('../transport/fetch')
+      const { FetchTransport } = await import('../src/transport/fetch')
 
       mockFetch.mockRejectedValue(new TypeError('fetch failed'))
 
@@ -288,7 +288,7 @@ describe('FetchTransport', () => {
     })
 
     it('should parse structured error response', async () => {
-      const { FetchTransport } = await import('../transport/fetch')
+      const { FetchTransport } = await import('../src/transport/fetch')
 
       mockFetch.mockResolvedValue({
         ok: false,
@@ -315,7 +315,7 @@ describe('FetchTransport', () => {
     })
 
     it('should return generic error for non-JSON error response', async () => {
-      const { FetchTransport } = await import('../transport/fetch')
+      const { FetchTransport } = await import('../src/transport/fetch')
 
       mockFetch.mockResolvedValue({
         ok: false,
@@ -336,7 +336,7 @@ describe('FetchTransport', () => {
     })
 
     it('should handle timeout errors', async () => {
-      const { FetchTransport } = await import('../transport/fetch')
+      const { FetchTransport } = await import('../src/transport/fetch')
 
       const abortError = new Error('The operation was aborted')
       abortError.name = 'AbortError'
@@ -357,7 +357,7 @@ describe('FetchTransport', () => {
 
   describe('getState', () => {
     it('should always return CONNECTED for stateless transport', async () => {
-      const { FetchTransport } = await import('../transport/fetch')
+      const { FetchTransport } = await import('../src/transport/fetch')
 
       const transport = new FetchTransport({
         url: 'https://api.example.com',
@@ -370,7 +370,7 @@ describe('FetchTransport', () => {
 
   describe('close', () => {
     it('should be a no-op for stateless transport', async () => {
-      const { FetchTransport } = await import('../transport/fetch')
+      const { FetchTransport } = await import('../src/transport/fetch')
 
       const transport = new FetchTransport({
         url: 'https://api.example.com',
@@ -388,8 +388,8 @@ describe('FetchTransport', () => {
 
 describe('Transport type guards', () => {
   it('isCloseable should detect closeable transports', async () => {
-    const { FetchTransport } = await import('../transport/fetch')
-    const { isCloseable } = await import('../transport/types')
+    const { FetchTransport } = await import('../src/transport/fetch')
+    const { isCloseable } = await import('../src/transport/types')
 
     const transport = new FetchTransport({ url: 'https://api.example.com' })
 
@@ -397,8 +397,8 @@ describe('Transport type guards', () => {
   })
 
   it('isStateful should detect stateful transports', async () => {
-    const { FetchTransport } = await import('../transport/fetch')
-    const { isStateful } = await import('../transport/types')
+    const { FetchTransport } = await import('../src/transport/fetch')
+    const { isStateful } = await import('../src/transport/types')
 
     const transport = new FetchTransport({ url: 'https://api.example.com' })
 
@@ -406,8 +406,8 @@ describe('Transport type guards', () => {
   })
 
   it('supportsEvents should return false for FetchTransport', async () => {
-    const { FetchTransport } = await import('../transport/fetch')
-    const { supportsEvents } = await import('../transport/types')
+    const { FetchTransport } = await import('../src/transport/fetch')
+    const { supportsEvents } = await import('../src/transport/types')
 
     const transport = new FetchTransport({ url: 'https://api.example.com' })
 
@@ -421,7 +421,7 @@ describe('Transport type guards', () => {
 
 describe('generateCorrelationId', () => {
   it('should generate unique IDs', async () => {
-    const { generateCorrelationId } = await import('../transport/fetch')
+    const { generateCorrelationId } = await import('../src/transport/fetch')
 
     const id1 = generateCorrelationId()
     const id2 = generateCorrelationId()
@@ -430,7 +430,7 @@ describe('generateCorrelationId', () => {
   })
 
   it('should return a string', async () => {
-    const { generateCorrelationId } = await import('../transport/fetch')
+    const { generateCorrelationId } = await import('../src/transport/fetch')
 
     const id = generateCorrelationId()
 
@@ -445,7 +445,7 @@ describe('generateCorrelationId', () => {
 
 describe('createFetchTransport', () => {
   it('should create a FetchTransport instance', async () => {
-    const { createFetchTransport, FetchTransport } = await import('../transport/fetch')
+    const { createFetchTransport, FetchTransport } = await import('../src/transport/fetch')
 
     const transport = createFetchTransport({
       url: 'https://api.example.com',
@@ -455,7 +455,7 @@ describe('createFetchTransport', () => {
   })
 
   it('should pass options to transport', async () => {
-    const { createFetchTransport, CORRELATION_ID_HEADER } = await import('../transport/fetch')
+    const { createFetchTransport, CORRELATION_ID_HEADER } = await import('../src/transport/fetch')
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,

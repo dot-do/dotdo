@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 describe('Logger module exports', () => {
   it('should export LogLevel type', async () => {
-    const { LogLevel } = await import('../logger')
+    const { LogLevel } = await import('../src/logger')
     expect(LogLevel).toBeDefined()
     expect(LogLevel.debug).toBe('debug')
     expect(LogLevel.info).toBe('info')
@@ -19,7 +19,7 @@ describe('Logger module exports', () => {
   })
 
   it('should export LogEntry interface (via type inference)', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const logger = createLogger()
 
     // LogEntry should have these properties when we call createEntry
@@ -30,7 +30,7 @@ describe('Logger module exports', () => {
   })
 
   it('should export Logger interface (via implementation)', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const logger = createLogger()
 
     expect(typeof logger.debug).toBe('function')
@@ -41,12 +41,12 @@ describe('Logger module exports', () => {
   })
 
   it('should export createLogger factory function', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     expect(typeof createLogger).toBe('function')
   })
 
   it('should export defaultLogger instance', async () => {
-    const { defaultLogger } = await import('../logger')
+    const { defaultLogger } = await import('../src/logger')
     expect(defaultLogger).toBeDefined()
     expect(typeof defaultLogger.info).toBe('function')
   })
@@ -58,7 +58,7 @@ describe('Logger module exports', () => {
 
 describe('Structured JSON output', () => {
   it('debug level outputs structured JSON', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: string[] = []
     const logger = createLogger({
       level: 'debug',
@@ -74,7 +74,7 @@ describe('Structured JSON output', () => {
   })
 
   it('info level outputs structured JSON', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: string[] = []
     const logger = createLogger({
       level: 'debug',
@@ -90,7 +90,7 @@ describe('Structured JSON output', () => {
   })
 
   it('warn level outputs structured JSON', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: string[] = []
     const logger = createLogger({
       level: 'debug',
@@ -106,7 +106,7 @@ describe('Structured JSON output', () => {
   })
 
   it('error level outputs structured JSON', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: string[] = []
     const logger = createLogger({
       level: 'debug',
@@ -128,7 +128,7 @@ describe('Structured JSON output', () => {
 
 describe('Log entry fields', () => {
   it('logs include ISO 8601 timestamp', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'debug',
@@ -144,7 +144,7 @@ describe('Log entry fields', () => {
   })
 
   it('logs include correlation ID when set in options', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'debug',
@@ -159,7 +159,7 @@ describe('Log entry fields', () => {
   })
 
   it('logs include correlation ID when passed to log method', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'debug',
@@ -173,7 +173,7 @@ describe('Log entry fields', () => {
   })
 
   it('logs include log level', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'debug',
@@ -187,7 +187,7 @@ describe('Log entry fields', () => {
   })
 
   it('logs include message', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'debug',
@@ -201,7 +201,7 @@ describe('Log entry fields', () => {
   })
 
   it('logs include optional context object', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'debug',
@@ -215,7 +215,7 @@ describe('Log entry fields', () => {
   })
 
   it('context excludes correlationId from context object', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'debug',
@@ -236,7 +236,7 @@ describe('Log entry fields', () => {
 
 describe('Log level filtering', () => {
   it('INFO level filters out DEBUG messages', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'info',
@@ -251,7 +251,7 @@ describe('Log level filtering', () => {
   })
 
   it('WARN level filters out DEBUG and INFO messages', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'warn',
@@ -269,7 +269,7 @@ describe('Log level filtering', () => {
   })
 
   it('ERROR level only shows ERROR messages', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'error',
@@ -286,7 +286,7 @@ describe('Log level filtering', () => {
   })
 
   it('DEBUG level shows all messages', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'debug',
@@ -308,7 +308,7 @@ describe('Log level filtering', () => {
 
 describe('Logger disable', () => {
   it('logger can be disabled via enabled: false', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'debug',
@@ -325,7 +325,7 @@ describe('Logger disable', () => {
   })
 
   it('disabled logger still returns from createEntry', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const logger = createLogger({
       enabled: false,
     })
@@ -342,7 +342,7 @@ describe('Logger disable', () => {
 
 describe('createLogger factory function', () => {
   it('creates logger with default options', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const logger = createLogger()
 
     expect(logger).toBeDefined()
@@ -350,7 +350,7 @@ describe('createLogger factory function', () => {
   })
 
   it('accepts level option', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'warn',
@@ -365,7 +365,7 @@ describe('createLogger factory function', () => {
   })
 
   it('accepts correlationId option', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       correlationId: 'factory-correlation',
@@ -379,7 +379,7 @@ describe('createLogger factory function', () => {
   })
 
   it('accepts enabled option', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       enabled: false,
@@ -392,7 +392,7 @@ describe('createLogger factory function', () => {
   })
 
   it('accepts custom output function', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const customOutput = vi.fn()
     const logger = createLogger({
       output: customOutput,
@@ -416,7 +416,7 @@ describe('createLogger factory function', () => {
 
 describe('Child loggers', () => {
   it('child logger inherits parent correlation ID', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const parent = createLogger({
       correlationId: 'parent-correlation',
@@ -431,7 +431,7 @@ describe('Child loggers', () => {
   })
 
   it('child logger inherits parent log level', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const parent = createLogger({
       level: 'warn',
@@ -447,7 +447,7 @@ describe('Child loggers', () => {
   })
 
   it('child logger inherits parent enabled state', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const parent = createLogger({
       enabled: false,
@@ -461,7 +461,7 @@ describe('Child loggers', () => {
   })
 
   it('child logger can add additional context', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const parent = createLogger({
       output: (entry) => outputs.push(entry),
@@ -475,7 +475,7 @@ describe('Child loggers', () => {
   })
 
   it('child context overrides parent context for same keys', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const parent = createLogger({
       output: (entry) => outputs.push(entry),
@@ -490,7 +490,7 @@ describe('Child loggers', () => {
   })
 
   it('child logger can override correlation ID', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const parent = createLogger({
       correlationId: 'parent-corr',
@@ -505,7 +505,7 @@ describe('Child loggers', () => {
   })
 
   it('nested child loggers accumulate context', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const parent = createLogger({
       output: (entry) => outputs.push(entry),
@@ -526,7 +526,7 @@ describe('Child loggers', () => {
 
 describe('CLI verbose mode', () => {
   it('verbose option enables debug logging', async () => {
-    const { createLoggerFromCLI } = await import('../logger')
+    const { createLoggerFromCLI } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLoggerFromCLI({
       verbose: true,
@@ -540,7 +540,7 @@ describe('CLI verbose mode', () => {
   })
 
   it('without verbose, debug messages are filtered', async () => {
-    const { createLoggerFromCLI } = await import('../logger')
+    const { createLoggerFromCLI } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLoggerFromCLI({
       verbose: false,
@@ -555,7 +555,7 @@ describe('CLI verbose mode', () => {
   })
 
   it('quiet option sets level to warn', async () => {
-    const { createLoggerFromCLI } = await import('../logger')
+    const { createLoggerFromCLI } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLoggerFromCLI({
       quiet: true,
@@ -576,7 +576,7 @@ describe('CLI verbose mode', () => {
 
 describe('Request/response logging helpers', () => {
   it('logRequest helper logs method and URL', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'debug',
@@ -593,7 +593,7 @@ describe('Request/response logging helpers', () => {
   })
 
   it('logRequest helper includes optional body', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'debug',
@@ -607,7 +607,7 @@ describe('Request/response logging helpers', () => {
   })
 
   it('logResponse helper logs status', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'debug',
@@ -622,7 +622,7 @@ describe('Request/response logging helpers', () => {
   })
 
   it('logResponse helper includes optional body and duration', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'debug',
@@ -643,7 +643,7 @@ describe('Request/response logging helpers', () => {
 
 describe('Timing utilities', () => {
   it('startTimer returns a function that returns elapsed time', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const logger = createLogger()
 
     const timer = logger.startTimer()
@@ -657,7 +657,7 @@ describe('Timing utilities', () => {
   })
 
   it('timing can be logged with logTiming helper', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'debug',
@@ -673,7 +673,7 @@ describe('Timing utilities', () => {
   })
 
   it('withTiming wraps async operation and logs duration', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       level: 'debug',
@@ -710,7 +710,7 @@ describe('Environment variable support', () => {
 
   it('DEBUG=rpc.do:* enables debug logging', async () => {
     process.env['DEBUG'] = 'rpc.do:*'
-    const { getLogLevelFromEnv } = await import('../logger')
+    const { getLogLevelFromEnv } = await import('../src/logger')
 
     const level = getLogLevelFromEnv()
     expect(level).toBe('debug')
@@ -718,7 +718,7 @@ describe('Environment variable support', () => {
 
   it('DEBUG=rpc.do enables debug logging', async () => {
     process.env['DEBUG'] = 'rpc.do'
-    const { getLogLevelFromEnv } = await import('../logger')
+    const { getLogLevelFromEnv } = await import('../src/logger')
 
     const level = getLogLevelFromEnv()
     expect(level).toBe('debug')
@@ -726,7 +726,7 @@ describe('Environment variable support', () => {
 
   it('DEBUG=* enables debug logging', async () => {
     process.env['DEBUG'] = '*'
-    const { getLogLevelFromEnv } = await import('../logger')
+    const { getLogLevelFromEnv } = await import('../src/logger')
 
     const level = getLogLevelFromEnv()
     expect(level).toBe('debug')
@@ -734,7 +734,7 @@ describe('Environment variable support', () => {
 
   it('RPC_DO_LOG_LEVEL sets specific level', async () => {
     process.env['RPC_DO_LOG_LEVEL'] = 'warn'
-    const { getLogLevelFromEnv } = await import('../logger')
+    const { getLogLevelFromEnv } = await import('../src/logger')
 
     const level = getLogLevelFromEnv()
     expect(level).toBe('warn')
@@ -743,7 +743,7 @@ describe('Environment variable support', () => {
   it('returns info level when no env vars set', async () => {
     delete process.env['DEBUG']
     delete process.env['RPC_DO_LOG_LEVEL']
-    const { getLogLevelFromEnv } = await import('../logger')
+    const { getLogLevelFromEnv } = await import('../src/logger')
 
     const level = getLogLevelFromEnv()
     expect(level).toBe('info')
@@ -756,7 +756,7 @@ describe('Environment variable support', () => {
 
 describe('Integration with transport correlation ID', () => {
   it('logger can receive correlation ID from transport response', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       output: (entry) => outputs.push(entry),
@@ -771,7 +771,7 @@ describe('Integration with transport correlation ID', () => {
   })
 
   it('child logger can be created with transport correlation ID', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const baseLogger = createLogger({
       output: (entry) => outputs.push(entry),
@@ -793,7 +793,7 @@ describe('Integration with transport correlation ID', () => {
 
 describe('createEntry method', () => {
   it('creates log entry without outputting', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const outputs: unknown[] = []
     const logger = createLogger({
       output: (entry) => outputs.push(entry),
@@ -811,7 +811,7 @@ describe('createEntry method', () => {
   })
 
   it('createEntry includes context', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const logger = createLogger({
       correlationId: 'test-corr',
     })
@@ -829,7 +829,7 @@ describe('createEntry method', () => {
 
 describe('Default output behavior', () => {
   it('uses console.log by default for info', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
     const logger = createLogger()
@@ -840,7 +840,7 @@ describe('Default output behavior', () => {
   })
 
   it('uses console.error by default for error', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     const logger = createLogger()
@@ -851,7 +851,7 @@ describe('Default output behavior', () => {
   })
 
   it('uses console.warn by default for warn', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const logger = createLogger()
@@ -862,7 +862,7 @@ describe('Default output behavior', () => {
   })
 
   it('uses console.debug by default for debug', async () => {
-    const { createLogger } = await import('../logger')
+    const { createLogger } = await import('../src/logger')
     const consoleSpy = vi.spyOn(console, 'debug').mockImplementation(() => {})
 
     const logger = createLogger({ level: 'debug' })

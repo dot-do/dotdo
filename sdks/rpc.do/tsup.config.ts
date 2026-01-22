@@ -2,11 +2,11 @@ import { defineConfig } from 'tsup'
 
 export default defineConfig({
   entry: {
-    index: 'index.ts',
-    'cli/index': 'cli/index.ts',
-    'transport/index': 'transport/index.ts',
-    'transport/fetch': 'transport/fetch.ts',
-    'auth/index': 'auth/index.ts',
+    index: 'src/index.ts',
+    'cli/index': 'src/cli/index.ts',
+    'transport/index': 'src/transport/index.ts',
+    'transport/fetch': 'src/transport/fetch.ts',
+    'auth/index': 'src/auth/index.ts',
   },
   outDir: 'dist',
   format: ['esm'],
@@ -18,7 +18,7 @@ export default defineConfig({
   // Generate types using tsc via the build script instead
   dts: false,
   shims: false,
-  external: ['commander', 'typescript'],
+  external: ['commander', 'hono', 'typescript'],
   onSuccess: async () => {
     const { chmod } = await import('node:fs/promises')
     const { resolve } = await import('node:path')

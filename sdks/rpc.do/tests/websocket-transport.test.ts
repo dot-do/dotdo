@@ -2,7 +2,7 @@
 // Tests the WebSocketTransport implementation following Red-Green-Refactor methodology
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { TransportState, type TransportEvent, type TransportEventListener } from '../transport/types'
+import { TransportState, type TransportEvent, type TransportEventListener } from '../src/transport/types'
 
 // ============================================================================
 // Mock WebSocket for Testing
@@ -119,7 +119,7 @@ describe('WebSocketTransport', () => {
 
   describe('Transport interface implementation', () => {
     it('should implement Transport interface with required methods', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -139,7 +139,7 @@ describe('WebSocketTransport', () => {
 
   describe('connect', () => {
     it('should establish WebSocket connection', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -153,7 +153,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should reject if connection fails', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -167,7 +167,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should be in CONNECTING state while connecting', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -178,7 +178,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should not create multiple connections if already connected', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -201,7 +201,7 @@ describe('WebSocketTransport', () => {
 
   describe('send', () => {
     it('should send RPC message over WebSocket', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -229,7 +229,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should include method and args in sent message', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -250,7 +250,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should auto-connect if not connected', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -283,7 +283,7 @@ describe('WebSocketTransport', () => {
 
   describe('receive response', () => {
     it('should receive and parse JSON response', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -309,7 +309,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should handle error responses', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -347,7 +347,7 @@ describe('WebSocketTransport', () => {
 
   describe('close', () => {
     it('should close the WebSocket connection', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -363,7 +363,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should be safe to call close() multiple times', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -378,7 +378,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should reject pending requests on close', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -407,7 +407,7 @@ describe('WebSocketTransport', () => {
 
   describe('connection error handling', () => {
     it('should handle connection errors gracefully', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -422,7 +422,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should emit error event on connection error', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -452,7 +452,7 @@ describe('WebSocketTransport', () => {
 
   describe('message parse error handling', () => {
     it('should handle invalid JSON messages', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -470,7 +470,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should ignore messages without matching request ID', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -510,7 +510,7 @@ describe('WebSocketTransport', () => {
   describe('automatic reconnection', () => {
     it('should reconnect automatically on disconnect when enabled', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -543,7 +543,7 @@ describe('WebSocketTransport', () => {
 
     it('should not reconnect if reconnect is disabled', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -567,7 +567,7 @@ describe('WebSocketTransport', () => {
 
     it('should stop reconnecting after max attempts', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -603,7 +603,7 @@ describe('WebSocketTransport', () => {
 
     it('should emit reconnect event on reconnect attempt', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -635,7 +635,7 @@ describe('WebSocketTransport', () => {
   describe('message queuing during reconnection', () => {
     it('should queue messages while reconnecting', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -685,7 +685,7 @@ describe('WebSocketTransport', () => {
 
     it('should send queued messages in order after reconnect', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -736,7 +736,7 @@ describe('WebSocketTransport', () => {
 
   describe('getState', () => {
     it('should return DISCONNECTED initially', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -746,7 +746,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should return CONNECTING while connecting', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -758,7 +758,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should return CONNECTED after successful connection', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -772,7 +772,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should return DISCONNECTED after disconnect', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -789,7 +789,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should return CLOSED after explicit close', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -811,7 +811,7 @@ describe('WebSocketTransport', () => {
 
   describe('addEventListener', () => {
     it('should emit connect event on successful connection', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -828,7 +828,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should emit disconnect event on connection close', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -848,7 +848,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should emit error event on connection error', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -872,7 +872,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should return unsubscribe function', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -903,7 +903,7 @@ describe('WebSocketTransport', () => {
   describe('timeout handling', () => {
     it('should timeout request after specified duration', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -931,7 +931,7 @@ describe('WebSocketTransport', () => {
 
     it('should not timeout if response arrives in time', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -964,7 +964,7 @@ describe('WebSocketTransport', () => {
 
     it('should use default timeout if not specified', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport, DEFAULT_TIMEOUT } = await import('../transport/websocket')
+      const { WebSocketTransport, DEFAULT_TIMEOUT } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1001,7 +1001,7 @@ describe('WebSocketTransport', () => {
 
   describe('correlation ID propagation', () => {
     it('should include correlation ID in request', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1022,7 +1022,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should return correlation ID in response', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1050,7 +1050,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should generate correlation ID if not provided', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1077,7 +1077,7 @@ describe('WebSocketTransport', () => {
 
   describe('createWebSocketTransport', () => {
     it('should create a WebSocketTransport instance', async () => {
-      const { createWebSocketTransport, WebSocketTransport } = await import('../transport/websocket')
+      const { createWebSocketTransport, WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = createWebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1087,7 +1087,7 @@ describe('WebSocketTransport', () => {
     })
 
     it('should pass all options to transport', async () => {
-      const { createWebSocketTransport } = await import('../transport/websocket')
+      const { createWebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = createWebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1138,7 +1138,7 @@ describe('WebSocketTransport advanced features', () => {
   describe('heartbeat', () => {
     it('should send ping at configured interval', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1159,7 +1159,7 @@ describe('WebSocketTransport advanced features', () => {
 
     it('should disconnect if no pong received within timeout', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1185,7 +1185,7 @@ describe('WebSocketTransport advanced features', () => {
 
     it('should stay connected if pong received in time', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1218,7 +1218,7 @@ describe('WebSocketTransport advanced features', () => {
   describe('queued message timeout', () => {
     it('should timeout queued messages after reconnection', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1262,7 +1262,7 @@ describe('WebSocketTransport advanced features', () => {
 
   describe('connect edge cases', () => {
     it('should throw error if connecting after explicit close', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1279,7 +1279,7 @@ describe('WebSocketTransport advanced features', () => {
     })
 
     it('should reuse connection if already connecting (not create new WebSocket)', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1302,7 +1302,7 @@ describe('WebSocketTransport advanced features', () => {
 
   describe('close edge cases', () => {
     it('should clear queued messages on close with error response', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1326,7 +1326,7 @@ describe('WebSocketTransport advanced features', () => {
 
   describe('listener error handling', () => {
     it('should continue emitting to other listeners if one throws', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1355,7 +1355,7 @@ describe('WebSocketTransport advanced features', () => {
   describe('not reconnecting after explicit close', () => {
     it('should not reconnect after explicit close', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1383,7 +1383,7 @@ describe('WebSocketTransport advanced features', () => {
 
   describe('emit disconnect on explicit close', () => {
     it('should emit disconnect event on explicit close', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1409,7 +1409,7 @@ describe('WebSocketTransport advanced features', () => {
   describe('flushQueue edge cases', () => {
     it('should not flush queue if WebSocket is not open', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1461,7 +1461,7 @@ describe('WebSocketTransport advanced features', () => {
   describe('sendPing when not connected', () => {
     it('should not send ping when not in CONNECTED state', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.example.com/rpc',
@@ -1497,7 +1497,7 @@ describe('WebSocketTransport advanced features', () => {
 
     it('should guard against ping during state transitions', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       // Use a custom WebSocket class that allows testing state transitions
       let capturedWs: MockWebSocket | null = null
@@ -1531,7 +1531,7 @@ describe('WebSocketTransport advanced features', () => {
 
   describe('custom WebSocket option', () => {
     it('should use custom WebSocket constructor when provided', async () => {
-      const { WebSocketTransport } = await import('../transport/websocket')
+      const { WebSocketTransport } = await import('../src/transport/websocket')
 
       const CustomMockWebSocket = class extends MockWebSocket {
         static customCalled = false
@@ -1555,7 +1555,7 @@ describe('WebSocketTransport advanced features', () => {
   describe('default options', () => {
     it('should use default values for optional options', async () => {
       const { WebSocketTransport, DEFAULT_TIMEOUT, DEFAULT_RECONNECT_INTERVAL, DEFAULT_MAX_RECONNECT_ATTEMPTS } =
-        await import('../transport/websocket')
+        await import('../src/transport/websocket')
 
       // Verify defaults are exported
       expect(DEFAULT_TIMEOUT).toBe(30000)

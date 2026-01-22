@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | | **dotdo (this repo)** | **workers.do (separate repo)** |
 |---|---|---|
 | **Role** | Runtime/Framework | Platform/Product |
-| **Analogy** | NextJS | Vercel |
+| **Analogy** | Node.js | Heroku |
 | **Users** | Infrastructure developers | Startup founders, teams |
 | **Package** | `dotdo` | `agents.do`, `teams.do`, `workers.do` |
 

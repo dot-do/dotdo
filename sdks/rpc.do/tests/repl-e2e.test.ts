@@ -27,9 +27,9 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { ReplService } from '../cli/repl'
-import type { RPCMessage, RPCResponse } from '../types'
-import type { Transport } from '../transport/types'
+import { ReplService } from '../src/cli/repl'
+import type { RPCMessage, RPCResponse } from '../src/types'
+import type { Transport } from '../src/transport/types'
 
 // ============================================================================
 // TYPE DEFINITIONS

@@ -7,8 +7,8 @@ import type {
   SqlStorageAdapterOptions,
   ListOptions,
   ListResult
-} from '../storage/storage'
-import type { SqlStorage } from '../storage/sqlite'
+} from '../storage'
+import type { SqlStorage } from '../sqlite'
 
 /**
  * Default table name for key-value storage

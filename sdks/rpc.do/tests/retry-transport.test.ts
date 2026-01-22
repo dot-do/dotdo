@@ -5,8 +5,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
-import type { RPCMessage, RPCResponse } from '../types'
-import type { Transport } from '../transport/types'
+import type { RPCMessage, RPCResponse } from '../src/types'
+import type { Transport } from '../src/transport/types'
 
 describe('RetryTransport', () => {
   beforeEach(() => {
@@ -19,7 +19,7 @@ describe('RetryTransport', () => {
 
   describe('retry behavior', () => {
     it('should retry on transient errors', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const sendMock = vi.fn()
         .mockRejectedValueOnce(new Error('Network error'))
@@ -45,7 +45,7 @@ describe('RetryTransport', () => {
     })
 
     it('should not retry on non-retryable errors', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const sendMock = vi.fn().mockResolvedValue({
         error: { type: 'NotFoundError', code: 'NOT_FOUND', message: 'Not found' },
@@ -65,7 +65,7 @@ describe('RetryTransport', () => {
     })
 
     it('should retry on retryable error codes', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const sendMock = vi.fn()
         .mockResolvedValueOnce({
@@ -90,7 +90,7 @@ describe('RetryTransport', () => {
     })
 
     it('should exhaust retries and return error', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const sendMock = vi.fn().mockRejectedValue(new Error('Persistent failure'))
       const baseTransport = { send: sendMock }
@@ -113,7 +113,7 @@ describe('RetryTransport', () => {
     })
 
     it('should preserve correlation ID across retries', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const sendMock = vi.fn()
         .mockRejectedValueOnce(new Error('fail'))
@@ -142,7 +142,7 @@ describe('RetryTransport', () => {
 
   describe('exponential backoff', () => {
     it('should use exponential backoff with configurable multiplier', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const delays: number[] = []
 
@@ -163,7 +163,7 @@ describe('RetryTransport', () => {
     })
 
     it('should cap delay at maxDelay', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const delays: number[] = []
 
@@ -186,7 +186,7 @@ describe('RetryTransport', () => {
     })
 
     it('should use default values when not specified', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const delays: number[] = []
 
@@ -207,7 +207,7 @@ describe('RetryTransport', () => {
 
   describe('jitter strategies', () => {
     it('should support full jitter', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       // Seed Math.random for predictable test
       const mockRandom = vi.spyOn(Math, 'random').mockReturnValue(0.5)
@@ -234,7 +234,7 @@ describe('RetryTransport', () => {
     })
 
     it('should support equal jitter', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const mockRandom = vi.spyOn(Math, 'random').mockReturnValue(0.5)
 
@@ -261,7 +261,7 @@ describe('RetryTransport', () => {
     })
 
     it('should support decorrelated jitter', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const mockRandom = vi.spyOn(Math, 'random').mockReturnValue(0.5)
 
@@ -289,7 +289,7 @@ describe('RetryTransport', () => {
     })
 
     it('should support no jitter', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const delays: number[] = []
 
@@ -310,7 +310,7 @@ describe('RetryTransport', () => {
     })
 
     it('should default to full jitter', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const mockRandom = vi.spyOn(Math, 'random').mockReturnValue(0.5)
       const delays: number[] = []
@@ -335,7 +335,7 @@ describe('RetryTransport', () => {
 
   describe('custom retry predicate', () => {
     it('should use custom isRetryable function', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const sendMock = vi.fn().mockResolvedValue({
         error: { type: 'CustomError', code: 'CUSTOM_RETRYABLE', message: 'Custom retryable' },
@@ -360,7 +360,7 @@ describe('RetryTransport', () => {
     })
 
     it('should not retry when custom predicate returns false', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const sendMock = vi.fn().mockResolvedValue({
         error: { type: 'CustomError', code: 'CUSTOM_NON_RETRYABLE', message: 'Do not retry' },
@@ -383,7 +383,7 @@ describe('RetryTransport', () => {
 
   describe('onRetry callback', () => {
     it('should call onRetry with attempt number and delay', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const retryInfo: Array<{ attempt: number; delay: number; error: Error }> = []
 
@@ -413,7 +413,7 @@ describe('RetryTransport', () => {
     })
 
     it('should include error from response in onRetry callback', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const errors: Error[] = []
 
@@ -439,7 +439,7 @@ describe('RetryTransport', () => {
 
   describe('transport delegation', () => {
     it('should delegate close to underlying transport', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const baseTransport = {
         send: vi.fn(),
@@ -454,7 +454,7 @@ describe('RetryTransport', () => {
     })
 
     it('should delegate getState to underlying transport', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const baseTransport = {
         send: vi.fn(),
@@ -470,7 +470,7 @@ describe('RetryTransport', () => {
     })
 
     it('should delegate addEventListener to underlying transport', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const unsubscribe = vi.fn()
       const baseTransport = {
@@ -488,7 +488,7 @@ describe('RetryTransport', () => {
     })
 
     it('should handle transport without optional methods', async () => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const baseTransport = {
         send: vi.fn().mockResolvedValue({ result: 'ok' }),
@@ -519,7 +519,7 @@ describe('RetryTransport', () => {
       ['UNAUTHORIZED', false],
       ['FORBIDDEN', false],
     ])('should handle error code %s as retryable: %s', async (code, shouldRetry) => {
-      const { RetryTransport } = await import('../transport/retry')
+      const { RetryTransport } = await import('../src/transport/retry')
 
       const sendMock = vi.fn()
         .mockResolvedValueOnce({
@@ -552,7 +552,7 @@ describe('RetryTransport', () => {
 
   describe('RetryPolicy presets', () => {
     it('should export aggressive policy preset', async () => {
-      const { RetryPolicy } = await import('../transport/retry')
+      const { RetryPolicy } = await import('../src/transport/retry')
 
       expect(RetryPolicy.aggressive).toBeDefined()
       expect(RetryPolicy.aggressive.maxRetries).toBe(5)
@@ -561,7 +561,7 @@ describe('RetryTransport', () => {
     })
 
     it('should export conservative policy preset', async () => {
-      const { RetryPolicy } = await import('../transport/retry')
+      const { RetryPolicy } = await import('../src/transport/retry')
 
       expect(RetryPolicy.conservative).toBeDefined()
       expect(RetryPolicy.conservative.maxRetries).toBe(3)
@@ -570,14 +570,14 @@ describe('RetryTransport', () => {
     })
 
     it('should export none policy preset (no retries)', async () => {
-      const { RetryPolicy } = await import('../transport/retry')
+      const { RetryPolicy } = await import('../src/transport/retry')
 
       expect(RetryPolicy.none).toBeDefined()
       expect(RetryPolicy.none.maxRetries).toBe(0)
     })
 
     it('should work with policy presets', async () => {
-      const { RetryTransport, RetryPolicy } = await import('../transport/retry')
+      const { RetryTransport, RetryPolicy } = await import('../src/transport/retry')
 
       const sendMock = vi.fn().mockResolvedValue({
         error: { type: 'NetworkError', code: 'NETWORK_ERROR', message: 'fail' },
@@ -602,7 +602,7 @@ describe('RetryTransport', () => {
 
   describe('createRetryTransport factory', () => {
     it('should create transport with factory function', async () => {
-      const { createRetryTransport, RetryTransport } = await import('../transport/retry')
+      const { createRetryTransport, RetryTransport } = await import('../src/transport/retry')
 
       const baseTransport = { send: vi.fn().mockResolvedValue({ result: 'ok' }) }
       const transport = createRetryTransport({

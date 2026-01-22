@@ -7,10 +7,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { AuthTransport } from '../auth/auth-transport'
-import type { ITokenStore } from '../auth/token-store'
-import type { Transport, TransportState } from '../transport/types'
-import type { RPCMessage, RPCResponse } from '../types'
+import { AuthTransport } from '../src/auth/auth-transport'
+import type { ITokenStore } from '../src/auth/token-store'
+import type { Transport, TransportState } from '../src/transport/types'
+import type { RPCMessage, RPCResponse } from '../src/types'
 
 /**
  * Create a mock token store for testing

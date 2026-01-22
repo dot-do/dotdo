@@ -74,7 +74,8 @@
   },
   "dependencies": {
     "@dotdo/utils": "workspace:*",
-    "commander": "^14.0.2"
+    "commander": "^14.0.2",
+    "hono": "^4.11.4"
   },
   "devDependencies": {
     "@dotdo/do": "workspace:*",

@@ -71,7 +71,7 @@ export const workspaceAliases = {
   '@dotdo/integrations': resolve(root, 'integrations/index.ts'),
 
   // Business packages (including nested finance)
-  '@dotdo/finance': resolve(root, 'business/finance/index.ts'),
+  '@dotdo/business-finance': resolve(root, 'business/finance/index.ts'),
   '@dotdo/business': resolve(root, 'business/index.ts'),
 
   // Main package
@@ -98,7 +98,7 @@ export default defineWorkersConfig({
       './business/vitest.config.ts',
       // RPC packages
       './rpc/vitest.config.ts',
-      './sdks/rpc.do/vitest.config.ts',
+      './rpc.do/vitest.config.ts',
       // Auth packages
       './auth/vitest.config.ts',
       './oauth/vitest.config.ts',
