@@ -28,3 +28,12 @@
 [submodule "db/duckdb"]
 	path = db/duckdb
 	url = https://github.com/dot-do/duckdb-wasm-1.git
+[submodule "db/graphdb"]
+	path = db/graphdb
+	url = https://github.com/dot-do/graphdb.git
+[submodule "db/sdb"]
+	path = db/sdb
+	url = https://github.com/dot-do/sdb.git
+[submodule "db/evodb"]
+	path = db/evodb
+	url = https://github.com/dot-do/evodb.git

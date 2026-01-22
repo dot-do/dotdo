@@ -13,6 +13,9 @@ packages:
   - db/postgres
   - db/db4
   - db/duckdb
+  - db/graphdb
+  - db/sdb
+  - db/evodb
   - ai
   - do
   - do/business
