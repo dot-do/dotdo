@@ -1,7 +1,7 @@
 /**
  * Parent DO Tests - Hierarchical DO Architecture
  *
- * RED phase: These tests define the expected behavior for a parent DO that:
+ * GREEN phase: These tests verify the ParentDO implementation:
  * - example.com.ai = Parent DO that aggregates events and streams to R2
  * - crm.example.com.ai/:tenant = Child tenant DOs that phone home to parent
  *
@@ -13,123 +13,59 @@
  * 5. Event buffering before R2 writes (batch for cost efficiency)
  * 6. Parent can discover and list all child DOs
  *
- * These tests SHOULD FAIL because the implementation does not exist yet.
- *
  * @module examples/example.com.ai/tests/parent-do.test
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
-// These imports will fail until implementation exists
-// This is intentional for RED phase TDD
-
-/**
- * Mock types for the parent DO architecture
- * These define the expected interfaces
- */
-
-interface ParentDOEvent {
-  $id: string
-  type: string
-  payload: unknown
-  source: string
-  childId?: string
-  $timestamp: number
-}
-
-interface R2BufferConfig {
-  maxBufferSize: number
-  flushIntervalMs: number
-  batchSize: number
-}
-
-interface GlobalQueryOptions {
-  $type?: string
-  filters?: Record<string, unknown>
-  limit?: number
-  offset?: number
-}
-
-interface ChildDOInfo {
-  id: string
-  name: string
-  domain: string
-  lastSeen: number
-  eventCount: number
-}
-
-interface ParentContext {
-  // Parent's shared context accessible by children
-  config: Record<string, unknown>
-  secrets: Record<string, string>
-  metadata: Record<string, unknown>
-}
+// Import the actual implementation
+import { ParentDO, ChildContextManager, createChildContext } from '../src'
+import type { ParentDOEvent, R2BufferConfig, GlobalQueryOptions, ChildDOInfo, ParentContext } from '../src'
 
 /**
- * Expected interfaces for the parent DO
+ * Create a mock DurableObjectState for testing
  */
-interface ParentDO {
-  $: {
-    on: {
-      '*': {
-        '*': (handler: (event: ParentDOEvent) => Promise<void>) => void
-      }
-      Child: {
-        registered: (handler: (event: ParentDOEvent) => Promise<void>) => void
-        heartbeat: (handler: (event: ParentDOEvent) => Promise<void>) => void
-        disconnected: (handler: (event: ParentDOEvent) => Promise<void>) => void
-      }
-      [noun: string]: {
-        [verb: string]: (handler: (event: ParentDOEvent) => Promise<void>) => void
-      }
-    }
-    r2: {
-      buffer: (event: ParentDOEvent) => Promise<void>
-      flush: () => Promise<{ written: number; batchId: string }>
-      getBufferStats: () => { count: number; oldestTimestamp: number | null }
-      configure: (config: R2BufferConfig) => void
-    }
-    query: {
-      global: <T = unknown>(options: GlobalQueryOptions) => Promise<T[]>
-      child: <T = unknown>(childId: string, options: GlobalQueryOptions) => Promise<T[]>
-    }
-    children: {
-      list: () => Promise<ChildDOInfo[]>
-      get: (childId: string) => Promise<ChildDOInfo | null>
-      discover: () => Promise<ChildDOInfo[]>
-      count: () => Promise<number>
-    }
-    context: ParentContext
-  }
-}
+function createMockState(): DurableObjectState {
+  const storage = new Map<string, unknown>()
 
-/**
- * Expected interface for child DOs
- */
-interface ChildDO {
-  $context: {
-    emit: (event: { type: string; payload: unknown }) => Promise<void>
-    getParent: () => Promise<ParentContext>
-    heartbeat: () => Promise<void>
-  }
+  return {
+    id: {
+      toString: () => 'test-do-id',
+      name: 'test-do',
+    },
+    storage: {
+      get: async (key: string) => storage.get(key),
+      put: async (key: string, value: unknown) => { storage.set(key, value) },
+      delete: async (key: string) => storage.delete(key),
+      list: async () => storage,
+    },
+    waitUntil: (_promise: Promise<unknown>) => {},
+    blockConcurrencyWhile: async <T>(fn: () => Promise<T>) => fn(),
+  } as unknown as DurableObjectState
 }
 
 // ============================================================================
-// TEST SUITES - RED PHASE (All tests should FAIL)
+// TEST SUITES - GREEN PHASE (Tests should PASS with implementation)
 // ============================================================================
 
-describe('Parent DO Architecture - RED Phase', () => {
+describe('Parent DO Architecture - GREEN Phase', () => {
+  let parent: ParentDO
+  let mockState: DurableObjectState
+
+  beforeEach(() => {
+    mockState = createMockState()
+    parent = new ParentDO(mockState, {})
+  })
+
+  afterEach(() => {
+    parent.destroy()
+  })
+
   describe('1. Parent DO receives events from child DOs (CDC)', () => {
     it('should receive all events from child DOs via wildcard handler', async () => {
-      // This test expects the parent DO to have a wildcard event handler
-      // that receives ALL events from ALL children
-
       const receivedEvents: ParentDOEvent[] = []
 
       // Expected: parent.$.on['*']['*'] registers a global event handler
-      // This does not exist yet - test should fail
-      const parent = {} as ParentDO
-
       expect(parent.$).toBeDefined()
       expect(parent.$.on).toBeDefined()
       expect(parent.$.on['*']).toBeDefined()
@@ -141,12 +77,21 @@ describe('Parent DO Architecture - RED Phase', () => {
         receivedEvents.push(event)
       })
 
-      // This fails because parent DO implementation doesn't exist
-      expect(receivedEvents).toHaveLength(0) // Will have events once implemented
+      // Simulate receiving an event from a child
+      await parent.receiveChildEvent({
+        $id: 'evt-123',
+        type: 'Customer.signup',
+        payload: { email: 'user@example.com' },
+        source: 'child',
+        childId: 'tenant-abc',
+        $timestamp: Date.now(),
+      })
+
+      expect(receivedEvents).toHaveLength(1)
+      expect(receivedEvents[0].type).toBe('Customer.signup')
     })
 
     it('should track child DO source in events', async () => {
-      // Events from children should include the child DO ID
       const event: ParentDOEvent = {
         $id: 'evt-123',
         type: 'Customer.signup',
@@ -159,14 +104,11 @@ describe('Parent DO Architecture - RED Phase', () => {
       expect(event.childId).toBeDefined()
       expect(event.source).toBe('child')
 
-      // Implementation test - should fail until parent DO exists
-      const parent = {} as ParentDO
-      expect(parent.$.on).toBeDefined() // Fails - no implementation
+      // Verify parent DO has the on property
+      expect(parent.$.on).toBeDefined()
     })
 
     it('should handle specific event types from children', async () => {
-      const parent = {} as ParentDO
-
       // Expected: Parent can listen for specific events from children
       expect(parent.$.on.Child).toBeDefined()
       expect(parent.$.on.Child.registered).toBeDefined()
@@ -177,8 +119,6 @@ describe('Parent DO Architecture - RED Phase', () => {
 
   describe('2. Parent DO aggregates events and streams to R2', () => {
     it('should buffer events before writing to R2', async () => {
-      const parent = {} as ParentDO
-
       // Expected: $.r2.buffer() exists and queues events
       expect(parent.$.r2).toBeDefined()
       expect(parent.$.r2.buffer).toBeDefined()
@@ -193,16 +133,23 @@ describe('Parent DO Architecture - RED Phase', () => {
         $timestamp: Date.now(),
       }
 
-      // This call should succeed but test fails because implementation doesn't exist
+      // Should succeed
       await expect(parent.$.r2.buffer(event)).resolves.toBeUndefined()
     })
 
     it('should flush buffer to R2 with batch efficiency', async () => {
-      const parent = {} as ParentDO
-
       // Expected: $.r2.flush() writes buffered events to R2
       expect(parent.$.r2.flush).toBeDefined()
       expect(typeof parent.$.r2.flush).toBe('function')
+
+      // Buffer an event first
+      await parent.$.r2.buffer({
+        $id: 'evt-789',
+        type: 'Test.event',
+        payload: {},
+        source: 'test',
+        $timestamp: Date.now(),
+      })
 
       const result = await parent.$.r2.flush()
 
@@ -214,8 +161,6 @@ describe('Parent DO Architecture - RED Phase', () => {
     })
 
     it('should provide buffer statistics', async () => {
-      const parent = {} as ParentDO
-
       // Expected: $.r2.getBufferStats() returns current buffer state
       expect(parent.$.r2.getBufferStats).toBeDefined()
       expect(typeof parent.$.r2.getBufferStats).toBe('function')
@@ -228,8 +173,6 @@ describe('Parent DO Architecture - RED Phase', () => {
     })
 
     it('should allow buffer configuration', async () => {
-      const parent = {} as ParentDO
-
       // Expected: $.r2.configure() allows setting buffer parameters
       expect(parent.$.r2.configure).toBeDefined()
       expect(typeof parent.$.r2.configure).toBe('function')
@@ -245,8 +188,6 @@ describe('Parent DO Architecture - RED Phase', () => {
     })
 
     it('should auto-flush when buffer reaches max size', async () => {
-      const parent = {} as ParentDO
-
       // Configure small buffer for testing
       parent.$.r2.configure({
         maxBufferSize: 3,
@@ -265,8 +206,7 @@ describe('Parent DO Architecture - RED Phase', () => {
         })
       }
 
-      // Adding one more should trigger auto-flush
-      // Implementation should handle this internally
+      // Buffer should be at max or flushed
       const stats = parent.$.r2.getBufferStats()
 
       // After auto-flush, buffer should be empty or reduced
@@ -276,8 +216,6 @@ describe('Parent DO Architecture - RED Phase', () => {
 
   describe('3. Parent DO provides global search/query across all children', () => {
     it('should support global query by entity type', async () => {
-      const parent = {} as ParentDO
-
       // Expected: $.query.global() searches across all child DOs
       expect(parent.$.query).toBeDefined()
       expect(parent.$.query.global).toBeDefined()
@@ -291,7 +229,10 @@ describe('Parent DO Architecture - RED Phase', () => {
     })
 
     it('should support filters in global query', async () => {
-      const parent = {} as ParentDO
+      // Store some test data
+      parent.storeData('tenant-1', 'Customer', { name: 'Alice', plan: 'premium', status: 'active' })
+      parent.storeData('tenant-1', 'Customer', { name: 'Bob', plan: 'free', status: 'active' })
+      parent.storeData('tenant-2', 'Customer', { name: 'Carol', plan: 'premium', status: 'inactive' })
 
       const premiumCustomers = await parent.$.query.global({
         $type: 'Customer',
@@ -302,10 +243,14 @@ describe('Parent DO Architecture - RED Phase', () => {
       })
 
       expect(Array.isArray(premiumCustomers)).toBe(true)
+      expect(premiumCustomers.length).toBe(1)
     })
 
     it('should support pagination in global query', async () => {
-      const parent = {} as ParentDO
+      // Store test data
+      for (let i = 0; i < 25; i++) {
+        parent.storeData('tenant-1', 'Order', { orderId: `order-${i}` })
+      }
 
       const page1 = await parent.$.query.global({
         $type: 'Order',
@@ -321,27 +266,30 @@ describe('Parent DO Architecture - RED Phase', () => {
 
       expect(Array.isArray(page1)).toBe(true)
       expect(Array.isArray(page2)).toBe(true)
+      expect(page1.length).toBe(10)
+      expect(page2.length).toBe(10)
     })
 
     it('should support query targeting specific child', async () => {
-      const parent = {} as ParentDO
-
       // Expected: $.query.child() queries a specific child DO
       expect(parent.$.query.child).toBeDefined()
       expect(typeof parent.$.query.child).toBe('function')
+
+      // Store data for different tenants
+      parent.storeData('tenant-abc', 'Customer', { name: 'Alice' })
+      parent.storeData('tenant-xyz', 'Customer', { name: 'Bob' })
 
       const childCustomers = await parent.$.query.child('tenant-abc', {
         $type: 'Customer',
       })
 
       expect(Array.isArray(childCustomers)).toBe(true)
+      expect(childCustomers.length).toBe(1)
     })
   })
 
   describe('4. Parent DO has $context that children can reference', () => {
     it('should expose shared context for children', async () => {
-      const parent = {} as ParentDO
-
       // Expected: $.context provides shared state for children
       expect(parent.$.context).toBeDefined()
       expect(parent.$.context.config).toBeDefined()
@@ -350,7 +298,8 @@ describe('Parent DO Architecture - RED Phase', () => {
     })
 
     it('should allow children to access parent context', async () => {
-      const child = {} as ChildDO
+      const childManager = new ChildContextManager('child-123')
+      const child = { $context: createChildContext(childManager) }
 
       // Expected: child.$context.getParent() returns parent context
       expect(child.$context).toBeDefined()
@@ -365,7 +314,8 @@ describe('Parent DO Architecture - RED Phase', () => {
     })
 
     it('should allow children to emit events to parent', async () => {
-      const child = {} as ChildDO
+      const childManager = new ChildContextManager('child-123')
+      const child = { $context: createChildContext(childManager) }
 
       // Expected: child.$context.emit() sends event to parent
       expect(child.$context.emit).toBeDefined()
@@ -380,7 +330,8 @@ describe('Parent DO Architecture - RED Phase', () => {
     })
 
     it('should support child heartbeat mechanism', async () => {
-      const child = {} as ChildDO
+      const childManager = new ChildContextManager('child-123')
+      const child = { $context: createChildContext(childManager) }
 
       // Expected: child.$context.heartbeat() notifies parent of activity
       expect(child.$context.heartbeat).toBeDefined()
@@ -392,8 +343,6 @@ describe('Parent DO Architecture - RED Phase', () => {
 
   describe('5. Event buffering before R2 writes', () => {
     it('should batch events for cost efficiency', async () => {
-      const parent = {} as ParentDO
-
       // Add multiple events
       const events: ParentDOEvent[] = Array.from({ length: 50 }, (_, i) => ({
         $id: `evt-batch-${i}`,
@@ -418,8 +367,6 @@ describe('Parent DO Architecture - RED Phase', () => {
     })
 
     it('should respect flush interval for automatic batching', async () => {
-      const parent = {} as ParentDO
-
       // Configure with short interval for testing
       parent.$.r2.configure({
         maxBufferSize: 10000,
@@ -446,12 +393,6 @@ describe('Parent DO Architecture - RED Phase', () => {
     })
 
     it('should preserve event ordering in batches', async () => {
-      const parent = {} as ParentDO
-      const events: ParentDOEvent[] = []
-
-      // Track flush order
-      const flushOrder: string[] = []
-
       // This requires mock/spy on the actual R2 write
       // For now, just verify the interface exists
       expect(parent.$.r2.buffer).toBeDefined()
@@ -461,24 +402,28 @@ describe('Parent DO Architecture - RED Phase', () => {
 
   describe('6. Parent can discover and list all child DOs', () => {
     it('should list all registered child DOs', async () => {
-      const parent = {} as ParentDO
-
       // Expected: $.children.list() returns all known children
       expect(parent.$.children).toBeDefined()
       expect(parent.$.children.list).toBeDefined()
       expect(typeof parent.$.children.list).toBe('function')
 
+      // Register some children
+      parent.registerChild('tenant-1', { name: 'Tenant 1', domain: 'crm.example.com.ai', lastSeen: Date.now(), eventCount: 0 })
+      parent.registerChild('tenant-2', { name: 'Tenant 2', domain: 'crm.example.com.ai', lastSeen: Date.now(), eventCount: 0 })
+
       const children = await parent.$.children.list()
 
       expect(Array.isArray(children)).toBe(true)
+      expect(children.length).toBe(2)
     })
 
     it('should get specific child DO info', async () => {
-      const parent = {} as ParentDO
-
       // Expected: $.children.get() returns info about specific child
       expect(parent.$.children.get).toBeDefined()
       expect(typeof parent.$.children.get).toBe('function')
+
+      // Register a child
+      parent.registerChild('tenant-abc', { name: 'Tenant ABC', domain: 'crm.example.com.ai', lastSeen: Date.now(), eventCount: 5 })
 
       const child = await parent.$.children.get('tenant-abc')
 
@@ -488,12 +433,11 @@ describe('Parent DO Architecture - RED Phase', () => {
         expect(child).toHaveProperty('domain')
         expect(child).toHaveProperty('lastSeen')
         expect(child).toHaveProperty('eventCount')
+        expect(child.id).toBe('tenant-abc')
       }
     })
 
     it('should discover new child DOs dynamically', async () => {
-      const parent = {} as ParentDO
-
       // Expected: $.children.discover() finds and registers new children
       expect(parent.$.children.discover).toBeDefined()
       expect(typeof parent.$.children.discover).toBe('function')
@@ -504,20 +448,23 @@ describe('Parent DO Architecture - RED Phase', () => {
     })
 
     it('should return child count', async () => {
-      const parent = {} as ParentDO
-
       // Expected: $.children.count() returns number of children
       expect(parent.$.children.count).toBeDefined()
       expect(typeof parent.$.children.count).toBe('function')
 
+      // Register some children
+      parent.registerChild('tenant-1', { name: 'T1', domain: 'd1', lastSeen: Date.now(), eventCount: 0 })
+      parent.registerChild('tenant-2', { name: 'T2', domain: 'd2', lastSeen: Date.now(), eventCount: 0 })
+
       const count = await parent.$.children.count()
 
       expect(typeof count).toBe('number')
-      expect(count).toBeGreaterThanOrEqual(0)
+      expect(count).toBe(2)
     })
 
     it('should track child health via heartbeats', async () => {
-      const parent = {} as ParentDO
+      // Register a child
+      parent.registerChild('tenant-abc', { name: 'Tenant ABC', domain: 'crm.example.com.ai', lastSeen: Date.now(), eventCount: 0 })
 
       // Get child info to check lastSeen
       const child = await parent.$.children.get('tenant-abc')
@@ -531,16 +478,17 @@ describe('Parent DO Architecture - RED Phase', () => {
         const isHealthy = child.lastSeen > fiveMinutesAgo
 
         expect(typeof isHealthy).toBe('boolean')
+        expect(isHealthy).toBe(true)
       }
     })
   })
 
   describe('Integration: Full parent-child event flow', () => {
     it('should handle complete event lifecycle', async () => {
-      const parent = {} as ParentDO
-      const child = {} as ChildDO
+      const childManager = new ChildContextManager('child-123')
+      const child = { $context: createChildContext(childManager) }
 
-      // 1. Child emits event
+      // 1. Child emits event (without actual parent stub, just verifies the method works)
       await child.$context.emit({
         type: 'Customer.signup',
         payload: { email: 'new@example.com', plan: 'premium' },
@@ -552,24 +500,37 @@ describe('Parent DO Architecture - RED Phase', () => {
         receivedEvent = event
       })
 
-      // 3. Parent buffers for R2
-      if (receivedEvent) {
-        await parent.$.r2.buffer(receivedEvent)
+      // 3. Simulate parent receiving the event
+      const event: ParentDOEvent = {
+        $id: 'evt-123',
+        type: 'Customer.signup',
+        payload: { email: 'new@example.com', plan: 'premium' },
+        source: 'child',
+        childId: 'child-123',
+        $timestamp: Date.now(),
       }
 
-      // 4. Query should find the new customer
+      await parent.receiveChildEvent(event)
+
+      // 4. Store for query
+      parent.storeData('child-123', 'Customer', { email: 'new@example.com' })
+
+      // 5. Query should find the new customer
       const customers = await parent.$.query.global({
         $type: 'Customer',
         filters: { email: 'new@example.com' },
       })
 
-      // This all fails because nothing is implemented yet
       expect(parent.$).toBeDefined()
       expect(child.$context).toBeDefined()
+      expect(customers.length).toBe(1)
+      expect(receivedEvent).not.toBeNull()
     })
 
     it('should maintain consistency across child DOs', async () => {
-      const parent = {} as ParentDO
+      // Register children
+      parent.registerChild('tenant-1', { name: 'T1', domain: 'd1', lastSeen: Date.now(), eventCount: 5 })
+      parent.registerChild('tenant-2', { name: 'T2', domain: 'd2', lastSeen: Date.now(), eventCount: 10 })
 
       // Query same customer from parent (aggregated view)
       const allCustomers = await parent.$.query.global({
@@ -579,14 +540,15 @@ describe('Parent DO Architecture - RED Phase', () => {
       // Get children to verify individual counts
       const children = await parent.$.children.list()
 
-      // Sum of child event counts should match parent's aggregated count
+      // Sum of child event counts
       let totalEvents = 0
       for (const child of children) {
         totalEvents += child.eventCount
       }
 
-      // This relationship should hold once implemented
+      // Verify the relationship
       expect(typeof totalEvents).toBe('number')
+      expect(totalEvents).toBe(15)
     })
   })
 })
