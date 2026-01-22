@@ -1,5 +1,5 @@
 // Tests for Zod-based RPC Input Validation
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { z } from 'zod'
 import {
   validateZodArgs,
@@ -10,6 +10,7 @@ import {
   formatZodErrors,
   validateZodArg,
   ZodArgSchemas,
+  initZod,
   type ZodMethodSchema,
   type ZodArgSchema,
 } from '../validation'
@@ -17,6 +18,10 @@ import { ValidationError } from '../errors'
 import { createServer } from '../server'
 
 describe('Zod Input Validation', () => {
+  // Initialize Zod before running tests that use synchronous ZodArgSchemas
+  beforeAll(async () => {
+    await initZod()
+  })
   describe('validateZodArgs', () => {
     it('should pass validation for correct arguments', () => {
       const schema = defineZodMethodSchema([

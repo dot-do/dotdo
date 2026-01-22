@@ -10,9 +10,9 @@
 
 import type { MiddlewareHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-// Import from primitives source (id.org.ai package)
-import type { User, Session, Credential } from '../primitives/packages/id.org.ai/src/index'
-import { isSession, isUser } from '../primitives/packages/id.org.ai/src/index'
+// Import from id.org.ai package
+import type { User, Session, Credential } from 'id.org.ai'
+import { isSession, isUser } from 'id.org.ai'
 import type { AuthUser } from './middleware'
 import { createScopedLogger, LogLevel } from '@dotdo/utils'
 
