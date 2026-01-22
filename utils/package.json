@@ -11,6 +11,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./base-error": {
+      "types": "./dist/base-error.d.ts",
+      "import": "./dist/base-error.js"
+    },
     "./proxy": {
       "types": "./dist/proxy.d.ts",
       "import": "./dist/proxy.js"
