@@ -125,3 +125,10 @@ export * from './transport'
  * @see do-9zknf
  */
 export * from './websocket-events'
+
+/**
+ * Connection pool for WebSocket connection reuse.
+ * Provides 95% cost savings via persistent connections to hibernating DOs.
+ * @see do-d1isn.2
+ */
+export * from './connection-pool'

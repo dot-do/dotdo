@@ -8,16 +8,29 @@ packages:
   - auth
   - auth/oauth
   - db
-  - db/clickhouse
+  # - db/clickhouse  # Separate monorepo submodule
+  - db/sqlite
+  - db/db4
+  - db/duckdb
+  - db/graphdb
+  - db/sdb
+  - db/evodb
+  - db/icetype
+  - db/sql
   - ai
   - do
+  - do/business
+  - do/business/finance
+  - do/saas
+  - do/iaas
+  - do/paas
+  - do/sas
+  - do/startup
   - api
   - app
   - dotdo
   - integrations
   - utils
-  - business
-  - business/finance
   - observability
   - tests/testing
   - tests/utils
@@ -27,3 +40,6 @@ packages:
   - vm/bashx
   - vm/gitx
   - examples/*
+  # Exclude db/postgres - it's a separate monorepo with its own workspace
+  - '!db/postgres'
+  - '!db/postgres/**'
