@@ -22,6 +22,7 @@
       "@dotdo/api": ["api/index.ts"],
       "@dotdo/auth": ["auth/index.ts"],
       "@dotdo/ai": ["ai/index.ts"],
+      "@dotdo/analytics": ["analytics/index.ts"],
       "@dotdo/mcp": ["mcp/index.ts"],
       "@dotdo/utils": ["utils/index.ts"],
       "@dotdo/utils/*": ["utils/*"],
@@ -31,7 +32,7 @@
       "@dotdo/test-utils": ["test-utils/index.ts"],
       "@dotdo/clickhouse": ["clickhouse/index.ts"],
       "@dotdo/business": ["business/index.ts"],
-      "@dotdo/business-finance": ["business/finance/index.ts"]
+      "@dotdo/finance": ["business/finance/index.ts"]
     }
   },
   "exclude": ["node_modules", "dist", "**/*.test.ts", ".worktrees"]

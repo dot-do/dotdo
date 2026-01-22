@@ -27,8 +27,8 @@ import {
   fromSerializedError,
   isRPCError,
   isSerializedError,
-} from '../src/errors'
-import type { SerializedError } from '../src/types'
+} from '../errors'
+import type { SerializedError } from '../types'
 
 describe('RPCError', () => {
   describe('creation', () => {

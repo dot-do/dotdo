@@ -37,13 +37,13 @@ afterEach(() => {
 describe('rpc.do login', () => {
   it('login command is registered in CLI', async () => {
     // Import the CLI commands module
-    const { loginCommand } = await import('../src/cli/login')
+    const { loginCommand } = await import('../cli/login')
     expect(loginCommand).toBeDefined()
     expect(typeof loginCommand).toBe('function')
   })
 
   it('initiates OAuth device flow', async () => {
-    const { loginCommand } = await import('../src/cli/login')
+    const { loginCommand } = await import('../cli/login')
 
     const mockDeviceFlow = {
       requestDeviceCode: vi.fn().mockResolvedValue({
@@ -79,7 +79,7 @@ describe('rpc.do login', () => {
   })
 
   it('displays user code and verification URL', async () => {
-    const { loginCommand } = await import('../src/cli/login')
+    const { loginCommand } = await import('../cli/login')
 
     const mockDeviceFlow = {
       requestDeviceCode: vi.fn().mockResolvedValue({
@@ -117,7 +117,7 @@ describe('rpc.do login', () => {
   })
 
   it('stores tokens after successful auth', async () => {
-    const { loginCommand } = await import('../src/cli/login')
+    const { loginCommand } = await import('../cli/login')
 
     const mockDeviceFlow = {
       requestDeviceCode: vi.fn().mockResolvedValue({
@@ -156,7 +156,7 @@ describe('rpc.do login', () => {
   })
 
   it('shows success message after login', async () => {
-    const { loginCommand } = await import('../src/cli/login')
+    const { loginCommand } = await import('../cli/login')
 
     const mockDeviceFlow = {
       requestDeviceCode: vi.fn().mockResolvedValue({
@@ -193,7 +193,7 @@ describe('rpc.do login', () => {
   })
 
   it('handles already logged in user gracefully', async () => {
-    const { loginCommand } = await import('../src/cli/login')
+    const { loginCommand } = await import('../cli/login')
 
     const mockDeviceFlow = {
       requestDeviceCode: vi.fn(),
@@ -226,7 +226,7 @@ describe('rpc.do login', () => {
   })
 
   it('handles login failure gracefully', async () => {
-    const { loginCommand } = await import('../src/cli/login')
+    const { loginCommand } = await import('../cli/login')
 
     const mockDeviceFlow = {
       requestDeviceCode: vi.fn().mockResolvedValue({
@@ -258,8 +258,8 @@ describe('rpc.do login', () => {
   })
 
   it('handles expired device code gracefully', async () => {
-    const { loginCommand } = await import('../src/cli/login')
-    const { DeviceFlowError } = await import('../src/auth/device-flow')
+    const { loginCommand } = await import('../cli/login')
+    const { DeviceFlowError } = await import('../auth/device-flow')
 
     const mockDeviceFlow = {
       requestDeviceCode: vi.fn().mockResolvedValue({
@@ -300,13 +300,13 @@ describe('rpc.do login', () => {
 
 describe('rpc.do logout', () => {
   it('logout command is registered', async () => {
-    const { logoutCommand } = await import('../src/cli/login')
+    const { logoutCommand } = await import('../cli/login')
     expect(logoutCommand).toBeDefined()
     expect(typeof logoutCommand).toBe('function')
   })
 
   it('clears stored tokens', async () => {
-    const { logoutCommand } = await import('../src/cli/login')
+    const { logoutCommand } = await import('../cli/login')
 
     const mockTokenStore = {
       getTokens: vi.fn().mockResolvedValue({
@@ -328,7 +328,7 @@ describe('rpc.do logout', () => {
   })
 
   it('shows success message after logout', async () => {
-    const { logoutCommand } = await import('../src/cli/login')
+    const { logoutCommand } = await import('../cli/login')
 
     const mockTokenStore = {
       getTokens: vi.fn().mockResolvedValue({
@@ -353,7 +353,7 @@ describe('rpc.do logout', () => {
   })
 
   it('handles logout when not logged in', async () => {
-    const { logoutCommand } = await import('../src/cli/login')
+    const { logoutCommand } = await import('../cli/login')
 
     const mockTokenStore = {
       getTokens: vi.fn().mockResolvedValue(null),
@@ -381,13 +381,13 @@ describe('rpc.do logout', () => {
 
 describe('rpc.do whoami', () => {
   it('whoami command is registered', async () => {
-    const { whoamiCommand } = await import('../src/cli/login')
+    const { whoamiCommand } = await import('../cli/login')
     expect(whoamiCommand).toBeDefined()
     expect(typeof whoamiCommand).toBe('function')
   })
 
   it('shows current auth status when logged in', async () => {
-    const { whoamiCommand } = await import('../src/cli/login')
+    const { whoamiCommand } = await import('../cli/login')
 
     const mockTokenStore = {
       getTokens: vi.fn().mockResolvedValue({
@@ -413,7 +413,7 @@ describe('rpc.do whoami', () => {
   })
 
   it('shows not logged in when no token exists', async () => {
-    const { whoamiCommand } = await import('../src/cli/login')
+    const { whoamiCommand } = await import('../cli/login')
 
     const mockTokenStore = {
       getTokens: vi.fn().mockResolvedValue(null),
@@ -435,7 +435,7 @@ describe('rpc.do whoami', () => {
   })
 
   it('shows expired token status', async () => {
-    const { whoamiCommand } = await import('../src/cli/login')
+    const { whoamiCommand } = await import('../cli/login')
 
     const mockTokenStore = {
       getTokens: vi.fn().mockResolvedValue({
@@ -461,7 +461,7 @@ describe('rpc.do whoami', () => {
   })
 
   it('shows token expiration time', async () => {
-    const { whoamiCommand } = await import('../src/cli/login')
+    const { whoamiCommand } = await import('../cli/login')
 
     const expiresAt = Date.now() + 3600000 // 1 hour from now
     const mockTokenStore = {
@@ -492,7 +492,7 @@ describe('rpc.do whoami', () => {
 
 describe('CLI integration', () => {
   it('login command can use default DeviceFlow and TokenStore', async () => {
-    const { createDefaultLoginOptions } = await import('../src/cli/login')
+    const { createDefaultLoginOptions } = await import('../cli/login')
 
     // This helper should create default options with real DeviceFlow and TokenStore
     const options = createDefaultLoginOptions({
@@ -506,7 +506,7 @@ describe('CLI integration', () => {
   })
 
   it('login respects --force flag to re-authenticate', async () => {
-    const { loginCommand } = await import('../src/cli/login')
+    const { loginCommand } = await import('../cli/login')
 
     const mockDeviceFlow = {
       requestDeviceCode: vi.fn().mockResolvedValue({
@@ -552,7 +552,7 @@ describe('CLI integration', () => {
 
 describe('Error handling', () => {
   it('login handles network error during device code request', async () => {
-    const { loginCommand } = await import('../src/cli/login')
+    const { loginCommand } = await import('../cli/login')
 
     const mockDeviceFlow = {
       requestDeviceCode: vi.fn().mockRejectedValue(new Error('Network error')),
@@ -578,7 +578,7 @@ describe('Error handling', () => {
   })
 
   it('logout handles error when deleting tokens', async () => {
-    const { logoutCommand } = await import('../src/cli/login')
+    const { logoutCommand } = await import('../cli/login')
 
     const mockTokenStore = {
       getTokens: vi.fn().mockResolvedValue({

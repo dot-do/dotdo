@@ -11,9 +11,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { Transport, TransportState } from '../src/transport/types'
-import type { ITokenStore, StoredTokens } from '../src/auth/token-store'
-import type { RPCMessage, RPCResponse } from '../src/types'
+import type { Transport, TransportState } from '../transport/types'
+import type { ITokenStore, StoredTokens } from '../auth/token-store'
+import type { RPCMessage, RPCResponse } from '../types'
 
 // ============================================================================
 // Test Utilities
@@ -62,7 +62,7 @@ function delayedResponse<T>(result: T, delayMs: number): Promise<Response> {
 describe('Concurrency Tests', () => {
   describe('Parallel Requests', () => {
     it('should handle multiple simultaneous requests', async () => {
-      const { FetchTransport } = await import('../src/transport/fetch')
+      const { FetchTransport } = await import('../transport/fetch')
 
       let requestCount = 0
       const mockFetch = vi.fn().mockImplementation(async () => {
@@ -101,7 +101,7 @@ describe('Concurrency Tests', () => {
     })
 
     it('should maintain correlation IDs across parallel requests', async () => {
-      const { FetchTransport, CORRELATION_ID_HEADER } = await import('../src/transport/fetch')
+      const { FetchTransport, CORRELATION_ID_HEADER } = await import('../transport/fetch')
 
       const seenIds = new Set<string>()
       const mockFetch = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
@@ -137,7 +137,7 @@ describe('Concurrency Tests', () => {
     })
 
     it('should not mix up responses between parallel requests', async () => {
-      const { FetchTransport } = await import('../src/transport/fetch')
+      const { FetchTransport } = await import('../transport/fetch')
 
       const mockFetch = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
         const body = JSON.parse(init.body as string)
@@ -169,7 +169,7 @@ describe('Concurrency Tests', () => {
     })
 
     it('should handle mixed success and failure in parallel', async () => {
-      const { FetchTransport } = await import('../src/transport/fetch')
+      const { FetchTransport } = await import('../transport/fetch')
 
       let callCount = 0
       const mockFetch = vi.fn().mockImplementation(async () => {
@@ -222,7 +222,7 @@ describe('Concurrency Tests', () => {
 
   describe('Retry under concurrency', () => {
     it('should handle multiple concurrent retrying requests', async () => {
-      const { RetryTransport } = await import('../src/transport/retry')
+      const { RetryTransport } = await import('../transport/retry')
 
       let globalCallCount = 0
       const mockTransport: Transport = {
@@ -257,7 +257,7 @@ describe('Concurrency Tests', () => {
     })
 
     it('should maintain separate retry state for each request', async () => {
-      const { RetryTransport } = await import('../src/transport/retry')
+      const { RetryTransport } = await import('../transport/retry')
 
       const callsByMethod: Record<string, number> = { a: 0, b: 0, c: 0 }
 
@@ -304,7 +304,7 @@ describe('Concurrency Tests', () => {
     })
 
     it('should respect per-request correlation IDs during retries', async () => {
-      const { RetryTransport } = await import('../src/transport/retry')
+      const { RetryTransport } = await import('../transport/retry')
 
       const correlationIdsByMethod: Record<string, string[]> = { a: [], b: [] }
 
@@ -347,7 +347,7 @@ describe('Concurrency Tests', () => {
 
   describe('Auth token refresh under concurrency', () => {
     it('should not refresh token multiple times for concurrent 401s', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       let refreshCount = 0
       const mockTokenStore = createMockTokenStore({
@@ -397,7 +397,7 @@ describe('Concurrency Tests', () => {
     })
 
     it('should queue requests during token refresh', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       const requestOrder: string[] = []
       const mockTokenStore = createMockTokenStore({
@@ -435,7 +435,7 @@ describe('Concurrency Tests', () => {
     })
 
     it('should use refreshed token for subsequent requests', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       const tokensUsed: string[] = []
       const mockTokenStore = createMockTokenStore({
@@ -483,8 +483,8 @@ describe('Concurrency Tests', () => {
 
   describe('State transitions', () => {
     it('should handle rapid connect/disconnect cycles for WebSocket transport', async () => {
-      const { WebSocketTransport } = await import('../src/transport/websocket')
-      const { TransportState } = await import('../src/transport/types')
+      const { WebSocketTransport } = await import('../transport/websocket')
+      const { TransportState } = await import('../transport/types')
 
       // Mock WebSocket with callbacks
       let mockOnOpen: (() => void) | null = null
@@ -547,7 +547,7 @@ describe('Concurrency Tests', () => {
     })
 
     it('should handle concurrent state queries', async () => {
-      const { FetchTransport } = await import('../src/transport/fetch')
+      const { FetchTransport } = await import('../transport/fetch')
 
       const transport = new FetchTransport({
         url: 'https://api.test.com',
@@ -575,7 +575,7 @@ describe('Concurrency Tests', () => {
 
   describe('Resource cleanup', () => {
     it('should not leak pending requests on rapid close', async () => {
-      const { FetchTransport } = await import('../src/transport/fetch')
+      const { FetchTransport } = await import('../transport/fetch')
 
       const pendingRequests: Promise<Response>[] = []
       const mockFetch = vi.fn().mockImplementation(async () => {
@@ -612,7 +612,7 @@ describe('Concurrency Tests', () => {
     })
 
     it('should complete retrying requests eventually even when underlying transport is closed', async () => {
-      const { RetryTransport } = await import('../src/transport/retry')
+      const { RetryTransport } = await import('../transport/retry')
 
       let callCount = 0
       let transportClosed = false
@@ -651,7 +651,7 @@ describe('Concurrency Tests', () => {
     })
 
     it('should handle concurrent close calls', async () => {
-      const { FetchTransport } = await import('../src/transport/fetch')
+      const { FetchTransport } = await import('../transport/fetch')
 
       const transport = new FetchTransport({
         url: 'https://api.test.com',
@@ -677,7 +677,7 @@ describe('Concurrency Tests', () => {
 
   describe('Stress tests', () => {
     it('should handle 50 concurrent requests', async () => {
-      const { FetchTransport } = await import('../src/transport/fetch')
+      const { FetchTransport } = await import('../transport/fetch')
 
       let requestId = 0
       const mockFetch = vi.fn().mockImplementation(async () => {
@@ -712,8 +712,8 @@ describe('Concurrency Tests', () => {
     })
 
     it('should handle concurrent requests with mixed transports', async () => {
-      const { FetchTransport } = await import('../src/transport/fetch')
-      const { RetryTransport } = await import('../src/transport/retry')
+      const { FetchTransport } = await import('../transport/fetch')
+      const { RetryTransport } = await import('../transport/retry')
 
       const mockFetch = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
         const body = JSON.parse(init.body as string)
@@ -760,7 +760,7 @@ describe('Concurrency Tests', () => {
 
   describe('Race condition prevention', () => {
     it('should prevent response mixing with slow requests', async () => {
-      const { FetchTransport, CORRELATION_ID_HEADER } = await import('../src/transport/fetch')
+      const { FetchTransport, CORRELATION_ID_HEADER } = await import('../transport/fetch')
 
       const responseMap: Record<string, string> = {}
       const mockFetch = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
@@ -812,7 +812,7 @@ describe('Concurrency Tests', () => {
     })
 
     it('should handle interleaved success and error responses', async () => {
-      const { FetchTransport } = await import('../src/transport/fetch')
+      const { FetchTransport } = await import('../transport/fetch')
 
       const mockFetch = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
         const body = JSON.parse(init.body as string)

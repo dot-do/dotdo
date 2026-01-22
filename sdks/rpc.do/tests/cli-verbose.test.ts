@@ -8,8 +8,8 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 
 // Modules under test
-import { evalCommand, type EvalOptions } from '../src/cli/eval'
-import { pull } from '../src/cli/pull'
+import { evalCommand, type EvalOptions } from '../cli/eval'
+import { pull } from '../cli/pull'
 import {
   setLogLevel,
   getLogLevel,
@@ -17,7 +17,7 @@ import {
   LogLevel,
   createLogger,
   type Logger,
-} from '../src/cli/logger'
+} from '../cli/logger'
 
 // ============================================================================
 // Helper: Create temp directory for testing file operations
@@ -639,7 +639,7 @@ describe('REPL verbose support', () => {
   it('ReplServiceOptions should support verbose logging configuration', async () => {
     // This is a structural test - we're verifying the interface supports
     // verbose logging through the output callback
-    const { ReplService } = await import('../src/cli/repl')
+    const { ReplService } = await import('../cli/repl')
 
     // Create a mock transport
     const mockTransport = {

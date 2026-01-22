@@ -6,7 +6,7 @@ import type {
   StorageAdapterOptions,
   ListOptions,
   ListResult
-} from '../storage'
+} from '../storage/storage'
 
 /**
  * Stored entry with metadata

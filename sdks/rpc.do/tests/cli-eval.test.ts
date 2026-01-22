@@ -7,7 +7,7 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 
 // Modules under test (will be created in GREEN phase)
-import { evalCommand, runCommand, type EvalOptions, type RunOptions } from '../src/cli/eval'
+import { evalCommand, runCommand, type EvalOptions, type RunOptions } from '../cli/eval'
 
 // ============================================================================
 // Helper: Create temp directory for testing file operations

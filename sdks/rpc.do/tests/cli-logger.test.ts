@@ -8,7 +8,7 @@ import {
   parseLogLevel,
   createLoggerFromOptions,
   type LogEntry,
-} from '../src/cli/logger'
+} from '../cli/logger'
 
 describe('LogLevel', () => {
   it('should have correct severity ordering', () => {

@@ -32,10 +32,10 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
-import { ReplService } from '../src/cli/repl'
-import { FetchTransport, generateCorrelationId, CORRELATION_ID_HEADER } from '../src/transport/fetch'
-import type { Transport } from '../src/transport/types'
-import type { RPCMessage, RPCResponse } from '../src/types'
+import { ReplService } from '../cli/repl'
+import { FetchTransport, generateCorrelationId, CORRELATION_ID_HEADER } from '../transport/fetch'
+import type { Transport } from '../transport/types'
+import type { RPCMessage, RPCResponse } from '../types'
 
 // ============================================================================
 // CONFIGURATION
