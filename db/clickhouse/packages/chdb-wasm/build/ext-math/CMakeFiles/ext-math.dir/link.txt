@@ -1,2 +1,0 @@
-/Users/nathanclevenger/emsdk/upstream/emscripten/emar qc ext-math.wasm "CMakeFiles/ext-math.dir/math.cpp.o"
-/Users/nathanclevenger/emsdk/upstream/emscripten/emranlib ext-math.wasm

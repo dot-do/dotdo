@@ -35,7 +35,7 @@ const workspaceAliases = {
   '@dotdo/integrations/s3': resolve(root, 'integrations/s3/index.ts'),
   '@dotdo/integrations/twilio': resolve(root, 'integrations/twilio/index.ts'),
   '@dotdo/integrations': resolve(root, 'integrations/index.ts'),
-  '@dotdo/finance': resolve(root, 'business/finance/index.ts'),
+  '@dotdo/business-finance': resolve(root, 'business/finance/index.ts'),
   '@dotdo/business': resolve(root, 'business/index.ts'),
   'dotdo': resolve(root, 'dotdo/index.ts'),
 }

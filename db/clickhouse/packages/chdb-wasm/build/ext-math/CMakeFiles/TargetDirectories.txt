@@ -1,3 +1,0 @@
-/Users/nathanclevenger/projects/clickhouse/packages/chdb-wasm/build/ext-math/CMakeFiles/ext-math.dir
-/Users/nathanclevenger/projects/clickhouse/packages/chdb-wasm/build/ext-math/CMakeFiles/edit_cache.dir
-/Users/nathanclevenger/projects/clickhouse/packages/chdb-wasm/build/ext-math/CMakeFiles/rebuild_cache.dir

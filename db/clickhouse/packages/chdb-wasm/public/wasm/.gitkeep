@@ -1,3 +1,0 @@
-# This directory contains WASM files for the worker
-# WASM files are git-ignored due to their large size
-# Run build scripts to populate this directory

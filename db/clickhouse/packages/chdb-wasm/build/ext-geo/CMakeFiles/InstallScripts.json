@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/Users/nathanclevenger/projects/clickhouse/packages/chdb-wasm/build/ext-geo/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

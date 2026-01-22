@@ -1,3 +1,0 @@
-/Users/nathanclevenger/projects/clickhouse/packages/chdb-wasm/build/ext-json-columnar/CMakeFiles/ext-json-columnar.dir
-/Users/nathanclevenger/projects/clickhouse/packages/chdb-wasm/build/ext-json-columnar/CMakeFiles/edit_cache.dir
-/Users/nathanclevenger/projects/clickhouse/packages/chdb-wasm/build/ext-json-columnar/CMakeFiles/rebuild_cache.dir

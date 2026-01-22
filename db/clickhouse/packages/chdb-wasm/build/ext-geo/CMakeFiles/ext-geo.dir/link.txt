@@ -1,2 +1,0 @@
-/Users/nathanclevenger/emsdk/upstream/emscripten/emar qc ext-geo.wasm "CMakeFiles/ext-geo.dir/geo.cpp.o"
-/Users/nathanclevenger/emsdk/upstream/emscripten/emranlib ext-geo.wasm
