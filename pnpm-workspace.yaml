@@ -16,6 +16,8 @@ packages:
   - db/graphdb
   - db/sdb
   - db/evodb
+  - db/icetype
+  - db/sql
   - ai
   - do
   - do/business
