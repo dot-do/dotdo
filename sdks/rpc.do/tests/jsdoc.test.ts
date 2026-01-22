@@ -421,26 +421,26 @@ describe('JSDoc Documentation', () => {
 
   describe('Module documentation', () => {
     const expectedModules = [
-      'src/index.ts',
-      'src/client.ts',
-      'src/types.ts',
-      'src/logger.ts',
-      'src/transport/index.ts',
-      'src/transport/fetch.ts',
-      'src/transport/websocket.ts',
-      'src/transport/types.ts',
-      'src/auth/index.ts',
-      'src/auth/token-store.ts',
-      'src/auth/device-flow.ts',
-      'src/auth/auth-transport.ts',
-      'src/auth/refresh.ts',
+      'index.ts',
+      'client.ts',
+      'types.ts',
+      'logger.ts',
+      'transport/index.ts',
+      'transport/fetch.ts',
+      'transport/websocket.ts',
+      'transport/types.ts',
+      'auth/index.ts',
+      'auth/token-store.ts',
+      'auth/device-flow.ts',
+      'auth/auth-transport.ts',
+      'auth/refresh.ts',
     ]
 
     it('all modules have @module documentation', () => {
       const missing: string[] = []
 
       for (const modulePath of expectedModules) {
-        const fullPath = path.join(SRC_DIR, '..', modulePath)
+        const fullPath = path.join(SRC_DIR, modulePath)
         if (!fs.existsSync(fullPath)) {
           missing.push(`${modulePath}: file not found`)
           continue
