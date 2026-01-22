@@ -260,7 +260,7 @@ export class RelationsManager {
           relatedIds.map((id) => this.things.get(id))
         )
         return {
-          data: entities.filter((e): e is Thing<T> => e !== null) as Thing<T>[],
+          data: entities.filter((e: Thing<T> | null): e is Thing<T> => e !== null) as Thing<T>[],
           isArray: true,
           relation: relationDef,
         }
@@ -305,7 +305,7 @@ export class RelationsManager {
           subjectIds.map((id) => this.things.get(id))
         )
         return {
-          data: entities.filter((e): e is Thing<T> => e !== null) as Thing<T>[],
+          data: entities.filter((e: Thing<T> | null): e is Thing<T> => e !== null) as Thing<T>[],
           isArray: true,
           relation: relationDef,
         }

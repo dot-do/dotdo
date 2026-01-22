@@ -45,11 +45,12 @@ import type { StorableData } from '@dotdo/db'
 // =============================================================================
 
 /**
- * Type declaration for the dynamically imported clickhouse client module.
+ * Type declaration for the dynamically imported analytics client module.
  * This enables proper typing for dynamic imports without bundling the module.
+ * The actual adapter (ClickHouse, BigQuery, etc.) is configured via analytics.adapter in BusinessDO config.
  */
-interface ClickHouseClientModule {
-  createClickHouseClient(
+interface AnalyticsClientModule {
+  createAnalyticsClient(
     storage: DurableObjectStorage,
     config?: {
       profile?: 'minimal' | 'standard' | 'full'
@@ -80,7 +81,7 @@ interface FinanceClientModule {
 // The actual implementations are dynamically imported when needed
 
 /**
- * Analytics client interface (from @dotdo/clickhouse)
+ * Analytics client interface (from @dotdo/analytics)
  */
 export interface AnalyticsClient {
   track(event: AnalyticsEventInput): Promise<void>
@@ -193,7 +194,14 @@ export interface BusinessAnalyticsConfig {
   enabled?: boolean
 
   /**
-   * ClickHouse WASM profile (affects bundle size)
+   * Analytics adapter module to use
+   * Examples: '@dotdo/analytics-clickhouse', '@dotdo/analytics-bigquery'
+   * @default '@dotdo/analytics'
+   */
+  adapter?: string
+
+  /**
+   * Analytics profile (affects bundle size)
    * - 'minimal': Core SQL only (~2MB)
    * - 'standard': SQL + basic analytics (~5MB)
    * - 'full': All features including ML (~10MB)
@@ -554,8 +562,10 @@ export class BusinessDO extends DO {
 
     if (!this._analytics) {
       // Dynamic import to avoid bundling when not used
-      const clickhouse = await import('@dotdo/clickhouse/client') as unknown as ClickHouseClientModule
-      const client = await clickhouse.createClickHouseClient(this.state.storage, {
+      // The adapter is configured via analytics.adapter in BusinessDO config
+      const adapterModule = this.config.analytics?.adapter ?? '@dotdo/analytics'
+      const analytics = await import(adapterModule) as unknown as AnalyticsClientModule
+      const client = await analytics.createAnalyticsClient(this.state.storage, {
         profile: this.config.analytics?.profile ?? 'standard',
         namespace: this.config.namespace ?? undefined
       })
@@ -635,7 +645,7 @@ export class BusinessDO extends DO {
 
     if (!this._finance) {
       // Dynamic import to avoid bundling when not used
-      const finance = await import('@dotdo/business-finance/client') as unknown as FinanceClientModule
+      const finance = await import('@dotdo/finance/client') as unknown as FinanceClientModule
       const financeConfig = {
         stripeApiKey: this.config.finance.stripeApiKey,
         webhookSecret: this.config.finance.webhookSecret,
