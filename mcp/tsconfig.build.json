@@ -5,11 +5,10 @@
     "rootDir": "./",
     "baseUrl": ".",
     "paths": {},
-    "types": ["node", "@cloudflare/workers-types"],
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true
   },
   "include": ["./**/*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts", "vitest.node.config.ts", "cli.ts"]
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts", "vitest.node.config.ts", "do.ts", "sandbox.ts", "sandbox/**", "tools/sandbox.ts", "cli.ts"]
 }

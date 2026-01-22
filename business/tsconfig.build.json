@@ -6,9 +6,7 @@
     "declaration": true,
     "declarationMap": true,
     "types": ["@cloudflare/workers-types"],
-    "paths": {},
-    "noUnusedLocals": false,
-    "noUnusedParameters": false
+    "paths": {}
   },
   "include": ["*.ts"],
   "exclude": ["finance/**", "node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts"]

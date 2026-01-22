@@ -3,11 +3,6 @@
 // Uses existing Zod schemas from schemas.ts and branded-types from branded-types.ts
 
 import { z } from 'zod'
-import { createLogger, LogLevel, setLogLevel } from './logger'
-
-// Create a scoped logger for validation warnings (using local db logger)
-const logger = createLogger('[db/validation]')
-// Note: Log level is controlled globally via setLogLevel() from ./logger
 import { DbValidationError } from './errors'
 import { isThingId, type ThingId } from './branded-types'
 import type { StorableData, JsonValue } from './types'
@@ -66,8 +61,8 @@ function isTestEnvironment(): boolean {
 }
 
 function showDeprecationWarning(functionName: string): void {
-  if (!_deprecationWarningsShown.has(functionName) && !isTestEnvironment()) {
-    logger.warn(
+  if (!_deprecationWarningsShown.has(functionName) && typeof console !== 'undefined' && !isTestEnvironment()) {
+    console.warn(
       `[DEPRECATION] ${functionName}() is deprecated. ` +
       `Use createValidationContext() for context-based validation instead. ` +
       `Global validation config will be removed in v4.0.0.`

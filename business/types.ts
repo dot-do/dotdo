@@ -5,7 +5,7 @@
  */
 
 import type { AnalyticsClient } from '@dotdo/clickhouse'
-import type { SaaSMetrics } from '@dotdo/business-finance'
+import type { FinancialClient, SaaSMetrics } from '@dotdo/business-finance'
 
 // =============================================================================
 // Configuration

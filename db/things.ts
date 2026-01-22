@@ -6,10 +6,6 @@
 // Types moved to types.ts per do-stc2d.1 to break circular dependencies
 
 import type { StorableData } from './types'
-import { createLogger } from './logger'
-
-// Create a scoped logger for Things store deprecation warnings (using local db logger)
-const logger = createLogger('[db/things]')
 import type { StorageAdapter } from './storage'
 import type { ThingId } from './branded-types'
 import { toThingId } from './branded-types'
@@ -554,11 +550,13 @@ export function createThingsStoreWithContext<T extends StorableData = StorableDa
  */
 export function createThingsStore(): ThingsStore {
   // Runtime deprecation warning
-  logger.warn(
-    '[DEPRECATION] createThingsStore() is deprecated and will be removed in v4.0.0. ' +
-    'Use createThingsStoreWithAdapter() with MemoryStorageAdapter instead. ' +
-    'See https://dotdo.dev/docs/migration for details.'
-  )
+  if (typeof console !== 'undefined' && console.warn) {
+    console.warn(
+      '[DEPRECATION] createThingsStore() is deprecated and will be removed in v4.0.0. ' +
+      'Use createThingsStoreWithAdapter() with MemoryStorageAdapter instead. ' +
+      'See https://dotdo.dev/docs/migration for details.'
+    )
+  }
 
   const things = new Map<ThingId, Thing>()
 
