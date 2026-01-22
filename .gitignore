@@ -177,6 +177,7 @@ sandbox/
 !dist/**
 # Allow type declarations for optional dependencies
 !ai/types/**/*.d.ts
+!types/**/*.d.ts
 
 # Parade database
 .parade/*.db

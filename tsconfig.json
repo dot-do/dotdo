@@ -45,6 +45,22 @@
     "apps/**/*.ts",
     "apps/**/*.tsx",
     "vitest.config.ts",
-    "types/**/*.d.ts"
+    "types/**/*.d.ts",
+    "platform.do/**/*.ts",
+    "oauth/**/*.ts",
+    "rpc.do/**/*.ts",
+    "sdk.do/**/*.ts",
+    "e2e/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    ".worktrees",
+    "bashx",
+    "fsx",
+    "gitx",
+    "npmx",
+    "primitives"
   ]
 }

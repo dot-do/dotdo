@@ -9,7 +9,7 @@ import {
   createTransportErrorFromCatch,
   createValidationErrorResponse,
   createServerErrorFromStatus,
-  createErrorResponse,
+  createTransportErrorResponse,
   createErrorContext,
   applyErrorInterceptor,
 } from './error-utils'
@@ -99,7 +99,7 @@ export class FetchTransport implements Transport {
         const errorMessage = error instanceof Error ? error.message : 'Validation failed'
         const validationError = createValidationErrorResponse(errorMessage, correlationId)
 
-        return createErrorResponse({
+        return createTransportErrorResponse({
           error: validationError,
           correlationId,
           transportType: 'fetch',
@@ -130,7 +130,7 @@ export class FetchTransport implements Transport {
       // Handle transport-level errors (network failures, timeouts, DNS resolution, etc.)
       const transportError = createTransportErrorFromCatch(error, 'fetch', this.url)
 
-      return createErrorResponse({
+      return createTransportErrorResponse({
         error: transportError,
         correlationId,
         transportType: 'fetch',
@@ -171,7 +171,7 @@ export class FetchTransport implements Transport {
       // Return generic error response
       const serverError = createServerErrorFromStatus(response.status, 'fetch', response.statusText)
 
-      return createErrorResponse({
+      return createTransportErrorResponse({
         error: serverError,
         correlationId: responseCorrelationId,
         transportType: 'fetch',

@@ -35,7 +35,7 @@ export interface TokenExtractionResult {
  * @param authHeader - The Authorization header value
  * @returns Result with token and optional error details
  */
-export function extractBearerTokenFromHeader(authHeader: string | null): TokenExtractionResult {
+export function extractBearerTokenFromHeader(authHeader: string | null | undefined): TokenExtractionResult {
   if (!authHeader) {
     return {
       token: null,

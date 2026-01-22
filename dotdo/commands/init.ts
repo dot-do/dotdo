@@ -187,7 +187,7 @@ async function checkDirectory(targetDir: string): Promise<void> {
 }
 
 async function getProjectConfig(
-  rl: readline.Interface,
+  rl: readline.Interface | null,
   options: InitOptions
 ): Promise<ProjectConfig> {
   if (options.yes) {
@@ -203,13 +203,13 @@ async function getProjectConfig(
     }
   }
 
-  // Interactive prompts
+  // Interactive prompts - rl is guaranteed non-null when not in yes mode
   const name =
     options.name ||
-    (await rl.question('Project name: (my-dotdo-project) ')) ||
+    (await rl!.question('Project name: (my-dotdo-project) ')) ||
     'my-dotdo-project'
 
-  const templateInput = await rl.question(
+  const templateInput = await rl!.question(
     'Template (basic/api/full): (basic) '
   )
   const template = (templateInput || 'basic') as 'basic' | 'api' | 'full'
@@ -225,8 +225,8 @@ async function getProjectConfig(
   if (template === 'full') {
     features = { auth: true, db: true, ai: true, mcp: true }
   } else if (template === 'api') {
-    const addAuth = await rl.question('Include auth? (y/N) ')
-    const addAI = await rl.question('Include AI module? (y/N) ')
+    const addAuth = await rl!.question('Include auth? (y/N) ')
+    const addAI = await rl!.question('Include AI module? (y/N) ')
     features.auth = addAuth.toLowerCase() === 'y'
     features.ai = addAI.toLowerCase() === 'y'
   }

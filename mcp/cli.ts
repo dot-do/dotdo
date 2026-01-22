@@ -166,7 +166,7 @@ async function handleMessage(
         break
 
       case 'tools/call': {
-        const { name, arguments: args } = params
+        const { name, arguments: args } = params as { name: string; arguments: unknown }
         const tool = server.tools.find((t) => t.name === name)
         if (!tool) {
           return {

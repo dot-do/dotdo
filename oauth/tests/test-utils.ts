@@ -204,14 +204,25 @@ export function createTestProvider(config: TestProviderConfig = {}): TestProvide
 }
 
 /**
+ * Extended OAuth provider interface for testing with tokenExchange support.
+ */
+export interface TestOAuthProvider extends OAuthProvider {
+  tokenExchange?(
+    subjectToken: string,
+    subjectTokenType: string,
+    params?: Record<string, string>
+  ): Promise<TokenResponse>
+}
+
+/**
  * Create a minimal provider without optional methods (refreshToken, tokenExchange).
  * Useful for testing error handling when these methods are not available.
  */
-export function createMinimalProvider(config: TestProviderConfig = {}): OAuthProvider {
+export function createMinimalProvider(config: TestProviderConfig = {}): TestOAuthProvider {
   const provider = new TestProvider({ trackCalls: true, ...config })
 
   // Return only the required methods
-  const minimalProvider: OAuthProvider = {
+  const minimalProvider: TestOAuthProvider = {
     name: provider.name,
     getAuthorizationUrl: provider.getAuthorizationUrl.bind(provider),
     exchangeCode: provider.exchangeCode.bind(provider),

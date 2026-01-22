@@ -34,5 +34,5 @@
       "@dotdo/business-finance": ["business/finance/index.ts"]
     }
   },
-  "exclude": ["node_modules", "dist", "**/*.test.ts", ".worktrees", "primitives", "gitx", "fsx", "bashx", "npmx"]
+  "exclude": ["node_modules", "dist", "**/*.test.ts", ".worktrees"]
 }

@@ -12,7 +12,7 @@
  * @see do-o4sii
  * @see do-f8cq (WebSocket implementation)
  */
-import { test, expect, type Page, type WebSocket } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 
 /**
  * API URL for backend operations

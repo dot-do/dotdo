@@ -506,11 +506,56 @@ export function setGlobalResourceEnforcer(enforcer: SandboxResourceEnforcer | nu
 }
 
 // Storage for captured operations (shared between sandbox instances)
-interface CapturedOperation {
-  type: 'send' | 'try' | 'do' | 'on' | 'every'
-  data: unknown
+interface CapturedSendData {
+  type: string
+  payload?: unknown
+  [key: string]: unknown
+}
+
+interface CapturedOnData {
+  noun: string
+  verb: string
+  handler?: string
+}
+
+interface CapturedEveryData {
+  prop: string
+  time?: string
+  handler?: string
+  called?: boolean
+  args?: number
+}
+
+interface CapturedOperationBase {
   actionResult?: unknown
 }
+
+interface CapturedSendOperation extends CapturedOperationBase {
+  type: 'send'
+  data: CapturedSendData
+}
+
+interface CapturedTryOperation extends CapturedOperationBase {
+  type: 'try'
+  data: Record<string, unknown>
+}
+
+interface CapturedDoOperation extends CapturedOperationBase {
+  type: 'do'
+  data: Record<string, unknown>
+}
+
+interface CapturedOnOperation extends CapturedOperationBase {
+  type: 'on'
+  data: CapturedOnData
+}
+
+interface CapturedEveryOperation extends CapturedOperationBase {
+  type: 'every'
+  data: CapturedEveryData
+}
+
+type CapturedOperation = CapturedSendOperation | CapturedTryOperation | CapturedDoOperation | CapturedOnOperation | CapturedEveryOperation
 
 /**
  * Generate resource enforcement code to be injected into sandbox

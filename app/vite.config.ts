@@ -29,7 +29,7 @@ export default defineConfig({
       },
       server: {
         entry: 'ssr.tsx',
-        preset: 'cloudflare-pages',
+        // Note: For Cloudflare deployment, use @cloudflare/vite-plugin instead of preset
       },
       // Prerender configuration for static site generation
       // Note: Full prerendering requires additional Nitro server configuration

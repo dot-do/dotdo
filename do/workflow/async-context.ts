@@ -100,7 +100,7 @@ function createAsyncAwareFallback<T>(): AsyncLocalStorageInterface<T> {
         const result = callback()
 
         // Check if result is a Promise (async callback)
-        if (result !== null && typeof result === 'object' && typeof (result as PromiseLike<unknown>).then === 'function') {
+        if (result !== null && typeof result === 'object' && typeof ((result as unknown) as PromiseLike<unknown>).then === 'function') {
           // For async callbacks, keep context available until Promise settles
           const promise = Promise.resolve(result)
 

@@ -42,6 +42,27 @@ interface SpawnedProcess {
 type SpawnFn = (command: string[], options?: SpawnOptions) => SpawnedProcess
 
 /**
+ * Minimal Bun runtime interface for spawn functionality
+ */
+interface BunSpawnOptions {
+  env?: Record<string, string | undefined>
+  stdio?: ['inherit' | 'pipe', 'inherit' | 'pipe', 'inherit' | 'pipe'] | 'inherit'
+  cwd?: string
+}
+
+interface BunSpawnProcess {
+  pid: number
+  exited: Promise<number>
+  kill: (signal?: number) => void
+  stdout?: ReadableStream<Uint8Array>
+  stderr?: ReadableStream<Uint8Array>
+}
+
+interface BunRuntime {
+  spawn: (command: string[], options?: BunSpawnOptions) => BunSpawnProcess
+}
+
+/**
  * Run options
  */
 interface RunOptions {
@@ -477,12 +498,13 @@ export async function run(args: string[], options: RunOptions = {}): Promise<Run
  */
 function defaultSpawn(command: string[], options?: SpawnOptions): SpawnedProcess {
   // Check if Bun is available
-  if (typeof Bun === 'undefined' || !Bun.spawn) {
+  const BunGlobal = (globalThis as unknown as { Bun?: BunRuntime }).Bun
+  if (!BunGlobal || !BunGlobal.spawn) {
     throw new Error('Bun runtime required for spawn. Please run with Bun or provide custom spawn function.')
   }
 
   // Use Bun.spawn
-  const proc = Bun.spawn(command, {
+  const proc = BunGlobal.spawn(command, {
     env: options?.env,
     stdio: options?.stdio || ['inherit', 'inherit', 'inherit'],
     cwd: options?.cwd,

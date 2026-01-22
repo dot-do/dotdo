@@ -58,7 +58,18 @@ export * from './guards'
  * Token - JWT token validation and utilities.
  * Low-level token verification and claim extraction.
  */
-export * from './token'
+export {
+  TokenPayload,
+  TokenValidationOptions,
+  TokenExtractionOptions,
+  ExpirationCheckResult,
+  ExpirationCheckOptions,
+  extractToken,
+  extractTokenWithError,
+  verifyTokenSignature,
+  checkTokenExpiration,
+  validateToken,
+} from './token'
 
 /**
  * JWT - Lightweight JWT verification using jose library.

@@ -35,6 +35,7 @@ import {
   type DOStubFactory,
   type CrossDORPCConfig
 } from '../workflow/rpc'
+import { StubCache } from '../workflow/stub-cache'
 import type { Constructor, HasEnv } from './storage'
 import { createScopedLogger, LogLevel } from '@dotdo/utils'
 
@@ -156,7 +157,7 @@ export function WithRPC<TBase extends Constructor>(
   const { rpcPath = '/rpc', debug = false } = options
 
   return class RPCMixin extends Base implements HasRPC {
-    private _stubCache: Map<string, DOStubProxy>
+    private _stubCache: StubCache<DOStubProxy>
     private _rpcConfig: CrossDORPCConfig | null = null
 
     // Mixin constructors must use `any[]` to accept arbitrary base class constructor args (TS2545).
@@ -168,7 +169,7 @@ export function WithRPC<TBase extends Constructor>(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
-      this._stubCache = new Map()
+      this._stubCache = new StubCache()
     }
 
     /**
@@ -181,7 +182,7 @@ export function WithRPC<TBase extends Constructor>(
           stubCache: this._stubCache
         }
       }
-      return this._rpcConfig
+      return this._rpcConfig!
     }
 
     /**

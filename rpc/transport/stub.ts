@@ -7,7 +7,7 @@ import type { Transport, TransportOptions, RPCMessage, RPCResponse, TransportSta
 import {
   createTransportErrorFromCatch,
   createServerErrorFromStatus,
-  createErrorResponse,
+  createTransportErrorResponse,
   createErrorContext,
   applyErrorInterceptor,
 } from './error-utils'
@@ -171,7 +171,7 @@ export class StubTransport implements Transport {
       // Handle transport-level errors (DO stub failures, network issues, etc.)
       const transportError = createTransportErrorFromCatch(error, 'stub', endpoint)
 
-      return createErrorResponse({
+      return createTransportErrorResponse({
         error: transportError,
         correlationId,
         transportType: 'stub',
@@ -212,7 +212,7 @@ export class StubTransport implements Transport {
       // Return generic error response
       const serverError = createServerErrorFromStatus(response.status, 'stub', response.statusText)
 
-      return createErrorResponse({
+      return createTransportErrorResponse({
         error: serverError,
         correlationId: responseCorrelationId,
         transportType: 'stub',

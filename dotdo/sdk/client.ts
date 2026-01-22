@@ -408,7 +408,7 @@ export class DotdoClient {
         return data as T
       }
 
-      return data
+      return data as T
     } catch (error) {
       clearTimeout(timeoutId)
 

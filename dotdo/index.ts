@@ -295,26 +295,9 @@ export {
   type IntegrationSummary,
 } from '@dotdo/do'
 
-// Example integrations
-export {
-  StripeIntegration,
-  createStripeIntegration,
-  type StripeConfig,
-  type StripeCustomer,
-  type StripePaymentIntent,
-  type StripeSubscription,
-  type StripeMethods,
-  SendGridIntegration,
-  createSendGridIntegration,
-  type SendGridConfig,
-  type EmailRecipient,
-  type EmailAttachment,
-  type SendEmailRequest,
-  type SendEmailResponse,
-  type SendGridContact,
-  type EmailStats,
-  type SendGridMethods,
-} from '@dotdo/do'
+// NOTE: Stripe and SendGrid integrations are planned but not yet implemented.
+// When available, they will be exported here. For now, use @dotdo/integrations
+// for webhook verification and circuit breaker utilities.
 
 // Circuit Breaker (DO version - canonical)
 // Use runWithCircuitBreakerRegistry() for request-scoped isolation (recommended)
@@ -462,7 +445,6 @@ export {
   generateObject,
   streamText,
   embedText,
-  complete,
   chat,
   type GenerateTextOptions,
   type GenerateTextResult,
@@ -471,7 +453,6 @@ export {
   type StreamTextOptions,
   type StreamTextResult,
   type EmbedTextOptions,
-  type CompletionOptions,
   type ChatMessage,
   type ChatOptions,
   type AIFunctionDefinition,

@@ -222,7 +222,9 @@ async function nestedPathPipelineExample(serverUrl: string) {
   const client = createClientWithPipeline<UserAPI>({ url: serverUrl })
 
   // Access nested 'users.get' method and chain operations
-  const orders = await client.pipeline('users.get' as keyof UserAPI, 'alice')
+  // Note: For nested paths, we use 'as never' to bypass type checking since
+  // the type system doesn't support dot-separated path strings as method keys
+  const orders = await client.pipeline('users.get' as never, 'alice' as never)
     .call('getOrders' as never)
 
   console.log('Got orders via nested path in single round trip:', orders)

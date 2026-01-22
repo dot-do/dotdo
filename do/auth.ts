@@ -205,7 +205,7 @@ export const clearDOInternalSecret = _clearDOInternalSecret
  * @deprecated Import from @dotdo/auth instead: `import { verifyDOSignature } from '@dotdo/auth'`
  */
 export async function verifyDOSignature(request: Request): Promise<boolean> {
-  return _verifyDOSignature(request, logger)
+  return _verifyDOSignature(request, logger as { warn: (...args: unknown[]) => void })
 }
 
 // ============================================================================
@@ -778,7 +778,7 @@ export async function addDOSourceHeaders(
   sourceDoId: string,
   targetPath?: string
 ): Promise<Headers> {
-  return _addDOSourceHeaders(headers, sourceDoId, targetPath, logger)
+  return _addDOSourceHeaders(headers, sourceDoId, targetPath, logger as { warn: (...args: unknown[]) => void })
 }
 
 /**
@@ -800,7 +800,7 @@ export async function addDOSourceHeadersAsync(
   sourceDoId: string,
   targetPath?: string
 ): Promise<Headers> {
-  return _addDOSourceHeadersAsync(headers, sourceDoId, targetPath, logger)
+  return _addDOSourceHeadersAsync(headers, sourceDoId, targetPath, logger as { warn: (...args: unknown[]) => void })
 }
 
 /**
@@ -823,7 +823,7 @@ export async function createDOToDoHeaders(
   targetPath?: string,
   correlationId?: string
 ): Promise<Headers> {
-  return _createDOToDoHeaders(sourceDoId, targetPath, correlationId, logger)
+  return _createDOToDoHeaders(sourceDoId, targetPath, correlationId, logger as { warn: (...args: unknown[]) => void })
 }
 
 /**

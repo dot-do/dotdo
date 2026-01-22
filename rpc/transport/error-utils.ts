@@ -213,9 +213,11 @@ export function applyErrorInterceptor(
 }
 
 /**
- * Create an error response with normalized structure and optional interceptor
+ * Create an error response with normalized structure and optional interceptor.
+ * Named createTransportErrorResponse to avoid conflict with the simpler
+ * createErrorResponse in errors/base.ts.
  */
-export function createErrorResponse<T>(params: {
+export function createTransportErrorResponse<T>(params: {
   error: SerializedError
   correlationId: string
   transportType: TransportType
@@ -354,7 +356,7 @@ export function createUnifiedErrorHandler(options: UnifiedErrorHandlerOptions) {
       startTime?: number
     ): { error: SerializedError; correlationId: string } {
       const transportError = createTransportErrorFromCatch(error, transportType, endpoint)
-      return createErrorResponse({
+      return createTransportErrorResponse({
         error: transportError,
         correlationId,
         transportType,
@@ -396,7 +398,7 @@ export function createUnifiedErrorHandler(options: UnifiedErrorHandlerOptions) {
       startTime?: number
     ): { error: SerializedError; correlationId: string } {
       const error = createTimeoutError(timeoutMs, transportType)
-      return createErrorResponse({
+      return createTransportErrorResponse({
         error,
         correlationId,
         transportType,
@@ -418,7 +420,7 @@ export function createUnifiedErrorHandler(options: UnifiedErrorHandlerOptions) {
       startTime?: number
     ): { error: SerializedError; correlationId: string } {
       const error = createNetworkError(errorMessage, transportType, details)
-      return createErrorResponse({
+      return createTransportErrorResponse({
         error,
         correlationId,
         transportType,
@@ -439,7 +441,7 @@ export function createUnifiedErrorHandler(options: UnifiedErrorHandlerOptions) {
       startTime?: number
     ): { error: SerializedError; correlationId: string } {
       const error = createValidationErrorResponse(errorMessage, correlationId)
-      return createErrorResponse({
+      return createTransportErrorResponse({
         error,
         correlationId,
         transportType,
@@ -461,7 +463,7 @@ export function createUnifiedErrorHandler(options: UnifiedErrorHandlerOptions) {
       startTime?: number
     ): { error: SerializedError; correlationId: string } {
       const error = createServerErrorFromStatus(status, transportType, statusText)
-      return createErrorResponse({
+      return createTransportErrorResponse({
         error,
         correlationId,
         transportType,

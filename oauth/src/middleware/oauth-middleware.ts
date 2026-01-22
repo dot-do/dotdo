@@ -103,7 +103,7 @@ export function oauthMiddleware(options: OAuthMiddlewareOptions): MiddlewareHand
     if (verifyToken) {
       const payload = await verifyToken(sessionIdOrToken)
       if (payload) {
-        c.set('user', payload)
+        c.set('user' as never, payload as never)
         return next()
       }
     }
@@ -116,7 +116,7 @@ export function oauthMiddleware(options: OAuthMiddlewareOptions): MiddlewareHand
     }
 
     // Set session in context
-    c.set('session', session)
+    c.set('session' as never, session as never)
 
     return next()
   }

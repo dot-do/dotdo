@@ -374,7 +374,8 @@ export class AutoTransport implements Transport {
       }
 
       await this.initWebSocket()
-      return this.activeTransportType === 'websocket'
+      // Re-check after async operation - activeTransportType may have changed
+      return (this.activeTransportType as ActiveTransportType) === 'websocket'
     } catch {
       return false
     }

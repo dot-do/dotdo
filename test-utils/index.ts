@@ -151,4 +151,4 @@ export {
   type TestMiniflareOptions,
   type TestMiniflareResult,
   type WaitForOptions,
-} from './miniflare'
+} from './miniflare-utils'
