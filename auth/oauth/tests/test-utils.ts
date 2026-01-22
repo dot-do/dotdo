@@ -8,9 +8,9 @@
  * @module @dotdo/oauth/tests/test-utils
  */
 
-import type { OAuthProvider, UserInfo } from '../src/providers/interface'
-import type { SessionData, SessionStore, SessionStoreOptions } from '../src/storage/interface'
-import type { TokenResponse } from '../src/core/types'
+import type { OAuthProvider, UserInfo } from '../providers/interface'
+import type { SessionData, SessionStore, SessionStoreOptions } from '../storage/interface'
+import type { TokenResponse } from '../core/types'
 
 /**
  * Configuration for a test OAuth provider.
