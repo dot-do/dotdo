@@ -84,6 +84,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@dotdo/utils": "workspace:^",
     "hono": "^4.11.4",
     "js-tiktoken": "^1.0.21"
   },

@@ -9,40 +9,38 @@ export type { MCPServerOptions, MCPServer, MCPTool } from './server'
 // Tool exports
 export { searchTool, createSearchTool } from './search'
 export { fetchTool, createFetchTool } from './fetch'
-// TODO: Re-enable when ai-evaluate is properly integrated as npm package
-// export { doTool } from './do'
-// export { createSandboxTool, sandboxToolMetadata } from './tools/sandbox'
+export { doTool } from './do'
+export { createSandboxTool, sandboxToolMetadata } from './tools/sandbox'
 
-// Sandbox exports - temporarily disabled due to ai-evaluate dependency
-// TODO: Re-enable when ai-evaluate is properly integrated as npm package
-// export {
-//   createSandbox,
-//   DEFAULT_RESOURCE_LIMITS,
-//   DEFAULT_RATE_LIMIT,
-//   DEFAULT_CONCURRENCY_LIMIT,
-//   RateLimiter,
-//   ConcurrencyLimiter,
-//   SandboxResourceEnforcer,
-//   // RECOMMENDED: Use this for multi-tenant isolation
-//   createScopedResourceEnforcer,
-//   // DEPRECATED: These throw errors in production (do-5sc9b)
-//   // Only use for legacy compatibility or testing with DOTDO_ALLOW_DEPRECATED_GLOBALS=true
-//   getGlobalResourceEnforcer,
-//   setGlobalResourceEnforcer,
-//   // Internal helper for tests
-//   _resetDeprecationWarnings
-// } from './sandbox'
-// export type {
-//   Sandbox,
-//   SandboxOptions,
-//   SandboxResult,
-//   SandboxPermissions,
-//   AuditLog,
-//   ResourceLimits,
-//   ResourceUsage,
-//   RateLimitConfig,
-//   ConcurrencyLimitConfig
-// } from './sandbox'
+// Sandbox exports
+export {
+  createSandbox,
+  DEFAULT_RESOURCE_LIMITS,
+  DEFAULT_RATE_LIMIT,
+  DEFAULT_CONCURRENCY_LIMIT,
+  RateLimiter,
+  ConcurrencyLimiter,
+  SandboxResourceEnforcer,
+  // RECOMMENDED: Use this for multi-tenant isolation
+  createScopedResourceEnforcer,
+  // DEPRECATED: These throw errors in production (do-5sc9b)
+  // Only use for legacy compatibility or testing with DOTDO_ALLOW_DEPRECATED_GLOBALS=true
+  getGlobalResourceEnforcer,
+  setGlobalResourceEnforcer,
+  // Internal helper for tests
+  _resetDeprecationWarnings
+} from './sandbox'
+export type {
+  Sandbox,
+  SandboxOptions,
+  SandboxResult,
+  SandboxPermissions,
+  AuditLog,
+  ResourceLimits,
+  ResourceUsage,
+  RateLimitConfig,
+  ConcurrencyLimitConfig
+} from './sandbox'
 
 // Discovery exports
 export { ToolRegistry, ToolCategory, createDefaultRegistry } from './discovery'

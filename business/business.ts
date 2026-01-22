@@ -20,9 +20,8 @@ import type {
   Objective,
   KeyResult,
   OKRPeriod,
-  BusinessMetrics,
 } from './types'
-import type { FinancialClient, SaaSMetrics } from '@dotdo/business-finance'
+import type { FinancialClient } from '@dotdo/business-finance'
 import { createStripeClient } from '@dotdo/business-finance'
 
 // =============================================================================
@@ -454,7 +453,7 @@ export class Business extends DO {
     }
   }
 
-  protected async getMetricValue(path: string[]): Promise<number> {
+  protected async getMetricValue(_path: string[]): Promise<number> {
     // Implementation would fetch the metric value
     throw new Error('Not implemented - requires metric registry')
   }
@@ -1248,8 +1247,9 @@ function selectVariantByWeight(variants: Variant[], hashValue: number): Variant 
     }
   }
 
-  // Fallback to last variant (should never reach here)
-  return variants[variants.length - 1]
+  // Fallback to last variant (should never reach here with valid input)
+  // The non-null assertion is safe because this function is only called with non-empty arrays
+  return variants[variants.length - 1]!
 }
 
 class ExperimentsAPI {
