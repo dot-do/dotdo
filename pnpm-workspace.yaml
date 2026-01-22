@@ -1,14 +1,13 @@
 packages:
   - core
   - rpc
-  - sdks/rpc.do
-  - sdks/sdk.do
-  - sdks/platform.do
+  - rpc.do
+  - sdk.do
+  - platform.do
   - mcp
   - auth
-  - auth/oauth
+  - oauth
   - db
-  - db/clickhouse
   - ai
   - do
   - api
@@ -16,14 +15,15 @@ packages:
   - dotdo
   - integrations
   - utils
+  - clickhouse
   - business
   - business/finance
   - observability
-  - tests/testing
-  - tests/utils
-  - tests/e2e
-  - vm/fsx
-  - vm/npmx
-  - vm/bashx
-  - vm/gitx
+  - testing
+  - test-utils
+  - fsx
+  - npmx
+  - bashx
+  - gitx
+  - e2e
   - examples/*

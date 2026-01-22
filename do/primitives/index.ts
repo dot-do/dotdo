@@ -135,7 +135,7 @@ export {
   // Factory
   createFs,
   fs,
-} from '@dotdo/fsx'
+} from '../../fsx/index.js'
 
 // Git Primitive (gitx submodule)
 // Re-export core git functionality
@@ -325,7 +325,7 @@ export {
   FLUSH_PKT,
   DELIM_PKT,
   MAX_PKT_LINE_DATA,
-} from '@dotdo/gitx'
+} from '../../gitx/src/index.js'
 
 // Git DO Integration (withGit mixin)
 // Re-export DO mixins and modules for extending DOs with git capability
@@ -345,7 +345,7 @@ export {
   type GitStatus,
   type SyncResult,
   type PushResult,
-} from 'gitx.do'
+} from '../../gitx/src/do/index.js'
 
 // Bash Primitive (bashx submodule)
 // Re-export bash execution functionality
@@ -389,7 +389,7 @@ export {
   validateConfig,
   mergeConfig,
   configDiff,
-} from 'bashx.do'
+} from '../../bashx/src/index.js'
 
 // Bash DO Integration (withBash mixin)
 // Re-export DO mixins and modules for extending DOs with bash capability
@@ -402,7 +402,7 @@ export {
   BashModule,
   type BashModuleOptions,
   type BashExecutor,
-} from 'bashx.do/do'
+} from '../../bashx/src/do/index.js'
 
 // NPM/NPX Primitive (npmx submodule)
 // Re-export npm operations
@@ -430,4 +430,4 @@ export {
   type PackageVersion,
   type PackageUpdate,
   createEmptyInstallResult,
-} from '@dotdo/npmx'
+} from '../../npmx/index.js'

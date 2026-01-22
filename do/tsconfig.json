@@ -2,17 +2,7 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": ".",
-    "noEmit": true
+    "rootDir": "."
   },
-  "include": ["*.ts", "**/*.ts"],
-  "references": [
-    { "path": "../auth" },
-    { "path": "../db" },
-    { "path": "../rpc" },
-    { "path": "../utils" },
-    { "path": "../observability" },
-    { "path": "../integrations" },
-    { "path": "../db/clickhouse" }
-  ]
+  "include": ["*.ts", "**/*.ts"]
 }

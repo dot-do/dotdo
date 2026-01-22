@@ -24,10 +24,6 @@ import type {
   EntitySchema,
   SchemaDirectives,
 } from './types'
-import { createScopedLogger, LogLevel } from '@dotdo/utils'
-
-// Create a scoped logger for AI field generation
-const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[ai-fields]' })
 
 // =============================================================================
 // Types
@@ -186,7 +182,7 @@ export async function generateFieldValue(
     return value || undefined
   } catch (error) {
     // Log but don't throw - AI generation is optional
-    logger.warn(`Failed to generate AI field "${fieldDef.name}" for ${entityType}:`, error)
+    console.warn(`Failed to generate AI field "${fieldDef.name}" for ${entityType}:`, error)
     return undefined
   }
 }

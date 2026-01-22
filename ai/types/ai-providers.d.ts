@@ -1,9 +1,17 @@
-// Type declaration for optional ai-providers module
-// This allows TypeScript to compile even when the module is not installed
-
+/**
+ * Type declaration for the optional ai-providers module.
+ *
+ * This module is an optional dependency used for actual AI model resolution.
+ * When not installed, the @dotdo/ai package falls back to mock models.
+ */
 declare module 'ai-providers' {
-  import type { LanguageModel, EmbeddingModel } from '../types'
+  /**
+   * Resolve a model ID to a LanguageModel instance
+   */
+  export function model(modelId: string): Promise<unknown>
 
-  export function model(modelId: string): Promise<LanguageModel>
-  export function embeddingModel(modelId: string): Promise<EmbeddingModel>
+  /**
+   * Resolve a model name to an EmbeddingModel instance
+   */
+  export function embeddingModel(modelName: string): Promise<unknown>
 }

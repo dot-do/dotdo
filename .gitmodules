@@ -2,14 +2,14 @@
 	path = primitives
 	url = https://github.com/dot-org-ai/primitives.org.ai
 [submodule "fsx"]
-	path = vm/fsx
+	path = fsx
 	url = https://github.com/dot-do/fsx.git
 [submodule "gitx"]
-	path = vm/gitx
+	path = gitx
 	url = https://github.com/dot-do/gitx.git
 [submodule "bashx"]
-	path = vm/bashx
+	path = bashx
 	url = https://github.com/dot-do/bashx.git
 [submodule "npmx"]
-	path = vm/npmx
+	path = npmx
 	url = https://github.com/dot-do/npmx.git

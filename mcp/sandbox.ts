@@ -1,5 +1,5 @@
 // Secure sandbox environment for code execution with $ context injection
-import { evaluate } from 'ai-evaluate'
+import { evaluate } from 'ai-evaluate/node'
 import type { WorkflowContext } from '@dotdo/do'
 import { getErrorMessage } from '@dotdo/rpc'
 
