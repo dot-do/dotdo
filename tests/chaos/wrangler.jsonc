@@ -1,0 +1,21 @@
+{
+  "name": "dotdo-chaos-test",
+  "main": "_worker-entry.ts",
+  "compatibility_date": "2025-01-15",
+
+  // Durable Object bindings for tests
+  "durable_objects": {
+    "bindings": [
+      { "name": "DO", "class_name": "DO" }
+    ]
+  },
+
+  // Migrations for DO classes with SQL storage
+  // Use new_sqlite_classes to enable state.storage.sql
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DO"]
+    }
+  ]
+}

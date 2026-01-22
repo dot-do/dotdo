@@ -1,0 +1,40 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "fixed": [
+    [
+      "dotdo",
+      "@dotdo/do",
+      "@dotdo/db",
+      "@dotdo/rpc",
+      "@dotdo/ai",
+      "@dotdo/api",
+      "@dotdo/auth",
+      "@dotdo/mcp",
+      "@dotdo/core",
+      "@dotdo/utils",
+      "@dotdo/observability",
+      "@dotdo/integrations",
+      "@dotdo/business",
+      "@dotdo/business-finance",
+      "@dotdo/clickhouse",
+      "@dotdo/oauth",
+      "@dotdo/testing",
+      "@dotdo/test-utils",
+      "@dotdo/fsx",
+      "@dotdo/npmx",
+      "bashx.do",
+      "rpc.do",
+      "sdk.do",
+      "platform.do"
+    ]
+  ],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": [
+    "@dotdo/app"
+  ]
+}

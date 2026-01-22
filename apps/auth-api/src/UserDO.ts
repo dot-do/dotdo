@@ -22,14 +22,16 @@ export interface User {
   updatedAt: number
 }
 
-interface UserRow {
+type SqlStorageValue = string | number | null | ArrayBuffer
+
+type UserRow = {
   id: string
   email: string
   name: string
   password_hash: string
   created_at: number
   updated_at: number
-}
+} & Record<string, SqlStorageValue>
 
 // ============================================================================
 // Password Utilities
@@ -91,7 +93,11 @@ async function verifyPassword(password: string, storedHash: string): Promise<boo
 
   let result = 0
   for (let i = 0; i < hashArray.length; i++) {
-    result |= hashArray[i] ^ originalHash[i]
+    const hashByte = hashArray[i]
+    const originalByte = originalHash[i]
+    if (hashByte !== undefined && originalByte !== undefined) {
+      result |= hashByte ^ originalByte
+    }
   }
 
   return result === 0

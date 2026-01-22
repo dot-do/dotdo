@@ -1,0 +1,24 @@
+{
+  "name": "@dotdo/example-auth-patterns",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Authentication patterns example using dotdo Durable Objects",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@dotdo/do": "workspace:*",
+    "hono": "^4.11.4"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.0",
+    "@cloudflare/workers-types": "^4.0.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.0",
+    "wrangler": "^4.0.0"
+  }
+}

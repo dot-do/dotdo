@@ -327,6 +327,26 @@ export {
   MAX_PKT_LINE_DATA,
 } from '../../gitx/src/index.js'
 
+// Git DO Integration (withGit mixin)
+// Re-export DO mixins and modules for extending DOs with git capability
+export {
+  // Mixin for adding $.git capability
+  withGit,
+  hasGitCapability,
+  type WithGitCapability,
+  type WithGitOptions,
+  type WithGitContext,
+  // GitModule for direct usage
+  GitModule,
+  createGitModule,
+  isGitModule,
+  type GitModuleOptions,
+  type GitBinding,
+  type GitStatus,
+  type SyncResult,
+  type PushResult,
+} from '../../gitx/src/do/index.js'
+
 // Bash Primitive (bashx submodule)
 // Re-export bash execution functionality
 export {
@@ -370,6 +390,19 @@ export {
   mergeConfig,
   configDiff,
 } from '../../bashx/src/index.js'
+
+// Bash DO Integration (withBash mixin)
+// Re-export DO mixins and modules for extending DOs with bash capability
+export {
+  // Mixin for adding $.bash capability
+  withBash,
+  type WithBashCapability,
+  type WithBashConfig,
+  // BashModule for direct usage
+  BashModule,
+  type BashModuleOptions,
+  type BashExecutor,
+} from '../../bashx/src/do/index.js'
 
 // NPM/NPX Primitive (npmx submodule)
 // Re-export npm operations

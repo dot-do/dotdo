@@ -1,27 +1,102 @@
 {
   "name": "dotdo",
   "version": "0.0.1",
+  "description": "Digital Objects runtime framework for Cloudflare Durable Objects",
   "type": "module",
-  "main": "index.ts",
-  "types": "index.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "bin": {
-    "dotdo": "./cli.ts"
+    "dotdo": "./dist/cli.js"
   },
   "exports": {
-    ".": "./index.ts",
-    "./do": "./do.ts",
-    "./db": "./db.ts",
-    "./ai": "./ai.ts",
-    "./auth": "./auth.ts",
-    "./rpc": "./rpc.ts",
-    "./mcp": "./mcp.ts",
-    "./api": "./api.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./do": {
+      "types": "./dist/do.d.ts",
+      "import": "./dist/do.js"
+    },
+    "./db": {
+      "types": "./dist/db.d.ts",
+      "import": "./dist/db.js"
+    },
+    "./ai": {
+      "types": "./dist/ai.d.ts",
+      "import": "./dist/ai.js"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "import": "./dist/auth.js"
+    },
+    "./rpc": {
+      "types": "./dist/rpc.d.ts",
+      "import": "./dist/rpc.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp.d.ts",
+      "import": "./dist/mcp.js"
+    },
+    "./api": {
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js"
+    },
+    "./sdk": {
+      "types": "./dist/sdk/index.d.ts",
+      "import": "./dist/sdk/index.js"
+    },
+    "./sdk/client": {
+      "types": "./dist/sdk/client.d.ts",
+      "import": "./dist/sdk/client.js"
+    },
+    "./sdk/testing": {
+      "types": "./dist/sdk/testing.d.ts",
+      "import": "./dist/sdk/testing.js"
+    },
+    "./sdk/deploy": {
+      "types": "./dist/sdk/deploy.d.ts",
+      "import": "./dist/sdk/deploy.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "cloudflare",
+    "durable-objects",
+    "digital-objects",
+    "workers",
+    "edge",
+    "ai",
+    "typescript"
+  ],
+  "author": "dot-do",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/dotdo"
+  },
+  "homepage": "https://dotdo.dev",
+  "bugs": {
+    "url": "https://github.com/dot-do/dotdo/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "clean": "rm -rf dist"
   },
   "dependencies": {
     "@dotdo/ai": "workspace:*",
@@ -31,10 +106,11 @@
     "@dotdo/do": "workspace:*",
     "@dotdo/mcp": "workspace:*",
     "@dotdo/rpc": "workspace:*",
-    "commander": "^13.0.0",
-    "hono": "^4.7.0"
+    "rpc.do": "workspace:*",
+    "commander": "^14.0.2",
+    "hono": "^4.11.4"
   },
   "devDependencies": {
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.3"
   }
 }

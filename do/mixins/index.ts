@@ -37,12 +37,17 @@
 // Storage Mixin
 // =============================================================================
 
+// Import Constructor for local use in MixinFn type definition
+import type { Constructor } from './storage'
+
 export {
   WithStorage,
   type Constructor,
   type HasStorage,
   type WithStorageOptions,
-  type MixinInstance
+  type MixinInstance,
+  type HasDurableObjectState,
+  type HasEnv
 } from './storage'
 
 // =============================================================================
@@ -119,35 +124,40 @@ export {
 } from './auth'
 
 // =============================================================================
+// Primitives Mixin
+// =============================================================================
+
+export {
+  DOWithPrimitives,
+  hasFs,
+  hasGit,
+  hasBash,
+  type HasPrimitives,
+  type WithPrimitivesOptions,
+  type WithPrimitivesContext,
+  type FsConfig,
+  type GitConfig,
+  type BashConfig,
+  type NpmConfig,
+  // Re-exports for convenience
+  type FsModule,
+  type FsModuleConfig,
+  type GitModule,
+  type GitModuleOptions,
+  type BashModule,
+  type BashExecutor,
+  type BashModuleOptions,
+} from './primitives'
+
+// =============================================================================
 // Composition Helpers
 // =============================================================================
 
-/**
- * Type helper for inferring the composed class type from multiple mixins.
- *
- * @example
- * ```typescript
- * type MyDOType = ComposedType<
- *   typeof WithStorage,
- *   typeof WithWebSocket,
- *   typeof WithRPC
- * >
- * ```
- */
-export type ComposedType<
-  T1 extends (base: any) => any,
-  T2 extends (base: any) => any = (base: any) => any,
-  T3 extends (base: any) => any = (base: any) => any,
-  T4 extends (base: any) => any = (base: any) => any
-> = ReturnType<T1> & ReturnType<T2> & ReturnType<T3> & ReturnType<T4>
-
-/**
- * Utility type to get the instance type of a composed mixin.
- *
- * @example
- * ```typescript
- * const MyDO = WithRPC(WithStorage(BaseDO))
- * type MyDOInstance = InstanceOf<typeof MyDO>
- * ```
- */
-export type InstanceOf<T> = T extends new (...args: any[]) => infer R ? R : never
+// Re-export mixin utility types from @dotdo/utils for convenience
+// These are the canonical definitions used across all @dotdo packages
+export type {
+  MixinFn,
+  ComposedType,
+  InstanceOf,
+  RequiresMixin
+} from '@dotdo/utils'
