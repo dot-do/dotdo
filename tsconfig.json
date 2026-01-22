@@ -20,7 +20,7 @@
       "@dotdo/integrations": ["./integrations/index.ts"],
       "@dotdo/business": ["./business/index.ts"],
       "@dotdo/business-finance": ["./business/finance/index.ts"],
-      "@dotdo/clickhouse": ["./clickhouse/src/index.ts"],
+      "@dotdo/clickhouse": ["./db/clickhouse/src/index.ts"],
       "dotdo": ["./dotdo/index.ts"]
     }
   },
@@ -41,13 +41,10 @@
     "dotdo/**/*.ts",
     "tests/testing/**/*.ts",
     "tests/test-utils/**/*.ts",
-    "clickhouse/**/*.ts",
-    "apps/**/*.ts",
-    "apps/**/*.tsx",
     "vitest.config.ts",
     "types/**/*.d.ts",
     "sdks/platform.do/**/*.ts",
-    "oauth/**/*.ts",
+    "auth/oauth/**/*.ts",
     "sdks/rpc.do/**/*.ts",
     "sdks/sdk.do/**/*.ts",
     "tests/e2e/**/*.ts"

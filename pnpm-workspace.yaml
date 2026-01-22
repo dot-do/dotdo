@@ -6,8 +6,9 @@ packages:
   - sdks/platform.do
   - mcp
   - auth
-  - oauth
+  - auth/oauth
   - db
+  - db/clickhouse
   - ai
   - do
   - api
@@ -15,7 +16,6 @@ packages:
   - dotdo
   - integrations
   - utils
-  - clickhouse
   - business
   - business/finance
   - observability
