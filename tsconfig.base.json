@@ -31,7 +31,7 @@
       "@dotdo/test-utils": ["test-utils/index.ts"],
       "@dotdo/clickhouse": ["clickhouse/index.ts"],
       "@dotdo/business": ["business/index.ts"],
-      "@dotdo/business-finance": ["business/finance/index.ts"]
+      "@dotdo/finance": ["business/finance/index.ts"]
     }
   },
   "exclude": ["node_modules", "dist", "**/*.test.ts", ".worktrees"]

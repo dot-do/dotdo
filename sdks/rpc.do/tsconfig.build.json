@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": ".",
     "baseUrl": ".",
     "paths": {},
     "types": ["node"],
@@ -12,6 +12,6 @@
     "declarationMap": true,
     "emitDeclarationOnly": true
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**"]
+  "include": ["*.ts", "cli/**/*.ts", "transport/**/*.ts", "auth/**/*.ts"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts", "vitest.e2e.config.ts", "tsup.config.ts", "test-entry.ts"]
 }
