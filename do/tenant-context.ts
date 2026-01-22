@@ -228,7 +228,8 @@ function toISOString(timestamp: number): string {
 function createTenantThingsStore(baseStore: ThingsStore, _tenantId: string): TenantThingsStore {
   return {
     async create(input: ThingInput): Promise<TenantThing> {
-      const thing = await baseStore.create(input)
+      // Cast to expected type - ThingInput uses unknown, db expects JsonValue
+      const thing = await baseStore.create(input as Parameters<ThingsStore['create']>[0])
       return {
         ...thing,
         $createdAt: toISOString(thing.$createdAt),
@@ -249,7 +250,8 @@ function createTenantThingsStore(baseStore: ThingsStore, _tenantId: string): Ten
     async update(id: string, input: Partial<ThingInput>): Promise<TenantThing> {
       // Get the original thing first to ensure updatedAt differs from createdAt
       const original = await baseStore.get(id)
-      const thing = await baseStore.update(id, input)
+      // Cast to expected type - ThingInput uses unknown, db expects JsonValue
+      const thing = await baseStore.update(id, input as Parameters<ThingsStore['update']>[1])
 
       // Ensure $updatedAt is always different from $createdAt (at least 1ms later)
       let updatedAt = thing.$updatedAt

@@ -240,7 +240,7 @@ export function $Context(url: string, options: ClientContextOptions = {}): Clien
 
       if (timeoutId) clearTimeout(timeoutId)
 
-      const json = await response.json()
+      const json = await response.json() as { error?: string; code?: string; details?: Record<string, unknown>; retryAfter?: number }
 
       if (!response.ok) {
         const error = new RPCError(
@@ -253,9 +253,9 @@ export function $Context(url: string, options: ClientContextOptions = {}): Clien
       }
 
       // Apply response middleware
-      let result = json
+      let result: unknown = json
       for (const mw of responseMiddleware) {
-        result = mw(result)
+        result = mw(result as Record<string, unknown>)
       }
 
       return result
@@ -612,15 +612,16 @@ export function $Context(url: string, options: ClientContextOptions = {}): Clien
 
     async connect() {
       return new Promise<void>((resolve) => {
-        ws = ensureWebSocket()
-        context._ws = ws
-        if (ws.readyState === WebSocket.OPEN) {
+        const socket = ensureWebSocket()
+        ws = socket
+        context._ws = socket
+        if (socket.readyState === WebSocket.OPEN) {
           resolve()
         } else {
-          const originalOnOpen = ws.onopen
-          ws.onopen = (event) => {
+          const originalOnOpen = socket.onopen
+          socket.onopen = (event) => {
             if (originalOnOpen) {
-              originalOnOpen.call(ws, event)
+              originalOnOpen.call(socket, event)
             }
             resolve()
           }
