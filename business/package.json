@@ -1,7 +1,7 @@
 {
-  "name": "@dotdo/utils",
+  "name": "@dotdo/business",
   "version": "0.0.1",
-  "description": "Shared utilities for dotdo packages",
+  "description": "Business-as-Code implementation for dotdo - BusinessDO with analytics, finance, experiments, and OKRs",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -11,29 +11,9 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./base-error": {
-      "types": "./dist/base-error.d.ts",
-      "import": "./dist/base-error.js"
-    },
-    "./proxy": {
-      "types": "./dist/proxy.d.ts",
-      "import": "./dist/proxy.js"
-    },
-    "./logger": {
-      "types": "./dist/logger.d.ts",
-      "import": "./dist/logger.js"
-    },
-    "./mixin-types": {
-      "types": "./dist/mixin-types.d.ts",
-      "import": "./dist/mixin-types.js"
-    },
-    "./circuit-breaker": {
-      "types": "./dist/circuit-breaker.d.ts",
-      "import": "./dist/circuit-breaker.js"
-    },
-    "./cookies": {
-      "types": "./dist/cookies.d.ts",
-      "import": "./dist/cookies.js"
+    "./finance": {
+      "types": "./dist/finance/index.d.ts",
+      "import": "./dist/finance/index.js"
     }
   },
   "files": [
@@ -42,15 +22,18 @@
   ],
   "keywords": [
     "dotdo",
-    "utilities",
-    "helpers"
+    "business",
+    "analytics",
+    "finance",
+    "okr",
+    "cloudflare"
   ],
   "author": "dot-do",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/dot-do/dotdo",
-    "directory": "utils"
+    "directory": "business"
   },
   "homepage": "https://dotdo.dev",
   "bugs": {
@@ -65,11 +48,18 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "test": "vitest",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
     "clean": "rm -rf dist"
   },
+  "dependencies": {
+    "@dotdo/do": "workspace:*",
+    "@dotdo/clickhouse": "workspace:*",
+    "@dotdo/business-finance": "workspace:*"
+  },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
     "typescript": "^5.7.3"
   }
 }
