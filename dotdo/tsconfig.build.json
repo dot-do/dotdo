@@ -5,6 +5,7 @@
     "rootDir": "./",
     "baseUrl": ".",
     "paths": {},
+    "types": ["node"],
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true

@@ -20,7 +20,7 @@ packages:
   - business/finance
   - observability
   - tests/testing
-  - tests/test-utils
+  - tests/utils
   - tests/e2e
   - vm/fsx
   - vm/npmx

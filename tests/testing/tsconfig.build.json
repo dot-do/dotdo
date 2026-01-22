@@ -1,10 +1,12 @@
 {
-  "extends": "../tsconfig.base.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": ".",
     "baseUrl": ".",
     "paths": {},
+    "types": ["@cloudflare/workers-types", "node"],
+    "skipLibCheck": true,
     "declaration": true,
     "declarationMap": true
   },

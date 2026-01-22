@@ -13,6 +13,6 @@
     { "path": "../utils" },
     { "path": "../observability" },
     { "path": "../integrations" },
-    { "path": "../clickhouse" }
+    { "path": "../db/clickhouse" }
   ]
 }

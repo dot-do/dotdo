@@ -86,7 +86,8 @@
   "dependencies": {
     "@dotdo/utils": "workspace:^",
     "hono": "^4.11.4",
-    "js-tiktoken": "^1.0.21"
+    "js-tiktoken": "^1.0.21",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@dotdo/do": "workspace:*",
