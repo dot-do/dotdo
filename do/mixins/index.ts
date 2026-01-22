@@ -127,27 +127,10 @@ export {
 // Primitives Mixin
 // =============================================================================
 
-export {
-  DOWithPrimitives,
-  hasFs,
-  hasGit,
-  hasBash,
-  type HasPrimitives,
-  type WithPrimitivesOptions,
-  type WithPrimitivesContext,
-  type FsConfig,
-  type GitConfig,
-  type BashConfig,
-  type NpmConfig,
-  // Re-exports for convenience
-  type FsModule,
-  type FsModuleConfig,
-  type GitModule,
-  type GitModuleOptions,
-  type BashModule,
-  type BashExecutor,
-  type BashModuleOptions,
-} from './primitives'
+// Primitives mixin is excluded from the build because it depends on git submodules
+// (fsx, gitx, bashx, npmx) that are outside the @dotdo/do package rootDir.
+// The primitives functionality is available when using the submodules directly.
+// See: do/primitives/index.ts for the full primitives exports.
 
 // =============================================================================
 // Composition Helpers
