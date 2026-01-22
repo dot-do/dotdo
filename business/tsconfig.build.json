@@ -5,9 +5,9 @@
     "rootDir": ".",
     "declaration": true,
     "declarationMap": true,
-    "baseUrl": ".",
+    "types": ["@cloudflare/workers-types"],
     "paths": {}
   },
   "include": ["*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests"]
+  "exclude": ["finance/**", "node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts"]
 }

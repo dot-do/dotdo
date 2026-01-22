@@ -32,15 +32,22 @@
     "matchers"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/dotdo",
+    "directory": "testing"
+  },
+  "homepage": "https://dotdo.dev",
   "peerDependencies": {
     "vitest": ">=1.0.0"
   },
   "dependencies": {
-    "@dotdo/db": "workspace:*"
+    "@dotdo/ai": "workspace:*",
+    "@dotdo/db": "workspace:*",
+    "@dotdo/integrations": "workspace:*"
   },
   "devDependencies": {
-    "@dotdo/ai": "workspace:*",
-    "@dotdo/integrations": "workspace:*",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.0"
   }
 }
