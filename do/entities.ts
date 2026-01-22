@@ -347,41 +347,44 @@ export class EntityManager {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function withEntities<T extends new (...args: any[]) => any>(Base: T) {
   return class extends Base {
-    private entityManager: EntityManager
+    /**
+     * @internal Entity manager instance - use public accessors (things, events, relationships) instead
+     */
+    _entityManager: EntityManager
 
     // Mixin constructors must use `any[]` to accept arbitrary base class constructor args
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
       super(...args)
-      this.entityManager = new EntityManager()
+      this._entityManager = new EntityManager()
     }
 
     get things(): ThingsStore {
-      return this.entityManager.things
+      return this._entityManager.things
     }
 
     get events(): EventsStore {
-      return this.entityManager.events
+      return this._entityManager.events
     }
 
     get relationships(): RelationshipsStore {
-      return this.entityManager.relationships
+      return this._entityManager.relationships
     }
 
     get auditLogs(): AuditLogStore {
-      return this.entityManager.auditLogs
+      return this._entityManager.auditLogs
     }
 
     setAuditContext(context: AuditContext): void {
-      this.entityManager.setAuditContext(context)
+      this._entityManager.setAuditContext(context)
     }
 
     getAuditContext(): AuditContext {
-      return this.entityManager.getAuditContext()
+      return this._entityManager.getAuditContext()
     }
 
     query<T extends StorableData = StorableData>(): QueryBuilder<T> {
-      return this.entityManager.query<T>()
+      return this._entityManager.query<T>()
     }
   }
 }

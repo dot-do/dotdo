@@ -20,9 +20,7 @@
  */
 
 import { expect } from 'vitest'
-import type { Thing, BaseThing } from '../db/things'
-import type { Relationship } from '../db/relationships'
-import type { Event } from '../db/events'
+import type { Thing, BaseThing, Relationship, Event } from '@dotdo/db'
 
 /**
  * Result type for assertion matchers
@@ -463,6 +461,4 @@ declare module 'vitest' {
 }
 
 // Re-export types for convenience
-export type { Thing, BaseThing } from '../db/things'
-export type { Relationship } from '../db/relationships'
-export type { Event } from '../db/events'
+export type { Thing, BaseThing, Relationship, Event } from '@dotdo/db'

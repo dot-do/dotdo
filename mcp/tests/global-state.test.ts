@@ -1,13 +1,17 @@
-// Test for do-1oer: Resource enforcer isolation
-// Demonstrates that createScopedResourceEnforcer creates isolated enforcers
-// that prevent state leakage between requests in Workers environment.
+// Test for do-1oer and do-5sc9b: Resource enforcer isolation
+// Demonstrates that:
+// 1. createScopedResourceEnforcer creates isolated enforcers (do-1oer)
+// 2. Global functions throw security errors by default (do-5sc9b)
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   RateLimiter,
   ConcurrencyLimiter,
   SandboxResourceEnforcer,
-  createScopedResourceEnforcer
+  createScopedResourceEnforcer,
+  getGlobalResourceEnforcer,
+  setGlobalResourceEnforcer,
+  _resetDeprecationWarnings
 } from '../sandbox'
 
 describe('Resource Enforcer Isolation (do-1oer)', () => {
@@ -229,5 +233,111 @@ describe('Instance-based pattern documentation', () => {
 
     // e2 is unaffected
     expect(e2.getRateLimiter().check('user').allowed).toBe(true)
+  })
+})
+
+describe('Deprecated global functions security (do-5sc9b)', () => {
+  beforeEach(() => {
+    // Reset deprecation warnings before each test
+    _resetDeprecationWarnings()
+  })
+
+  describe('getGlobalResourceEnforcer', () => {
+    it('should throw security error by default', () => {
+      expect(() => getGlobalResourceEnforcer()).toThrow('[SECURITY]')
+    })
+
+    it('should include migration guidance in error message', () => {
+      expect(() => getGlobalResourceEnforcer()).toThrow('createScopedResourceEnforcer')
+    })
+
+    it('should mention the bypass env var in error', () => {
+      expect(() => getGlobalResourceEnforcer()).toThrow('DOTDO_ALLOW_DEPRECATED_GLOBALS')
+    })
+
+    it('should indicate the function is deprecated and disabled', () => {
+      expect(() => getGlobalResourceEnforcer()).toThrow('deprecated and disabled')
+    })
+  })
+
+  describe('setGlobalResourceEnforcer', () => {
+    it('should throw security error by default', () => {
+      const enforcer = createScopedResourceEnforcer()
+      expect(() => setGlobalResourceEnforcer(enforcer)).toThrow('[SECURITY]')
+    })
+
+    it('should include migration guidance in error message', () => {
+      const enforcer = createScopedResourceEnforcer()
+      expect(() => setGlobalResourceEnforcer(enforcer)).toThrow('createScopedResourceEnforcer')
+    })
+
+    it('should mention the bypass env var in error', () => {
+      const enforcer = createScopedResourceEnforcer()
+      expect(() => setGlobalResourceEnforcer(enforcer)).toThrow('DOTDO_ALLOW_DEPRECATED_GLOBALS')
+    })
+
+    it('should indicate the function is deprecated and disabled', () => {
+      const enforcer = createScopedResourceEnforcer()
+      expect(() => setGlobalResourceEnforcer(enforcer)).toThrow('deprecated and disabled')
+    })
+  })
+
+  describe('security posture', () => {
+    it('should prevent global state leakage between tenants by default', () => {
+      // This test verifies that in a multi-tenant environment,
+      // calling the deprecated global functions will throw errors,
+      // forcing developers to use createScopedResourceEnforcer instead
+
+      // Simulate Tenant A's code trying to use global enforcer
+      expect(() => {
+        const enforcer = getGlobalResourceEnforcer()
+        enforcer.getRateLimiter().record('tenant-a')
+      }).toThrow('[SECURITY]')
+
+      // Simulate Tenant B's code trying to use global enforcer
+      expect(() => {
+        const enforcer = getGlobalResourceEnforcer()
+        enforcer.getRateLimiter().check('tenant-b')
+      }).toThrow('[SECURITY]')
+
+      // The CORRECT pattern works fine
+      const enforcerA = createScopedResourceEnforcer()
+      const enforcerB = createScopedResourceEnforcer()
+
+      enforcerA.getRateLimiter().record('user')
+      expect(enforcerB.getRateLimiter().check('user').allowed).toBe(true)
+    })
+
+    it('should log deprecation warning to console before throwing', () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      // First call should log warning then throw
+      expect(() => getGlobalResourceEnforcer()).toThrow('[SECURITY]')
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('SECURITY WARNING'))
+
+      // Reset and check setGlobalResourceEnforcer warning
+      _resetDeprecationWarnings()
+      consoleSpy.mockClear()
+
+      const enforcer = createScopedResourceEnforcer()
+      expect(() => setGlobalResourceEnforcer(enforcer)).toThrow('[SECURITY]')
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('SECURITY WARNING'))
+
+      consoleSpy.mockRestore()
+    })
+
+    it('should only log warning once per function (spam prevention)', () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      // First call logs warning
+      expect(() => getGlobalResourceEnforcer()).toThrow('[SECURITY]')
+      expect(consoleSpy).toHaveBeenCalledTimes(1)
+
+      // Second call should NOT log again (spam prevention)
+      expect(() => getGlobalResourceEnforcer()).toThrow('[SECURITY]')
+      expect(consoleSpy).toHaveBeenCalledTimes(1) // Still 1
+
+      consoleSpy.mockRestore()
+    })
   })
 })

@@ -353,6 +353,29 @@ export interface CreateContextOptions extends PrimitivesConfig {
    * ```
    */
   stubCache?: Partial<StubCacheOptions>
+
+  /**
+   * Error handler callback for fire-and-forget send() failures (do-l2kx4).
+   *
+   * Called when $.send() encounters an error during event emission or processing.
+   * This provides a synchronous hook for custom error handling, logging, or alerting.
+   *
+   * Note: Errors are also tracked in the fire-and-forget error store automatically.
+   * Additionally, a System.sendFailed event is emitted that can be subscribed to
+   * via $.on.System.sendFailed(handler).
+   *
+   * @example
+   * ```ts
+   * const $ = createContext(state, env, {
+   *   onSendError: (error, event) => {
+   *     // Custom error handling - e.g., send to external monitoring
+   *     console.error(`Failed to send event ${event.type}:`, error)
+   *     sentry.captureException(error, { extra: { event } })
+   *   }
+   * })
+   * ```
+   */
+  onSendError?: (error: unknown, event: { type: string; payload?: unknown }) => void
 }
 
 /**

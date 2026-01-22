@@ -3,6 +3,8 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
+    "baseUrl": ".",
+    "paths": {},
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true
