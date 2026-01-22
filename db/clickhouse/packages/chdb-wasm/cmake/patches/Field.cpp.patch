@@ -1,0 +1,13 @@
+diff --git a/src/Core/Field.cpp b/src/Core/Field.cpp
+index abcd1234..efgh5678 100644
+--- a/src/Core/Field.cpp
++++ b/src/Core/Field.cpp
+@@ -915,7 +915,8 @@ template NearestFieldType<std::decay_t<Tuple>> & Field::safeGet<Tuple>() &;
+ template NearestFieldType<std::decay_t<CustomType>> & Field::safeGet<CustomType>() &;
+ /// In Darwin unsigned long does not match any of the UInt* types
+-#ifdef OS_DARWIN
++/// Same issue applies to WASM (Emscripten)
++#if defined(OS_DARWIN) || defined(__EMSCRIPTEN__) || defined(OS_EMSCRIPTEN)
+ template NearestFieldType<std::decay_t<unsigned long>> & Field::safeGet<unsigned long>() &;
+ #endif
+ }

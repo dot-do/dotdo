@@ -1,0 +1,58 @@
+<?xml version="1.0"?>
+<!--
+  ClickHouse S3-specific Settings
+  Optimizes S3/R2 connection handling and upload behavior.
+-->
+<clickhouse>
+    <profiles>
+        <default>
+            <!-- S3 connection settings -->
+            <s3_max_connections>100</s3_max_connections>
+            <s3_max_single_part_upload_size>33554432</s3_max_single_part_upload_size> <!-- 32MB -->
+
+            <!-- Multipart upload settings -->
+            <s3_min_upload_part_size>16777216</s3_min_upload_part_size> <!-- 16MB minimum part size -->
+            <s3_upload_part_size_multiply_factor>2</s3_upload_part_size_multiply_factor>
+            <s3_upload_part_size_multiply_parts_count_threshold>500</s3_upload_part_size_multiply_parts_count_threshold>
+            <s3_max_upload_part_size>536870912</s3_max_upload_part_size> <!-- 512MB max part size -->
+
+            <!-- S3 request settings -->
+            <s3_max_redirects>10</s3_max_redirects>
+            <s3_retry_attempts>10</s3_retry_attempts>
+            <s3_request_timeout_ms>30000</s3_request_timeout_ms>
+            <s3_connect_timeout_ms>10000</s3_connect_timeout_ms>
+
+            <!-- S3 read/write behavior -->
+            <s3_max_single_read_retries>4</s3_max_single_read_retries>
+            <s3_check_objects_after_upload>false</s3_check_objects_after_upload>
+            <s3_allow_parallel_part_upload>true</s3_allow_parallel_part_upload>
+            <s3_max_part_number>10000</s3_max_part_number>
+
+            <!-- Parallel download settings for better throughput -->
+            <s3_max_get_rps>0</s3_max_get_rps> <!-- Unlimited -->
+            <s3_max_get_burst>0</s3_max_get_burst> <!-- Unlimited -->
+            <s3_max_put_rps>0</s3_max_put_rps> <!-- Unlimited -->
+            <s3_max_put_burst>0</s3_max_put_burst> <!-- Unlimited -->
+        </default>
+    </profiles>
+
+    <users>
+        <default>
+            <profile>default</profile>
+        </default>
+    </users>
+
+    <!-- MergeTree settings for S3 optimization -->
+    <merge_tree>
+        <!-- Reduce number of parts to minimize S3 requests -->
+        <min_bytes_for_wide_part>10485760</min_bytes_for_wide_part> <!-- 10MB -->
+        <min_rows_for_wide_part>0</min_rows_for_wide_part>
+
+        <!-- Enable zero-copy replication for S3 (if using replicated tables) -->
+        <allow_remote_fs_zero_copy_replication>true</allow_remote_fs_zero_copy_replication>
+
+        <!-- Cache index and mark files for better read performance -->
+        <prewarm_mark_cache>1</prewarm_mark_cache>
+        <prewarm_primary_key_cache>1</prewarm_primary_key_cache>
+    </merge_tree>
+</clickhouse>

@@ -1,0 +1,66 @@
+# chdb-state Worker - SQL Interface backed by Durable Objects
+#
+# Provides a SQL interface for CREATE/INSERT/SELECT operations
+# backed by Durable Objects for persistent storage.
+#
+# Engines:
+# - Memory() - Backed by MemoryEngineDO (DO storage persistence)
+# - MergeTree() - Backed by MergeTreeDO (columnar storage with compaction)
+#
+# Deploy with: wrangler deploy -c configs/chdb-state/wrangler.toml
+
+name = "chdb-state"
+main = "worker.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Cloudflare account
+account_id = "b6641681fe423910342b9ffa1364c76d"
+
+[vars]
+# Version information
+CHDB_STATE_VERSION = "0.1.0"
+ENVIRONMENT = "production"
+# Default database name
+DEFAULT_DATABASE = "default"
+
+# R2 bucket for MergeTree data storage (L3 tiering)
+[[r2_buckets]]
+bucket_name = "chdb-data"
+binding = "DATA_BUCKET"
+
+# Durable Object bindings
+[[durable_objects.bindings]]
+name = "MEMORY_ENGINE_DO"
+class_name = "MemoryEngineDO"
+
+[[durable_objects.bindings]]
+name = "MERGETREE_DO"
+class_name = "MergeTreeDO"
+
+# DO migrations
+[[migrations]]
+tag = "v1"
+new_classes = ["MemoryEngineDO", "MergeTreeDO"]
+
+# Development configuration
+[dev]
+port = 8790
+local_protocol = "http"
+
+# Build configuration
+[build]
+command = ""
+
+# Observability
+[observability]
+enabled = true
+
+# Production environment
+[env.production]
+vars = { ENVIRONMENT = "production" }
+
+# Staging environment
+[env.staging]
+name = "chdb-state-staging"
+vars = { ENVIRONMENT = "staging" }

@@ -1,0 +1,77 @@
+# Wrangler Configuration for Benchmark Durable Object
+#
+# This configuration deploys the BenchmarkDO for running ClickBench benchmarks
+# on Cloudflare's edge infrastructure using chdb-wasm.
+#
+# Deployment:
+#   npx wrangler deploy --config packages/clickhouse/benchmarks/durable-objects/wrangler.toml
+#
+# Local Development:
+#   npx wrangler dev --config packages/clickhouse/benchmarks/durable-objects/wrangler.toml
+
+name = "clickbench-do-benchmark"
+main = "do.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Required for chdb-wasm
+[build]
+command = ""
+
+# Durable Object bindings
+[durable_objects]
+bindings = [
+  { name = "BENCHMARK_DO", class_name = "BenchmarkDO" }
+]
+
+# Durable Object migrations (required for first deployment)
+[[migrations]]
+tag = "v1"
+new_classes = ["BenchmarkDO"]
+
+# Optional: R2 bucket for benchmark data
+# Uncomment and configure if using R2 for test data
+# [[r2_buckets]]
+# binding = "R2_DATA"
+# bucket_name = "clickbench-data"
+
+# Optional: KV namespace for caching results
+# Uncomment and configure if caching benchmark results
+# [[kv_namespaces]]
+# binding = "BENCHMARK_CACHE"
+# id = "your-kv-namespace-id"
+
+# Limits configuration
+[limits]
+cpu_ms = 30000  # 30 seconds for complex queries
+
+# Development environment
+[env.dev]
+name = "clickbench-do-benchmark-dev"
+
+# Staging environment
+[env.staging]
+name = "clickbench-do-benchmark-staging"
+
+# Production environment
+[env.production]
+name = "clickbench-do-benchmark-prod"
+
+# Optional: Custom routes for production
+# [env.production.routes]
+# routes = [
+#   { pattern = "benchmark.example.com/*", zone_name = "example.com" }
+# ]
+
+# Variables (can be overridden per environment)
+[vars]
+BENCHMARK_VERSION = "1.0.0"
+MAX_QUERY_TIMEOUT_MS = "300000"
+
+# Observability settings
+[observability]
+enabled = true
+
+# Tail consumers for log aggregation (optional)
+# [[tail_consumers]]
+# service = "log-aggregator"

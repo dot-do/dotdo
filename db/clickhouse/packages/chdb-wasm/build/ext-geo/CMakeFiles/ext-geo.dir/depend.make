@@ -1,0 +1,2 @@
+# Empty dependencies file for ext-geo.
+# This may be replaced when dependencies are built.

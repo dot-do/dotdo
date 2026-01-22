@@ -1,0 +1,169 @@
+{
+  "name": "@dotdo/chdb-wasm",
+  "version": "0.1.0",
+  "description": "Real ClickHouse SQL engine compiled to WebAssembly - run actual ClickHouse queries on Cloudflare Workers with full SQL support, aggregate functions, and native performance",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./minimal": {
+      "types": "./dist/profiles/minimal.d.ts",
+      "import": "./dist/profiles/minimal.js"
+    },
+    "./standard": {
+      "types": "./dist/profiles/standard.d.ts",
+      "import": "./dist/profiles/standard.js"
+    },
+    "./full": {
+      "types": "./dist/profiles/full.d.ts",
+      "import": "./dist/profiles/full.js"
+    },
+    "./profiles": {
+      "types": "./dist/profiles/index.d.ts",
+      "import": "./dist/profiles/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "wasm"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "build:wasm": "./build/build.sh",
+    "build:wasm:minimal": "./build/build.sh --profile minimal",
+    "build:wasm:standard": "./build/build.sh --profile standard",
+    "build:wasm:full": "./build/build.sh --profile full",
+    "build:wasm:all": "./build/build.sh all",
+    "build:wasm:clean": "./build/build.sh --clean",
+    "build:wasm:check": "./build/build.sh --check-emsdk",
+    "build:wasm:modules": "./wasm/build.sh all",
+    "build:wasm:modular": "./wasm/build-modular.sh",
+    "build:wasm:executor": "./wasm/build.sh executor",
+    "build:wasm:aggregates": "./wasm/build.sh aggregates",
+    "build:wasm:memory-engine": "./wasm/build.sh memory-engine",
+    "build:wasm:json-format": "./wasm/build.sh json-format",
+    "build:wasm:csv-format": "./wasm/build.sh csv-format",
+    "build:wasm:size-report": "./wasm/build.sh size-report",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:production": "wrangler deploy --env production",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:all": "./scripts/deploy.sh all",
+    "deploy:all:staging": "./scripts/deploy.sh all --env staging",
+    "deploy:all:production": "./scripts/deploy.sh all --env production --force",
+    "deploy:promote": "./scripts/deploy.sh all --promote",
+    "deploy:fetch": "./scripts/deploy.sh chdb-fetch",
+    "deploy:fetch:staging": "./scripts/deploy.sh chdb-fetch --env staging",
+    "deploy:fetch:production": "./scripts/deploy.sh chdb-fetch --env production --force",
+    "deploy:lake": "./scripts/deploy.sh chdb-lake",
+    "deploy:lake:staging": "./scripts/deploy.sh chdb-lake --env staging",
+    "deploy:lake:production": "./scripts/deploy.sh chdb-lake --env production --force",
+    "dev:lake": "wrangler dev -c configs/chdb-lake/wrangler.toml --persist-to configs/chdb-lake/.wrangler/state",
+    "create:test-mergetree": "npx tsx configs/chdb-lake/scripts/create-test-mergetree.ts",
+    "create:test-mergetree:local": "npx tsx configs/chdb-lake/scripts/create-test-mergetree.ts --local",
+    "create:test-mergetree:remote": "npx tsx configs/chdb-lake/scripts/create-test-mergetree.ts --remote",
+    "upload:wasm": "./scripts/upload-wasm.sh",
+    "upload:wasm:staging": "./scripts/upload-wasm.sh --env staging",
+    "upload:wasm:production": "./scripts/upload-wasm.sh --env production",
+    "verify": "npx tsx scripts/verify-deployment.ts",
+    "verify:staging": "npx tsx scripts/verify-deployment.ts --env staging",
+    "verify:production": "npx tsx scripts/verify-deployment.ts --env production",
+    "smoke-test": "./scripts/smoke-test.sh",
+    "smoke-test:staging": "./scripts/smoke-test.sh --config all --env staging",
+    "smoke-test:production": "./scripts/smoke-test.sh --config all --env production",
+    "tail": "wrangler tail",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run tests/unit",
+    "test:unit:watch": "vitest watch tests/unit",
+    "test:workers": "vitest run tests/workers",
+    "test:workers:watch": "vitest watch tests/workers",
+    "test:integration": "vitest run tests/integration",
+    "test:integration:watch": "vitest watch tests/integration",
+    "test:node": "vitest run --config vitest.node.config.ts",
+    "test:wasm": "vitest run --config wasm/tests/vitest.config.ts",
+    "test:wasm:watch": "vitest watch --config wasm/tests/vitest.config.ts",
+    "test:wasm:coverage": "vitest run --coverage --config wasm/tests/vitest.config.ts",
+    "test:wasm:queries": "vitest run wasm/tests/test-queries.ts --config wasm/tests/vitest.config.ts",
+    "test:wasm:formats": "vitest run wasm/tests/test-formats.ts --config wasm/tests/vitest.config.ts",
+    "test:wasm:memory": "vitest run wasm/tests/test-memory.ts --config wasm/tests/vitest.config.ts",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e:watch": "vitest watch --config vitest.e2e.config.ts",
+    "test:e2e:deployed": "vitest run tests/e2e/deployed.test.ts --config vitest.e2e.config.ts",
+    "test:e2e:deployed:staging": "WORKER_ENV=staging vitest run tests/e2e/deployed.test.ts --config vitest.e2e.config.ts",
+    "test:e2e:deployed-worker": "vitest run tests/e2e/deployed-worker.test.ts --config vitest.e2e.config.ts",
+    "test:e2e:deployed-worker:staging": "WORKER_URL=https://chdb-wasm-staging.clickhouse.workers.dev pnpm test:e2e:deployed-worker",
+    "test:e2e:wasm": "vitest run tests/e2e/dynamic-wasm.test.ts --config vitest.e2e.config.ts",
+    "test:e2e:wasm:local": "./scripts/e2e-deploy-test.sh --local",
+    "test:e2e:wasm:staging": "./scripts/e2e-deploy-test.sh --staging",
+    "test:e2e:wasm:verbose": "./scripts/e2e-deploy-test.sh --local --verbose",
+    "test:all": "vitest run && vitest run --config vitest.e2e.config.ts",
+    "benchmark": "tsx benchmarks/runner.ts",
+    "benchmark:verbose": "tsx benchmarks/runner.ts --verbose",
+    "benchmark:markdown": "tsx benchmarks/runner.ts --format markdown",
+    "bench:deployed": "tsx benchmarks/deployed-worker-bench.ts",
+    "bench:deployed:verbose": "tsx benchmarks/deployed-worker-bench.ts --verbose",
+    "bench:deployed:markdown": "tsx benchmarks/deployed-worker-bench.ts --format markdown",
+    "bundle:fetch": "tsx scripts/bundle-config.ts chdb-fetch",
+    "bundle:lake": "tsx scripts/bundle-config.ts chdb-lake",
+    "bundle:state": "tsx scripts/bundle-config.ts chdb-state",
+    "bundle:etl": "tsx scripts/bundle-config.ts chdb-etl",
+    "bundle:minimal": "tsx scripts/bundle-config.ts chdb-minimal",
+    "bundle:all": "tsx scripts/bundle-config.ts --all",
+    "bundle:list": "tsx scripts/bundle-config.ts --list",
+    "analyze": "tsx scripts/analyze-bundles.ts",
+    "analyze:json": "tsx scripts/analyze-bundles.ts --json",
+    "analyze:markdown": "tsx scripts/analyze-bundles.ts --markdown",
+    "analyze:compare": "tsx scripts/analyze-bundles.ts --compare"
+  },
+  "keywords": [
+    "clickhouse",
+    "chdb",
+    "wasm",
+    "webassembly",
+    "cloudflare-workers",
+    "durable-objects",
+    "sql",
+    "database",
+    "olap",
+    "analytics",
+    "edge-computing",
+    "serverless",
+    "embedded-database"
+  ],
+  "author": "dotdo",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "fzstd": "^0.1.1",
+    "hyparquet": "^1.24.0",
+    "snappyjs": "^0.7.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.12.5",
+    "@cloudflare/workers-types": "^4.20241127.0",
+    "@types/node": "^20.19.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "@vitest/ui": "^2.1.0",
+    "tsx": "^4.19.0",
+    "vitest": "^2.1.0",
+    "wrangler": "^3.91.0"
+  }
+}

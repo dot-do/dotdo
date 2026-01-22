@@ -1,0 +1,39 @@
+--- a/src/CMakeLists.txt	2026-01-19 17:15:19
++++ b/src/CMakeLists.txt	2026-01-19 17:14:57
+@@ -336,7 +336,36 @@
+ if (TARGET ch_contrib::nuraft)
+     add_object_library(clickhouse_coordination Coordination)
+ endif()
++
++# ============================================================================
++# CHDB_WASM_MINIMAL: Replace full registration files with minimal versions
++# ============================================================================
++# When CHDB_WASM_MINIMAL is defined, we replace registerStorages.cpp and
++# registerFormats.cpp with minimal versions that only register essential
++# engines/formats, significantly reducing binary size for WASM builds.
++#
++# Usage:
++#   cmake -DCHDB_WASM_MINIMAL=ON \
++#         -DCHDB_WASM_MINIMAL_SOURCES_DIR=/path/to/minimal/sources ...
++# ============================================================================
++if (CHDB_WASM_MINIMAL)
++    message(STATUS "CHDB_WASM_MINIMAL: Replacing registration files with minimal versions")
+ 
++    # Remove full registerStorages.cpp and add minimal version
++    list(FILTER dbms_sources EXCLUDE REGEX ".*Storages/registerStorages\\.cpp$")
++    if (DEFINED CHDB_WASM_MINIMAL_SOURCES_DIR)
++        list(APPEND dbms_sources "${CHDB_WASM_MINIMAL_SOURCES_DIR}/minimal_storages.cpp")
++        message(STATUS "  - Using ${CHDB_WASM_MINIMAL_SOURCES_DIR}/minimal_storages.cpp")
++    endif()
++
++    # Remove full registerFormats.cpp and add minimal version
++    list(FILTER dbms_sources EXCLUDE REGEX ".*Formats/registerFormats\\.cpp$")
++    if (DEFINED CHDB_WASM_MINIMAL_SOURCES_DIR)
++        list(APPEND dbms_sources "${CHDB_WASM_MINIMAL_SOURCES_DIR}/minimal_formats.cpp")
++        message(STATUS "  - Using ${CHDB_WASM_MINIMAL_SOURCES_DIR}/minimal_formats.cpp")
++    endif()
++endif()
++
+ add_library (dbms STATIC ${dbms_headers} ${dbms_sources})
+ target_link_libraries (dbms PRIVATE ch_contrib::libdivide daemon)
+ if (TARGET ch_contrib::jemalloc)

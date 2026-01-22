@@ -1,0 +1,162 @@
+{
+  "modules": {
+    "core": {
+      "description": "Core SQL parser, lexer, and basic query execution",
+      "files": ["Lexer.wasm", "lexer.js", "parser.wasm", "parser.js"],
+      "required": true,
+      "estimatedSize": "75KB"
+    },
+    "executor": {
+      "description": "Query execution engine with basic operations",
+      "files": ["executor.wasm", "executor.js"],
+      "required": false,
+      "estimatedSize": "160KB"
+    },
+    "memory": {
+      "description": "In-memory table engine for temporary data",
+      "files": ["memory_engine.wasm", "memory_engine.js"],
+      "required": false,
+      "estimatedSize": "190KB"
+    },
+    "aggregates": {
+      "description": "Aggregate functions (COUNT, SUM, AVG, MIN, MAX, etc.)",
+      "files": ["aggregates.wasm", "aggregates.js"],
+      "required": false,
+      "estimatedSize": "180KB"
+    },
+    "csv": {
+      "description": "CSV format parsing and output",
+      "files": ["csv_format.wasm", "csv_format.js"],
+      "required": false,
+      "estimatedSize": "165KB"
+    },
+    "url": {
+      "description": "URL table function for fetching remote data",
+      "files": ["url.wasm", "url.js"],
+      "required": false,
+      "estimatedSize": "50KB",
+      "planned": true
+    },
+    "json": {
+      "description": "JSON format parsing and output",
+      "files": ["json.wasm", "json.js"],
+      "required": false,
+      "estimatedSize": "80KB",
+      "planned": true
+    },
+    "parquet": {
+      "description": "Parquet format support (read/write)",
+      "files": ["parquet.wasm", "parquet.js"],
+      "required": false,
+      "estimatedSize": "500KB",
+      "planned": true
+    },
+    "s3": {
+      "description": "S3-compatible storage access",
+      "files": ["s3.wasm", "s3.js"],
+      "required": false,
+      "estimatedSize": "200KB",
+      "planned": true
+    },
+    "datetime": {
+      "description": "Date and time functions",
+      "files": ["datetime.wasm", "datetime.js"],
+      "required": false,
+      "estimatedSize": "100KB",
+      "planned": true
+    },
+    "string": {
+      "description": "String manipulation functions",
+      "files": ["string.wasm", "string.js"],
+      "required": false,
+      "estimatedSize": "150KB",
+      "planned": true
+    },
+    "math": {
+      "description": "Mathematical functions",
+      "files": ["math.wasm", "math.js"],
+      "required": false,
+      "estimatedSize": "80KB",
+      "planned": true
+    },
+    "compression": {
+      "description": "Compression functions (LZ4, ZSTD)",
+      "files": ["compression.wasm", "compression.js"],
+      "required": false,
+      "estimatedSize": "300KB",
+      "planned": true
+    },
+    "mergetree": {
+      "description": "MergeTree table engine family",
+      "files": ["mergetree.wasm", "mergetree.js"],
+      "required": false,
+      "estimatedSize": "1MB",
+      "planned": true
+    }
+  },
+  "configs": {
+    "chdb-fetch": {
+      "description": "Lightweight config for HTTP data fetching and transformation",
+      "modules": ["core", "executor", "url", "json", "csv", "aggregates"],
+      "targetSize": {
+        "min": "8MB",
+        "max": "12MB",
+        "unit": "gzipped"
+      },
+      "useCase": "Fetch and transform data from HTTP endpoints",
+      "cloudflareCompatible": true
+    },
+    "chdb-lake": {
+      "description": "Data lake config with S3 and Parquet support",
+      "modules": ["core", "executor", "s3", "parquet", "json", "csv", "aggregates", "compression"],
+      "targetSize": {
+        "min": "15MB",
+        "max": "20MB",
+        "unit": "gzipped"
+      },
+      "useCase": "Query data lakes with Parquet files on S3",
+      "cloudflareCompatible": true
+    },
+    "chdb-state": {
+      "description": "Stateful config with in-memory tables for Durable Objects",
+      "modules": ["core", "executor", "memory", "json", "csv", "aggregates", "datetime", "string"],
+      "targetSize": {
+        "min": "10MB",
+        "max": "15MB",
+        "unit": "gzipped"
+      },
+      "useCase": "Stateful SQL engine for Durable Objects with persistence",
+      "cloudflareCompatible": true,
+      "durableObjectsOptimized": true
+    },
+    "chdb-etl": {
+      "description": "Full-featured ETL config with all formats and storage options",
+      "modules": ["core", "executor", "memory", "s3", "url", "parquet", "json", "csv", "aggregates", "datetime", "string", "math", "compression"],
+      "targetSize": {
+        "min": "20MB",
+        "max": "30MB",
+        "unit": "gzipped"
+      },
+      "useCase": "Full ETL pipeline with format conversion and data transformation",
+      "cloudflareCompatible": true
+    },
+    "chdb-minimal": {
+      "description": "Absolute minimal config for parsing and basic execution",
+      "modules": ["core", "executor", "memory", "aggregates"],
+      "targetSize": {
+        "min": "3MB",
+        "max": "5MB",
+        "unit": "gzipped"
+      },
+      "useCase": "Minimal SQL capabilities for constrained environments",
+      "cloudflareCompatible": true
+    }
+  },
+  "wasmDistDir": "wasm/dist",
+  "outputDir": "dist/bundles",
+  "defaults": {
+    "compression": "gzip",
+    "includeSourceMaps": false,
+    "generateTypes": true
+  }
+}

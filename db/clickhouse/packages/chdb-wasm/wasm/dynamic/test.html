@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emscripten Dynamic Linking POC</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #555;
+            margin-top: 30px;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .status.loading {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        #log {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        #log .info { color: #6a9955; }
+        #log .warn { color: #dcdcaa; }
+        #log .error { color: #f14c4c; }
+        #log .wasm { color: #569cd6; }
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        .btn-primary:hover:not(:disabled) {
+            background: #0056b3;
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-secondary:hover:not(:disabled) {
+            background: #545b62;
+        }
+        .results {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .result-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .result-item .label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+        .result-item .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        .benchmark-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        .benchmark-table th,
+        .benchmark-table td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .benchmark-table th {
+            background: #f8f9fa;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin: 10px 0;
+        }
+        .input-group input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 100px;
+        }
+        .input-group label {
+            min-width: 120px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Emscripten Dynamic Linking POC</h1>
+
+    <div class="card">
+        <h2>Status</h2>
+        <div id="status" class="status loading">Initializing...</div>
+    </div>
+
+    <div class="card">
+        <h2>Controls</h2>
+        <div class="controls">
+            <button id="btnLoad" class="btn-primary" onclick="loadModules()">Load Modules</button>
+            <button id="btnBenchmark" class="btn-secondary" onclick="runBenchmarks()" disabled>Run Benchmarks</button>
+            <button id="btnClear" class="btn-secondary" onclick="clearLog()">Clear Log</button>
+        </div>
+    </div>
+
+    <div class="card" id="testCard" style="display: none;">
+        <h2>Test Functions</h2>
+        <div class="input-group">
+            <label>factorial(n):</label>
+            <input type="number" id="factorialInput" value="10" min="0" max="20">
+            <button onclick="testFactorial()">Compute</button>
+            <span id="factorialResult"></span>
+        </div>
+        <div class="input-group">
+            <label>fibonacci(n):</label>
+            <input type="number" id="fibonacciInput" value="20" min="0" max="92">
+            <button onclick="testFibonacci()">Compute</button>
+            <span id="fibonacciResult"></span>
+        </div>
+        <div class="input-group">
+            <label>countPrimes(n):</label>
+            <input type="number" id="primesInput" value="1000" min="2" max="100000">
+            <button onclick="testCountPrimes()">Compute</button>
+            <span id="primesResult"></span>
+        </div>
+    </div>
+
+    <div class="card" id="resultsCard" style="display: none;">
+        <h2>Benchmark Results</h2>
+        <table class="benchmark-table" id="benchmarkTable">
+            <thead>
+                <tr>
+                    <th>Test</th>
+                    <th>Iterations</th>
+                    <th>Total Time</th>
+                    <th>Per Call</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Console Log</h2>
+        <div id="log"></div>
+    </div>
+
+    <!-- Load Emscripten-generated core module -->
+    <script src="core.js"></script>
+    <!-- Load our dynamic loader -->
+    <script src="loader.js"></script>
+
+    <script>
+        // Global state
+        let coreModule = null;
+        let extension = null;
+
+        // Custom logger that outputs to both console and page
+        const logElement = document.getElementById('log');
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const formattedMessage = `[${timestamp}] ${message}`;
+
+            // Log to console
+            console.log(formattedMessage);
+
+            // Log to page
+            const span = document.createElement('span');
+            span.className = type;
+            span.textContent = formattedMessage + '\n';
+            logElement.appendChild(span);
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function clearLog() {
+            logElement.innerHTML = '';
+        }
+
+        function setStatus(message, type) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+
+        // Override console methods to capture WASM output
+        const originalConsoleLog = console.log;
+        const originalConsoleError = console.error;
+
+        console.log = function(...args) {
+            originalConsoleLog.apply(console, args);
+            const message = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');
+            if (message.includes('[WASM]')) {
+                log(message, 'wasm');
+            }
+        };
+
+        console.error = function(...args) {
+            originalConsoleError.apply(console, args);
+            const message = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');
+            log(message, 'error');
+        };
+
+        // Load modules
+        async function loadModules() {
+            const btnLoad = document.getElementById('btnLoad');
+            const btnBenchmark = document.getElementById('btnBenchmark');
+
+            btnLoad.disabled = true;
+            setStatus('Loading modules...', 'loading');
+            log('Starting module load...');
+
+            try {
+                // Load core module
+                log('Loading core module...');
+                coreModule = await EmscriptenDynamicLoader.loadCoreModule();
+                coreModule._core_init();
+                log(`Core module loaded. Version: ${coreModule._core_get_version()}`);
+
+                // Load extension
+                log('Loading extension module...');
+                extension = await EmscriptenDynamicLoader.loadExtension(coreModule, './extension.wasm');
+                log(`Extension loaded: ${extension.getName()} v${extension.getVersion()}`);
+
+                // Enable controls
+                btnBenchmark.disabled = false;
+                document.getElementById('testCard').style.display = 'block';
+
+                setStatus('Modules loaded successfully!', 'success');
+                log('All modules loaded and ready.');
+
+                // Run basic tests
+                runBasicTests();
+
+            } catch (error) {
+                setStatus(`Error: ${error.message}`, 'error');
+                log(`Error: ${error.message}`, 'error');
+                log(error.stack, 'error');
+                btnLoad.disabled = false;
+            }
+        }
+
+        // Basic functionality tests
+        function runBasicTests() {
+            log('\n=== Basic Functionality Tests ===');
+            log(`factorial(5) = ${extension.factorial(5)}`);
+            log(`fibonacci(10) = ${extension.fibonacci(10)}`);
+            log(`power(2, 8) = ${extension.power(2, 8)}`);
+            log(`isPrime(17) = ${extension.isPrime(17)}`);
+            log(`sumArray([1,2,3,4,5]) = ${extension.sumArray([1, 2, 3, 4, 5])}`);
+            log(`createSequence(10, 5) = [${extension.createSequence(10, 5).join(', ')}]`);
+            log('\n=== Shared State ===');
+            log(`Extension computation count: ${extension.getComputationCount()}`);
+            log(`Core query count: ${coreModule._core_get_query_count()}`);
+            log(`Loaded extensions: ${coreModule._core_get_extension_count()}`);
+        }
+
+        // Interactive tests
+        function testFactorial() {
+            const n = parseInt(document.getElementById('factorialInput').value);
+            const result = extension.factorial(n);
+            document.getElementById('factorialResult').textContent = `= ${result}`;
+            log(`factorial(${n}) = ${result}`);
+        }
+
+        function testFibonacci() {
+            const n = parseInt(document.getElementById('fibonacciInput').value);
+            const result = extension.fibonacci(n);
+            document.getElementById('fibonacciResult').textContent = `= ${result}`;
+            log(`fibonacci(${n}) = ${result}`);
+        }
+
+        function testCountPrimes() {
+            const n = parseInt(document.getElementById('primesInput').value);
+            const startTime = performance.now();
+            const result = extension.countPrimes(n);
+            const elapsed = performance.now() - startTime;
+            document.getElementById('primesResult').textContent = `= ${result} (${elapsed.toFixed(2)}ms)`;
+            log(`countPrimes(${n}) = ${result} (${elapsed.toFixed(2)}ms)`);
+        }
+
+        // Run benchmarks
+        async function runBenchmarks() {
+            const btnBenchmark = document.getElementById('btnBenchmark');
+            btnBenchmark.disabled = true;
+
+            log('\n=== Running Benchmarks ===');
+
+            try {
+                const results = await EmscriptenDynamicLoader.runBenchmarks(coreModule, extension);
+
+                // Display results in table
+                const tbody = document.querySelector('#benchmarkTable tbody');
+                tbody.innerHTML = '';
+
+                for (const r of results) {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${r.name}</td>
+                        <td>${r.iterations.toLocaleString()}</td>
+                        <td>${r.totalMs.toFixed(2)}ms</td>
+                        <td>${r.perCallNs.toFixed(0)}ns</td>
+                    `;
+                    tbody.appendChild(row);
+                }
+
+                document.getElementById('resultsCard').style.display = 'block';
+
+            } catch (error) {
+                log(`Benchmark error: ${error.message}`, 'error');
+            }
+
+            btnBenchmark.disabled = false;
+        }
+
+        // Initialize on page load
+        window.addEventListener('load', () => {
+            setStatus('Ready. Click "Load Modules" to start.', 'loading');
+            log('Page loaded. Click "Load Modules" to begin.');
+        });
+    </script>
+</body>
+</html>

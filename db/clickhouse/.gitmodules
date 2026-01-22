@@ -1,0 +1,3 @@
+[submodule "vendor/chdb"]
+	path = vendor/chdb
+	url = https://github.com/chdb-io/chdb

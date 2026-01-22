@@ -1,0 +1,37 @@
+      case 'regexp_replace': {
+        const rp = parseCommaSeparatedArgs(args);
+        if (rp.length >= 3) {
+          const s = String(evaluateExpression(rp[0], row).value);
+          const p = String(evaluateExpression(rp[1], row).value);
+          let r = String(evaluateExpression(rp[2], row).value);
+          const f = rp.length >= 4 ? String(evaluateExpression(rp[3], row).value) : '';
+          r = r.replace(/\\(\d+)/g, '$$$1');
+          try { return { value: s.replace(new RegExp(p, f), r), name: `REGEXP_REPLACE(${args})`, type: 'String' }; }
+          catch { return { value: s, name: `REGEXP_REPLACE(${args})`, type: 'String' }; }
+        }
+        return { value: null, name: `REGEXP_REPLACE(${args})`, type: 'String' };
+      }
+      case 'regexpreplaceone': {
+        const rp = parseCommaSeparatedArgs(args);
+        if (rp.length >= 3) {
+          const s = String(evaluateExpression(rp[0], row).value);
+          const p = String(evaluateExpression(rp[1], row).value);
+          let r = String(evaluateExpression(rp[2], row).value);
+          r = r.replace(/\\(\d+)/g, '$$$1');
+          try { return { value: s.replace(new RegExp(p), r), name: `regexpReplaceOne(${args})`, type: 'String' }; }
+          catch { return { value: s, name: `regexpReplaceOne(${args})`, type: 'String' }; }
+        }
+        return { value: null, name: `regexpReplaceOne(${args})`, type: 'String' };
+      }
+      case 'regexpreplaceall': {
+        const rp = parseCommaSeparatedArgs(args);
+        if (rp.length >= 3) {
+          const s = String(evaluateExpression(rp[0], row).value);
+          const p = String(evaluateExpression(rp[1], row).value);
+          let r = String(evaluateExpression(rp[2], row).value);
+          r = r.replace(/\\(\d+)/g, '$$$1');
+          try { return { value: s.replace(new RegExp(p, 'g'), r), name: `regexpReplaceAll(${args})`, type: 'String' }; }
+          catch { return { value: s, name: `regexpReplaceAll(${args})`, type: 'String' }; }
+        }
+        return { value: null, name: `regexpReplaceAll(${args})`, type: 'String' };
+      }

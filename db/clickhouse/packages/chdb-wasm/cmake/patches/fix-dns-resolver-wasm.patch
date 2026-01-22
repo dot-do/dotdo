@@ -1,0 +1,41 @@
+--- a/src/Common/DNSPTRResolverProvider.cpp
++++ b/src/Common/DNSPTRResolverProvider.cpp
+@@ -1,14 +1,35 @@
+ #include <Common/DNSPTRResolverProvider.h>
++
++#if defined(ARCH_WASM) || defined(__EMSCRIPTEN__)
++// WASM builds: Use no-op resolver since DNS is not available in browser/Workers
++#include <Common/DNSPTRResolver.h>
++
++namespace DB
++{
++    // No-op resolver for WASM - returns empty results
++    struct NoOpPTRResolver : public DNSPTRResolver
++    {
++        std::unordered_set<std::string> resolve(const std::string &) override { return {}; }
++        std::unordered_set<std::string> resolve_v6(const std::string &) override { return {}; }
++    };
++
++    std::shared_ptr<DNSPTRResolver> DNSPTRResolverProvider::get()
++    {
++        static auto resolver = std::make_shared<NoOpPTRResolver>();
++        return resolver;
++    }
++}
++#else
++// Non-WASM builds: Use c-ares resolver
+ #include <Common/CaresPTRResolver.h>
+
+ namespace DB
+ {
+     std::shared_ptr<DNSPTRResolver> DNSPTRResolverProvider::get()
+     {
+-        static auto resolver = std::make_shared<CaresPTRResolver>(
+-            CaresPTRResolver::provider_token {}
+-        );
+-
++        static auto resolver = std::make_shared<CaresPTRResolver>(CaresPTRResolver::provider_token{});
+         return resolver;
+     }
+ }
++#endif

@@ -1,0 +1,21 @@
+# Git
+.git
+.gitignore
+
+# Environment files (contain secrets)
+.env
+.env.*
+!.env.example
+
+# Documentation
+*.md
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,2 @@
+# This directory contains extension WASM files
+# Extensions are loaded dynamically at runtime

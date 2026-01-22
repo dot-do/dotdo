@@ -1,0 +1,55 @@
+{
+  "name": "@dotdo/chdb-mongo-compat",
+  "version": "0.1.0",
+  "description": "MongoDB-compatible API powered by real ClickHouse WASM - use MongoDB syntax to query a real ClickHouse engine compiled to WebAssembly",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "clickhouse",
+    "chdb",
+    "wasm",
+    "webassembly",
+    "cloudflare-workers",
+    "mongodb",
+    "mongodb-compatible",
+    "sql",
+    "database",
+    "edge-computing"
+  ],
+  "author": "dotdo",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "mongodb": "^6.12.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

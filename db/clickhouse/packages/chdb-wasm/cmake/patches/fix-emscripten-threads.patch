@@ -1,0 +1,22 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -420,6 +420,10 @@ include(cmake/dbms_glob_sources.cmake)
+
+ add_library(global-group INTERFACE)
+ if (OS_LINUX OR OS_ANDROID)
+     include(cmake/linux/default_libs.cmake)
+ elseif (OS_DARWIN)
+     include(cmake/darwin/default_libs.cmake)
+ elseif (OS_FREEBSD)
+     include(cmake/freebsd/default_libs.cmake)
++elseif (EMSCRIPTEN OR ARCH_WASM)
++    # Emscripten/WASM: Create stub Threads::Threads target since pthreads are not available
++    if (NOT TARGET Threads::Threads)
++        add_library(Threads::Threads INTERFACE IMPORTED)
++        set_target_properties(Threads::Threads PROPERTIES
++            INTERFACE_COMPILE_DEFINITIONS "THREADS_PREFER_PTHREAD_FLAG=OFF"
++        )
++    endif()
++    message(STATUS "[Emscripten] Created stub Threads::Threads target")
+ endif ()
+ link_libraries(global-group)

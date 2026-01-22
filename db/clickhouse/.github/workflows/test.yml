@@ -1,0 +1,250 @@
+# Test Workflow
+# CI workflow to run tests on every push and pull request
+#
+# This workflow:
+# - Runs unit tests on push/PR
+# - Runs integration tests
+# - Reports test coverage
+# - Caches dependencies for speed
+# - Runs TypeScript type checking on all packages (chdb-wasm, mongo-compat, firebase-compat)
+#
+# Required Checks for PRs:
+# - Type Check: Ensures TypeScript compiles without errors across all packages
+#
+# To configure branch protection:
+#   Settings > Branches > Branch protection rules > main
+#   Enable "Require status checks to pass before merging"
+#   Add "Type Check" as a required status check
+
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+      - 'release/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+# Cancel in-progress runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '9'
+
+jobs:
+  # ============================================================================
+  # Unit Tests
+  # ============================================================================
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: packages/chdb-wasm
+
+      - name: Run unit tests with coverage
+        run: pnpm test --coverage
+        working-directory: packages/chdb-wasm
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: packages/chdb-wasm/coverage
+          retention-days: 14
+
+      - name: Report coverage summary
+        if: always()
+        run: |
+          if [ -f packages/chdb-wasm/coverage/coverage-summary.json ]; then
+            echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            node -e "
+              const fs = require('fs');
+              const summary = JSON.parse(fs.readFileSync('packages/chdb-wasm/coverage/coverage-summary.json', 'utf-8'));
+              const total = summary.total;
+              console.log('| Metric | Coverage |');
+              console.log('|--------|----------|');
+              console.log('| Lines | ' + total.lines.pct + '% |');
+              console.log('| Statements | ' + total.statements.pct + '% |');
+              console.log('| Functions | ' + total.functions.pct + '% |');
+              console.log('| Branches | ' + total.branches.pct + '% |');
+            " >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No coverage summary found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ============================================================================
+  # Integration Tests
+  # ============================================================================
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: packages/chdb-wasm
+
+      - name: Run integration tests
+        run: pnpm vitest run tests/integration --reporter=verbose
+        working-directory: packages/chdb-wasm
+
+  # ============================================================================
+  # Type Check
+  # ============================================================================
+  # This job runs TypeScript type checking on all packages to ensure type safety.
+  # It's a required check for PRs to prevent TypeScript regressions.
+  #
+  # To configure as a required check in GitHub:
+  #   Settings > Branches > Branch protection rules > main > Require status checks
+  #   Add "Type Check" as a required status check
+  #
+  # Packages checked:
+  #   - chdb-wasm: Cloudflare Workers WASM bindings (strict mode)
+  #   - mongo-compat: MongoDB-compatible API layer (strict mode)
+  #   - firebase-compat: Firebase-compatible API layer (strict mode)
+  # ============================================================================
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      # Install dependencies for all packages
+      - name: Install chdb-wasm dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: packages/chdb-wasm
+
+      - name: Install mongo-compat dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: packages/mongo-compat
+
+      - name: Install firebase-compat dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: packages/firebase-compat
+
+      # Run TypeScript type checking on all packages
+      - name: Type check chdb-wasm
+        run: |
+          echo "::group::chdb-wasm TypeScript check"
+          pnpm tsc --noEmit
+          echo "::endgroup::"
+        working-directory: packages/chdb-wasm
+
+      - name: Type check mongo-compat
+        run: |
+          echo "::group::mongo-compat TypeScript check"
+          pnpm tsc --noEmit
+          echo "::endgroup::"
+        working-directory: packages/mongo-compat
+
+      - name: Type check firebase-compat
+        run: |
+          echo "::group::firebase-compat TypeScript check"
+          pnpm tsc --noEmit
+          echo "::endgroup::"
+        working-directory: packages/firebase-compat
+
+      - name: Report TypeScript check results
+        if: always()
+        run: |
+          echo "## TypeScript Type Check Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All packages are configured with strict TypeScript settings:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| chdb-wasm | Checked |" >> $GITHUB_STEP_SUMMARY
+          echo "| mongo-compat | Checked |" >> $GITHUB_STEP_SUMMARY
+          echo "| firebase-compat | Checked |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Note:** This is a required status check for PRs. TypeScript errors will block merge." >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # Test Results Summary
+  # ============================================================================
+  test-results:
+    name: Test Results
+    needs: [unit-tests, integration-tests, typecheck]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Check test results
+        run: |
+          if [ "${{ needs.unit-tests.result }}" == "failure" ] || \
+             [ "${{ needs.integration-tests.result }}" == "failure" ] || \
+             [ "${{ needs.typecheck.result }}" == "failure" ]; then
+            echo "## Test Results: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+            echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Unit Tests | ${{ needs.unit-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Integration Tests | ${{ needs.integration-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Type Check | ${{ needs.typecheck.result }} |" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "## Test Results: PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "All tests passed successfully!" >> $GITHUB_STEP_SUMMARY
+          fi

@@ -1,0 +1,143 @@
+<?xml version="1.0"?>
+<!--
+  ClickHouse System Tables Storage Configuration
+  Configures system tables to use S3 storage for stateless operation.
+  This enables horizontal scaling without local state dependencies.
+-->
+<clickhouse>
+    <!-- Configure system tables to use S3 storage policy -->
+    <query_log>
+        <database>system</database>
+        <table>query_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <storage_policy>s3_main</storage_policy>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </query_log>
+
+    <query_thread_log>
+        <database>system</database>
+        <table>query_thread_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <storage_policy>s3_main</storage_policy>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </query_thread_log>
+
+    <query_views_log>
+        <database>system</database>
+        <table>query_views_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <storage_policy>s3_main</storage_policy>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </query_views_log>
+
+    <part_log>
+        <database>system</database>
+        <table>part_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <storage_policy>s3_main</storage_policy>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </part_log>
+
+    <trace_log>
+        <database>system</database>
+        <table>trace_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <storage_policy>s3_main</storage_policy>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </trace_log>
+
+    <metric_log>
+        <database>system</database>
+        <table>metric_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <storage_policy>s3_main</storage_policy>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </metric_log>
+
+    <asynchronous_metric_log>
+        <database>system</database>
+        <table>asynchronous_metric_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <storage_policy>s3_main</storage_policy>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </asynchronous_metric_log>
+
+    <opentelemetry_span_log>
+        <database>system</database>
+        <table>opentelemetry_span_log</table>
+        <partition_by>toYYYYMM(finish_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <storage_policy>s3_main</storage_policy>
+        <ttl>finish_date + INTERVAL 30 DAY DELETE</ttl>
+    </opentelemetry_span_log>
+
+    <crash_log>
+        <database>system</database>
+        <table>crash_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>1000</flush_interval_milliseconds>
+        <storage_policy>s3_main</storage_policy>
+        <ttl>event_date + INTERVAL 90 DAY DELETE</ttl>
+    </crash_log>
+
+    <session_log>
+        <database>system</database>
+        <table>session_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <storage_policy>s3_main</storage_policy>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </session_log>
+
+    <processors_profile_log>
+        <database>system</database>
+        <table>processors_profile_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <storage_policy>s3_main</storage_policy>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </processors_profile_log>
+
+    <asynchronous_insert_log>
+        <database>system</database>
+        <table>asynchronous_insert_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <storage_policy>s3_main</storage_policy>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </asynchronous_insert_log>
+
+    <backup_log>
+        <database>system</database>
+        <table>backup_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <storage_policy>s3_main</storage_policy>
+        <ttl>event_date + INTERVAL 90 DAY DELETE</ttl>
+    </backup_log>
+
+    <s3queue_log>
+        <database>system</database>
+        <table>s3queue_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <storage_policy>s3_main</storage_policy>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </s3queue_log>
+
+    <blob_storage_log>
+        <database>system</database>
+        <table>blob_storage_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <storage_policy>s3_main</storage_policy>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+    </blob_storage_log>
+</clickhouse>

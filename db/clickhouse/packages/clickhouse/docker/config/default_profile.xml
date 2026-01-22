@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<clickhouse>
+  <profiles>
+    <default>
+      <storage_policy>s3_main</storage_policy>
+    </default>
+  </profiles>
+</clickhouse>

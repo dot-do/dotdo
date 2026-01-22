@@ -1,0 +1,60 @@
+# ClickBench Benchmark Worker Configuration
+#
+# This worker runs ClickBench queries using chdb-wasm for benchmarking
+# Cloudflare Workers WASM performance.
+#
+# Deploy:
+#   cd packages/clickhouse/benchmarks/workers
+#   npx wrangler deploy
+#
+# Development:
+#   npx wrangler dev
+
+name = "clickbench-benchmark"
+main = "worker.ts"
+compatibility_date = "2024-01-01"
+
+# Workers WASM has memory limits - use limits config for benchmarking
+# [limits]
+# memory = 128  # MB
+
+# Enable nodejs compatibility for better WASM support
+compatibility_flags = ["nodejs_compat"]
+
+# Optional: Observability for debugging benchmark performance
+# [observability]
+# enabled = true
+
+# Optional: R2 bucket for benchmark data
+# Uncomment and configure if you want to load data from R2
+# [[r2_buckets]]
+# binding = "BENCHMARK_DATA"
+# bucket_name = "clickbench-data"
+
+# Optional: Environment variables
+# [vars]
+# DATA_PATH = "hits.parquet"
+
+# Production environment
+[env.production]
+name = "clickbench-benchmark-prod"
+# routes = [
+#   { pattern = "benchmark.example.com/*", zone_name = "example.com" }
+# ]
+
+# Staging environment for testing
+[env.staging]
+name = "clickbench-benchmark-staging"
+
+# Development environment
+[env.dev]
+name = "clickbench-benchmark-dev"
+
+# Build configuration for TypeScript
+[build]
+command = "npm run build"
+watch_dir = "."
+
+# Miniflare configuration for local development
+[miniflare]
+live_reload = true

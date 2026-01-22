@@ -1,0 +1,8 @@
+      } else if (/^(regexp_replace|regexpreplaceone|regexpreplaceall)\s*\(/i.test(expression)) {
+        const evalResult = evaluateExpression(expression, {});
+        value = evalResult.value;
+        type = evalResult.type;
+      } else if (/^(upper|lower|concat|length|substring|substr|replace|replaceone|replaceall|trim|ltrim|rtrim|reverse|leftpad|rightpad|lpad|rpad|repeat|startswith|endswith|position|locate)\s*\(/i.test(expression)) {
+        const evalResult = evaluateExpression(expression, {});
+        value = evalResult.value;
+        type = evalResult.type;

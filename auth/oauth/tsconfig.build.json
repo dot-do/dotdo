@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": ".",
     "baseUrl": ".",
     "paths": {},
     "types": ["@cloudflare/workers-types"],
@@ -10,6 +10,6 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["src/**/*.ts"],
+  "include": ["*.ts", "core/**/*.ts", "middleware/**/*.ts", "mcp/**/*.ts", "providers/**/*.ts", "storage/**/*.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts"]
 }

@@ -1,0 +1,3 @@
+/Users/nathanclevenger/projects/clickhouse/packages/chdb-wasm/build/core/CMakeFiles/core.dir
+/Users/nathanclevenger/projects/clickhouse/packages/chdb-wasm/build/core/CMakeFiles/edit_cache.dir
+/Users/nathanclevenger/projects/clickhouse/packages/chdb-wasm/build/core/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,441 @@
+{
+  "summary": {
+    "timestamp": "2026-01-20T05:53:12.555119",
+    "endpoint": "https://chdb-lake.dotdo.workers.dev/",
+    "total_queries": 35,
+    "successful_queries": 27,
+    "failed_queries": 8,
+    "avg_time_success": 0.191908,
+    "categories": {
+      "filter": {
+        "total": 3,
+        "successful": 3,
+        "failed": 0,
+        "avg_time": 0.230437
+      },
+      "clickbench": {
+        "total": 8,
+        "successful": 0,
+        "failed": 8,
+        "avg_time": 0.0
+      },
+      "string": {
+        "total": 3,
+        "successful": 3,
+        "failed": 0,
+        "avg_time": 0.194017
+      },
+      "system": {
+        "total": 5,
+        "successful": 5,
+        "failed": 0,
+        "avg_time": 0.164567
+      },
+      "basic": {
+        "total": 6,
+        "successful": 6,
+        "failed": 0,
+        "avg_time": 0.221846
+      },
+      "arithmetic": {
+        "total": 4,
+        "successful": 4,
+        "failed": 0,
+        "avg_time": 0.16334
+      },
+      "numbers": {
+        "total": 6,
+        "successful": 6,
+        "failed": 0,
+        "avg_time": 0.183478
+      }
+    }
+  },
+  "results": [
+    {
+      "id": "basic-1",
+      "name": "SELECT 1",
+      "category": "basic",
+      "sql": "SELECT 1",
+      "time_seconds": 0.374461,
+      "http_status": 200,
+      "success": true,
+      "output": "1",
+      "rows_returned": 1
+    },
+    {
+      "id": "basic-2",
+      "name": "SELECT 1+1",
+      "category": "basic",
+      "sql": "SELECT 1+1",
+      "time_seconds": 0.239761,
+      "http_status": 200,
+      "success": true,
+      "output": "2",
+      "rows_returned": 1
+    },
+    {
+      "id": "basic-3",
+      "name": "SELECT version()",
+      "category": "basic",
+      "sql": "SELECT version()",
+      "time_seconds": 0.160487,
+      "http_status": 200,
+      "success": true,
+      "output": "24.1.1-chdb-wasm",
+      "rows_returned": 1
+    },
+    {
+      "id": "basic-4",
+      "name": "SELECT now()",
+      "category": "basic",
+      "sql": "SELECT now()",
+      "time_seconds": 0.197864,
+      "http_status": 200,
+      "success": true,
+      "output": "2026-01-20 11:53:06",
+      "rows_returned": 1
+    },
+    {
+      "id": "basic-5",
+      "name": "SELECT today()",
+      "category": "basic",
+      "sql": "SELECT today()",
+      "time_seconds": 0.137006,
+      "http_status": 200,
+      "success": true,
+      "output": "2026-01-20",
+      "rows_returned": 1
+    },
+    {
+      "id": "basic-6",
+      "name": "SELECT 10*20+5",
+      "category": "basic",
+      "sql": "SELECT 10*20+5",
+      "time_seconds": 0.221497,
+      "http_status": 200,
+      "success": true,
+      "output": "250",
+      "rows_returned": 1
+    },
+    {
+      "id": "numbers-1",
+      "name": "numbers(10)",
+      "category": "numbers",
+      "sql": "SELECT number FROM numbers(10)",
+      "time_seconds": 0.102203,
+      "http_status": 200,
+      "success": true,
+      "output": "0\n1\n2\n3\n4\n5\n6\n7\n8\n9",
+      "rows_returned": 10
+    },
+    {
+      "id": "numbers-2",
+      "name": "numbers(100) LIMIT 10",
+      "category": "numbers",
+      "sql": "SELECT number FROM numbers(100) LIMIT 10",
+      "time_seconds": 0.141212,
+      "http_status": 200,
+      "success": true,
+      "output": "0\n1\n2\n3\n4\n5\n6\n7\n8\n9",
+      "rows_returned": 10
+    },
+    {
+      "id": "numbers-3",
+      "name": "numbers(1000) LIMIT 10",
+      "category": "numbers",
+      "sql": "SELECT number FROM numbers(1000) LIMIT 10",
+      "time_seconds": 0.201278,
+      "http_status": 200,
+      "success": true,
+      "output": "0\n1\n2\n3\n4\n5\n6\n7\n8\n9",
+      "rows_returned": 10
+    },
+    {
+      "id": "numbers-4",
+      "name": "numbers(10000) ORDER BY DESC LIMIT 10",
+      "category": "numbers",
+      "sql": "SELECT number FROM numbers(10000) ORDER BY number DESC LIMIT 10",
+      "time_seconds": 0.216969,
+      "http_status": 200,
+      "success": true,
+      "output": "9999\n9998\n9997\n9996\n9995\n9994\n9993\n9992\n9991\n9990",
+      "rows_returned": 10
+    },
+    {
+      "id": "numbers-5",
+      "name": "numbers(100000) ORDER BY DESC LIMIT 10",
+      "category": "numbers",
+      "sql": "SELECT number FROM numbers(100000) ORDER BY number DESC LIMIT 10",
+      "time_seconds": 0.222308,
+      "http_status": 200,
+      "success": true,
+      "output": "99999\n99998\n99997\n99996\n99995\n99994\n99993\n99992\n99991\n99990",
+      "rows_returned": 10
+    },
+    {
+      "id": "numbers-6",
+      "name": "numbers(1000000) LIMIT 10",
+      "category": "numbers",
+      "sql": "SELECT number FROM numbers(1000000) LIMIT 10",
+      "time_seconds": 0.216901,
+      "http_status": 200,
+      "success": true,
+      "output": "0\n1\n2\n3\n4\n5\n6\n7\n8\n9",
+      "rows_returned": 10
+    },
+    {
+      "id": "arith-1",
+      "name": "number * 2",
+      "category": "arithmetic",
+      "sql": "SELECT number * 2 FROM numbers(10)",
+      "time_seconds": 0.125498,
+      "http_status": 200,
+      "success": true,
+      "output": "0\n2\n4\n6\n8\n10\n12\n14\n16\n18",
+      "rows_returned": 10
+    },
+    {
+      "id": "arith-2",
+      "name": "number + 100",
+      "category": "arithmetic",
+      "sql": "SELECT number + 100 FROM numbers(10)",
+      "time_seconds": 0.201858,
+      "http_status": 200,
+      "success": true,
+      "output": "100\n101\n102\n103\n104\n105\n106\n107\n108\n109",
+      "rows_returned": 10
+    },
+    {
+      "id": "arith-3",
+      "name": "number * number",
+      "category": "arithmetic",
+      "sql": "SELECT number * number FROM numbers(10)",
+      "time_seconds": 0.13257,
+      "http_status": 200,
+      "success": true,
+      "output": "0\n1\n4\n9\n16\n25\n36\n49\n64\n81",
+      "rows_returned": 10
+    },
+    {
+      "id": "arith-4",
+      "name": "complex arithmetic",
+      "category": "arithmetic",
+      "sql": "SELECT (number + 1) * 2 FROM numbers(10)",
+      "time_seconds": 0.193434,
+      "http_status": 200,
+      "success": true,
+      "output": "0\n0\n0\n0\n0\n0\n0\n0\n0\n0",
+      "rows_returned": 10
+    },
+    {
+      "id": "where-1",
+      "name": "WHERE number > 50",
+      "category": "filter",
+      "sql": "SELECT number FROM numbers(100) WHERE number > 50 LIMIT 10",
+      "time_seconds": 0.210044,
+      "http_status": 200,
+      "success": true,
+      "output": "51\n52\n53\n54\n55\n56\n57\n58\n59\n60",
+      "rows_returned": 10
+    },
+    {
+      "id": "where-2",
+      "name": "WHERE number < 10",
+      "category": "filter",
+      "sql": "SELECT number FROM numbers(100) WHERE number < 10",
+      "time_seconds": 0.229862,
+      "http_status": 200,
+      "success": true,
+      "output": "0\n1\n2\n3\n4\n5\n6\n7\n8\n9",
+      "rows_returned": 10
+    },
+    {
+      "id": "where-3",
+      "name": "WHERE large dataset",
+      "category": "filter",
+      "sql": "SELECT number FROM numbers(10000) WHERE number > 9900",
+      "time_seconds": 0.251405,
+      "http_status": 200,
+      "success": true,
+      "output": "9901\n9902\n9903\n9904\n9905\n9906\n9907\n9908\n9909\n9910\n9911\n9912\n9913\n9914\n9915\n9916\n9917\n9918\n9919\n9920\n9921\n9922\n9923\n9924\n9925\n9926\n9927\n9928\n9929\n9930\n9931\n9932\n9933\n9934\n9935\n9936\n9937\n9938\n9939\n9940\n9941\n9942\n9943\n9944\n9945\n9946\n9947\n9948\n9949\n9950\n9951\n9952\n9953\n9954\n9955\n9956\n9957\n9958\n9959\n9960\n9961\n9962\n9963\n9964\n9965\n9966\n9967\n9968\n9969\n9970\n9971\n9972\n9973\n9974\n9975\n9976\n9977\n9978\n9979\n9980\n9981\n9982\n9983\n9984\n9985\n9986\n9987\n9988\n9989\n9990\n9991\n9992\n9993\n9994\n9995\n9996\n9997\n9998\n9999",
+      "rows_returned": 99
+    },
+    {
+      "id": "system-1",
+      "name": "currentDatabase()",
+      "category": "system",
+      "sql": "SELECT currentDatabase()",
+      "time_seconds": 0.205114,
+      "http_status": 200,
+      "success": true,
+      "output": "default",
+      "rows_returned": 1
+    },
+    {
+      "id": "system-2",
+      "name": "currentUser()",
+      "category": "system",
+      "sql": "SELECT currentUser()",
+      "time_seconds": 0.119363,
+      "http_status": 200,
+      "success": true,
+      "output": "default",
+      "rows_returned": 1
+    },
+    {
+      "id": "system-3",
+      "name": "timezone()",
+      "category": "system",
+      "sql": "SELECT timezone()",
+      "time_seconds": 0.220931,
+      "http_status": 200,
+      "success": true,
+      "output": "UTC",
+      "rows_returned": 1
+    },
+    {
+      "id": "system-4",
+      "name": "SHOW DATABASES",
+      "category": "system",
+      "sql": "SHOW DATABASES",
+      "time_seconds": 0.14759,
+      "http_status": 200,
+      "success": true,
+      "output": "default\nsystem",
+      "rows_returned": 2
+    },
+    {
+      "id": "system-5",
+      "name": "SHOW TABLES",
+      "category": "system",
+      "sql": "SHOW TABLES",
+      "time_seconds": 0.129839,
+      "http_status": 200,
+      "success": true,
+      "output": "",
+      "rows_returned": 0
+    },
+    {
+      "id": "string-1",
+      "name": "length()",
+      "category": "string",
+      "sql": "SELECT length('hello world')",
+      "time_seconds": 0.129446,
+      "http_status": 200,
+      "success": true,
+      "output": "11",
+      "rows_returned": 1
+    },
+    {
+      "id": "string-2",
+      "name": "upper()",
+      "category": "string",
+      "sql": "SELECT upper('hello')",
+      "time_seconds": 0.225796,
+      "http_status": 200,
+      "success": true,
+      "output": "HELLO",
+      "rows_returned": 1
+    },
+    {
+      "id": "string-3",
+      "name": "lower()",
+      "category": "string",
+      "sql": "SELECT lower('HELLO')",
+      "time_seconds": 0.226809,
+      "http_status": 200,
+      "success": true,
+      "output": "hello",
+      "rows_returned": 1
+    },
+    {
+      "id": "clickbench-q1",
+      "name": "CB Q1: COUNT(*) FROM hits",
+      "category": "clickbench",
+      "sql": "SELECT COUNT(*) FROM hits",
+      "time_seconds": 1.207535,
+      "http_status": 404,
+      "success": false,
+      "output": "UNKNOWN_TABLE: Table 'hits' doesn't exist",
+      "rows_returned": 1
+    },
+    {
+      "id": "clickbench-q2",
+      "name": "CB Q2: COUNT(*) WHERE filter",
+      "category": "clickbench",
+      "sql": "SELECT COUNT(*) FROM hits WHERE AdvEngineID <> 0",
+      "time_seconds": 0.193045,
+      "http_status": 404,
+      "success": false,
+      "output": "UNKNOWN_TABLE: Table 'hits' doesn't exist",
+      "rows_returned": 1
+    },
+    {
+      "id": "clickbench-q3",
+      "name": "CB Q3: SUM,COUNT,AVG",
+      "category": "clickbench",
+      "sql": "SELECT SUM(AdvEngineID), COUNT(*), AVG(ResolutionWidth) FROM hits",
+      "time_seconds": 0.102605,
+      "http_status": 404,
+      "success": false,
+      "output": "UNKNOWN_TABLE: Table 'hits' doesn't exist",
+      "rows_returned": 1
+    },
+    {
+      "id": "clickbench-q4",
+      "name": "CB Q4: AVG(UserID)",
+      "category": "clickbench",
+      "sql": "SELECT AVG(UserID) FROM hits",
+      "time_seconds": 0.130635,
+      "http_status": 404,
+      "success": false,
+      "output": "UNKNOWN_TABLE: Table 'hits' doesn't exist",
+      "rows_returned": 1
+    },
+    {
+      "id": "clickbench-q5",
+      "name": "CB Q5: COUNT(DISTINCT UserID)",
+      "category": "clickbench",
+      "sql": "SELECT COUNT(DISTINCT UserID) FROM hits",
+      "time_seconds": 0.118098,
+      "http_status": 404,
+      "success": false,
+      "output": "UNKNOWN_TABLE: Table 'hits' doesn't exist",
+      "rows_returned": 1
+    },
+    {
+      "id": "clickbench-q7",
+      "name": "CB Q7: MIN/MAX dates",
+      "category": "clickbench",
+      "sql": "SELECT MIN(EventDate), MAX(EventDate) FROM hits",
+      "time_seconds": 0.125187,
+      "http_status": 404,
+      "success": false,
+      "output": "UNKNOWN_TABLE: Table 'hits' doesn't exist",
+      "rows_returned": 1
+    },
+    {
+      "id": "clickbench-q20",
+      "name": "CB Q20: Point query",
+      "category": "clickbench",
+      "sql": "SELECT UserID FROM hits WHERE UserID = 435090932899640449",
+      "time_seconds": 0.118483,
+      "http_status": 404,
+      "success": false,
+      "output": "UNKNOWN_TABLE: Table 'hits' doesn't exist",
+      "rows_returned": 1
+    },
+    {
+      "id": "clickbench-q21",
+      "name": "CB Q21: LIKE pattern",
+      "category": "clickbench",
+      "sql": "SELECT COUNT(*) FROM hits WHERE URL LIKE '%google%'",
+      "time_seconds": 0.201722,
+      "http_status": 404,
+      "success": false,
+      "output": "UNKNOWN_TABLE: Table 'hits' doesn't exist",
+      "rows_returned": 1
+    }
+  ]
+}

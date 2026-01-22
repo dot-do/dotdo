@@ -1,0 +1,20 @@
+--- a/programs/local/CMakeLists.txt
++++ b/programs/local/CMakeLists.txt
+@@ -133,7 +133,6 @@ set (CLICKHOUSE_LOCAL_LINK
+         clickhouse_parsers
+         clickhouse_storages_system
+         clickhouse_table_functions
+-        ch_contrib::parquet
+ )
+
+ clickhouse_program_add(local)
+@@ -147,6 +146,9 @@ endif()
+ if (TARGET ch_contrib::utf8proc)
+     target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::utf8proc)
+ endif()
++if (TARGET ch_contrib::parquet)
++    target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::parquet)
++endif()
+ if (TARGET ch_contrib::arrow)
+     target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::arrow)
+ endif()

@@ -1,0 +1,11 @@
+# DuckDB WASM files are large (~34-40MB) and should be copied from node_modules
+# Use `npm run setup:wasm` to copy WASM files to public/wasm
+public/wasm/*.wasm
+public/wasm/*.worker.js
+
+# Keep the manifest (small, describes the WASM files)
+!public/wasm/manifest.json
+
+# Build artifacts
+build-wasm-*/
+*.wasm.map
