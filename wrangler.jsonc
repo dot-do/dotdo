@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dotdo",
+  "main": "worker.ts",
+  "compatibility_date": "2025-01-15",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Object bindings
+  // DO = Durable Object = Digital Object (the core primitive)
+  "durable_objects": {
+    "bindings": [
+      { "name": "DO", "class_name": "DO" }
+    ]
+  },
+
+  // Migrations for DO classes with SQLite storage
+  // new_sqlite_classes enables state.storage.sql for efficient storage
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DO"]
+    }
+  ],
+
+  // Enable workers.dev subdomain for testing
+  "workers_dev": true,
+
+  // Environment variables (secrets should be set via wrangler secret)
+  "vars": {
+    "ENVIRONMENT": "development"
+  }
+}

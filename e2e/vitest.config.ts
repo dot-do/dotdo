@@ -1,5 +1,5 @@
 // E2E Test Configuration for testing SDKs against live deployed Workers
-// See do-luhm.27, do-f8cq
+// See do-luhm.27, do-f8cq, do-iidr.20
 import { defineConfig } from 'vitest/config'
 import { resolve } from 'path'
 
@@ -10,6 +10,10 @@ export default defineConfig({
 
     // Include test files in root and tests subdirectory
     include: ['**/*.test.ts'],
+
+    // Exclude integration tests that don't need WORKER_URL from skipIf check
+    // integration.test.ts uses mock server and doesn't require WORKER_URL
+    exclude: ['**/node_modules/**'],
 
     // Longer timeouts for network calls and WebSocket operations
     testTimeout: 60000, // Extended for WebSocket hibernation tests
@@ -28,7 +32,8 @@ export default defineConfig({
     // Root directory for resolving paths
     root: resolve(__dirname),
 
-    // Setup file runs before tests
+    // Setup file runs before tests (only for live worker tests)
+    // Note: integration.test.ts uses mock server, doesn't need WORKER_URL setup
     setupFiles: ['./setup.ts'],
 
     // Isolate test files to avoid cross-contamination
@@ -62,7 +67,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       include: ['src/**/*.ts'],
-      exclude: ['**/*.test.ts', '**/__tests__/**', '**/node_modules/**'],
+      exclude: ['**/*.test.ts', '**/__tests__/**', '**/node_modules/**', '**/fixtures/**'],
       thresholds: {
         statements: 65,
         branches: 60,
@@ -70,5 +75,21 @@ export default defineConfig({
         lines: 65,
       },
     },
-  }
+  },
+
+  // Resolve aliases for workspace packages
+  resolve: {
+    alias: {
+      'rpc.do': resolve(__dirname, '../rpc.do/src'),
+      'rpc.do/cli/repl': resolve(__dirname, '../rpc.do/src/cli/repl'),
+      'rpc.do/cli/pull': resolve(__dirname, '../rpc.do/src/cli/pull'),
+      'rpc.do/cli/eval': resolve(__dirname, '../rpc.do/src/cli/eval'),
+      'rpc.do/transport/fetch': resolve(__dirname, '../rpc.do/src/transport/fetch'),
+      'sdk.do': resolve(__dirname, '../sdk.do/src'),
+      'platform.do': resolve(__dirname, '../platform.do/src'),
+      '@dotdo/auth': resolve(__dirname, '../auth'),
+      '@dotdo/oauth': resolve(__dirname, '../oauth/src'),
+      '@dotdo/utils': resolve(__dirname, '../utils'),
+    },
+  },
 })

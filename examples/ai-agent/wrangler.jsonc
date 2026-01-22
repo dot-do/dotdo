@@ -20,11 +20,11 @@
     "binding": "AI"
   },
 
-  // Migrations for DO
+  // Migrations for DO with SQLite storage
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["AgentDO"]
+      "new_sqlite_classes": ["AgentDO"]
     }
   ],
 

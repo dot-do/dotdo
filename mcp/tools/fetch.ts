@@ -1,8 +1,28 @@
-// fetch tool - MCP tool that fetches a single Thing by $id with enrichments
+/**
+ * Fetch Tool - MCP tool that fetches a single Thing by $id with enrichments
+ *
+ * @module @dotdo/mcp/tools/fetch
+ *
+ * This tool is decoupled from @dotdo/db (do-7jse) and uses local type definitions.
+ * Any store implementation that matches the interfaces in ../types.ts can be used.
+ *
+ * @example
+ * ```typescript
+ * import { createFetchTool } from '@dotdo/mcp'
+ *
+ * // With @dotdo/db stores (they implement the interfaces)
+ * import { createThingsStore, createRelationshipsStore, createEventsStore } from '@dotdo/db'
+ *
+ * const fetchTool = createFetchTool({
+ *   things: createThingsStore(),
+ *   relationships: createRelationshipsStore(),
+ *   events: createEventsStore()
+ * })
+ * ```
+ */
+
 import type { MCPTool } from '../server'
-import type { ThingsStore } from '../../db/things'
-import type { RelationshipsStore } from '../../db/relationships'
-import type { EventsStore } from '../../db/events'
+import type { ThingsStore, RelationshipsStore, EventsStore } from '../types'
 
 export interface FetchParams {
   $id: string
@@ -21,17 +41,17 @@ export function isFetchParams(value: unknown): value is FetchParams {
   const obj = value as Record<string, unknown>
 
   // $id is required and must be a non-empty string
-  if (typeof obj.$id !== 'string' || obj.$id.length === 0) {
+  if (typeof obj['$id'] !== 'string' || obj['$id'].length === 0) {
     return false
   }
 
   // include is optional, but if present must be an array of valid values
-  if (obj.include !== undefined) {
-    if (!Array.isArray(obj.include)) {
+  if (obj['include'] !== undefined) {
+    if (!Array.isArray(obj['include'])) {
       return false
     }
     const validIncludes = ['relationships', 'events']
-    for (const item of obj.include) {
+    for (const item of obj['include']) {
       if (typeof item !== 'string' || !validIncludes.includes(item)) {
         return false
       }
@@ -41,12 +61,22 @@ export function isFetchParams(value: unknown): value is FetchParams {
   return true
 }
 
+/**
+ * Dependencies for fetch tool
+ * Uses minimal interfaces from ../types.ts instead of @dotdo/db
+ */
 export interface FetchToolDeps {
+  /** ThingsStore for retrieving Things by $id */
   things: ThingsStore
+  /** RelationshipsStore for enriching with related Things */
   relationships: RelationshipsStore
+  /** EventsStore for enriching with event history */
   events: EventsStore
 }
 
+/**
+ * Enriched Thing result with optional relationships and events
+ */
 export interface EnrichedThing {
   $id: string
   $type: string
@@ -72,6 +102,62 @@ export interface EnrichedThing {
   }>
 }
 
+/**
+ * Factory function to create a fetch tool that retrieves Things with optional enrichments
+ *
+ * This is the correct way to create a fetch tool. The default `fetchTool` export
+ * is a placeholder and will throw an error if used directly.
+ *
+ * @param deps - Store dependencies for fetching and enriching data
+ * @param deps.things - ThingsStore for retrieving Things by $id
+ * @param deps.relationships - RelationshipsStore for enriching with related Things
+ * @param deps.events - EventsStore for enriching with event history
+ *
+ * @returns A configured MCPTool ready to be added to an MCP server
+ *
+ * @example Basic usage - Fetch without enrichments
+ * ```typescript
+ * import { createFetchTool } from '@dotdo/mcp'
+ * import { createMCPServer } from '@dotdo/mcp'
+ *
+ * const server = createMCPServer()
+ * const fetchTool = createFetchTool({
+ *   things: myThingsStore,
+ *   relationships: myRelationshipsStore,
+ *   events: myEventsStore
+ * })
+ * server.addTool(fetchTool)
+ *
+ * // Fetch a Thing by $id
+ * const user = await fetchTool.execute({ $id: 'user-123' })
+ * // Result: { $id: 'user-123', $type: 'User', name: 'Alice', ... }
+ * ```
+ *
+ * @example Fetch with enrichments
+ * ```typescript
+ * // Fetch with relationships and events
+ * const enrichedUser = await fetchTool.execute({
+ *   $id: 'user-123',
+ *   include: ['relationships', 'events']
+ * })
+ * // Result includes:
+ * // - _relationships: [{ subject: 'user-123', predicate: 'owns', object: 'order-456' }, ...]
+ * // - _events: [{ $id: 'evt-1', type: 'user.created', ... }, ...]
+ * ```
+ *
+ * @example With @dotdo/db stores
+ * ```typescript
+ * import { createThingsStore, createRelationshipsStore, createEventsStore } from '@dotdo/db'
+ *
+ * const fetchTool = createFetchTool({
+ *   things: createThingsStore(),
+ *   relationships: createRelationshipsStore(),
+ *   events: createEventsStore()
+ * })
+ * ```
+ *
+ * @throws Error if Thing not found or if invalid parameters provided
+ */
 export function createFetchTool(deps: FetchToolDeps): MCPTool {
   const { things, relationships, events } = deps
 

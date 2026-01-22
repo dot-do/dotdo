@@ -1,8 +1,8 @@
 // Typed RPC Client - provides full type inference for DO method calls
 // Uses TypeScript utility types to infer methods, parameters, and return types from DO classes
 
-import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
-import { SerializedError, deserializeError, isRPCError } from './errors'
+import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
+import { deserializeError, isRPCError, InternalError, type SerializedError } from './errors'
 import type {
   RPCClient,
   RPCClientWithOptions,
@@ -65,8 +65,8 @@ async function invokeViaStub(
           throw e
         }
       }
-      // Fallback to generic error
-      throw new Error(`DO RPC error: ${response.status} [${responseCorrelationId}]`)
+      // Fallback to typed error with correlation context
+      throw new InternalError(`DO RPC error: ${response.status}`, { correlationId: responseCorrelationId })
     }
 
     return response.json()
@@ -115,23 +115,38 @@ async function invokeViaFetch(
         throw e
       }
     }
-    // Fallback to generic error
-    throw new Error(`RPC error: ${response.status} [${responseCorrelationId}]`)
+    // Fallback to typed error with correlation context
+    throw new InternalError(`RPC error: ${response.status}`, { correlationId: responseCorrelationId })
   }
 
   return response.json()
 }
 
 /**
- * Creates a nested proxy for property path tracking (for nested APIs)
+ * Type for a proxy handler that can be both accessed and called.
+ * The function signature uses `unknown` return type to accommodate both
+ * async and callable proxy targets.
  */
-function createNestedProxyForFetch(
+type ProxyableFunction = ((...args: unknown[]) => unknown) & Record<string, unknown>
+
+/**
+ * Creates a nested proxy for property path tracking (for nested APIs)
+ *
+ * @typeParam T - The expected type at this point in the path
+ */
+function createNestedProxyForFetch<T = unknown>(
   url: string,
   path: string[],
   options: TypedClientOptions
-): unknown {
-  return new Proxy(() => {}, {
-    get(_, prop: string | symbol) {
+): T {
+  // Use a typed proxy target that can be both accessed as an object and called as a function
+  const proxyTarget: ProxyableFunction = Object.assign(
+    (() => undefined) as (...args: unknown[]) => unknown,
+    {} as Record<string, unknown>
+  )
+
+  return new Proxy(proxyTarget, {
+    get(_target: ProxyableFunction, prop: string | symbol): unknown {
       // Don't intercept symbols or promise methods
       if (typeof prop === 'symbol') return undefined
       if (prop === 'then' || prop === 'catch' || prop === 'finally') return undefined
@@ -139,14 +154,14 @@ function createNestedProxyForFetch(
       return createNestedProxyForFetch(url, [...path, prop], options)
     },
 
-    apply(_, __, args: unknown[]) {
+    apply(_target: ProxyableFunction, _thisArg: unknown, args: unknown[]): Promise<unknown> {
       // Build options object without undefined values (for exactOptionalPropertyTypes)
       const invokeOptions: { timeout?: number; correlationId?: string } = {}
       if (options.timeout !== undefined) invokeOptions.timeout = options.timeout
       if (options.correlationId !== undefined) invokeOptions.correlationId = options.correlationId
       return invokeViaFetch(url, path, args, invokeOptions)
     },
-  })
+  }) as T
 }
 
 /**
@@ -215,9 +230,11 @@ export function createTypedClient<T extends object>(
     >
   }
 
+  type ProxyHandlerTarget = Record<string, unknown>
+
   // Create the proxy for method calls
-  return new Proxy({} as RPCClientWithOptions<T>, {
-    get(_, prop: string | symbol) {
+  return new Proxy({} as ProxyHandlerTarget, {
+    get(_target: ProxyHandlerTarget, prop: string | symbol): unknown {
       // Don't intercept symbols or promise methods
       if (typeof prop === 'symbol') return undefined
       if (prop === 'then' || prop === 'catch' || prop === 'finally') return undefined
@@ -229,14 +246,14 @@ export function createTypedClient<T extends object>(
       if (prop === '$stub') return stub
 
       // Return method invoker
-      return async (...args: unknown[]) => {
+      return async (...args: unknown[]): Promise<unknown> => {
         // Build options object without undefined values (for exactOptionalPropertyTypes)
         const invokeOptions: { timeout?: number; correlationId?: string } = { timeout }
         if (baseCorrelationId !== undefined) invokeOptions.correlationId = baseCorrelationId
         return invokeViaStub(stub, prop as string, args, invokeOptions)
       }
     },
-  })
+  }) as RPCClientWithOptions<T>
 }
 
 /**
@@ -275,10 +292,48 @@ export function createTypedClientFromUrl<T extends object>(
 }
 
 /**
- * Type guard to check if a value is a DurableObjectId
+ * Type guard to check if a value is a DurableObjectId.
+ *
+ * Uses multiple checks to ensure the value is a real DurableObjectId:
+ * 1. Must be a non-null object
+ * 2. Must have an `equals` method (unique to DurableObjectId)
+ * 3. Must have a `toString` method
+ * 4. Must have a `name` property (present on all DurableObjectIds)
+ * 5. The `toString()` result must be a non-empty string (real IDs return hex strings)
+ *
+ * This is more robust than just checking for method existence, which could be
+ * spoofed by any object with matching method signatures.
  */
 function isDurableObjectId(id: unknown): id is DurableObjectId {
-  return typeof id === 'object' && id !== null && 'toString' in id && typeof id !== 'string'
+  if (typeof id !== 'object' || id === null) {
+    return false
+  }
+
+  const candidate = id as DurableObjectId
+
+  // Check required methods exist
+  if (typeof candidate.equals !== 'function' || typeof candidate.toString !== 'function') {
+    return false
+  }
+
+  // Real DurableObjectIds have a 'name' property (may be undefined but property exists)
+  if (!('name' in candidate)) {
+    return false
+  }
+
+  // Additional validation: toString() should return a non-empty string
+  // Real DurableObjectIds return 64-character hex strings
+  try {
+    const str = candidate.toString()
+    if (typeof str !== 'string' || str.length === 0) {
+      return false
+    }
+  } catch {
+    // If toString() throws, it's not a valid DurableObjectId
+    return false
+  }
+
+  return true
 }
 
 /**

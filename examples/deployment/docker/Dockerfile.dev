@@ -1,0 +1,53 @@
+# Dockerfile.dev
+# Local development container for dotdo applications
+#
+# This container provides a consistent development environment with
+# wrangler dev server for local testing with real Durable Object behavior.
+#
+# Usage:
+#   docker build -f Dockerfile.dev -t dotdo-dev .
+#   docker run -p 8787:8787 -v $(pwd):/app dotdo-dev
+
+FROM node:22-alpine
+
+# Install dependencies for development
+RUN apk add --no-cache \
+  git \
+  curl \
+  bash \
+  # Required for better file watching
+  inotify-tools
+
+# Set working directory
+WORKDIR /app
+
+# Install pnpm for faster installs
+RUN npm install -g pnpm@latest wrangler@latest
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S nodejs && \
+  adduser -S nodejs -u 1001 -G nodejs
+
+# Copy package files first for better caching
+COPY --chown=nodejs:nodejs package*.json ./
+COPY --chown=nodejs:nodejs pnpm-lock.yaml* ./
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile
+
+# Copy source code
+COPY --chown=nodejs:nodejs . .
+
+# Switch to non-root user
+USER nodejs
+
+# Expose wrangler dev server port
+EXPOSE 8787
+
+# Environment variables for development
+ENV NODE_ENV=development
+ENV WRANGLER_LOG=debug
+
+# Start wrangler dev server
+# Note: --local flag runs miniflare locally without connecting to Cloudflare
+CMD ["npx", "wrangler", "dev", "--local", "--port", "8787"]
