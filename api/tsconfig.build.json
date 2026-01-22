@@ -5,8 +5,18 @@
     "rootDir": "./",
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "composite": true,
+    "paths": {}
   },
   "include": ["./**/*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts"]
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts"],
+  "references": [
+    { "path": "../utils/tsconfig.build.json" },
+    { "path": "../db/tsconfig.build.json" },
+    { "path": "../auth/tsconfig.build.json" },
+    { "path": "../rpc/tsconfig.build.json" },
+    { "path": "../do/tsconfig.build.json" },
+    { "path": "../observability/tsconfig.build.json" }
+  ]
 }

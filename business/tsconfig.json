@@ -2,10 +2,12 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
+    "rootDir": ".",
     "types": ["@cloudflare/workers-types"],
     "composite": false,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {}
   },
   "include": ["*.ts"],
-  "exclude": ["finance/**"]
+  "exclude": ["finance/**", "node_modules", "dist", "**/*.test.ts", "tests/**"]
 }
