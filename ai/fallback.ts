@@ -71,8 +71,8 @@ export class FallbackError extends Error {
     }
 
     // Maintain proper stack trace for where our error was thrown (only in V8)
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, FallbackError)
+    if ('captureStackTrace' in Error && typeof (Error as { captureStackTrace?: unknown }).captureStackTrace === 'function') {
+      (Error as { captureStackTrace: (target: object, constructor: Function) => void }).captureStackTrace(this, FallbackError)
     }
   }
 

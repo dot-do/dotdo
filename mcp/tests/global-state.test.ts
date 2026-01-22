@@ -1,13 +1,17 @@
-// Test for do-1oer: Resource enforcer isolation
-// Demonstrates that createScopedResourceEnforcer creates isolated enforcers
-// that prevent state leakage between requests in Workers environment.
+// Test for do-1oer and do-5sc9b: Resource enforcer isolation
+// Demonstrates that:
+// 1. createScopedResourceEnforcer creates isolated enforcers (do-1oer)
+// 2. Global functions throw security errors by default (do-5sc9b)
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   RateLimiter,
   ConcurrencyLimiter,
   SandboxResourceEnforcer,
-  createScopedResourceEnforcer
+  createScopedResourceEnforcer,
+  getGlobalResourceEnforcer,
+  setGlobalResourceEnforcer,
+  _resetDeprecationWarnings
 } from '../sandbox'
 
 describe('Resource Enforcer Isolation (do-1oer)', () => {

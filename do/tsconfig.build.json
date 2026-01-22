@@ -10,5 +10,5 @@
     "sourceMap": true
   },
   "include": ["./**/*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts", "primitives/**", "mixins/primitives.ts"]
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts", "primitives/**", "mixins/primitives.ts", "schema/ai-fields.ts"]
 }

@@ -384,7 +384,9 @@ export interface DOStubOptions {
 }
 
 /**
- * Options for creating a secure DO-to-DO stub
+ * Options for creating a secure DO-to-DO stub.
+ * @deprecated Import from '@dotdo/rpc/secure' instead to avoid layer violations.
+ * @see createSecureDOStub in '@dotdo/rpc/secure'
  */
 export interface SecureDOStubOptions extends DOStubOptions {
   /** Source DO ID for HMAC signing */
@@ -475,15 +477,23 @@ export function createDOStub<T extends object>(
 /**
  * Creates a secure typed proxy for DO-to-DO calls with HMAC signing.
  *
+ * @deprecated Import from '@dotdo/rpc/secure' instead:
+ * ```typescript
+ * import { createSecureDOStub } from '@dotdo/rpc/secure'
+ * ```
+ *
+ * This function is re-exported from '@dotdo/rpc/secure' to maintain backward
+ * compatibility. New code should import directly from '@dotdo/rpc/secure'
+ * to avoid pulling in the auth dependency when not needed.
+ *
  * This version of createDOStub includes HMAC signatures in all requests,
  * which prevents header spoofing attacks. The receiving DO must have
  * DO_INTERNAL_SECRET configured and will verify the signature.
  *
  * @example
  * ```typescript
- * interface OtherDO {
- *   process(data: Data): Promise<Result>
- * }
+ * // Preferred: import from '@dotdo/rpc/secure'
+ * import { createSecureDOStub } from '@dotdo/rpc/secure'
  *
  * // In a Durable Object
  * class MyDO extends DurableObject {
@@ -503,68 +513,7 @@ export function createDOStub<T extends object>(
  * @param options - Configuration including source DO ID for signing
  * @returns A typed proxy that forwards method calls to the DO with HMAC signing
  */
-export function createSecureDOStub<T extends object>(
-  binding: DurableObjectNamespace,
-  id: string | DurableObjectId,
-  options: SecureDOStubOptions
-): RPCClientType<T> {
-  // Lazy import to avoid circular dependencies
-  let createDOToDoHeaders: typeof import('@dotdo/auth').createDOToDoHeaders | null = null
-
-  const doId = isDurableObjectId(id) ? id : binding.idFromName(id)
-  const stub = binding.get(doId)
-  const { correlationId: baseCorrelationId, sourceDoId } = options
-
-  // Create a method invoker that preserves type inference
-  const createMethodProxy = <M>(methodName: string): M => {
-    return (async (...args: unknown[]): Promise<unknown> => {
-      // Lazy load the auth module from @dotdo/auth (Layer 1)
-      // Previously imported from @dotdo/do/auth (Layer 2) which caused layer violations
-      if (!createDOToDoHeaders) {
-        const authModule = await import('@dotdo/auth')
-        createDOToDoHeaders = authModule.createDOToDoHeaders
-      }
-
-      // Generate a correlation ID for each request, or use the provided base correlation ID
-      const correlationId = baseCorrelationId || generateCorrelationId()
-
-      // Create secure headers with HMAC signature
-      const headers = await createDOToDoHeaders(sourceDoId, '/rpc', correlationId)
-
-      let response: Response
-      try {
-        response = await stub.fetch('https://do/rpc', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ method: methodName, args }),
-        })
-      } catch (error) {
-        // Handle transport-level errors (DO stub failures, network issues, etc.)
-        throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
-      }
-
-      await handleErrorResponse(response, correlationId, 'DO RPC error')
-      return response.json()
-    }) as M
-  }
-
-  type ProxyHandlerTarget = Record<string, unknown>
-
-  return new Proxy({} as ProxyHandlerTarget, {
-    get<K extends keyof T>(_target: ProxyHandlerTarget, prop: string | symbol): T[K] | undefined {
-      // Don't intercept symbols or promise methods
-      if (typeof prop === 'symbol') {
-        return undefined
-      }
-
-      if (prop === 'then' || prop === 'catch' || prop === 'finally') {
-        return undefined
-      }
-
-      return createMethodProxy<T[K]>(prop)
-    }
-  }) as RPCClientType<T>
-}
+export { createSecureDOStub } from './secure'
 
 // ============================================================================
 // Promise Pipelining Support

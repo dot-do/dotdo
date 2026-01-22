@@ -62,7 +62,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly",
     "build:watch": "tsup --watch",
     "test": "vitest",
     "test:run": "vitest run",

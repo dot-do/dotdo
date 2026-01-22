@@ -41,8 +41,8 @@ export class AIError extends Error {
       this.cause = options.cause
     }
     // Maintain proper stack trace (only in V8)
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, AIError)
+    if ('captureStackTrace' in Error && typeof (Error as { captureStackTrace?: unknown }).captureStackTrace === 'function') {
+      (Error as { captureStackTrace: (target: object, constructor: Function) => void }).captureStackTrace(this, AIError)
     }
   }
 }

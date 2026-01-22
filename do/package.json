@@ -85,14 +85,14 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@dotdo/auth": "workspace:*",
-    "@dotdo/business-finance": "workspace:*",
-    "@dotdo/clickhouse": "workspace:*",
-    "@dotdo/db": "workspace:*",
-    "@dotdo/integrations": "workspace:*",
-    "@dotdo/observability": "workspace:*",
-    "@dotdo/rpc": "workspace:*",
-    "@dotdo/utils": "workspace:*",
+    "@dotdo/auth": "workspace:^",
+    "@dotdo/business-finance": "workspace:^",
+    "@dotdo/clickhouse": "workspace:^",
+    "@dotdo/db": "workspace:^",
+    "@dotdo/integrations": "workspace:^",
+    "@dotdo/observability": "workspace:^",
+    "@dotdo/rpc": "workspace:^",
+    "@dotdo/utils": "workspace:^",
     "hono": "^4.11.4"
   },
   "devDependencies": {
