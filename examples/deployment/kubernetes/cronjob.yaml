@@ -1,0 +1,130 @@
+# cronjob.yaml
+# Kubernetes CronJob for scheduled dotdo deployments
+#
+# Use this for:
+#   - Scheduled deployments from a specific branch
+#   - Nightly builds and deployments
+#   - Automatic staging environment updates
+#
+# Usage:
+#   kubectl apply -f secret.yaml
+#   kubectl apply -f cronjob.yaml
+#   kubectl get cronjobs
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dotdo-scheduled-deploy
+  namespace: default
+  labels:
+    app: dotdo
+    component: scheduled-deployment
+spec:
+  # Run every day at 2 AM UTC
+  # Adjust schedule as needed: https://crontab.guru/
+  schedule: "0 2 * * *"
+  # Timezone (requires Kubernetes 1.27+)
+  # timeZone: "America/New_York"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 86400  # Clean up after 24 hours
+      template:
+        metadata:
+          labels:
+            app: dotdo
+            component: scheduled-deployment
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: deployer
+              image: node:22-alpine
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  cd /app
+
+                  echo "=== dotdo Scheduled Deployment ==="
+                  echo "Branch: ${GIT_BRANCH}"
+                  echo "Environment: ${DEPLOY_ENV}"
+                  echo "Time: $(date -u)"
+
+                  echo "Installing wrangler..."
+                  npm install -g wrangler@latest
+
+                  echo "Installing dependencies..."
+                  npm ci --ignore-scripts
+
+                  echo "Running tests..."
+                  npm run test:run || {
+                    echo "Tests failed, aborting deployment"
+                    exit 1
+                  }
+
+                  echo "Building..."
+                  npm run build
+
+                  echo "Deploying to ${DEPLOY_ENV}..."
+                  npx wrangler deploy --env ${DEPLOY_ENV}
+
+                  echo "=== Deployment Complete ==="
+              env:
+                - name: CLOUDFLARE_API_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: dotdo-secrets
+                      key: cloudflare-api-token
+                - name: CLOUDFLARE_ACCOUNT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: dotdo-secrets
+                      key: cloudflare-account-id
+                      optional: true
+                - name: DEPLOY_ENV
+                  value: "staging"
+                - name: GIT_BRANCH
+                  value: "main"
+              resources:
+                requests:
+                  memory: "512Mi"
+                  cpu: "250m"
+                limits:
+                  memory: "1Gi"
+                  cpu: "1000m"
+              volumeMounts:
+                - name: source-code
+                  mountPath: /app
+          initContainers:
+            - name: clone-repo
+              image: alpine/git:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  git clone --depth 1 --branch ${GIT_BRANCH:-main} ${GIT_REPO_URL} /app
+                  cd /app
+                  echo "Cloned commit: $(git rev-parse HEAD)"
+              env:
+                - name: GIT_REPO_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: dotdo-secrets
+                      key: git-repo-url
+                - name: GIT_BRANCH
+                  value: "main"
+              volumeMounts:
+                - name: source-code
+                  mountPath: /app
+          volumes:
+            - name: source-code
+              emptyDir: {}
+
+---
+# Manual trigger job template
+# Use this to manually trigger a deployment:
+#   kubectl create job --from=cronjob/dotdo-scheduled-deploy dotdo-manual-deploy-$(date +%s)

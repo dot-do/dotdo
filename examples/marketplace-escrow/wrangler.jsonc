@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "marketplace-escrow-example",
+  "main": "index.ts",
+  "compatibility_date": "2024-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Objects
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ESCROW",
+        "class_name": "EscrowDO"
+      }
+    ]
+  },
+
+  // Migrations for DO with SQLite storage
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["EscrowDO"]
+    }
+  ],
+
+  // Development settings
+  "dev": {
+    "port": 8787,
+    "local_protocol": "http"
+  }
+}

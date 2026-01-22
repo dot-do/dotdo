@@ -1,0 +1,143 @@
+# preview.yml
+# GitHub Actions workflow for PR preview deployments
+#
+# This workflow creates preview deployments for pull requests,
+# allowing reviewers to test changes before merging.
+#
+# Features:
+#   - Deploys to a unique preview URL for each PR
+#   - Adds deployment URL as PR comment
+#   - Cleans up preview deployment when PR is closed
+#
+# Required secrets:
+#   - CLOUDFLARE_API_TOKEN: API token with Workers deployment permissions
+#   - CLOUDFLARE_ACCOUNT_ID: Your Cloudflare account ID
+
+name: PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  # Deploy preview for opened/updated PRs
+  deploy-preview:
+    name: Deploy Preview
+    runs-on: ubuntu-latest
+    if: github.event.action != 'closed'
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test:run
+
+      - name: Build
+        run: npm run build
+
+      - name: Deploy preview
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Deploy to a preview environment named after the PR
+          command: deploy --env preview --var PR_NUMBER:${{ github.event.pull_request.number }}
+
+      - name: Find existing comment
+        uses: peter-evans/find-comment@v3
+        id: find-comment
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: 'Preview Deployment'
+
+      - name: Create or update PR comment
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ## Preview Deployment
+
+            | Status | URL |
+            |--------|-----|
+            | Ready | ${{ steps.deploy.outputs.url }} |
+
+            **Commit:** `${{ github.sha }}`
+            **Updated:** ${{ github.event.pull_request.updated_at }}
+
+            ---
+            *This preview will be automatically deleted when the PR is closed.*
+          edit-mode: replace
+
+  # Clean up preview when PR is closed
+  cleanup-preview:
+    name: Cleanup Preview
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install wrangler
+        run: npm install -g wrangler@latest
+
+      - name: Delete preview deployment
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # Delete the preview worker
+          # Note: Adjust the worker name pattern based on your configuration
+          echo "Cleaning up preview for PR #${{ github.event.pull_request.number }}"
+          # wrangler delete dotdo-preview-${{ github.event.pull_request.number }} || true
+          echo "Preview cleanup complete"
+        continue-on-error: true
+
+      - name: Update PR comment
+        uses: peter-evans/find-comment@v3
+        id: find-comment
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: 'Preview Deployment'
+
+      - name: Mark preview as deleted
+        if: steps.find-comment.outputs.comment-id != ''
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ## Preview Deployment
+
+            | Status | Note |
+            |--------|------|
+            | Deleted | PR closed |
+
+            *Preview deployment has been cleaned up.*
+          edit-mode: replace

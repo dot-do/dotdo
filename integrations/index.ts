@@ -54,3 +54,70 @@ export {
   type EmailStats,
   type SendGridMethods,
 } from './sendgrid'
+
+// Redis integration
+export {
+  RedisIntegration,
+  createRedisIntegration,
+  type RedisConfig,
+  type RedisValue,
+  type SetOptions,
+  type ScanOptions,
+  type ScanResult,
+  type RedisMethods,
+} from './redis'
+
+// S3 integration
+export {
+  S3Integration,
+  createS3Integration,
+  type S3Config,
+  type PutObjectParams,
+  type GetObjectParams,
+  type DeleteObjectParams,
+  type ListObjectsParams,
+  type HeadObjectParams,
+  type CopyObjectParams,
+  type S3Object,
+  type ListObjectsResult,
+  type S3Metadata,
+  type S3Methods,
+} from './s3'
+
+// Twilio integration
+export {
+  TwilioIntegration,
+  createTwilioIntegration,
+  type TwilioConfig,
+  type SendSmsRequest,
+  type SendSmsResponse,
+  type MakeCallRequest,
+  type MakeCallResponse,
+  type VerifyStartRequest,
+  type VerifyCheckRequest,
+  type VerifyResponse,
+  type TwilioMethods,
+} from './twilio'
+
+// Webhook verification utilities
+export {
+  verifyStripeSignature,
+  verifyGitHubSignature,
+  verifySendGridSignature,
+  verifySlackSignature,
+  verifyTwilioSignature,
+  type WebhookVerificationResult,
+  type StripeSignatureOptions,
+  type GitHubSignatureOptions,
+  type SlackSignatureOptions,
+  type TwilioSignatureOptions,
+} from './webhook-verify'
+
+// Circuit breaker for resilient integrations
+export {
+  CircuitBreaker,
+  CircuitBreakerConfig,
+  CircuitState,
+  CircuitBreakerError,
+  type CircuitBreakerMetrics,
+} from './circuit-breaker'

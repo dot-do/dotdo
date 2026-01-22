@@ -7,13 +7,17 @@ import type {
   Noun,
   ValidationOptions as DOValidationOptions,
   ListOptions as DOListOptions,
-} from '../primitives/packages/digital-objects/src/types.js'
+} from 'digital-objects'
 import type { Thing, ThingsStore } from './things'
+import { toThingId } from './branded-types'
 
 /**
- * Extended ThingsStore with digital-objects features
+ * Extended ThingsStore with digital-objects features.
+ * Overrides create signature since digital-objects may transform data.
  */
-export interface DigitalObjectsThingsStore extends ThingsStore {
+export interface DigitalObjectsThingsStore extends Omit<ThingsStore, 'create'> {
+  // Override create with simplified return type
+  create(data: { $type: string } & Record<string, unknown>, options?: ValidationOptions): Promise<Thing>
   // Expose noun management
   getNoun(name: string): Promise<Noun | null>
   listNouns(): Promise<Noun[]>
@@ -23,7 +27,7 @@ export interface DigitalObjectsThingsStore extends ThingsStore {
  * Validation options that match @dotdo/db convention
  */
 export interface ValidationOptions {
-  validate?: boolean
+  validate?: boolean | undefined
 }
 
 /**
@@ -36,14 +40,25 @@ export interface ValidationOptions {
  * - updatedAt (Date) -> $updatedAt (number)
  * - data.* -> * (flatten data fields to top level)
  */
-function mapToDbThing<T extends Record<string, unknown>>(doThing: DOThing<T>): Thing {
+function mapToDbThing(doThing: DOThing<unknown>): Thing {
+  const data = doThing.data as Record<string, unknown> | null
   return {
-    $id: doThing.id,
+    $id: toThingId(doThing.id),
     $type: doThing.noun,
     $createdAt: doThing.createdAt.getTime(),
     $updatedAt: doThing.updatedAt.getTime(),
-    ...doThing.data,
+    ...(data ?? {}),
   }
+}
+
+/**
+ * Metadata fields in a Thing that should be excluded when extracting data payload
+ */
+interface ThingMetadata {
+  $id?: unknown
+  $type?: unknown
+  $createdAt?: unknown
+  $updatedAt?: unknown
 }
 
 /**
@@ -53,7 +68,7 @@ function mapToDbThing<T extends Record<string, unknown>>(doThing: DOThing<T>): T
  * to get the data payload for digital-objects
  */
 function extractData<T extends Record<string, unknown>>(dbThing: Partial<T>): Record<string, unknown> {
-  const { $id, $type, $createdAt, $updatedAt, ...data } = dbThing as any
+  const { $id, $type, $createdAt, $updatedAt, ...data } = dbThing as Partial<T> & ThingMetadata
   return data
 }
 
@@ -94,7 +109,7 @@ export function createDigitalObjectsAdapter(
 ): DigitalObjectsThingsStore {
   return {
     async create(data, options?: ValidationOptions) {
-      const { $type, ...payload } = data as any
+      const { $type, ...payload } = data
 
       if (!$type) {
         throw new Error('$type is required')
@@ -142,7 +157,7 @@ export function createDigitalObjectsAdapter(
       }
     },
 
-    async list(listOptions = {}) {
+    async list(listOptions: { type?: string; limit?: number; offset?: number; where?: Record<string, unknown>; orderBy?: string; order?: 'asc' | 'desc' } = {}) {
       const { type, limit, offset, where, orderBy, order } = listOptions
 
       if (!type) {
@@ -172,6 +187,77 @@ export function createDigitalObjectsAdapter(
 
     async listNouns() {
       return await provider.listNouns()
+    },
+
+    // Bulk operations using digital-objects provider's batch methods
+    async bulkCreate<D extends { $type: string } & Record<string, unknown>>(items: D[]): Promise<(Thing & D)[]> {
+      if (items.length === 0) {
+        return []
+      }
+
+      // Group items by noun type since createMany works on a single noun
+      const groupedByType = new Map<string, Array<{ index: number; payload: Record<string, unknown> }>>()
+
+      for (let i = 0; i < items.length; i++) {
+        const { $type, ...payload } = items[i]
+        if (!$type) {
+          throw new Error('$type is required')
+        }
+        if (!groupedByType.has($type)) {
+          groupedByType.set($type, [])
+        }
+        groupedByType.get($type)!.push({ index: i, payload })
+      }
+
+      // Validate all noun types exist before creating
+      for (const nounName of groupedByType.keys()) {
+        const noun = await provider.getNoun(nounName)
+        if (!noun) {
+          throw new Error(`Noun not found: ${nounName}`)
+        }
+      }
+
+      // Create all items using createMany for each type
+      const results: Array<{ index: number; thing: Thing }> = []
+
+      for (const [nounName, itemsOfType] of groupedByType) {
+        const payloads = itemsOfType.map(item => item.payload)
+        const doThings = await provider.createMany(nounName, payloads)
+
+        for (let i = 0; i < doThings.length; i++) {
+          results.push({
+            index: itemsOfType[i].index,
+            thing: mapToDbThing(doThings[i]),
+          })
+        }
+      }
+
+      // Sort results back to original order and extract things
+      results.sort((a, b) => a.index - b.index)
+      return results.map(r => r.thing) as (Thing & D)[]
+    },
+
+    async bulkUpdate(items: Array<{ id: string; data: Record<string, unknown> }>): Promise<Thing[]> {
+      if (items.length === 0) {
+        return []
+      }
+
+      // Extract data payload for each update
+      const updates = items.map(item => ({
+        id: item.id,
+        data: extractData(item.data),
+      }))
+
+      const doThings = await provider.updateMany(updates)
+      return doThings.map(mapToDbThing)
+    },
+
+    async bulkDelete(ids: string[]): Promise<void> {
+      if (ids.length === 0) {
+        return
+      }
+
+      await provider.deleteMany(ids)
     },
   }
 }
@@ -278,7 +364,7 @@ export async function validateSchema(
 
   try {
     // Use digital-objects validation
-    const { validateOnly } = await import('../primitives/packages/digital-objects/src/schema-validation.js')
+    const { validateOnly } = await import('digital-objects')
     const result = validateOnly(data, noun.schema)
 
     return {
@@ -299,4 +385,4 @@ export async function validateSchema(
 /**
  * Re-export digital-objects types for convenience
  */
-export type { Noun, ValidationOptions as DOValidationOptions } from '../primitives/packages/digital-objects/src/types.js'
+export type { Noun, ValidationOptions as DOValidationOptions } from 'digital-objects'

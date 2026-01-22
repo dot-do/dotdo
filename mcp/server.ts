@@ -1,7 +1,7 @@
 // MCP Server - Model Context Protocol implementation
 import { Hono } from 'hono'
 import { ToolRegistry } from './discovery'
-import { getErrorMessage } from '../rpc/errors'
+import { getErrorMessage } from '@dotdo/rpc'
 
 export interface MCPServerOptions {
   name?: string
@@ -18,9 +18,9 @@ export interface MCPTool {
 
 export interface MCPServer {
   tools: MCPTool[]
-  registry?: ToolRegistry
+  registry?: ToolRegistry | undefined
   addTool(tool: MCPTool): void
-  fetch: (request: Request) => Promise<Response>
+  fetch: (request: Request, env?: unknown, ctx?: ExecutionContext) => Response | Promise<Response>
 }
 
 export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
@@ -88,7 +88,7 @@ export function createMCPServer(options: MCPServerOptions = {}): MCPServer {
 
   return {
     tools,
-    registry,
+    registry: registry,
     addTool(tool: MCPTool) {
       tools.push(tool)
       // Also register in registry if provided
