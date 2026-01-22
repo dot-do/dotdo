@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/finance",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Finance module for dotdo Business-as-Code - Stripe integration and financial operations",
   "type": "module",
   "main": "./dist/index.js",

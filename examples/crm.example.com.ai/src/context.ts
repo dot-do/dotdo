@@ -17,17 +17,138 @@
  * @module examples/crm.example.com.ai/src/context
  */
 
-import {
-  createThingsStore,
-  createEventsStore,
-  createRelationshipsStore,
-  type Thing,
-  type ThingsStore,
-  type EventsStore,
-  type RelationshipsStore,
-  type StorableData,
-  type JsonValue,
-} from '@dotdo/db'
+// ============================================================================
+// Internal Store Types (self-contained for example isolation)
+// ============================================================================
+
+/**
+ * JSON-compatible value types
+ */
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+
+/**
+ * Internal Thing type for in-memory storage
+ */
+interface InternalThing {
+  $id: string
+  $type: string
+  $createdAt: number
+  $updatedAt: number
+  [key: string]: unknown
+}
+
+/**
+ * Internal Things Store interface
+ */
+interface InternalThingsStore {
+  create(input: { $type: string; [key: string]: unknown }): Promise<InternalThing>
+  get(id: string): Promise<InternalThing | null>
+  update(id: string, input: Record<string, unknown>): Promise<InternalThing>
+  delete(id: string): Promise<void>
+  list(options?: { type?: string; limit?: number; offset?: number }): Promise<InternalThing[]>
+}
+
+/**
+ * Create an in-memory Things store
+ */
+function createThingsStore(): InternalThingsStore {
+  const things = new Map<string, InternalThing>()
+
+  return {
+    async create(input) {
+      const id = `thing-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const now = Date.now()
+      const thing: InternalThing = {
+        ...input,
+        $id: id,
+        $type: input.$type,
+        $createdAt: now,
+        $updatedAt: now,
+      }
+      things.set(id, thing)
+      return thing
+    },
+
+    async get(id) {
+      return things.get(id) ?? null
+    },
+
+    async update(id, input) {
+      const existing = things.get(id)
+      if (!existing) {
+        throw new Error(`Thing not found: ${id}`)
+      }
+      const updated: InternalThing = {
+        ...existing,
+        ...input,
+        $id: id,
+        $type: existing.$type,
+        $createdAt: existing.$createdAt,
+        $updatedAt: Date.now(),
+      }
+      things.set(id, updated)
+      return updated
+    },
+
+    async delete(id) {
+      if (!things.has(id)) {
+        throw new Error(`Thing not found: ${id}`)
+      }
+      things.delete(id)
+    },
+
+    async list(options) {
+      let items = Array.from(things.values())
+      if (options?.type) {
+        items = items.filter((t) => t.$type === options.type)
+      }
+      const offset = options?.offset ?? 0
+      const limit = options?.limit ?? 100
+      return items.slice(offset, offset + limit)
+    },
+  }
+}
+
+/**
+ * Create an in-memory Events store
+ */
+function createEventsStore(): { create: (event: { $type: string; payload: unknown }) => Promise<{ $id: string; $type: string; $timestamp: number; payload: unknown }> } {
+  const events: { $id: string; $type: string; $timestamp: number; payload: unknown }[] = []
+
+  return {
+    async create(event) {
+      const stored = {
+        $id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        $type: event.$type,
+        $timestamp: Date.now(),
+        payload: event.payload,
+      }
+      events.push(stored)
+      return stored
+    },
+  }
+}
+
+/**
+ * Create an in-memory Relationships store
+ */
+function createRelationshipsStore(): { create: (input: { from: string; to: string; type: string }) => Promise<{ $id: string; from: string; to: string; type: string; $createdAt: number }> } {
+  const relationships: { $id: string; from: string; to: string; type: string; $createdAt: number }[] = []
+
+  return {
+    async create(input) {
+      const rel = {
+        $id: `rel-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        from: input.from,
+        to: input.to,
+        type: input.type,
+        $createdAt: Date.now(),
+      }
+      relationships.push(rel)
+      return rel
+    },
+  }
+}
 
 // ============================================================================
 // Type Definitions
@@ -163,16 +284,14 @@ export interface TenantContext {
 }
 
 // ============================================================================
-// Store Adapters - Wrap @dotdo/db stores with test-compatible interfaces
+// Store Adapters - Wrap internal stores with test-compatible interfaces
 // ============================================================================
 
 /**
  * Internal storage for all tenants (keyed by tenant ID)
  */
 const tenantStores = new Map<string, {
-  things: ThingsStore
-  events: EventsStore
-  relationships: RelationshipsStore
+  things: InternalThingsStore
 }>()
 
 /**
@@ -183,8 +302,6 @@ function getTenantStores(tenantId: string) {
   if (!stores) {
     stores = {
       things: createThingsStore(),
-      events: createEventsStore(),
-      relationships: createRelationshipsStore(),
     }
     tenantStores.set(tenantId, stores)
   }
@@ -228,7 +345,7 @@ function toISOString(timestamp: number): string {
 /**
  * Create a TenantThingsStore adapter
  */
-function createTenantThingsStore(baseStore: ThingsStore, tenantId: string): TenantThingsStore {
+function createTenantThingsStore(baseStore: InternalThingsStore, _tenantId: string): TenantThingsStore {
   return {
     async create(input: ThingInput): Promise<TenantThing> {
       const thing = await baseStore.create(input)

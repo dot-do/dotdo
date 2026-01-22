@@ -1,0 +1,53 @@
+# CRM Tenant DO Example
+# Demonstrates hierarchical tenant architecture with example.com.ai as parent
+#
+# URL structure: crm.example.com.ai/acme → TenantDO('acme')
+# Each tenant gets its own isolated Durable Object instance
+
+name = "example-com-ai-tenant"
+main = "src/worker.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "b6641681fe423910342b9ffa1364c76d" # .do account
+
+# Route configuration
+# crm.example.com.ai/* handles requests like crm.example.com.ai/acme/customers
+[[routes]]
+pattern = "crm.example.com.ai/*"
+zone_name = "example.com.ai"
+
+# Durable Object bindings
+# TenantDO: Per-tenant isolated storage and context
+[durable_objects]
+bindings = [
+  { name = "TENANT_DO", class_name = "TenantDO" }
+]
+
+# SQLite-backed Durable Objects (v1 migration)
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TenantDO"]
+
+# Service binding to parent DO (example.com.ai)
+# Enables child-to-parent communication for event routing and shared context
+# Note: Commented out until parent DO worker is deployed first
+# [[services]]
+# binding = "PARENT_DO_SERVICE"
+# service = "example-com-ai-parent"
+
+# KV namespace for tenant metadata caching (commented out - create with `wrangler kv namespace create TENANT_CACHE` first)
+# [[kv_namespaces]]
+# binding = "TENANT_CACHE"
+# id = "placeholder-tenant-cache-id"
+# preview_id = "placeholder-tenant-cache-preview-id"
+
+# R2 bucket for tenant blob storage
+[[r2_buckets]]
+binding = "TENANT_STORAGE"
+bucket_name = "example-com-ai-tenant-storage"
+
+# Environment variables
+[vars]
+API_NAME = "CRM Tenant DO"
+API_VERSION = "1.0.0"
+PARENT_DOMAIN = "example.com.ai"

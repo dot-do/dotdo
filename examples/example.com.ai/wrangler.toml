@@ -1,0 +1,65 @@
+# example.com.ai Parent DO Worker Configuration
+# https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "example-com-ai-parent"
+account_id = "b6641681fe423910342b9ffa1364c76d"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Production domain routing
+routes = [
+  { pattern = "example.com.ai/*", zone_name = "example.com.ai" },
+  { pattern = "*.example.com.ai/*", zone_name = "example.com.ai" }
+]
+
+# Durable Objects configuration
+[durable_objects]
+bindings = [
+  { name = "PARENT_DO", class_name = "ParentDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ParentDO"]
+
+# R2 bucket for event buffering and archival
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "example-com-ai-events"
+
+# Environment variables
+[vars]
+SERVICE_NAME = "example.com.ai"
+LOG_LEVEL = "info"
+
+# ============================================================================
+# Local Development
+# ============================================================================
+[dev]
+port = 8787
+local_protocol = "http"
+
+# ============================================================================
+# Staging Environment
+# ============================================================================
+[env.staging]
+name = "example-com-ai-parent-staging"
+workers_dev = true
+
+routes = [
+  { pattern = "staging.example.com.ai/*", zone_name = "example.com.ai" }
+]
+
+[env.staging.durable_objects]
+bindings = [
+  { name = "PARENT_DO", class_name = "ParentDO" }
+]
+
+[[env.staging.r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "example-com-ai-events-staging"
+
+[env.staging.vars]
+SERVICE_NAME = "example.com.ai"
+LOG_LEVEL = "debug"

@@ -32,6 +32,7 @@
     "test:integrations": "vitest --config integrations/vitest.config.ts",
     "test:all": "pnpm test:run && pnpm test:do -- run && pnpm test:db -- run && pnpm test:mcp -- run && pnpm test:api -- run && pnpm test:auth -- run && pnpm test:rpc -- run && pnpm test:ai -- run && pnpm test:integrations -- run",
     "test:e2e": "vitest --config e2e/vitest.config.ts",
+    "test:prod": "vitest run tests/e2e/tests/production.test.ts --config tests/e2e/vitest.config.ts",
     "test:e2e:browser": "cd e2e && npx playwright test",
     "test:e2e:browser:headed": "cd e2e && npx playwright test --headed",
     "test:e2e:browser:ui": "cd e2e && npx playwright test --ui",
@@ -53,6 +54,8 @@
     "prepare-publish": "tsx scripts/prepare-publish.ts",
     "version-packages": "changeset version",
     "publish-packages": "tsx scripts/publish.ts",
+    "publish:do": "tsx scripts/publish-do.ts",
+    "publish:do:dry": "tsx scripts/publish-do.ts --dry-run",
     "release": "pnpm build && changeset version && pnpm publish-packages"
   },
   "devDependencies": {

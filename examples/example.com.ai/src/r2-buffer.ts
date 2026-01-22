@@ -102,7 +102,8 @@ export class R2BufferManager {
    */
   getBufferStats(): R2BufferStats {
     const count = this.eventBuffer.length
-    const oldestTimestamp = count > 0 ? this.eventBuffer[0].$timestamp : null
+    const firstEvent = this.eventBuffer[0]
+    const oldestTimestamp = firstEvent !== undefined ? firstEvent.$timestamp : null
 
     return { count, oldestTimestamp }
   }

@@ -11,6 +11,7 @@
  * @module examples/example.com.ai/src/ParentDO
  */
 
+import { DurableObject } from 'cloudflare:workers'
 import type {
   ParentDOEvent,
   R2BufferConfig,
@@ -41,15 +42,24 @@ export interface NounEventProxy {
 }
 
 /**
- * Top-level OnProxy for event handler registration
+ * Wildcard event proxy for *.verb patterns
  */
-export interface OnProxy {
-  '*': {
-    '*': (handler: EventHandler) => void
-    [verb: string]: (handler: EventHandler) => void
-  }
-  Child: NounEventProxy
-  [noun: string]: NounEventProxy
+export interface WildcardEventProxy {
+  '*': (handler: EventHandler) => void
+  [verb: string]: (handler: EventHandler) => void
+}
+
+/**
+ * Top-level OnProxy for event handler registration
+ *
+ * Supports patterns like:
+ * - $.on.Customer.created(handler) - specific noun.verb
+ * - $.on.Customer['*'](handler) - all events for noun
+ * - $.on['*'].created(handler) - all nouns with verb
+ * - $.on['*']['*'](handler) - all events
+ */
+export type OnProxy = {
+  [noun: string]: NounEventProxy | WildcardEventProxy
 }
 
 /**
@@ -114,6 +124,14 @@ function createOnProxy(handlers: Map<string, EventHandler[]>): OnProxy {
 }
 
 /**
+ * Environment bindings for the Parent DO worker
+ */
+export interface Env {
+  R2_BUCKET?: R2Bucket
+  [key: string]: unknown
+}
+
+/**
  * Parent DO Class
  *
  * Aggregates events from child DOs and provides:
@@ -123,9 +141,7 @@ function createOnProxy(handlers: Map<string, EventHandler[]>): OnProxy {
  * - Shared parent context
  * - Child discovery and tracking
  */
-export class ParentDO {
-  protected state: DurableObjectState
-  protected env: Record<string, unknown>
+export class ParentDO extends DurableObject<Env> {
 
   // Event handlers registry
   private handlers: Map<string, EventHandler[]> = new Map()
@@ -145,12 +161,11 @@ export class ParentDO {
   // The $ workflow context
   public $: ParentWorkflowContext
 
-  constructor(state: DurableObjectState, env: Record<string, unknown>) {
-    this.state = state
-    this.env = env
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
 
     // Initialize managers
-    this.r2Manager = new R2BufferManager(env.R2_BUCKET as R2Bucket | undefined)
+    this.r2Manager = new R2BufferManager(env.R2_BUCKET)
     this.childrenManager = new ChildrenManager()
     this.queryManager = new QueryManager(this.childrenManager)
 
@@ -161,6 +176,89 @@ export class ParentDO {
       query: createQueryProxy(this.queryManager),
       children: createChildrenProxy(this.childrenManager),
       context: this._context,
+    }
+  }
+
+  /**
+   * Handle HTTP requests to the Parent DO
+   *
+   * Routes:
+   * - POST /events - Receive events from child DOs
+   * - GET /children - List registered children
+   * - GET /context - Get parent context
+   * - POST /context - Update parent context
+   * - POST /flush - Flush R2 buffer
+   * - GET /stats - Get buffer statistics
+   */
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url)
+    const method = request.method
+
+    try {
+      // Health check
+      if (url.pathname === '/' && method === 'GET') {
+        return Response.json({
+          status: 'ok',
+          service: 'example.com.ai',
+          type: 'parent-do',
+        })
+      }
+
+      // Receive events from child DOs
+      if (url.pathname === '/events' && method === 'POST') {
+        const event = await request.json() as ParentDOEvent
+        await this.receiveChildEvent(event)
+        return Response.json({ success: true })
+      }
+
+      // List children
+      if (url.pathname === '/children' && method === 'GET') {
+        const children = await this.$.children.list()
+        return Response.json({ children })
+      }
+
+      // Get context
+      if (url.pathname === '/context' && method === 'GET') {
+        return Response.json({ context: this.$.context })
+      }
+
+      // Update context
+      if (url.pathname === '/context' && method === 'POST') {
+        const update = await request.json() as Partial<ParentContext>
+        this.setContext(update)
+        return Response.json({ success: true, context: this.$.context })
+      }
+
+      // Flush R2 buffer
+      if (url.pathname === '/flush' && method === 'POST') {
+        const result = await this.flushToR2()
+        return Response.json({ success: true, result })
+      }
+
+      // Get buffer stats
+      if (url.pathname === '/stats' && method === 'GET') {
+        const stats = this.$.r2.getBufferStats()
+        const childCount = await this.$.children.count()
+        return Response.json({
+          buffer: stats,
+          children: childCount,
+        })
+      }
+
+      // Register child
+      if (url.pathname === '/children/register' && method === 'POST') {
+        const { id, ...info } = await request.json() as ChildDOInfo
+        const child = this.registerChild(id, info)
+        return Response.json({ success: true, child })
+      }
+
+      return Response.json({ error: 'Not Found' }, { status: 404 })
+    } catch (error) {
+      console.error('ParentDO fetch error:', error)
+      return Response.json(
+        { error: error instanceof Error ? error.message : 'Internal Error' },
+        { status: 500 }
+      )
     }
   }
 
