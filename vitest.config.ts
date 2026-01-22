@@ -37,11 +37,11 @@ const root = __dirname
  */
 export const workspaceAliases = {
   // Core packages with subpath exports
-  '@dotdo/test-utils/helpers': resolve(root, 'test-utils/helpers.ts'),
-  '@dotdo/test-utils/factories': resolve(root, 'test-utils/factories.ts'),
-  '@dotdo/test-utils/assertions': resolve(root, 'test-utils/assertions.ts'),
-  '@dotdo/test-utils/miniflare': resolve(root, 'test-utils/miniflare.ts'),
-  '@dotdo/test-utils': resolve(root, 'test-utils/index.ts'),
+  '@dotdo/test-utils/helpers': resolve(root, 'tests/utils/helpers.ts'),
+  '@dotdo/test-utils/factories': resolve(root, 'tests/utils/factories.ts'),
+  '@dotdo/test-utils/assertions': resolve(root, 'tests/utils/assertions.ts'),
+  '@dotdo/test-utils/miniflare': resolve(root, 'tests/utils/miniflare.ts'),
+  '@dotdo/test-utils': resolve(root, 'tests/utils/index.ts'),
 
   '@dotdo/utils/proxy': resolve(root, 'utils/proxy.ts'),
   '@dotdo/utils/logger': resolve(root, 'utils/logger.ts'),
