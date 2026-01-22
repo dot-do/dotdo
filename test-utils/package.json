@@ -63,6 +63,9 @@
     "prepublishOnly": "npm run build",
     "clean": "rm -rf dist"
   },
+  "dependencies": {
+    "@dotdo/utils": "workspace:*"
+  },
   "peerDependencies": {
     "vitest": "^3.0.0",
     "miniflare": "^3.0.0"

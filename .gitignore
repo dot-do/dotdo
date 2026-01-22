@@ -185,3 +185,14 @@ sandbox/
 tests/benchmarks/results/2026-01-14-benchmarks.jsonl
 .worktrees
 .turbo/
+
+# Build artifacts in source directories (not in dist/)
+db/**/*.js
+utils/**/*.js
+auth/**/*.js
+business/**/*.js
+clickhouse/**/*.js
+integrations/**/*.js
+observability/**/*.js
+rpc/**/*.js
+!rpc.do/**/*.js

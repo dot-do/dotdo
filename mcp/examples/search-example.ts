@@ -5,7 +5,7 @@
  */
 
 import { createMCPServer } from '../server'
-import { createThingsStore } from '../../db/things'
+import { createThingsStore } from '@dotdo/db/things'
 import { createSearchTool } from '../search'
 
 async function main() {

@@ -86,6 +86,8 @@
   },
   "dependencies": {
     "@dotdo/auth": "workspace:*",
+    "@dotdo/business-finance": "workspace:*",
+    "@dotdo/clickhouse": "workspace:*",
     "@dotdo/db": "workspace:*",
     "@dotdo/integrations": "workspace:*",
     "@dotdo/observability": "workspace:*",

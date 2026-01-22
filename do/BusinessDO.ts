@@ -554,7 +554,7 @@ export class BusinessDO extends DO {
 
     if (!this._analytics) {
       // Dynamic import to avoid bundling when not used
-      const clickhouse = await import('../clickhouse/src/client') as unknown as ClickHouseClientModule
+      const clickhouse = await import('@dotdo/clickhouse/client') as unknown as ClickHouseClientModule
       const client = await clickhouse.createClickHouseClient(this.state.storage, {
         profile: this.config.analytics?.profile ?? 'standard',
         namespace: this.config.namespace ?? undefined
@@ -635,7 +635,7 @@ export class BusinessDO extends DO {
 
     if (!this._finance) {
       // Dynamic import to avoid bundling when not used
-      const finance = await import('../business/finance/client') as unknown as FinanceClientModule
+      const finance = await import('@dotdo/business-finance/client') as unknown as FinanceClientModule
       const financeConfig = {
         stripeApiKey: this.config.finance.stripeApiKey,
         webhookSecret: this.config.finance.webhookSecret,

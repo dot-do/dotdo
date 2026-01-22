@@ -14,7 +14,7 @@ import type { Context, Next } from 'hono'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import * as jose from 'jose'
-import type { AuthUser } from '../../../auth/middleware'
+import type { AuthUser } from '@dotdo/auth/middleware'
 
 // Re-export the Durable Object class
 export { UserDO } from './UserDO'
