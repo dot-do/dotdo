@@ -10,6 +10,7 @@
  * @module observability/context
  */
 import { generateSpanId } from './tracing';
+import { setCorrelationIdResolver } from './logger';
 /**
  * Storage key for the observability context
  */
@@ -329,4 +330,8 @@ export function createContextHolder(initial) {
 export function resetContextStack() {
     contextStack = [];
 }
+// Register the correlation ID resolver with the logger module
+// This breaks the circular dependency - logger imports types only from context,
+// while context registers a callback function with logger at module load time
+setCorrelationIdResolver(getCorrelationId);
 //# sourceMappingURL=context.js.map

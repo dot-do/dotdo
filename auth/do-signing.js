@@ -11,11 +11,30 @@
  *
  * @module @dotdo/auth/do-signing
  */
-// Import header constants from @dotdo/rpc to avoid circular dependencies
-// These are the canonical source for all DO-related header constants
-import { DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER, DO_SIGNATURE_HEADER, DO_TIMESTAMP_HEADER, CORRELATION_ID_HEADER, } from '@dotdo/rpc';
-// Re-export the header constants for convenience
-export { DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER, DO_SIGNATURE_HEADER, DO_TIMESTAMP_HEADER, CORRELATION_ID_HEADER, };
+// ============================================================================
+// Header Constants
+// These are defined here to avoid circular dependencies with @dotdo/rpc.
+// They must match the values in @dotdo/rpc/headers.ts.
+// ============================================================================
+/**
+ * Header indicating the request is from another DO
+ */
+export const DO_SOURCE_HEADER = 'X-DO-Source';
+/**
+ * Header containing the source DO's ID
+ */
+export const DO_SOURCE_ID_HEADER = 'X-DO-Source-ID';
+/**
+ * Header containing HMAC signature for DO-to-DO authentication
+ * This prevents header spoofing by external clients
+ */
+export const DO_SIGNATURE_HEADER = 'X-DO-Signature';
+/**
+ * Header containing timestamp for signature validation (prevents replay attacks)
+ */
+export const DO_TIMESTAMP_HEADER = 'X-DO-Timestamp';
+/** Header name for correlation ID */
+export const CORRELATION_ID_HEADER = 'X-Correlation-ID';
 // ============================================================================
 // HMAC Signing for DO-to-DO Authentication
 // ============================================================================

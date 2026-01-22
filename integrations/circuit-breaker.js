@@ -353,9 +353,6 @@ export class CircuitBreakerIntegration {
     onEvent(handler) {
         this.wrappedIntegration.onEvent?.(handler);
     }
-    setHooks(hooks) {
-        this.wrappedIntegration.setHooks?.(hooks);
-    }
     // Circuit breaker specific methods
     /**
      * Get the current circuit state

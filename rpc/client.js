@@ -356,9 +356,10 @@ export function createSecureDOStub(binding, id, options) {
     // Create a method invoker that preserves type inference
     const createMethodProxy = (methodName) => {
         return (async (...args) => {
-            // Lazy load the auth module
+            // Lazy load the auth module from @dotdo/auth (Layer 1)
+            // Previously imported from @dotdo/do/auth (Layer 2) which caused layer violations
             if (!createDOToDoHeaders) {
-                const authModule = await import('../do/auth');
+                const authModule = await import('@dotdo/auth');
                 createDOToDoHeaders = authModule.createDOToDoHeaders;
             }
             // Generate a correlation ID for each request, or use the provided base correlation ID

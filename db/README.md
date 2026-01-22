@@ -281,6 +281,84 @@ const interfaceCode = TypeMapping.generateInterface(noun)
 // }
 ```
 
+## AI Integration
+
+The `@dotdo/db` package provides AI-powered operations through the `ai-integration` module:
+
+### Natural Language Queries
+
+Transform natural language questions into database queries:
+
+```typescript
+import { queryNL } from '@dotdo/db/ai-integration'
+
+const result = await queryNL('show all customers from Acme', store, 'Customer')
+console.log(result.interpretation) // "Search for 'find customers from acme'"
+console.log(result.results)        // [...matching Things]
+```
+
+### AI Value Generation (Draft/Resolve Pattern)
+
+Generate field values using LLM or resolve natural language references:
+
+```typescript
+import { createDraft, resolveDraft, createWithAI } from '@dotdo/db/ai-integration'
+
+// Create draft with natural language references
+const draft = await createDraft({
+  $type: 'Lead',
+  customer: 'the CEO of Acme Corp' // Natural language reference
+})
+// draft.$refs.customer = 'the CEO of Acme Corp'
+
+// Resolve references to actual entity IDs
+const lead = await resolveDraft(draft, store)
+// lead.customerId = '<actual-customer-id>'
+```
+
+### Event Emission
+
+Subscribe to entity lifecycle events:
+
+```typescript
+import { createEventEmitter, wrapWithEvents } from '@dotdo/db/ai-integration'
+
+const emitter = createEventEmitter()
+const wrappedStore = wrapWithEvents(store, emitter)
+
+emitter.on('Customer.created', (customer) => {
+  console.log('New customer:', customer.name)
+})
+
+await wrappedStore.create({ $type: 'Customer', name: 'Alice' })
+```
+
+### Relationship Traversal
+
+Verb-based relationship operations:
+
+```typescript
+import { createRelationshipProvider } from '@dotdo/db/ai-integration'
+
+const relationships = createRelationshipProvider()
+await relationships.perform('employs', companyId, customerId)
+const employees = await relationships.related(companyId, 'employs', 'forward')
+```
+
+### Promise Pipelining
+
+Lazy evaluation with method chaining:
+
+```typescript
+import { createPipeline } from '@dotdo/db/ai-integration'
+
+const results = await createPipeline(store, 'Customer')
+  .filter(c => c.name.startsWith('A'))
+  .map(c => ({ name: c.name, email: c.email }))
+```
+
+See `db/tests/ai-database-integration.test.ts` for comprehensive examples.
+
 ## SQLite Transaction Limitations
 
 When using SQLite in Cloudflare Durable Objects, be aware:

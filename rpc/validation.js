@@ -1,6 +1,54 @@
 // RPC Input Validation - validates method arguments against schemas
 // Provides type-safe validation for RPC method parameters
 import { ValidationError } from './errors';
+// Lazy-loaded zod module to avoid bundler issues with dynamic require
+let _zod = null;
+let _zodPromise = null;
+/**
+ * Get the zod module asynchronously, importing it lazily on first use.
+ * Throws an error if zod is not installed.
+ */
+async function getZodAsync() {
+    if (_zod !== null) {
+        return _zod;
+    }
+    if (_zodPromise === null) {
+        _zodPromise = import('zod').then((mod) => {
+            _zod = mod.z;
+            return mod.z;
+        }).catch(() => {
+            throw new Error('zod is required for ZodArgSchemas. Install it with: npm install zod');
+        });
+    }
+    return _zodPromise;
+}
+/**
+ * Get the zod module synchronously. Must call initZod() first or this will throw.
+ * For synchronous usage, prefer initZod() at app startup then use getZod().
+ */
+function getZod() {
+    if (_zod === null) {
+        throw new Error('zod not initialized. Call initZod() first or use async ZodArgSchemas methods. ' +
+            'Install zod with: npm install zod');
+    }
+    return _zod;
+}
+/**
+ * Initialize zod module for synchronous usage.
+ * Call this at app startup if you need synchronous ZodArgSchemas methods.
+ *
+ * @example
+ * ```typescript
+ * // At app startup
+ * await initZod()
+ *
+ * // Now synchronous methods work
+ * const schema = ZodArgSchemas.string('name')
+ * ```
+ */
+export async function initZod() {
+    await getZodAsync();
+}
 /**
  * Localhost patterns that are always allowed with HTTP
  */
@@ -532,104 +580,88 @@ export function createZodSchemaRegistry(schemas) {
 }
 /**
  * Helper to create common Zod argument schemas
- * These work with the zod library when imported by the consumer
+ * These work with the zod library when imported by the consumer.
+ * Zod is lazily loaded on first use to avoid bundler issues.
  */
 export const ZodArgSchemas = {
     /** Required string argument */
     string(name) {
-        // Dynamic import of zod to get z.string()
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.string() };
     },
     /** Non-empty string argument */
     nonEmptyString(name) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.string().min(1) };
     },
     /** Required number argument */
     number(name) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.number() };
     },
     /** Finite number argument */
     finiteNumber(name) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.number().finite() };
     },
     /** Integer argument */
     integer(name) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.number().int() };
     },
     /** Positive integer argument */
     positiveInt(name) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.number().int().positive() };
     },
     /** Non-negative integer argument */
     nonNegativeInt(name) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.number().int().nonnegative() };
     },
     /** Required boolean argument */
     boolean(name) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.boolean() };
     },
     /** Required object argument */
     object(name) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.record(z.unknown()) };
     },
     /** Required array argument */
     array(name) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.array(z.unknown()) };
     },
     /** Optional string argument */
     optionalString(name) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.string().optional() };
     },
     /** Optional number argument */
     optionalNumber(name) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.number().optional() };
     },
     /** ID argument (non-empty string) */
     id(name = 'id') {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.string().min(1) };
     },
     /** Email argument with format validation */
     email(name = 'email') {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.string().email() };
     },
     /** URL argument with format validation */
     url(name = 'url') {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.string().url() };
     },
     /** UUID argument with format validation */
     uuid(name = 'uuid') {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
         return { name, schema: z.string().uuid() };
     },
     /** Custom schema argument */
@@ -638,8 +670,114 @@ export const ZodArgSchemas = {
     },
     /** Nullable schema argument */
     nullable(name, innerSchema) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { z } = require('zod');
+        const z = getZod();
+        const inner = innerSchema;
+        if (typeof inner.nullable === 'function') {
+            return { name, schema: inner.nullable() };
+        }
+        // Fallback: wrap with z.union
+        return { name, schema: z.union([innerSchema, z.null()]) };
+    },
+};
+/**
+ * Async helper to create common Zod argument schemas.
+ * Use this when you don't want to call initZod() at startup.
+ * Each method dynamically imports zod on first use.
+ *
+ * @example
+ * ```typescript
+ * // No initZod() needed
+ * const schema = await ZodArgSchemasAsync.string('name')
+ * ```
+ */
+export const ZodArgSchemasAsync = {
+    /** Required string argument */
+    async string(name) {
+        const z = await getZodAsync();
+        return { name, schema: z.string() };
+    },
+    /** Non-empty string argument */
+    async nonEmptyString(name) {
+        const z = await getZodAsync();
+        return { name, schema: z.string().min(1) };
+    },
+    /** Required number argument */
+    async number(name) {
+        const z = await getZodAsync();
+        return { name, schema: z.number() };
+    },
+    /** Finite number argument */
+    async finiteNumber(name) {
+        const z = await getZodAsync();
+        return { name, schema: z.number().finite() };
+    },
+    /** Integer argument */
+    async integer(name) {
+        const z = await getZodAsync();
+        return { name, schema: z.number().int() };
+    },
+    /** Positive integer argument */
+    async positiveInt(name) {
+        const z = await getZodAsync();
+        return { name, schema: z.number().int().positive() };
+    },
+    /** Non-negative integer argument */
+    async nonNegativeInt(name) {
+        const z = await getZodAsync();
+        return { name, schema: z.number().int().nonnegative() };
+    },
+    /** Required boolean argument */
+    async boolean(name) {
+        const z = await getZodAsync();
+        return { name, schema: z.boolean() };
+    },
+    /** Required object argument */
+    async object(name) {
+        const z = await getZodAsync();
+        return { name, schema: z.record(z.unknown()) };
+    },
+    /** Required array argument */
+    async array(name) {
+        const z = await getZodAsync();
+        return { name, schema: z.array(z.unknown()) };
+    },
+    /** Optional string argument */
+    async optionalString(name) {
+        const z = await getZodAsync();
+        return { name, schema: z.string().optional() };
+    },
+    /** Optional number argument */
+    async optionalNumber(name) {
+        const z = await getZodAsync();
+        return { name, schema: z.number().optional() };
+    },
+    /** ID argument (non-empty string) */
+    async id(name = 'id') {
+        const z = await getZodAsync();
+        return { name, schema: z.string().min(1) };
+    },
+    /** Email argument with format validation */
+    async email(name = 'email') {
+        const z = await getZodAsync();
+        return { name, schema: z.string().email() };
+    },
+    /** URL argument with format validation */
+    async url(name = 'url') {
+        const z = await getZodAsync();
+        return { name, schema: z.string().url() };
+    },
+    /** UUID argument with format validation */
+    async uuid(name = 'uuid') {
+        const z = await getZodAsync();
+        return { name, schema: z.string().uuid() };
+    },
+    /** Custom schema argument (sync, doesn't need zod) */
+    custom(name, schema) {
+        return { name, schema };
+    },
+    /** Nullable schema argument */
+    async nullable(name, innerSchema) {
+        const z = await getZodAsync();
         const inner = innerSchema;
         if (typeof inner.nullable === 'function') {
             return { name, schema: inner.nullable() };

@@ -2,6 +2,7 @@
 // Generic types added per do-jqrj
 // Storage abstraction added per do-68rr
 // Branded types added per do-e3my
+// Types moved to types.ts per do-stc2d.1 to break circular dependencies
 import { applyCursorPagination } from './pagination';
 /**
  * Key prefix for relationships in storage adapter

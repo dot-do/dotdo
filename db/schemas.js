@@ -1,5 +1,6 @@
 // Zod Schemas for Runtime Validation - see do-grp5.11
 // Provides type-safe runtime validation for Things, Events, and Relationships
+// Types imported from types.ts per do-stc2d.1 to break circular dependencies
 import { z } from 'zod';
 // =============================================================================
 // JSON Value Schemas - Core building blocks

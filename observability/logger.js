@@ -31,6 +31,26 @@ let globalConfig = {
     service: 'dotdo',
 };
 /**
+ * Optional correlation ID resolver function.
+ * Set via setCorrelationIdResolver() to break circular dependency with context module.
+ */
+let correlationIdResolver = null;
+/**
+ * Set the correlation ID resolver function.
+ * This is called by the context module to provide correlation ID lookup
+ * without creating a circular dependency.
+ */
+export function setCorrelationIdResolver(resolver) {
+    correlationIdResolver = resolver;
+}
+/**
+ * Clear the correlation ID resolver (mainly for testing)
+ * @internal
+ */
+export function clearCorrelationIdResolver() {
+    correlationIdResolver = null;
+}
+/**
  * Parse log level from string
  */
 export function parseLogLevel(level) {
@@ -200,15 +220,12 @@ export function createStructuredLogger(options = {}) {
             return;
         // Try to get correlation ID from observability context if not in boundContext
         let correlationId;
-        if (!boundContext.correlationId) {
+        if (!boundContext.correlationId && correlationIdResolver) {
             try {
-                // Dynamic require avoids circular dependency between logger and context modules
-                // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
-                const ctxModule = require('./context');
-                correlationId = ctxModule.getCorrelationId?.() || undefined;
+                correlationId = correlationIdResolver() || undefined;
             }
             catch {
-                // Context module not available or getCorrelationId failed
+                // Resolver failed, continue without correlation ID
             }
         }
         const entry = {

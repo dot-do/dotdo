@@ -484,7 +484,7 @@ async function resolveReference(nlRef: string, store: ThingsStore): Promise<stri
  * ```
  */
 export async function createWithAI<T extends Thing = Thing>(
-  data: { $type: string } & Record<string, unknown>,
+  data: Partial<StorableData> & { $type: string },
   store: ThingsStore,
   generator?: ValueGenerator,
   schema?: Record<string, Record<string, string>>
@@ -1008,7 +1008,7 @@ export function wrapWithAI<T extends StorableData = StorableData>(
     },
 
     async createWithAI(data: { $type: string } & Partial<T>, options?: AIOptions) {
-      return createWithAI(data as { $type: string } & Record<string, unknown>, store as unknown as ThingsStore, undefined, schema) as Promise<Thing<T>>
+      return createWithAI(data as Partial<StorableData> & { $type: string }, store as unknown as ThingsStore, undefined, schema) as Promise<Thing<T>>
     },
 
     async createDraft(data: { $type: string } & Partial<T>) {
