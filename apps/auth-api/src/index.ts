@@ -10,11 +10,9 @@
  */
 
 import { Hono } from 'hono'
-import type { Context, Next } from 'hono'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import * as jose from 'jose'
-import type { AuthUser } from '../../../auth/middleware'
 
 // Re-export the Durable Object class
 export { UserDO } from './UserDO'
@@ -28,21 +26,24 @@ interface Env {
   JWT_SECRET: string
 }
 
-interface Variables {
-  user: AppAuthUser
-  token: string
+interface AuthUser {
+  id: string
+  email: string
+  name: string
 }
 
-// Extend AuthUser with app-specific fields
-interface AppAuthUser extends AuthUser {
-  name: string
+declare module 'hono' {
+  interface ContextVariableMap {
+    user: AuthUser
+    token: string
+  }
 }
 
 // ============================================================================
 // JWT Utilities
 // ============================================================================
 
-async function createToken(user: AppAuthUser, secret: string): Promise<string> {
+async function createToken(user: AuthUser, secret: string): Promise<string> {
   const secretKey = new TextEncoder().encode(secret)
 
   const token = await new jose.SignJWT({
@@ -74,7 +75,7 @@ async function verifyToken(token: string, secret: string): Promise<jose.JWTPaylo
 // ============================================================================
 
 function authMiddleware(env: Env) {
-  return async (c: Context<{ Bindings: Env; Variables: Variables }>, next: Next) => {
+  return async (c: any, next: () => Promise<void>) => {
     const authHeader = c.req.header('Authorization')
 
     if (!authHeader) {
@@ -90,10 +91,10 @@ function authMiddleware(env: Env) {
     try {
       const payload = await verifyToken(token, env.JWT_SECRET)
 
-      const user: AppAuthUser = {
+      const user: AuthUser = {
         id: payload.sub as string,
-        email: payload['email'] as string,
-        name: payload['name'] as string,
+        email: payload.email as string,
+        name: payload.name as string,
       }
 
       c.set('user', user)
@@ -110,7 +111,7 @@ function authMiddleware(env: Env) {
 // Main App
 // ============================================================================
 
-const app = new Hono<{ Bindings: Env; Variables: Variables }>()
+const app = new Hono<{ Bindings: Env }>()
 
 // Middleware
 app.use('/*', cors())
@@ -183,10 +184,10 @@ app.post('/auth/register', async (c) => {
 
   if (!response.ok) {
     const error = await response.json<{ error: string }>()
-    return c.json(error, response.status as 400 | 401 | 403 | 404 | 409 | 500)
+    return c.json(error, response.status)
   }
 
-  const user = await response.json<AppAuthUser>()
+  const user = await response.json<AuthUser>()
 
   // Generate token
   const token = await createToken(user, c.env.JWT_SECRET)
@@ -226,10 +227,10 @@ app.post('/auth/login', async (c) => {
 
   if (!response.ok) {
     const error = await response.json<{ error: string }>()
-    return c.json(error, response.status as 400 | 401 | 403 | 404 | 409 | 500)
+    return c.json(error, response.status)
   }
 
-  const user = await response.json<AppAuthUser>()
+  const user = await response.json<AuthUser>()
 
   // Generate token
   const token = await createToken(user, c.env.JWT_SECRET)
@@ -246,7 +247,7 @@ app.post('/auth/login', async (c) => {
 // ============================================================================
 
 // Group protected routes
-const protected_ = new Hono<{ Bindings: Env; Variables: Variables }>()
+const protected_ = new Hono<{ Bindings: Env }>()
 
 // Apply auth middleware to all protected routes
 protected_.use('/*', async (c, next) => {
@@ -255,8 +256,8 @@ protected_.use('/*', async (c, next) => {
 
 // Get current user
 protected_.get('/me', async (c) => {
-  const user = c.get('user') as AppAuthUser
-  const stub = c.env.USER_DO.get(c.env.USER_DO.idFromName(user.email!))
+  const user = c.get('user')
+  const stub = c.env.USER_DO.get(c.env.USER_DO.idFromName(user.email))
 
   const response = await stub.fetch(new Request('http://internal/profile'))
 
@@ -269,10 +270,10 @@ protected_.get('/me', async (c) => {
 
 // Update current user
 protected_.patch('/me', async (c) => {
-  const user = c.get('user') as AppAuthUser
+  const user = c.get('user')
   const body = await c.req.json<{ name?: string; password?: string }>()
 
-  const stub = c.env.USER_DO.get(c.env.USER_DO.idFromName(user.email!))
+  const stub = c.env.USER_DO.get(c.env.USER_DO.idFromName(user.email))
 
   const response = await stub.fetch(
     new Request('http://internal/profile', {
@@ -287,7 +288,7 @@ protected_.patch('/me', async (c) => {
 
 // Refresh token
 protected_.post('/refresh', async (c) => {
-  const user = c.get('user') as AppAuthUser
+  const user = c.get('user')
 
   // Generate new token with fresh expiration
   const token = await createToken(user, c.env.JWT_SECRET)

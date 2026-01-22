@@ -1,8 +1,0 @@
-{
-  "virtual:$vinxi/handler/client": {
-    "file": "assets/client-DYhFJ0uG.js",
-    "name": "client",
-    "src": "virtual:$vinxi/handler/client",
-    "isEntry": true
-  }
-}
