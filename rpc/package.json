@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/rpc",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Cap'n Web RPC for dotdo communication layers (Client-Worker, Worker-DO, DO-DO)",
   "type": "module",
   "main": "./dist/index.js",

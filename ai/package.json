@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/ai",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "AI routing layer with template literals and multi-provider support for dotdo",
   "type": "module",
   "main": "./dist/index.js",

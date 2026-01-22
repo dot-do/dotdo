@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/api",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Self-describing Hono API with HATEOAS for dotdo - auto-generates SDK, CLI, and MCP",
   "type": "module",
   "main": "./dist/index.js",

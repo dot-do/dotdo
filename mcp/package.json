@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/mcp",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Model Context Protocol tools for AI agents in dotdo",
   "type": "module",
   "main": "./dist/index.js",

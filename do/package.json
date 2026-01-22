@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/do",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "THE Durable Object for Digital Objects - core DO class with SQLite storage",
   "type": "module",
   "main": "./dist/index.js",
