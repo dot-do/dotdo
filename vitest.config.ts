@@ -95,13 +95,13 @@ export default defineWorkersConfig({
       './db/vitest.config.ts',
       './api/vitest.config.ts',
       './mcp/vitest.config.ts',
-      './business/vitest.config.ts',
+      './do/business/vitest.config.ts',
       // RPC packages
       './rpc/vitest.config.ts',
       './sdks/rpc.do/vitest.config.ts',
       // Auth packages
       './auth/vitest.config.ts',
-      './oauth/vitest.config.ts',
+      './auth/oauth/vitest.config.ts',
       // AI package
       './ai/vitest.config.ts',
       // Utils package
