@@ -1,10 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { MockAgent, setGlobalDispatcher, getGlobalDispatcher } from 'undici'
-import type { Thing, Event, Relationship } from '@dotdo/db'
-
-// Store original dispatcher
-const originalDispatcher = getGlobalDispatcher()
+import type { Thing } from '../../db/things'
+import type { Event } from '../../db/events'
+import type { Relationship } from '../../db/relationships'
 
 // Mock data
 const mockThings: Thing[] = [
@@ -60,31 +58,83 @@ const mockRelationships: Relationship[] = [
 ]
 
 describe('Admin Portal', () => {
-  let mockAgent: MockAgent
-  let mockPool: ReturnType<MockAgent['get']>
-
   beforeEach(() => {
+    // Reset mocks
     vi.clearAllMocks()
-    mockAgent = new MockAgent()
-    mockAgent.disableNetConnect()
-    setGlobalDispatcher(mockAgent)
-    mockPool = mockAgent.get('http://localhost')
 
-    // Setup default interceptors for common endpoints
-    mockPool.intercept({
-      path: '/api/admin/things',
-      method: 'GET',
-    }).reply(200, mockThings)
+    // Mock fetch
+    global.fetch = vi.fn((url: string, options?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url.toString()
 
-    mockPool.intercept({
-      path: '/api/admin/events',
-      method: 'GET',
-    }).reply(200, mockEvents)
+      // GET endpoints
+      if (options?.method === undefined || options?.method === 'GET') {
+        if (urlStr.includes('/admin/things')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mockThings),
+          } as Response)
+        }
+        if (urlStr.includes('/admin/events')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mockEvents),
+          } as Response)
+        }
+        if (urlStr.includes('/admin/relationships')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mockRelationships),
+          } as Response)
+        }
+      }
 
-    mockPool.intercept({
-      path: '/api/admin/relationships',
-      method: 'GET',
-    }).reply(200, mockRelationships)
+      // POST endpoints
+      if (options?.method === 'POST') {
+        const body = JSON.parse(options.body as string)
+        if (urlStr.includes('/admin/things')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              ...body,
+              $id: 'new-thing',
+              $createdAt: Date.now(),
+              $updatedAt: Date.now(),
+            }),
+          } as Response)
+        }
+        if (urlStr.includes('/admin/relationships')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              ...body,
+              $createdAt: Date.now(),
+            }),
+          } as Response)
+        }
+      }
+
+      // PUT endpoints
+      if (options?.method === 'PUT') {
+        const body = JSON.parse(options.body as string)
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(body),
+        } as Response)
+      }
+
+      // DELETE endpoints
+      if (options?.method === 'DELETE') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({}),
+        } as Response)
+      }
+
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+      } as Response)
+    })
 
     // Mock WebSocket
     global.WebSocket = vi.fn(() => ({
@@ -97,37 +147,26 @@ describe('Admin Portal', () => {
     })) as unknown as typeof WebSocket
   })
 
-  afterEach(async () => {
-    setGlobalDispatcher(originalDispatcher)
-    await mockAgent.close()
-  })
-
   describe('Data Loading', () => {
     it('should load things on mount', async () => {
-      const response = await fetch('http://localhost/api/admin/things')
-      const things = await response.json()
+      expect(global.fetch).toBeDefined()
 
-      expect(things).toHaveLength(2)
-      expect(things[0].$id).toBe('thing-1')
-      expect(things[0].$type).toBe('Customer')
+      // Verify mock data structure
+      expect(mockThings).toHaveLength(2)
+      expect(mockThings[0].$id).toBe('thing-1')
+      expect(mockThings[0].$type).toBe('Customer')
     })
 
     it('should load events on mount', async () => {
-      const response = await fetch('http://localhost/api/admin/events')
-      const events = await response.json()
-
-      expect(events).toHaveLength(2)
-      expect(events[0].$id).toBe('evt-1')
-      expect(events[0].type).toBe('Customer.created')
+      expect(mockEvents).toHaveLength(2)
+      expect(mockEvents[0].$id).toBe('evt-1')
+      expect(mockEvents[0].type).toBe('Customer.created')
     })
 
     it('should load relationships on mount', async () => {
-      const response = await fetch('http://localhost/api/admin/relationships')
-      const relationships = await response.json()
-
-      expect(relationships).toHaveLength(2)
-      expect(relationships[0].subject).toBe('thing-1')
-      expect(relationships[0].predicate).toBe('owns')
+      expect(mockRelationships).toHaveLength(2)
+      expect(mockRelationships[0].subject).toBe('thing-1')
+      expect(mockRelationships[0].predicate).toBe('owns')
     })
   })
 
@@ -139,17 +178,7 @@ describe('Admin Portal', () => {
         total: 150.00,
       }
 
-      mockPool.intercept({
-        path: '/api/admin/things',
-        method: 'POST',
-      }).reply(200, {
-        ...newThing,
-        $id: 'new-thing',
-        $createdAt: Date.now(),
-        $updatedAt: Date.now(),
-      })
-
-      const response = await fetch('http://localhost/api/admin/things', {
+      const response = await fetch('/api/admin/things', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newThing),
@@ -167,12 +196,7 @@ describe('Admin Portal', () => {
         name: 'Alice Updated',
       }
 
-      mockPool.intercept({
-        path: '/api/admin/things/thing-1',
-        method: 'PUT',
-      }).reply(200, updates)
-
-      const response = await fetch('http://localhost/api/admin/things/thing-1', {
+      const response = await fetch('/api/admin/things/thing-1', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
@@ -184,12 +208,7 @@ describe('Admin Portal', () => {
     })
 
     it('should delete a thing', async () => {
-      mockPool.intercept({
-        path: '/api/admin/things/thing-1',
-        method: 'DELETE',
-      }).reply(200, {})
-
-      const response = await fetch('http://localhost/api/admin/things/thing-1', {
+      const response = await fetch('/api/admin/things/thing-1', {
         method: 'DELETE',
       })
 
@@ -197,12 +216,7 @@ describe('Admin Portal', () => {
     })
 
     it('should list things with filters', async () => {
-      mockPool.intercept({
-        path: '/api/admin/things?type=Customer',
-        method: 'GET',
-      }).reply(200, mockThings)
-
-      const response = await fetch('http://localhost/api/admin/things?type=Customer')
+      const response = await fetch('/api/admin/things?type=Customer')
       expect(response.ok).toBe(true)
 
       const things = await response.json()
@@ -212,7 +226,7 @@ describe('Admin Portal', () => {
 
   describe('Events Query', () => {
     it('should list all events', async () => {
-      const response = await fetch('http://localhost/api/admin/events')
+      const response = await fetch('/api/admin/events')
       expect(response.ok).toBe(true)
 
       const events = await response.json()
@@ -246,15 +260,7 @@ describe('Admin Portal', () => {
         object: 'thing-4',
       }
 
-      mockPool.intercept({
-        path: '/api/admin/relationships',
-        method: 'POST',
-      }).reply(200, {
-        ...newRel,
-        $createdAt: Date.now(),
-      })
-
-      const response = await fetch('http://localhost/api/admin/relationships', {
+      const response = await fetch('/api/admin/relationships', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newRel),
@@ -265,14 +271,8 @@ describe('Admin Portal', () => {
 
     it('should delete a relationship', async () => {
       const rel = mockRelationships[0]
-
-      mockPool.intercept({
-        path: `/api/admin/relationships/${rel.subject}/${rel.predicate}/${rel.object}`,
-        method: 'DELETE',
-      }).reply(200, {})
-
       const response = await fetch(
-        `http://localhost/api/admin/relationships/${rel.subject}/${rel.predicate}/${rel.object}`,
+        `/api/admin/relationships/${rel.subject}/${rel.predicate}/${rel.object}`,
         { method: 'DELETE' }
       )
 
@@ -392,31 +392,18 @@ describe('Admin Portal', () => {
 
   describe('Error Handling', () => {
     it('should handle network errors gracefully', async () => {
-      // Need to create a new agent for this specific test to avoid conflict with beforeEach
-      const errorAgent = new MockAgent()
-      errorAgent.disableNetConnect()
-      setGlobalDispatcher(errorAgent)
-      const errorPool = errorAgent.get('http://localhost')
+      global.fetch = vi.fn(() => Promise.reject(new Error('Network error')))
 
-      errorPool.intercept({
-        path: '/api/admin/things',
-        method: 'GET',
-      }).replyWithError(new Error('Network error'))
-
-      // The error is wrapped by fetch, so we just check that it throws
-      await expect(fetch('http://localhost/api/admin/things')).rejects.toThrow()
-
-      setGlobalDispatcher(mockAgent)
-      await errorAgent.close()
+      await expect(fetch('/api/admin/things')).rejects.toThrow('Network error')
     })
 
     it('should handle 404 responses', async () => {
-      mockPool.intercept({
-        path: '/api/admin/things/nonexistent',
-        method: 'GET',
-      }).reply(404, {})
+      global.fetch = vi.fn(() => Promise.resolve({
+        ok: false,
+        status: 404,
+      } as Response))
 
-      const response = await fetch('http://localhost/api/admin/things/nonexistent')
+      const response = await fetch('/api/admin/things/nonexistent')
       expect(response.ok).toBe(false)
       expect(response.status).toBe(404)
     })

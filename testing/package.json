@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/testing",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Test utilities and custom assertion helpers for dotdo entities",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,7 +20,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -37,10 +37,5 @@
   },
   "dependencies": {
     "@dotdo/db": "workspace:*"
-  },
-  "devDependencies": {
-    "@dotdo/ai": "workspace:*",
-    "@dotdo/integrations": "workspace:*",
-    "typescript": "^5.7.3"
   }
 }

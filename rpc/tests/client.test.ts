@@ -25,19 +25,16 @@ describe('RPC Client', () => {
     })
 
     it('should not be a thenable (not a promise itself)', () => {
-      // RPC proxy objects must NOT be thenables, otherwise `await client` would
-      // trigger the proxy trap instead of waiting for method calls. This is a
-      // critical design decision - the proxy returns methods, not promises.
       interface TestAPI {
         greet(name: string): Promise<string>
       }
 
       const client = createClient<TestAPI>({ url: 'http://localhost:8787' })
-      // @ts-expect-error - proxy excludes 'then' to prevent accidental await
+      // @ts-expect-error - testing that then is undefined
       expect(client.then).toBeUndefined()
-      // @ts-expect-error - proxy excludes 'catch' to prevent Promise-like behavior
+      // @ts-expect-error - testing that catch is undefined
       expect(client.catch).toBeUndefined()
-      // @ts-expect-error - proxy excludes 'finally' to prevent Promise-like behavior
+      // @ts-expect-error - testing that finally is undefined
       expect(client.finally).toBeUndefined()
     })
 
@@ -310,12 +307,7 @@ describe('RPC Client', () => {
     })
 
     it('should accept DurableObjectId directly', async () => {
-      // Mock DurableObjectId must have: equals, toString (returning non-empty string), and name property
-      const mockDOId = {
-        toString: () => '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-        equals: () => false,
-        name: undefined,
-      } as unknown as DurableObjectId
+      const mockDOId = { toString: () => 'direct-id' } as DurableObjectId
 
       const mockStub = {
         fetch: vi.fn().mockResolvedValueOnce({
@@ -381,12 +373,11 @@ describe('RPC Client', () => {
 
       const stub = createDOStub<DOAPI>(mockBinding, 'test-id')
 
-      // Same as createClient - DO stubs must not be thenables
-      // @ts-expect-error - proxy excludes 'then' to prevent accidental await
+      // @ts-expect-error - testing that then is undefined
       expect(stub.then).toBeUndefined()
-      // @ts-expect-error - proxy excludes 'catch' to prevent Promise-like behavior
+      // @ts-expect-error - testing that catch is undefined
       expect(stub.catch).toBeUndefined()
-      // @ts-expect-error - proxy excludes 'finally' to prevent Promise-like behavior
+      // @ts-expect-error - testing that finally is undefined
       expect(stub.finally).toBeUndefined()
     })
   })

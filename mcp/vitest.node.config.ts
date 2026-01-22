@@ -15,14 +15,10 @@
 import { defineConfig } from 'vitest/config'
 import { fileURLToPath } from 'url'
 import { dirname, resolve } from 'path'
-import { workspaceAliases } from '../vitest.config'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
-  resolve: {
-    alias: workspaceAliases,
-  },
   test: {
     root: resolve(__dirname),
     include: [
