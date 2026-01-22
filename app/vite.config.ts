@@ -1,44 +1,21 @@
 import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import tsconfigPaths from 'vite-tsconfig-paths'
-import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import { resolve } from 'path'
 
 /**
- * Vite configuration for @dotdo/app using TanStack Start
+ * Vite configuration for static export of @dotdo/app
  *
  * This config enables:
- * - TanStack Start SSR/SSG framework
  * - Static site generation (SSG) for all routes
  * - Asset optimization with hashing
+ * - Build output to dist/ directory
  * - Environment variable handling
  * - Cloudflare Pages deployment compatibility
  */
 export default defineConfig({
   plugins: [
-    tsconfigPaths(),
-    tanstackStart({
-      // TanStack Start configuration
-      srcDirectory: '.',
-      router: {
-        routesDirectory: 'routes',
-        generatedRouteTree: 'routeTree.gen.ts',
-      },
-      client: {
-        entry: 'client.tsx',
-      },
-      server: {
-        entry: 'ssr.tsx',
-        preset: 'cloudflare-pages',
-      },
-      // Prerender configuration for static site generation
-      // Note: Full prerendering requires additional Nitro server configuration
-      // For now, build generates SSR-ready assets; prerender can be enabled
-      // when the deployment target (e.g., Cloudflare Pages) is properly configured
-      prerender: {
-        enabled: false,
-      },
-    }),
+    react(),
     tailwindcss(),
   ],
 
@@ -58,6 +35,12 @@ export default defineConfig({
         assetFileNames: 'assets/[name].[hash][extname]',
         chunkFileNames: 'assets/[name].[hash].js',
         entryFileNames: 'assets/[name].[hash].js',
+
+        // Manual chunk splitting for optimal loading
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom'],
+          'router-vendor': ['@tanstack/react-router', '@tanstack/start'],
+        },
       },
     },
 
@@ -71,7 +54,7 @@ export default defineConfig({
     },
 
     // Source maps for debugging (disable in production)
-    sourcemap: process.env['NODE_ENV'] !== 'production',
+    sourcemap: process.env.NODE_ENV !== 'production',
 
     // CSS code splitting
     cssCodeSplit: true,
@@ -109,7 +92,7 @@ export default defineConfig({
 
   // Define global constants
   define: {
-    __APP_VERSION__: JSON.stringify(process.env['npm_package_version'] || '0.0.1'),
+    __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '0.0.1'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
 
@@ -119,13 +102,13 @@ export default defineConfig({
       'react',
       'react-dom',
       '@tanstack/react-router',
-      '@tanstack/react-start',
+      '@tanstack/start',
     ],
   },
 
   // SSR configuration for static generation
   ssr: {
     // Don't externalize these packages during SSR
-    noExternal: ['@tanstack/react-router', '@tanstack/react-start'],
+    noExternal: ['@tanstack/react-router', '@tanstack/start'],
   },
 })
