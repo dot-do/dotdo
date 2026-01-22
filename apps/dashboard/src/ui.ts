@@ -2,23 +2,6 @@
  * Dashboard UI
  *
  * Simple HTML/CSS admin interface for monitoring Durable Objects
- *
- * ## Security: XSS Protection
- *
- * This file contains client-side JavaScript that renders API data into HTML.
- * All user-controlled data MUST be escaped before insertion via innerHTML.
- *
- * Two escape functions are provided:
- * - `escapeHtml(str)` - For text content, escapes < > & " '
- * - `escapeAttr(str)` - For HTML attribute values (more strict)
- *
- * Rules:
- * 1. Always use `escapeHtml()` for data displayed as text content
- * 2. Always use `escapeAttr()` for data used in HTML attributes (onclick, class, id, etc.)
- * 3. Never use innerHTML with unsanitized user data
- * 4. Prefer textContent over innerHTML when no HTML formatting is needed
- *
- * @see apps/dashboard/tests/xss-security.test.ts for security tests
  */
 
 export function renderDashboardHTML(): string {
@@ -533,25 +516,6 @@ export function renderDashboardHTML(): string {
     const API_BASE = '/api';
     let refreshInterval;
 
-    // Security: HTML escape function to prevent XSS
-    function escapeHtml(str) {
-      if (str === null || str === undefined) return '';
-      const div = document.createElement('div');
-      div.textContent = String(str);
-      return div.innerHTML;
-    }
-
-    // Security: Escape for use in HTML attributes (more strict)
-    function escapeAttr(str) {
-      if (str === null || str === undefined) return '';
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-    }
-
     // Utility functions
     function formatNumber(num) {
       if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
@@ -605,13 +569,13 @@ export function renderDashboardHTML(): string {
           const statusClass = doObj.status === 'active' ? 'active' :
                              doObj.status === 'inactive' ? 'inactive' : 'unknown';
           return \`
-            <tr class="clickable" onclick="inspectDO('\${escapeAttr(doObj.id)}')">
-              <td><strong>\${escapeHtml(doObj.name)}</strong></td>
-              <td>\${escapeHtml(doObj.className)}</td>
+            <tr class="clickable" onclick="inspectDO('\${doObj.id}')">
+              <td><strong>\${doObj.name}</strong></td>
+              <td>\${doObj.className}</td>
               <td>
-                <span class="do-status \${escapeAttr(statusClass)}">
+                <span class="do-status \${statusClass}">
                   <span class="status-dot"></span>
-                  \${escapeHtml(doObj.status)}
+                  \${doObj.status}
                 </span>
               </td>
               <td class="time-ago">\${timeAgo(doObj.lastSeen)}</td>
@@ -641,10 +605,10 @@ export function renderDashboardHTML(): string {
 
         tbody.innerHTML = data.events.map(event => \`
           <tr>
-            <td>\${escapeHtml(event.doName)}</td>
-            <td><span class="event-type">\${escapeHtml(event.type)}</span></td>
-            <td><span class="event-status \${escapeAttr(event.status)}">\${escapeHtml(event.status)}</span></td>
-            <td>\${event.duration ? escapeHtml(event.duration) + 'ms' : '-'}</td>
+            <td>\${event.doName}</td>
+            <td><span class="event-type">\${event.type}</span></td>
+            <td><span class="event-status \${event.status}">\${event.status}</span></td>
+            <td>\${event.duration ? event.duration + 'ms' : '-'}</td>
             <td class="time-ago">\${timeAgo(event.timestamp)}</td>
           </tr>
         \`).join('');
@@ -672,7 +636,7 @@ export function renderDashboardHTML(): string {
           const errorHeight = bucket.errors > 0 ? Math.max(4, (bucket.errors / maxRequests) * 160) : 0;
           const time = new Date(bucket.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           return \`
-            <div class="chart-bar" style="height: \${height}px" title="\${escapeAttr(time)}: \${escapeAttr(bucket.requests)} requests">
+            <div class="chart-bar" style="height: \${height}px" title="\${time}: \${bucket.requests} requests">
               \${errorHeight > 0 ? \`<div class="chart-bar error" style="height: \${errorHeight}px; position: absolute; bottom: 0; left: 0; right: 0;"></div>\` : ''}
             </div>
           \`;
@@ -701,23 +665,23 @@ export function renderDashboardHTML(): string {
             <h4>Registration</h4>
             <div class="inspect-field">
               <span class="inspect-field-label">ID</span>
-              <span class="inspect-field-value">\${escapeHtml(doId)}</span>
+              <span class="inspect-field-value">\${doId}</span>
             </div>
             <div class="inspect-field">
               <span class="inspect-field-label">Class</span>
-              <span class="inspect-field-value">\${escapeHtml(data.registration.className)}</span>
+              <span class="inspect-field-value">\${data.registration.className}</span>
             </div>
             <div class="inspect-field">
               <span class="inspect-field-label">Namespace</span>
-              <span class="inspect-field-value">\${escapeHtml(data.registration.namespace)}</span>
+              <span class="inspect-field-value">\${data.registration.namespace}</span>
             </div>
             <div class="inspect-field">
               <span class="inspect-field-label">Status</span>
-              <span class="inspect-field-value">\${escapeHtml(data.registration.status)}</span>
+              <span class="inspect-field-value">\${data.registration.status}</span>
             </div>
             <div class="inspect-field">
               <span class="inspect-field-label">Registered</span>
-              <span class="inspect-field-value">\${escapeHtml(new Date(data.registration.registeredAt).toLocaleString())}</span>
+              <span class="inspect-field-value">\${new Date(data.registration.registeredAt).toLocaleString()}</span>
             </div>
             <div class="inspect-field">
               <span class="inspect-field-label">Last Seen</span>
@@ -738,7 +702,7 @@ export function renderDashboardHTML(): string {
             </div>
             <div class="inspect-field">
               <span class="inspect-field-label">Error Rate</span>
-              <span class="inspect-field-value">\${escapeHtml(data.metrics.errorRate)}</span>
+              <span class="inspect-field-value">\${data.metrics.errorRate}</span>
             </div>
             <div class="inspect-field">
               <span class="inspect-field-label">Avg Response Time</span>
@@ -753,12 +717,12 @@ export function renderDashboardHTML(): string {
               data.recentEvents.slice(0, 10).map(event => \`
                 <div style="padding: 8px 0; border-bottom: 1px solid var(--border-color);">
                   <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span class="event-type">\${escapeHtml(event.type)}</span>
-                    <span class="event-status \${escapeAttr(event.status)}">\${escapeHtml(event.status)}</span>
+                    <span class="event-type">\${event.type}</span>
+                    <span class="event-status \${event.status}">\${event.status}</span>
                   </div>
                   <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
                     \${timeAgo(event.timestamp)}\${event.duration ? ' | ' + event.duration + 'ms' : ''}
-                    \${event.error ? '<br><span style="color: var(--accent-error)">' + escapeHtml(event.error) + '</span>' : ''}
+                    \${event.error ? '<br><span style="color: var(--accent-error)">' + event.error + '</span>' : ''}
                   </div>
                 </div>
               \`).join('')
@@ -768,7 +732,7 @@ export function renderDashboardHTML(): string {
           \${data.registration.metadata ? \`
           <div class="inspect-section">
             <h4>Metadata</h4>
-            <pre style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 12px;">\${escapeHtml(JSON.stringify(data.registration.metadata, null, 2))}</pre>
+            <pre style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 12px;">\${JSON.stringify(data.registration.metadata, null, 2)}</pre>
           </div>
           \` : ''}
         \`;

@@ -1,27 +1,21 @@
 /**
- * Event Retention Policy Tests (do-luhm.6, do-avhr1.1)
+ * Event Retention Policy Tests (do-luhm.6)
  *
- * Tests for the event retention policy implementation that addresses the
- * 10GB Durable Object storage limit risk.
+ * These tests expose that the append-only event log has no cleanup mechanism
+ * and will eventually hit the 10GB Durable Object storage limit.
  *
- * Implemented features (do-avhr1.1):
- * - setRetentionPolicy() - Configure maxEvents and/or maxAgeDays
- * - getRetentionPolicy() - Retrieve current policy
- * - cleanup() - Remove events exceeding retention policy
- * - count() - Get event count (total or by type)
- * - getStorageUsage() - Monitor storage usage
+ * Current implementation issues:
+ * - Events array grows unbounded in memory
+ * - No retention policy support (maxEvents, maxAgeDays)
+ * - No cleanup/purge mechanism
+ * - No storage monitoring or warnings
+ * - No archiving to external storage before deletion
  *
- * Future enhancements (skipped tests):
- * - Auto-cleanup when threshold exceeded
- * - Storage warning callbacks
- * - Hard limit enforcement
- * - R2 archiving before deletion
- * - DO integration (events accessor on DO class)
- * - Incremental cleanup for large event stores
+ * All tests in this file should FAIL against current implementation.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { createEventsStore, type EventsStore, type Event } from '@dotdo/db'
+import { createEventsStore, type EventsStore } from '../../db'
 import { DO } from '../DO'
 
 // Mock DurableObjectState for DO tests
@@ -126,7 +120,6 @@ describe('Event Retention Policy (do-luhm.6)', () => {
     })
   })
 
-  // cleanup() and retention policy methods now implemented in @dotdo/db
   describe('cleanup()', () => {
     it('should enforce retention policy on old events by count', async () => {
       // Create many events
@@ -185,17 +178,12 @@ describe('Event Retention Policy (do-luhm.6)', () => {
     })
 
     it('should preserve the most recent events when cleaning up', async () => {
-      const baseTime = Date.now()
-      // Create events in order with explicit timestamps to ensure deterministic ordering
+      // Create events in order
       for (let i = 0; i < 50; i++) {
-        await (store as any).emit({
-          type: 'test.event',
-          payload: { order: i },
-          $timestamp: baseTime + i * 1000 // 1 second apart
-        })
+        await store.emit({ type: 'test.event', payload: { order: i } })
       }
 
-      // Set retention and cleanup
+      // FAILS: setRetentionPolicy() and cleanup() do not exist
       await (store as any).setRetentionPolicy({ maxEvents: 10 })
       await (store as any).cleanup()
 
@@ -204,14 +192,12 @@ describe('Event Retention Policy (do-luhm.6)', () => {
       expect(events.length).toBe(10)
 
       // Verify we kept the newest ones (order 40-49)
-      const orders = events.map((e: unknown) => (e as { payload: { order: number } }).payload.order).sort((a: number, b: number) => a - b)
+      const orders = events.map((e: any) => e.payload.order).sort((a: number, b: number) => a - b)
       expect(orders[0]).toBeGreaterThanOrEqual(40)
     })
 
-    // Future enhancement: auto-cleanup when threshold exceeded
-    // This would require integrating cleanup into the emit() path
-    it.skip('should run cleanup automatically when threshold exceeded', async () => {
-      // Not yet implemented: autoCleanup and cleanupThreshold options
+    it('should run cleanup automatically when threshold exceeded', async () => {
+      // FAILS: No automatic cleanup mechanism exists
       await (store as any).setRetentionPolicy({
         maxEvents: 100,
         autoCleanup: true,
@@ -238,7 +224,6 @@ describe('Event Retention Policy (do-luhm.6)', () => {
     })
   })
 
-  // Storage monitoring - basic getStorageUsage() implemented
   describe('Storage monitoring', () => {
     it('should report storage usage', async () => {
       // Add some events
@@ -249,7 +234,7 @@ describe('Event Retention Policy (do-luhm.6)', () => {
         })
       }
 
-      // getStorageUsage() is now implemented
+      // FAILS: getStorageUsage() method does not exist
       const usage = await (store as any).getStorageUsage()
 
       expect(usage.eventCount).toBe(100)
@@ -257,8 +242,7 @@ describe('Event Retention Policy (do-luhm.6)', () => {
       expect(usage.bytesUsed).toBeLessThan(1000000) // Less than 1MB
     })
 
-    // Future enhancement: storage warning callbacks
-    it.skip('should warn when approaching storage limit', async () => {
+    it('should warn when approaching storage limit', async () => {
       const warnings: string[] = []
 
       // FAILS: onStorageWarning() method does not exist
@@ -285,9 +269,8 @@ describe('Event Retention Policy (do-luhm.6)', () => {
       expect(warnings[0]).toContain('80%')
     })
 
-    // Future enhancement: hard limit enforcement
-    it.skip('should prevent writes when storage limit reached', async () => {
-      // Not yet implemented: setStorageLimit() with hardLimit
+    it('should prevent writes when storage limit reached', async () => {
+      // FAILS: setStorageLimit() method does not exist
       await (store as any).setStorageLimit({
         maxBytes: 10000, // 10KB limit for testing
         hardLimit: true
@@ -312,13 +295,12 @@ describe('Event Retention Policy (do-luhm.6)', () => {
     })
   })
 
-  // Skip until event archiving methods are implemented
-  describe.skip('Event archiving', () => {
+  describe('Event archiving', () => {
     it('should archive old events before deletion', async () => {
-      const archivedEvents: Event[] = []
+      const archivedEvents: any[] = []
 
       // FAILS: setArchiveHandler() method does not exist
-      await (store as any).setArchiveHandler(async (events: Event[]) => {
+      await (store as any).setArchiveHandler(async (events: any[]) => {
         archivedEvents.push(...events)
         return { archived: events.length, location: 'r2://bucket/events/archive-001.json' }
       })
@@ -380,8 +362,7 @@ describe('Event Retention Policy (do-luhm.6)', () => {
     })
   })
 
-  // Skip until DO integration retention methods are implemented
-  describe.skip('DO integration', () => {
+  describe('DO integration', () => {
     let doInstance: DO
     let mockState: DurableObjectState
 
@@ -434,8 +415,7 @@ describe('Event Retention Policy (do-luhm.6)', () => {
     })
   })
 
-  // Skip until performance/incremental cleanup methods are implemented
-  describe.skip('Performance considerations', () => {
+  describe('Performance considerations', () => {
     it('should cleanup efficiently without blocking', async () => {
       // Create many events
       for (let i = 0; i < 1000; i++) {
