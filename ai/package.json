@@ -75,7 +75,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest",

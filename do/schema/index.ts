@@ -90,24 +90,23 @@ export {
   type DeleteRelationInput,
 } from './relations'
 
-// AI-Generated Fields (do-lekf.4) - Temporarily disabled due to @dotdo/ai circular dependency
-// TODO: Refactor ai-fields.ts to accept AI function as parameter instead of importing @dotdo/ai
-// export {
-//   // Main generation functions
-//   generateFieldValue,
-//   generateFieldValueWithResult,
-//   generateAllFields,
-//   generateAllFieldsSimple,
-//   // Utility functions
-//   buildAIPrompt,
-//   getFieldsNeedingGeneration,
-//   hasGeneratedFields,
-//   getGeneratedFieldDefinitions,
-//   createDefaultAIGenerate,
-//   // Types
-//   type AIGenerationContext,
-//   type AIGenerateFunction,
-//   type AIFieldOptions,
-//   type FieldGenerationResult,
-//   type AllFieldsGenerationResult,
-// } from './ai-fields'
+// AI-Generated Fields (do-lekf.4)
+export {
+  // Main generation functions
+  generateFieldValue,
+  generateFieldValueWithResult,
+  generateAllFields,
+  generateAllFieldsSimple,
+  // Utility functions
+  buildAIPrompt,
+  getFieldsNeedingGeneration,
+  hasGeneratedFields,
+  getGeneratedFieldDefinitions,
+  createDefaultAIGenerate,
+  // Types
+  type AIGenerationContext,
+  type AIGenerateFunction,
+  type AIFieldOptions,
+  type FieldGenerationResult,
+  type AllFieldsGenerationResult,
+} from './ai-fields'
