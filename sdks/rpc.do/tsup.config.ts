@@ -2,11 +2,11 @@ import { defineConfig } from 'tsup'
 
 export default defineConfig({
   entry: {
-    index: 'src/index.ts',
-    'cli/index': 'src/cli/index.ts',
-    'transport/index': 'src/transport/index.ts',
-    'transport/fetch': 'src/transport/fetch.ts',
-    'auth/index': 'src/auth/index.ts',
+    index: 'index.ts',
+    'cli/index': 'cli/index.ts',
+    'transport/index': 'transport/index.ts',
+    'transport/fetch': 'transport/fetch.ts',
+    'auth/index': 'auth/index.ts',
   },
   outDir: 'dist',
   format: ['esm'],
