@@ -93,7 +93,7 @@ describe('Type-Safe DO Binding Registry', () => {
       const accessor = createBindingAccessor(emptyEnv)
 
       expect(() => accessor.get('USER_DO')).toThrow(
-        'DOBinding with id USER_DO not found'
+        'Durable Object binding "USER_DO" not found in environment'
       )
     })
 
@@ -176,7 +176,7 @@ describe('Type-Safe DO Binding Registry', () => {
       const emptyEnv = {} as TestBindings
 
       expect(() => getBinding<TestBindings, 'USER_DO'>('USER_DO', emptyEnv)).toThrow(
-        'DOBinding with id USER_DO not found'
+        'Durable Object binding "USER_DO" not found in environment'
       )
     })
   })

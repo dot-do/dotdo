@@ -1,402 +1,403 @@
-/**
- * Cross-DO RPC via $ - Integration Tests with Real Miniflare
- *
- * Tests the WorkflowContext ($) cross-DO RPC functionality using real miniflare instances.
- * NO MOCKS - all tests run against real Durable Object instances with real communication.
- *
- * Tests cover:
- * 1. DO stub creation via $.EntityType(id) pattern
- * 2. Stub caching behavior
- * 3. Integration with other workflow context features (events, scheduling)
- * 4. Error handling for missing bindings
- *
- * Note: Full cross-DO RPC communication tests are in cross-do-rpc.test.ts
- * which uses direct Miniflare instantiation for more complex multi-DO scenarios.
- *
- * @module do/tests/cross-do.test
- */
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { createContext, type WorkflowContext } from '../context'
 
-import { describe, it, expect } from 'vitest'
-import { env, runInDurableObject } from 'cloudflare:test'
-import { DO } from '../DO'
-import { createContext } from '../workflow'
+// Mock DurableObjectState
+const mockState = {
+  id: { toString: () => 'test-id' },
+  storage: {
+    get: vi.fn(),
+    put: vi.fn(),
+    list: vi.fn(() => Promise.resolve(new Map())),
+  },
+} as unknown as DurableObjectState
 
-// ============================================================================
-// TEST HELPERS
-// ============================================================================
-
-/**
- * Generate unique test identifier to ensure test isolation
- */
-function generateTestId(): string {
-  return `cross-do-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+// Mock environment with DO bindings
+interface MockEnv {
+  Customer?: DurableObjectNamespace
+  Worker?: DurableObjectNamespace
+  Order?: DurableObjectNamespace
 }
-
-/**
- * Get a test DO stub with a unique name
- */
-function getTestDO(name: string = generateTestId()) {
-  const id = env.DO.idFromName(name)
-  return env.DO.get(id)
-}
-
-// ============================================================================
-// TESTS: Cross-DO RPC via $
-// ============================================================================
 
 describe('Cross-DO RPC via $', () => {
-  describe('DO stub access via $ context', () => {
-    it('should create $ context with proper structure', async () => {
-      const stub = getTestDO()
+  let $: WorkflowContext
+  let env: MockEnv
+  let mockStubs: Map<string, any>
 
-      const hasContext = await runInDurableObject(stub, async (instance: DO) => {
-        const $ = (instance as any).$
+  beforeEach(() => {
+    mockStubs = new Map()
 
-        return {
-          hasOn: typeof $.on === 'object',
-          hasSend: typeof $.send === 'function',
-          hasDo: typeof $.do === 'function',
-          hasTry: typeof $.try === 'function',
-          // $.every is a function that returns a proxy for schedule DSL
-          hasEvery: typeof $.every === 'function',
-        }
-      })
-
-      expect(hasContext.hasOn).toBe(true)
-      expect(hasContext.hasSend).toBe(true)
-      expect(hasContext.hasDo).toBe(true)
-      expect(hasContext.hasTry).toBe(true)
-      expect(hasContext.hasEvery).toBe(true)
-    })
-
-    it('should support event handler registration via $.on', async () => {
-      const stub = getTestDO()
-
-      const result = await runInDurableObject(stub, async (instance: DO) => {
-        const $ = (instance as any).$
-        let handlerCalled = false
-
-        // Register event handler
-        $.on.Customer.created((event: unknown) => {
-          handlerCalled = true
-        })
-
-        // Emit event
-        $.send({ type: 'Customer.created', payload: { id: 'test-123' } })
-
-        // Small delay for async handler
-        await new Promise(r => setTimeout(r, 10))
-
-        return handlerCalled
-      })
-
-      expect(result).toBe(true)
-    })
-
-    it('should support schedule registration via $.every', async () => {
-      const stub = getTestDO()
-
-      const hasSchedule = await runInDurableObject(stub, async (instance: DO) => {
-        const $ = (instance as any).$
-
-        // Register a schedule
-        $.every.hour(async () => {})
-
-        // Check if schedule was registered
-        return $._schedules.size > 0
-      })
-
-      expect(hasSchedule).toBe(true)
-    })
-
-    it('should support multiple schedule types', async () => {
-      const stub = getTestDO()
-
-      const scheduleCount = await runInDurableObject(stub, async (instance: DO) => {
-        const $ = (instance as any).$
-
-        $.every.minute(async () => {})
-        $.every.hour(async () => {})
-        $.every.day(async () => {})
-
-        return $._schedules.size
-      })
-
-      expect(scheduleCount).toBe(3)
-    })
-
-    it('should throw clear error for missing DO binding', async () => {
-      const stub = getTestDO()
-
-      const result = await runInDurableObject(stub, async (instance: DO) => {
-        const state = (instance as any).state
-        const $ = createContext(state, {}) // Empty env - no bindings
-
-        try {
-          $.NonExistent('some-id')
-          return { threw: false, message: '' }
-        } catch (e) {
-          return { threw: true, message: (e as Error).message }
-        }
-      })
-
-      expect(result.threw).toBe(true)
-      expect(result.message).toMatch(/NonExistent.*not found/i)
-    })
-  })
-
-  describe('Event handling integration', () => {
-    it('should handle multiple event types', async () => {
-      const stub = getTestDO()
-
-      const result = await runInDurableObject(stub, async (instance: DO) => {
-        const $ = (instance as any).$
-        const events: string[] = []
-
-        $.on.Customer.created(() => events.push('customer-created'))
-        $.on.Order.placed(() => events.push('order-placed'))
-        $.on.Payment.received(() => events.push('payment-received'))
-
-        $.send({ type: 'Customer.created', payload: {} })
-        $.send({ type: 'Order.placed', payload: {} })
-        $.send({ type: 'Payment.received', payload: {} })
-
-        await new Promise(r => setTimeout(r, 20))
-
-        return events
-      })
-
-      expect(result).toContain('customer-created')
-      expect(result).toContain('order-placed')
-      expect(result).toContain('payment-received')
-    })
-
-    it('should pass event payload to handlers', async () => {
-      const stub = getTestDO()
-
-      const receivedPayload = await runInDurableObject(stub, async (instance: DO) => {
-        const $ = (instance as any).$
-        let payload: unknown = null
-
-        $.on.Customer.signup((event: { payload: unknown }) => {
-          payload = event.payload
-        })
-
-        $.send({
-          type: 'Customer.signup',
-          payload: { customerId: 'c-123', email: 'test@example.com' }
-        })
-
-        await new Promise(r => setTimeout(r, 10))
-
-        return payload
-      })
-
-      expect(receivedPayload).toEqual({ customerId: 'c-123', email: 'test@example.com' })
-    })
-
-    it('should support multiple handlers for same event', async () => {
-      const stub = getTestDO()
-
-      const handlerCounts = await runInDurableObject(stub, async (instance: DO) => {
-        const $ = (instance as any).$
-        let count = 0
-
-        $.on.Order.shipped(() => count++)
-        $.on.Order.shipped(() => count++)
-        $.on.Order.shipped(() => count++)
-
-        $.send({ type: 'Order.shipped', payload: {} })
-
-        await new Promise(r => setTimeout(r, 10))
-
-        return count
-      })
-
-      expect(handlerCounts).toBe(3)
-    })
-  })
-
-  describe('Durability levels', () => {
-    it('should execute $.try() with single attempt', async () => {
-      const stub = getTestDO()
-
-      const result = await runInDurableObject(stub, async (instance: DO) => {
-        const $ = (instance as any).$
-        let attempts = 0
-
-        const value = await $.try(async () => {
-          attempts++
-          return 'success'
-        })
-
-        return { value, attempts }
-      })
-
-      expect(result.value).toBe('success')
-      expect(result.attempts).toBe(1)
-    })
-
-    it('should execute $.do() with retries on failure', async () => {
-      const stub = getTestDO()
-
-      const result = await runInDurableObject(stub, async (instance: DO) => {
-        const $ = (instance as any).$
-        let attempts = 0
-
-        const value = await $.do(async () => {
-          attempts++
-          if (attempts < 3) {
-            throw new Error('Retry me')
+    // Create mock DO namespace bindings
+    const createMockNamespace = (name: string): DurableObjectNamespace => {
+      return {
+        idFromName: vi.fn((id: string) => ({
+          toString: () => id,
+          name
+        })),
+        get: vi.fn((doId: any) => {
+          // The key should match what createDOStub uses
+          const key = `${name}-${doId.toString()}`
+          if (!mockStubs.has(key)) {
+            mockStubs.set(key, {
+              fetch: vi.fn()
+            })
           }
-          return 'success after retries'
-        }, { retries: 5 })
+          return mockStubs.get(key)
+        })
+      } as unknown as DurableObjectNamespace
+    }
 
-        return { value, attempts }
-      })
+    env = {
+      Customer: createMockNamespace('Customer'),
+      Worker: createMockNamespace('Worker'),
+      Order: createMockNamespace('Order'),
+    }
 
-      expect(result.value).toBe('success after retries')
-      expect(result.attempts).toBe(3)
+    $ = createContext(mockState, env)
+  })
+
+  describe('DO stub access', () => {
+    it('should create typed DO stub via $.Customer(id)', () => {
+      const customer = $.Customer('user-123')
+
+      expect(customer).toBeDefined()
+      expect(env.Customer?.idFromName).toHaveBeenCalledWith('user-123')
     })
 
-    it('should fire-and-forget with $.send()', async () => {
-      const stub = getTestDO()
+    it('should support multiple DO types', () => {
+      const customer = $.Customer('user-123')
+      const worker = $.Worker('worker-1')
+      const order = $.Order('order-456')
 
-      const result = await runInDurableObject(stub, async (instance: DO) => {
-        const $ = (instance as any).$
-        let received = false
+      expect(customer).toBeDefined()
+      expect(worker).toBeDefined()
+      expect(order).toBeDefined()
+      expect(env.Customer?.idFromName).toHaveBeenCalledWith('user-123')
+      expect(env.Worker?.idFromName).toHaveBeenCalledWith('worker-1')
+      expect(env.Order?.idFromName).toHaveBeenCalledWith('order-456')
+    })
 
-        $.on.Task.queued(() => {
-          received = true
+    it('should cache stub instances for same ID', () => {
+      const customer1 = $.Customer('user-123')
+      const customer2 = $.Customer('user-123')
+
+      // Should be the same cached instance
+      expect(customer1).toBe(customer2)
+      // idFromName should only be called once
+      expect(env.Customer?.idFromName).toHaveBeenCalledTimes(1)
+    })
+
+    it('should create different stubs for different IDs', () => {
+      const customer1 = $.Customer('user-123')
+      const customer2 = $.Customer('user-456')
+
+      expect(customer1).not.toBe(customer2)
+      expect(env.Customer?.idFromName).toHaveBeenCalledTimes(2)
+    })
+
+    it('should throw if DO binding does not exist', () => {
+      const $ = createContext(mockState, {}) // No DO bindings
+
+      expect(() => $.Customer('user-123')).toThrow(/Customer.*not found/i)
+    })
+  })
+
+  describe('Remote method calls', () => {
+    it('should call remote method via RPC', async () => {
+      const mockResponse = { id: 'user-123', name: 'Alice', notified: true }
+
+      // Get the stub by calling $.Customer first (which creates the stub in the map)
+      const customer = $.Customer('user-123')
+
+      // Now retrieve it from mockStubs to configure mock
+      const stub = mockStubs.get('Customer-user-123')!
+      stub.fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockResponse)
+      })
+
+      const result = await customer.notify({ message: 'Hello' })
+
+      expect(stub.fetch).toHaveBeenCalledWith(
+        'https://do/rpc',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            method: 'notify',
+            args: [{ message: 'Hello' }]
+          })
+        })
+      )
+      expect(result).toEqual(mockResponse)
+    })
+
+    it('should handle methods with multiple arguments', async () => {
+      const worker = $.Worker('worker-1')
+      const stub = mockStubs.get('Worker-worker-1')!
+      stub.fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ jobId: 'job-123' })
+      })
+
+      const result = await worker.run('process-data', { batchSize: 100 }, { priority: 'high' })
+
+      expect(stub.fetch).toHaveBeenCalledWith(
+        'https://do/rpc',
+        expect.objectContaining({
+          body: JSON.stringify({
+            method: 'run',
+            args: ['process-data', { batchSize: 100 }, { priority: 'high' }]
+          })
+        })
+      )
+      expect(result).toEqual({ jobId: 'job-123' })
+    })
+
+    it('should handle methods with no arguments', async () => {
+      const customer = $.Customer('user-123')
+      const stub = mockStubs.get('Customer-user-123')!
+      stub.fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ balance: 1000 })
+      })
+
+      const result = await customer.getBalance()
+
+      expect(stub.fetch).toHaveBeenCalledWith(
+        'https://do/rpc',
+        expect.objectContaining({
+          body: JSON.stringify({ method: 'getBalance', args: [] })
+        })
+      )
+      expect(result).toEqual({ balance: 1000 })
+    })
+
+    it('should propagate errors from remote DO', async () => {
+      const customer = $.Customer('user-123')
+      const stub = mockStubs.get('Customer-user-123')!
+      stub.fetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: 'Internal error' })
+      })
+
+      await expect(customer.notify({ message: 'Test' }))
+        .rejects.toThrow(/DO RPC error: 500/i)
+    })
+
+    it('should handle JSON serialization errors gracefully', async () => {
+      const customer = $.Customer('user-123')
+      const stub = mockStubs.get('Customer-user-123')!
+      stub.fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.reject(new Error('Invalid JSON'))
+      })
+
+      await expect(customer.getData())
+        .rejects.toThrow('Invalid JSON')
+    })
+  })
+
+  describe('Type safety', () => {
+    it('should support typed DO interfaces', async () => {
+      interface CustomerDO {
+        notify(params: { message: string }): Promise<{ notified: boolean }>
+        getBalance(): Promise<{ balance: number }>
+      }
+
+      const customer = $.Customer('user-123') as CustomerDO
+      const stub = mockStubs.get('Customer-user-123')!
+      stub.fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ notified: true })
+      })
+
+      const result = await customer.notify({ message: 'Hello' })
+
+      expect(result.notified).toBe(true)
+    })
+  })
+
+  describe('Concurrent calls', () => {
+    it('should handle multiple concurrent calls to same DO', async () => {
+      const customer = $.Customer('user-123')
+      const stub = mockStubs.get('Customer-user-123')!
+
+      stub.fetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ result: 'call1' })
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ result: 'call2' })
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ result: 'call3' })
         })
 
-        // Fire and forget - returns immediately
-        $.send({ type: 'Task.queued', payload: { taskId: 't-1' } })
+      const [r1, r2, r3] = await Promise.all([
+        customer.method1(),
+        customer.method2(),
+        customer.method3(),
+      ])
 
-        // Wait for async processing
-        await new Promise(r => setTimeout(r, 10))
+      expect(r1).toEqual({ result: 'call1' })
+      expect(r2).toEqual({ result: 'call2' })
+      expect(r3).toEqual({ result: 'call3' })
+      expect(stub.fetch).toHaveBeenCalledTimes(3)
+    })
 
-        return received
+    it('should handle concurrent calls to different DOs', async () => {
+      const customer = $.Customer('user-123')
+      const worker = $.Worker('worker-1')
+      const order = $.Order('order-456')
+
+      const customerStub = mockStubs.get('Customer-user-123')!
+      const workerStub = mockStubs.get('Worker-worker-1')!
+      const orderStub = mockStubs.get('Order-order-456')!
+
+      customerStub.fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ type: 'customer' })
+      })
+      workerStub.fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ type: 'worker' })
+      })
+      orderStub.fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ type: 'order' })
       })
 
-      expect(result).toBe(true)
+      const [c, w, o] = await Promise.all([
+        customer.getData(),
+        worker.getData(),
+        order.getData(),
+      ])
+
+      expect(c).toEqual({ type: 'customer' })
+      expect(w).toEqual({ type: 'worker' })
+      expect(o).toEqual({ type: 'order' })
     })
   })
 
-  describe('Context state isolation', () => {
-    it('should maintain separate handler maps per context', async () => {
-      const stub1 = getTestDO('context-1-' + generateTestId())
-      const stub2 = getTestDO('context-2-' + generateTestId())
+  describe('Integration with workflow context', () => {
+    it('should work alongside event handlers', async () => {
+      // Register event handler
+      const handler = vi.fn()
+      $.on.Customer.created(handler)
 
-      // Register handler in first DO
-      const handlers1 = await runInDurableObject(stub1, async (instance: DO) => {
-        const $ = (instance as any).$
-        $.on.Test.event(() => {})
-        return $._handlers.size
+      // Make cross-DO call
+      const customer = $.Customer('user-123')
+      const stub = mockStubs.get('Customer-user-123')!
+      stub.fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ created: true })
       })
 
-      // Check second DO has no handlers
-      const handlers2 = await runInDurableObject(stub2, async (instance: DO) => {
-        const $ = (instance as any).$
-        return $._handlers.size
-      })
+      await customer.create({ name: 'Alice' })
 
-      expect(handlers1).toBeGreaterThan(0)
-      expect(handlers2).toBe(0)
+      // Emit event
+      $.send({ type: 'Customer.created', payload: { id: 'user-123' } })
+
+      await new Promise(r => setTimeout(r, 50))
+      expect(handler).toHaveBeenCalled()
+      expect(stub.fetch).toHaveBeenCalled()
     })
 
-    it('should maintain separate schedule maps per context', async () => {
-      const stub1 = getTestDO('schedule-1-' + generateTestId())
-      const stub2 = getTestDO('schedule-2-' + generateTestId())
+    it('should work within $.do() for retries', async () => {
+      const customer = $.Customer('user-123')
+      const stub = mockStubs.get('Customer-user-123')!
+      let attempts = 0
 
-      // Register schedule in first DO
-      const schedules1 = await runInDurableObject(stub1, async (instance: DO) => {
-        const $ = (instance as any).$
-        $.every.hour(async () => {})
-        $.every.day(async () => {})
-        return $._schedules.size
-      })
-
-      // Check second DO has no schedules
-      const schedules2 = await runInDurableObject(stub2, async (instance: DO) => {
-        const $ = (instance as any).$
-        return $._schedules.size
-      })
-
-      expect(schedules1).toBe(2)
-      expect(schedules2).toBe(0)
-    })
-  })
-
-  describe('Context initialization', () => {
-    it('should initialize context with state and env', async () => {
-      const stub = getTestDO()
-
-      const hasValidContext = await runInDurableObject(stub, async (instance: DO) => {
-        const $ = (instance as any).$
-
-        // Check that all expected properties exist
-        return {
-          hasHandlers: $._handlers instanceof Map,
-          hasSchedules: $._schedules instanceof Map,
-          hasOnProxy: typeof $.on === 'object',
-          // $.every is a function that returns a proxy for schedule DSL
-          hasEveryProxy: typeof $.every === 'function',
+      stub.fetch.mockImplementation(() => {
+        attempts++
+        if (attempts < 2) {
+          return Promise.resolve({
+            ok: false,
+            status: 500
+          })
         }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true })
+        })
       })
 
-      expect(hasValidContext.hasHandlers).toBe(true)
-      expect(hasValidContext.hasSchedules).toBe(true)
-      expect(hasValidContext.hasOnProxy).toBe(true)
-      expect(hasValidContext.hasEveryProxy).toBe(true)
+      const result = await $.do(async () => {
+        const res = await customer.process()
+        if (!res.success) throw new Error('Failed')
+        return res
+      }, { retries: 3 })
+
+      expect(result).toEqual({ success: true })
+      expect(attempts).toBeGreaterThanOrEqual(2)
     })
   })
 
-  describe('Schedule DSL variations', () => {
-    it('should support $.every(n).minutes syntax', async () => {
-      const stub = getTestDO()
+  describe('Stub caching behavior', () => {
+    it('should maintain separate caches for different DO types', () => {
+      const customer = $.Customer('123')
+      const worker = $.Worker('123')
 
-      const interval = await runInDurableObject(stub, async (instance: DO) => {
-        const $ = (instance as any).$
-
-        $.every(5).minutes(async () => {})
-
-        const schedules = Array.from($._schedules.values())
-        return schedules[0]?.interval
-      })
-
-      expect(interval?.type).toBe('minute')
-      expect(interval?.value).toBe(5)
+      expect(customer).not.toBe(worker)
+      expect(env.Customer?.idFromName).toHaveBeenCalledWith('123')
+      expect(env.Worker?.idFromName).toHaveBeenCalledWith('123')
     })
 
-    it('should support $.every.Monday syntax', async () => {
-      const stub = getTestDO()
+    it('should not interfere with other $ methods', () => {
+      // Ensure Customer() doesn't interfere with on, send, do, try, every
+      expect($.on).toBeDefined()
+      expect(typeof $.send).toBe('function')
+      expect(typeof $.do).toBe('function')
+      expect(typeof $.try).toBe('function')
+      expect($.every).toBeDefined()
 
-      const interval = await runInDurableObject(stub, async (instance: DO) => {
-        const $ = (instance as any).$
+      const customer = $.Customer('123')
 
-        $.every.Monday(async () => {})
+      // These should still work
+      expect($.on).toBeDefined()
+      expect(typeof $.send).toBe('function')
+      expect(customer).toBeDefined()
+    })
+  })
 
-        const schedules = Array.from($._schedules.values())
-        return schedules[0]?.interval
-      })
+  describe('Error handling', () => {
+    it('should provide clear error for missing DO binding', () => {
+      const $ = createContext(mockState, {})
 
-      expect(interval?.expression).toBe('0 0 * * 1')
+      expect(() => $.NonExistent('id-123')).toThrow(/NonExistent/)
     })
 
-    it('should support $.every.weekday.at8am syntax', async () => {
-      const stub = getTestDO()
+    it('should handle network errors gracefully', async () => {
+      const customer = $.Customer('user-123')
+      const stub = mockStubs.get('Customer-user-123')!
+      stub.fetch.mockRejectedValueOnce(new Error('Network error'))
 
-      const interval = await runInDurableObject(stub, async (instance: DO) => {
-        const $ = (instance as any).$
+      await expect(customer.getData())
+        .rejects.toThrow('Network error')
+    })
 
-        $.every.weekday.at8am(async () => {})
+    it('should preserve error stack traces', async () => {
+      const customer = $.Customer('user-123')
+      const stub = mockStubs.get('Customer-user-123')!
+      const originalError = new Error('Remote error')
 
-        const schedules = Array.from($._schedules.values())
-        return schedules[0]?.interval
+      stub.fetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: () => Promise.resolve({ error: originalError.message })
       })
 
-      expect(interval?.expression).toBe('0 8 * * 1-5')
+      try {
+        await customer.failingMethod()
+        expect.fail('Should have thrown')
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error)
+        expect((error as Error).stack).toBeDefined()
+      }
     })
   })
 })

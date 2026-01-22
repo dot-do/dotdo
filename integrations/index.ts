@@ -31,24 +31,26 @@ export {
   type IntegrationSummary,
 } from './registry'
 
-// Webhook verification utilities
+// Example integrations
 export {
-  verifyStripeSignature,
-  verifySendGridSignature,
-  verifyTwilioSignature,
-  verifyHmacSignature,
-  parseStripeSignature,
-  type StripeSignatureParts,
-} from './webhook-verify'
+  StripeIntegration,
+  createStripeIntegration,
+  type StripeConfig,
+  type StripeCustomer,
+  type StripePaymentIntent,
+  type StripeSubscription,
+  type StripeMethods,
+} from './stripe'
 
-// Circuit breaker for resilient integrations
 export {
-  CircuitState,
-  CircuitBreakerIntegration,
-  IntegrationCircuitBreakerRegistry,
-  createCircuitBreakerIntegration,
-  createIntegrationCircuitBreakerRegistry,
-  DEFAULT_CIRCUIT_BREAKER_CONFIG,
-  type CircuitStats,
-  type CircuitBreakerIntegrationConfig,
-} from './circuit-breaker'
+  SendGridIntegration,
+  createSendGridIntegration,
+  type SendGridConfig,
+  type EmailRecipient,
+  type EmailAttachment,
+  type SendEmailRequest,
+  type SendEmailResponse,
+  type SendGridContact,
+  type EmailStats,
+  type SendGridMethods,
+} from './sendgrid'

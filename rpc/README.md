@@ -1,56 +1,29 @@
 # @dotdo/rpc
 
-> Type-safe RPC for Cloudflare Workers and Durable Objects
+Cap'n Web RPC layer for dotdo. Type-safe remote procedure calls using Proxy-based method invocation.
 
-[![npm version](https://img.shields.io/npm/v/@dotdo/rpc.svg)](https://www.npmjs.com/package/@dotdo/rpc)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
+## Overview
 
-## The Problem
+`@dotdo/rpc` handles all communication patterns in dotdo:
+- Client → Worker
+- Worker → Worker
+- Worker → DO (Durable Object)
+- DO → Worker
+- DO → DO
 
-Calling between Workers and Durable Objects is verbose:
+Built on top of [Cap'n Web](https://capnweb.org), it provides a zero-config RPC solution with full TypeScript support.
 
-- **Fetch ceremony** - Every call requires URL construction, JSON serialization, response parsing
-- **No type safety** - TypeScript can't help you when everything is `fetch()` and `JSON.parse()`
-- **Manual error handling** - HTTP status codes, network errors, timeout handling for each call
-- **Lost intellisense** - No autocomplete, no method signatures, no refactoring support
-
-```typescript
-// Without RPC - painful
-const response = await stub.fetch(new Request('https://do/api/users/create', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ name: 'Alice', email: 'alice@example.com' })
-}))
-const data = await response.json()
-```
-
-## The Solution
-
-Call remote methods like local functions:
-
-```typescript
-import { createClient, createDOStub } from '@dotdo/rpc'
-
-// Type-safe client
-const client = createClient<MyAPI>({ url: 'https://api.example.com' })
-const user = await client.users.create({ name: 'Alice', email: 'alice@example.com' })
-
-// Type-safe DO stub
-const counter = createDOStub<CounterDO>(env.COUNTER, 'my-counter')
-const value = await counter.increment()
-```
-
-Full TypeScript support. Zero boilerplate.
-
-## Quick Start
-
-### Installation
+## Installation
 
 ```bash
 npm install @dotdo/rpc
 ```
 
-### Create an RPC Server
+## Quick Start
+
+### Server
+
+Create an RPC server that exposes methods via HTTP:
 
 ```typescript
 import { createServer } from '@dotdo/rpc'
@@ -61,10 +34,10 @@ const api = {
   },
   users: {
     async create(user: { name: string; email: string }) {
-      return { id: crypto.randomUUID(), ...user }
+      return { id: '123', ...user }
     },
     async list() {
-      return [{ id: '1', name: 'Alice' }]
+      return [{ id: '123', name: 'Alice' }]
     }
   }
 }
@@ -72,7 +45,9 @@ const api = {
 export default createServer({ target: api })
 ```
 
-### Create a Typed Client
+### Client
+
+Connect to the RPC server with full type safety:
 
 ```typescript
 import { createClient } from '@dotdo/rpc'
@@ -85,18 +60,106 @@ interface API {
   }
 }
 
-const client = createClient<API>({ url: 'https://my-worker.dev' })
+const client = createClient<API>({
+  url: 'https://my-worker.dev'
+})
 
-// Fully typed - autocomplete works!
+// Fully typed method calls
 const greeting = await client.greet('World')
-const user = await client.users.create({ name: 'Alice', email: 'alice@example.com' })
+const user = await client.users.create({
+  name: 'Alice',
+  email: 'alice@example.com'
+})
 ```
 
-## Features
+## API Reference
+
+### `createClient<T>(options)`
+
+Creates a typed proxy client that forwards method calls via RPC.
+
+**Options:**
+- `url` (string): Base URL of the RPC endpoint
+- `timeout` (number, optional): Request timeout in milliseconds (default: 30000)
+
+**Returns:** Typed proxy of type `T`
+
+**Example:**
+```typescript
+const client = createClient<MyAPI>({
+  url: 'https://api.example.com',
+  timeout: 10000
+})
+```
+
+### `createDOStub<T>(binding, id)`
+
+Creates a typed proxy for a Durable Object stub.
+
+**Parameters:**
+- `binding` (DurableObjectNamespace): The DO namespace binding
+- `id` (string | DurableObjectId): Either a string name or a DurableObjectId
+
+**Returns:** Typed proxy of type `T`
+
+**Example:**
+```typescript
+interface CounterDO {
+  increment(): Promise<number>
+  getValue(): Promise<number>
+}
+
+// In a Worker
+export default {
+  async fetch(request: Request, env: Env) {
+    const counter = createDOStub<CounterDO>(env.COUNTER, 'my-counter')
+    const value = await counter.increment()
+    return new Response(`Count: ${value}`)
+  }
+}
+```
+
+### `createServer(options)`
+
+Creates an RPC server using Hono that exposes methods via HTTP.
+
+**Options:**
+- `target` (object): Object containing methods to expose
+
+**Returns:** Hono app instance
+
+**Example:**
+```typescript
+const server = createServer({
+  target: {
+    async hello() { return 'world' }
+  }
+})
+```
+
+### `createWorkerFromTarget(target)`
+
+Convenience helper to create a Cloudflare Worker from a target object.
+
+**Parameters:**
+- `target` (object): Object containing methods to expose
+
+**Returns:** Worker-compatible object with `fetch` method
+
+**Example:**
+```typescript
+export default createWorkerFromTarget({
+  async greet(name: string) {
+    return `Hello, ${name}!`
+  }
+})
+```
+
+## Advanced Usage
 
 ### Nested APIs
 
-Support for arbitrary nesting depth:
+The proxy supports arbitrary nesting:
 
 ```typescript
 const client = createClient<{
@@ -112,38 +175,14 @@ const client = createClient<{
 const orders = await client.v1.customers.orders.list('customer-123')
 ```
 
-### Durable Object Stubs
-
-Type-safe DO communication:
-
-```typescript
-import { createDOStub } from '@dotdo/rpc'
-
-interface CounterDO {
-  increment(): Promise<number>
-  getValue(): Promise<number>
-  reset(): Promise<void>
-}
-
-export default {
-  async fetch(request: Request, env: Env) {
-    const counter = createDOStub<CounterDO>(env.COUNTER, 'global')
-    const value = await counter.increment()
-    return new Response(`Count: ${value}`)
-  }
-}
-```
-
 ### Error Handling
-
-Structured error propagation:
 
 ```typescript
 try {
-  await client.users.delete('non-existent')
+  await client.someMethod()
 } catch (error) {
   if (error.message.includes('RPC error: 404')) {
-    console.error('User not found')
+    console.error('Method not found')
   } else if (error.message.includes('RPC error: 500')) {
     console.error('Server error')
   }
@@ -152,8 +191,6 @@ try {
 
 ### Custom Timeout
 
-Configure request timeouts:
-
 ```typescript
 const client = createClient<API>({
   url: 'https://slow-api.example.com',
@@ -161,63 +198,28 @@ const client = createClient<API>({
 })
 ```
 
-## API Reference
+## How It Works
 
-### `createClient<T>(options)`
+### Client Side
 
-Creates a typed proxy client for RPC calls.
+The client uses JavaScript Proxies to intercept method calls and convert them to RPC requests:
 
-```typescript
-interface ClientOptions {
-  url: string        // Base URL of the RPC endpoint
-  timeout?: number   // Request timeout in ms (default: 30000)
-}
+1. Property access builds a path (e.g., `users.create` → `["users", "create"]`)
+2. Function call triggers a POST to `/rpc` with `{ method: "users.create", args: [...] }`
+3. Response is automatically parsed and returned
 
-const client = createClient<MyAPI>({
-  url: 'https://api.example.com',
-  timeout: 10000
-})
-```
+### Server Side
 
-### `createDOStub<T>(binding, id)`
+The server receives RPC requests and dispatches them to the target object:
 
-Creates a typed proxy for a Durable Object stub.
+1. Parses incoming `{ method, args }` from request body
+2. Navigates the method path on the target object
+3. Calls the function with provided arguments
+4. Returns JSON-serialized result
 
-```typescript
-const stub = createDOStub<MyDO>(
-  env.MY_DO,           // DurableObjectNamespace binding
-  'instance-id'        // String name or DurableObjectId
-)
-```
+### Protocol
 
-### `createServer(options)`
-
-Creates an RPC server using Hono.
-
-```typescript
-const server = createServer({
-  target: {
-    async hello() { return 'world' }
-  }
-})
-```
-
-### `createWorkerFromTarget(target)`
-
-Convenience helper for Worker creation.
-
-```typescript
-export default createWorkerFromTarget({
-  async greet(name: string) {
-    return `Hello, ${name}!`
-  }
-})
-```
-
-## Protocol
-
-### Request Format
-
+**Request:**
 ```json
 POST /rpc
 {
@@ -226,8 +228,7 @@ POST /rpc
 }
 ```
 
-### Response Format
-
+**Response:**
 ```json
 {
   "id": "123",
@@ -236,26 +237,80 @@ POST /rpc
 }
 ```
 
+## TypeScript Support
+
+Full type safety with TypeScript generics:
+
+```typescript
+// Define your API interface
+interface MyAPI {
+  greet(name: string): Promise<string>
+  add(a: number, b: number): Promise<number>
+}
+
+// Client is fully typed
+const client = createClient<MyAPI>({ url: '...' })
+
+// TypeScript knows these are valid
+await client.greet('World')  // ✓
+await client.add(1, 2)       // ✓
+
+// TypeScript catches errors
+await client.greet(123)      // ✗ Type error
+await client.unknown()       // ✗ Type error
+```
+
 ## Examples
 
 ### Worker-to-Worker RPC
 
 ```typescript
-// worker-1.ts (server)
+// worker-1.ts
 export default createWorkerFromTarget({
   async processData(data: string) {
     return data.toUpperCase()
   }
 })
 
-// worker-2.ts (client)
+// worker-2.ts
 export default {
   async fetch(request: Request, env: Env) {
     const worker1 = createClient<{ processData(data: string): Promise<string> }>({
       url: 'https://worker-1.example.workers.dev'
     })
+
     const result = await worker1.processData('hello')
     return new Response(result) // "HELLO"
+  }
+}
+```
+
+### Worker-to-DO Communication
+
+```typescript
+// counter-do.ts
+export class CounterDO {
+  private count = 0
+
+  async increment() {
+    return ++this.count
+  }
+
+  async getValue() {
+    return this.count
+  }
+}
+
+// worker.ts
+export default {
+  async fetch(request: Request, env: Env) {
+    const counter = createDOStub<{
+      increment(): Promise<number>
+      getValue(): Promise<number>
+    }>(env.COUNTER, 'global')
+
+    const value = await counter.increment()
+    return new Response(`Count: ${value}`)
   }
 }
 ```
@@ -263,90 +318,27 @@ export default {
 ### DO-to-DO Communication
 
 ```typescript
+// In a Durable Object
 import { createDOStub } from '@dotdo/rpc'
 
 export class OrderDO {
-  constructor(private state: DurableObjectState, private env: Env) {}
-
   async ship(orderId: string) {
     // Call another DO
     const inventory = createDOStub<InventoryDO>(
       this.env.INVENTORY,
       'warehouse-1'
     )
+
     await inventory.decrementStock(orderId)
     return { status: 'shipped' }
   }
 }
 ```
 
-### Full API Example
-
-```typescript
-// types.ts
-export interface MyAPI {
-  health(): Promise<{ status: string }>
-  users: {
-    get(id: string): Promise<User | null>
-    create(input: CreateUserInput): Promise<User>
-    update(id: string, input: UpdateUserInput): Promise<User>
-    delete(id: string): Promise<boolean>
-    list(options?: ListOptions): Promise<User[]>
-  }
-  orders: {
-    place(input: OrderInput): Promise<Order>
-    getStatus(id: string): Promise<OrderStatus>
-  }
-}
-
-// server.ts
-const api: MyAPI = {
-  async health() {
-    return { status: 'ok' }
-  },
-  users: {
-    async get(id) { /* ... */ },
-    async create(input) { /* ... */ },
-    async update(id, input) { /* ... */ },
-    async delete(id) { /* ... */ },
-    async list(options) { /* ... */ }
-  },
-  orders: {
-    async place(input) { /* ... */ },
-    async getStatus(id) { /* ... */ }
-  }
-}
-
-export default createServer({ target: api })
-
-// client.ts
-const client = createClient<MyAPI>({ url: 'https://api.example.com' })
-const user = await client.users.create({ name: 'Alice', email: 'alice@example.com' })
-const order = await client.orders.place({ userId: user.id, items: [...] })
-```
-
-## How It Works
-
-### Client Side
-
-1. Property access builds a method path (`users.create` -> `["users", "create"]`)
-2. Function call triggers POST to `/rpc` with `{ method, args }`
-3. Response is parsed and returned
-
-### Server Side
-
-1. Parses incoming `{ method, args }` from request body
-2. Navigates method path on target object
-3. Calls function with provided arguments
-4. Returns JSON-serialized result
-
 ## Related Packages
 
-| Package | Description |
-|---------|-------------|
-| [@dotdo/do](/do) | Durable Object with built-in RPC support |
-| [@dotdo/api](/api) | Self-describing Hono API |
-| [@dotdo/db](/db) | Abstract storage layer |
+- [@dotdo/do](/do) - Durable Object base class with built-in RPC support
+- [@dotdo/api](/api) - Self-describing API layer built on RPC
 
 ## License
 

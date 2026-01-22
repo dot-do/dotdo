@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createThingsStore, type Thing, type ThingsStore } from '../things'
-import { DbValidationError, DbNotFoundError } from '../errors'
 
 describe('Things Store', () => {
   let store: ThingsStore
@@ -22,8 +21,7 @@ describe('Things Store', () => {
 
     it('should require $type', async () => {
       // Intentionally passing invalid input to test runtime validation
-      // Validation now throws DbValidationError with detailed message
-      await expect(store.create({ name: 'Alice' } as unknown as { $type: string })).rejects.toThrow(DbValidationError)
+      await expect(store.create({ name: 'Alice' } as unknown as { $type: string })).rejects.toThrow('$type is required')
     })
 
     it('should generate unique IDs for each thing', async () => {
@@ -75,32 +73,32 @@ describe('Things Store', () => {
       expect(updated.$updatedAt).toBeGreaterThanOrEqual(created.$updatedAt)
     })
 
-    it('should throw DbNotFoundError for non-existent thing', async () => {
-      await expect(store.update('non-existent', { name: 'Bob' })).rejects.toThrow(DbNotFoundError)
+    it('should throw for non-existent thing', async () => {
+      await expect(store.update('non-existent', { name: 'Bob' })).rejects.toThrow('Thing not found')
     })
 
     it('should not allow changing $id', async () => {
       const created = await store.create({ $type: 'Customer', name: 'Alice' })
-      // Intentionally passing invalid update - validation now throws instead of silently ignoring
-      await expect(
-        store.update(created.$id, { $id: 'new-id' } as unknown as Partial<Thing>)
-      ).rejects.toThrow(DbValidationError)
+      // Intentionally passing invalid update to test that $id is protected
+      const updated = await store.update(created.$id, { $id: 'new-id' } as unknown as Partial<Thing>)
+
+      expect(updated.$id).toBe(created.$id)
     })
 
     it('should not allow changing $type', async () => {
       const created = await store.create({ $type: 'Customer', name: 'Alice' })
-      // Intentionally passing invalid update - validation now throws instead of silently ignoring
-      await expect(
-        store.update(created.$id, { $type: 'Order' } as unknown as Partial<Thing>)
-      ).rejects.toThrow(DbValidationError)
+      // Intentionally passing invalid update to test that $type is protected
+      const updated = await store.update(created.$id, { $type: 'Order' } as unknown as Partial<Thing>)
+
+      expect(updated.$type).toBe('Customer')
     })
 
     it('should not allow changing $createdAt', async () => {
       const created = await store.create({ $type: 'Customer', name: 'Alice' })
-      // Intentionally passing invalid update - validation now throws instead of silently ignoring
-      await expect(
-        store.update(created.$id, { $createdAt: 0 } as unknown as Partial<Thing>)
-      ).rejects.toThrow(DbValidationError)
+      // Intentionally passing invalid update to test that $createdAt is protected
+      const updated = await store.update(created.$id, { $createdAt: 0 } as unknown as Partial<Thing>)
+
+      expect(updated.$createdAt).toBe(created.$createdAt)
     })
 
     it('should preserve unmodified properties', async () => {
@@ -120,8 +118,8 @@ describe('Things Store', () => {
       expect(result).toBeNull()
     })
 
-    it('should throw DbNotFoundError for non-existent thing', async () => {
-      await expect(store.delete('non-existent')).rejects.toThrow(DbNotFoundError)
+    it('should throw for non-existent thing', async () => {
+      await expect(store.delete('non-existent')).rejects.toThrow('Thing not found')
     })
   })
 
@@ -175,22 +173,17 @@ describe('Things Store', () => {
     })
 
     it('should sort by createdAt descending (newest first)', async () => {
-      // Use longer delays to ensure different timestamps
       const first = await store.create({ $type: 'Item', name: 'first' })
-      await new Promise(resolve => setTimeout(resolve, 10))
+      await new Promise(resolve => setTimeout(resolve, 1))
       const second = await store.create({ $type: 'Item', name: 'second' })
-      await new Promise(resolve => setTimeout(resolve, 10))
+      await new Promise(resolve => setTimeout(resolve, 1))
       const third = await store.create({ $type: 'Item', name: 'third' })
 
       const items = await store.list({ type: 'Item' })
 
-      // Verify ordering by checking the names (which indicate creation order)
-      expect(items[0].name).toBe('third')
-      expect(items[1].name).toBe('second')
-      expect(items[2].name).toBe('first')
-      // Also verify the createdAt timestamps are in descending order
-      expect(items[0].$createdAt).toBeGreaterThanOrEqual(items[1].$createdAt)
-      expect(items[1].$createdAt).toBeGreaterThanOrEqual(items[2].$createdAt)
+      expect(items[0].$id).toBe(third.$id)
+      expect(items[1].$id).toBe(second.$id)
+      expect(items[2].$id).toBe(first.$id)
     })
 
     it('should return empty array for non-existent type', async () => {
@@ -248,7 +241,7 @@ describe('Things Store', () => {
         // Intentionally passing invalid input to test atomic rollback
         { name: 'No Type' } as unknown as { $type: string }, // Missing $type
         { $type: 'Customer', name: 'Bob' }
-      ])).rejects.toThrow(DbValidationError)
+      ])).rejects.toThrow('$type is required')
 
       // Count after - should be unchanged (atomic rollback)
       const afterCount = (await store.list()).length
@@ -308,7 +301,7 @@ describe('Things Store', () => {
       await expect(store.bulkUpdate([
         { id: created[0].$id, data: { status: 'inactive' } },
         { id: 'non-existent', data: { status: 'inactive' } }
-      ])).rejects.toThrow(DbNotFoundError)
+      ])).rejects.toThrow('Thing not found')
 
       // Alice should be unchanged (atomic rollback)
       const alice = await store.get(created[0].$id)
@@ -320,18 +313,14 @@ describe('Things Store', () => {
         { $type: 'Customer', name: 'Alice' }
       ])
 
-      // Intentionally passing invalid updates - validation now throws instead of silently ignoring
-      await expect(
-        store.bulkUpdate([
-          { id: created[0].$id, data: { $id: 'new-id', $type: 'Order', $createdAt: 0 } as unknown as Partial<Thing> }
-        ])
-      ).rejects.toThrow(DbValidationError)
+      // Intentionally passing invalid updates to test that system fields are protected
+      const updated = await store.bulkUpdate([
+        { id: created[0].$id, data: { $id: 'new-id', $type: 'Order', $createdAt: 0 } as unknown as Partial<Thing> }
+      ])
 
-      // Verify the thing was not modified (atomic rollback)
-      const thing = await store.get(created[0].$id)
-      expect(thing?.$id).toBe(created[0].$id)
-      expect(thing?.$type).toBe('Customer')
-      expect(thing?.$createdAt).toBe(created[0].$createdAt)
+      expect(updated[0].$id).toBe(created[0].$id)
+      expect(updated[0].$type).toBe('Customer')
+      expect(updated[0].$createdAt).toBe(created[0].$createdAt)
     })
 
     it('should update $updatedAt for all modified things', async () => {
@@ -340,16 +329,15 @@ describe('Things Store', () => {
         { $type: 'Customer', name: 'Bob' }
       ])
 
-      // Use longer delay to ensure different timestamps
-      await new Promise(resolve => setTimeout(resolve, 10))
+      await new Promise(resolve => setTimeout(resolve, 1))
 
       const updated = await store.bulkUpdate([
         { id: created[0].$id, data: { name: 'Alice Updated' } },
         { id: created[1].$id, data: { name: 'Bob Updated' } }
       ])
 
-      expect(updated[0].$updatedAt).toBeGreaterThanOrEqual(created[0].$updatedAt)
-      expect(updated[1].$updatedAt).toBeGreaterThanOrEqual(created[1].$updatedAt)
+      expect(updated[0].$updatedAt).toBeGreaterThan(created[0].$updatedAt)
+      expect(updated[1].$updatedAt).toBeGreaterThan(created[1].$updatedAt)
     })
   })
 
@@ -382,7 +370,7 @@ describe('Things Store', () => {
       await expect(store.bulkDelete([
         created[0].$id,
         'non-existent'
-      ])).rejects.toThrow(DbNotFoundError)
+      ])).rejects.toThrow('Thing not found')
 
       // Alice should still exist (atomic rollback)
       expect(await store.get(created[0].$id)).not.toBeNull()
