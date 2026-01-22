@@ -71,7 +71,7 @@ export const workspaceAliases = {
   '@dotdo/integrations': resolve(root, 'integrations/index.ts'),
 
   // Business packages (including nested finance)
-  '@dotdo/business-finance': resolve(root, 'business/finance/index.ts'),
+  '@dotdo/finance': resolve(root, 'business/finance/index.ts'),
   '@dotdo/business': resolve(root, 'business/index.ts'),
 
   // Main package

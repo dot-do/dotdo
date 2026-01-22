@@ -247,8 +247,8 @@ dotdo is organized as a **monorepo** with 27+ internal packages. The v3 rewrite 
 | sdk.do | `sdk.do` | Unified SDK (rpc.do + oauth) | `rpc.do`, `@dotdo/oauth` |
 | platform.do | `platform.do` | Platform SDK with typed $ context | `sdk.do` |
 | dotdo | `dotdo` | Main CLI, re-exports all modules | ALL @dotdo/* packages, `rpc.do`, `commander`, `hono` |
-| business | `@dotdo/business` | Business-as-Code | `@dotdo/do`, `@dotdo/clickhouse`, `@dotdo/business-finance` |
-| business/finance | `@dotdo/business-finance` | Financial primitives | TBD |
+| business | `@dotdo/business` | Business-as-Code | `@dotdo/do`, `@dotdo/clickhouse`, `@dotdo/finance` |
+| business/finance | `@dotdo/finance` | Financial primitives | TBD |
 
 #### Tier 6: Testing
 

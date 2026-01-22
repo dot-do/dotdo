@@ -1,0 +1,8 @@
+{
+  "name": "@dotdo/iaas",
+  "version": "0.0.1",
+  "description": "IaaS patterns and utilities for dotdo",
+  "type": "module",
+  "main": "./index.ts",
+  "private": true
+}
