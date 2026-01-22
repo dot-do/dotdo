@@ -493,6 +493,9 @@ export class AutoTransport implements Transport {
 /**
  * Create an auto transport (convenience function)
  *
+ * @param options Configuration options for the auto transport
+ * @returns A new AutoTransport instance with the specified configuration
+ *
  * @example
  * ```typescript
  * const transport = createAutoTransport({
