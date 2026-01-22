@@ -106,6 +106,7 @@
     "@dotdo/do": "workspace:*",
     "@dotdo/mcp": "workspace:*",
     "@dotdo/rpc": "workspace:*",
+    "@dotdo/utils": "workspace:*",
     "rpc.do": "workspace:*",
     "commander": "^14.0.2",
     "hono": "^4.11.4"

@@ -397,6 +397,9 @@ importers:
       '@dotdo/rpc':
         specifier: workspace:*
         version: link:../rpc
+      '@dotdo/utils':
+        specifier: workspace:*
+        version: link:../utils
       commander:
         specifier: ^14.0.2
         version: 14.0.2
