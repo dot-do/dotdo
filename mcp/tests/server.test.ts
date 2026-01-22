@@ -69,7 +69,7 @@ describe('MCP Server', () => {
         name: 'add',
         description: 'Add two numbers',
         inputSchema: { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } } },
-        execute: async (params: unknown) => (params as { a: number; b: number }).a + (params as { a: number; b: number }).b
+        execute: async (params: any) => params.a + params.b
       })
     })
 

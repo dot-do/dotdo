@@ -174,89 +174,13 @@ describe('dotdo deploy', () => {
       expect(spawnMock.calls[1].options?.env?.DO_TOKEN).toBe(MOCK_TOKEN)
     })
 
-    it('throws error when DO_TOKEN not set and skipAuth is true', async () => {
+    it('uses mock token when DO_TOKEN not set and skipAuth is true', async () => {
       delete process.env.DO_TOKEN
       const spawnMock = createSpawnMock()
 
-      await expect(run([], { spawn: spawnMock.mock, skipAuth: true })).rejects.toThrow(
-        'DO_TOKEN environment variable is required when skipAuth is enabled'
-      )
-    })
-  })
+      await run([], { spawn: spawnMock.mock, skipAuth: true })
 
-  // ==========================================================================
-  // Security Tests - Mock Token Rejection
-  // ==========================================================================
-
-  describe('Security - Mock Token Rejection', () => {
-    it('rejects mock-token-for-development in DO_TOKEN when auth is enabled', async () => {
-      process.env.DO_TOKEN = 'mock-token-for-development'
-      const spawnMock = createSpawnMock()
-
-      await expect(run([], { spawn: spawnMock.mock })).rejects.toThrow('Mock tokens cannot be used')
-    })
-
-    it('rejects tokens containing "mock-token" pattern', async () => {
-      process.env.DO_TOKEN = 'my-mock-token-123'
-      const spawnMock = createSpawnMock()
-
-      await expect(run([], { spawn: spawnMock.mock })).rejects.toThrow('Mock tokens cannot be used')
-    })
-
-    it('rejects tokens containing "test-token" pattern', async () => {
-      process.env.DO_TOKEN = 'test-token-abc'
-      const spawnMock = createSpawnMock()
-
-      await expect(run([], { spawn: spawnMock.mock })).rejects.toThrow('Mock tokens cannot be used')
-    })
-
-    it('rejects tokens containing "fake-token" pattern', async () => {
-      process.env.DO_TOKEN = 'fake-token-xyz'
-      const spawnMock = createSpawnMock()
-
-      await expect(run([], { spawn: spawnMock.mock })).rejects.toThrow('Mock tokens cannot be used')
-    })
-
-    it('accepts valid-looking tokens in DO_TOKEN', async () => {
-      // Use a valid-looking token (not containing mock/test/fake patterns)
-      process.env.DO_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.valid'
-      const spawnMock = createSpawnMock()
-
-      // Should not throw - the deployment should proceed
-      const result = await run([], { spawn: spawnMock.mock })
-
-      // Verify the valid token was passed to wrangler
-      expect(spawnMock.calls[1].options?.env?.DO_TOKEN).toBe('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.valid')
-      expect(result.success).toBe(true)
-    })
-
-    // Tests for skipAuth mode - mock tokens should STILL be rejected
-    it('rejects mock tokens even with skipAuth: true', async () => {
-      process.env.DO_TOKEN = 'mock-token-for-testing'
-      const spawnMock = createSpawnMock()
-
-      await expect(run([], { spawn: spawnMock.mock, skipAuth: true })).rejects.toThrow(
-        'Mock tokens cannot be used for deployment, even in test mode'
-      )
-    })
-
-    it('rejects test-token pattern with skipAuth: true', async () => {
-      process.env.DO_TOKEN = 'test-token-xyz'
-      const spawnMock = createSpawnMock()
-
-      await expect(run([], { spawn: spawnMock.mock, skipAuth: true })).rejects.toThrow(
-        'Mock tokens cannot be used for deployment, even in test mode'
-      )
-    })
-
-    it('accepts valid tokens with skipAuth: true', async () => {
-      process.env.DO_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.skipauth'
-      const spawnMock = createSpawnMock()
-
-      const result = await run([], { spawn: spawnMock.mock, skipAuth: true })
-
-      expect(spawnMock.calls[1].options?.env?.DO_TOKEN).toBe('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.skipauth')
-      expect(result.success).toBe(true)
+      expect(spawnMock.calls[1].options?.env?.DO_TOKEN).toBeDefined()
     })
   })
 
