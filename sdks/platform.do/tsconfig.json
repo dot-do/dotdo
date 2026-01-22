@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "baseUrl": ".",
+    "paths": {
+      "sdk.do": ["../sdk.do/src/index.ts"],
+      "sdk.do/*": ["../sdk.do/src/*"],
+      "rpc.do": ["../rpc.do/src/index.ts"],
+      "rpc.do/*": ["../rpc.do/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "tests"]
+}

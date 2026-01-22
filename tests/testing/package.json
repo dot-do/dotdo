@@ -1,0 +1,48 @@
+{
+  "name": "@dotdo/testing",
+  "version": "0.0.1",
+  "description": "Test utilities and custom assertion helpers for dotdo entities",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./assertions": {
+      "types": "./dist/assertions.d.ts",
+      "import": "./dist/assertions.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "dotdo",
+    "testing",
+    "vitest",
+    "assertions",
+    "matchers"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "vitest": ">=1.0.0"
+  },
+  "dependencies": {
+    "@dotdo/ai": "workspace:*",
+    "@dotdo/db": "workspace:*",
+    "@dotdo/integrations": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "@types/node": "^22.15.27",
+    "typescript": "^5.7.3"
+  }
+}
