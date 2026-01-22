@@ -12,5 +12,6 @@
     "providers/**",
     "examples/**",
     "stubs/**"
-  ]
+  ],
+  "references": []
 }

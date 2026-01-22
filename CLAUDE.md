@@ -349,6 +349,40 @@ const healthRouter = new HealthAwareRouter({
 - `LoadBalancedRouter` - Load-aware routing (least-loaded, round-robin, weighted)
 - `HealthAwareRouter` - Health-aware routing with automatic failover
 
+## File Naming
+
+Follow these naming conventions for consistency across the codebase:
+
+| Element | Convention | Example |
+|---------|------------|---------|
+| **Files** | kebab-case | `stub-cache.ts`, `circuit-breaker.ts`, `rate-limit.ts` |
+| **Durable Object files** | PascalCase (matches class) | `DO.ts`, `BusinessDO.ts`, `AuthDO.ts` |
+| **Classes** | PascalCase | `StubCache`, `CircuitBreaker`, `RateLimiter` |
+| **Functions/variables** | camelCase | `getStubCache()`, `circuitState`, `rateLimitConfig` |
+| **Constants** | SCREAMING_SNAKE_CASE | `MAX_RETRIES`, `DEFAULT_TIMEOUT` |
+| **Type aliases/interfaces** | PascalCase | `StubCacheOptions`, `CircuitBreakerConfig` |
+
+**Examples from this codebase:**
+
+```typescript
+// File: rpc/stub-cache.ts
+export class StubCache {
+  private readonly maxSize: number
+  static readonly DEFAULT_MAX_SIZE = 1000
+}
+
+// File: do/BusinessDO.ts
+export class BusinessDO extends DurableObject {
+  // Durable Object class - file matches class name
+}
+
+// File: db/branded-types.ts
+export type ThingId = string & { readonly __brand: 'ThingId' }
+export function createThingId(value: string): ThingId { ... }
+```
+
+**Note:** Existing files that don't follow this convention should not be renamed to avoid breaking imports. Apply this standard to new files.
+
 ## Git Submodules
 
 The `primitives/` directory is a **git submodule** pointing to [primitives.org.ai](https://primitives.org.ai).
