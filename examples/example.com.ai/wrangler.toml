@@ -4,13 +4,12 @@
 name = "example-com-ai-parent"
 account_id = "b6641681fe423910342b9ffa1364c76d"
 main = "src/index.ts"
-compatibility_date = "2024-01-01"
+compatibility_date = "2026-01-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Production domain routing
+# Production domain routing - apex only, subdomains handled by other workers
 routes = [
-  { pattern = "example.com.ai/*", zone_name = "example.com.ai" },
-  { pattern = "*.example.com.ai/*", zone_name = "example.com.ai" }
+  { pattern = "example.com.ai/*", zone_name = "example.com.ai" }
 ]
 
 # Durable Objects configuration
