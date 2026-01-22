@@ -2,7 +2,7 @@
 // Tests the WebSocketTransport queue limit implementation following Red-Green-Refactor methodology
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { TransportState, type TransportEvent } from '../src/transport/types'
+import { TransportState, type TransportEvent } from '../transport/types'
 
 // ============================================================================
 // Mock WebSocket for Testing
@@ -120,7 +120,7 @@ describe('WebSocket Message Queue Bounds', () => {
 
   describe('queue size limits', () => {
     it('should reject messages when queue exceeds maxQueueSize', async () => {
-      const { WebSocketTransport } = await import('../src/transport/websocket')
+      const { WebSocketTransport } = await import('../transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.test.com',
@@ -151,7 +151,7 @@ describe('WebSocket Message Queue Bounds', () => {
     })
 
     it('should use default maxQueueSize of 100', async () => {
-      const { WebSocketTransport } = await import('../src/transport/websocket')
+      const { WebSocketTransport } = await import('../transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.test.com',
@@ -161,7 +161,7 @@ describe('WebSocket Message Queue Bounds', () => {
     })
 
     it('should allow configuring custom maxQueueSize', async () => {
-      const { WebSocketTransport } = await import('../src/transport/websocket')
+      const { WebSocketTransport } = await import('../transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.test.com',
@@ -178,7 +178,7 @@ describe('WebSocket Message Queue Bounds', () => {
 
   describe('queue overflow behavior', () => {
     it('should return error response when queue full (default)', async () => {
-      const { WebSocketTransport } = await import('../src/transport/websocket')
+      const { WebSocketTransport } = await import('../transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.test.com',
@@ -200,7 +200,7 @@ describe('WebSocket Message Queue Bounds', () => {
     })
 
     it('should support drop-oldest strategy', async () => {
-      const { WebSocketTransport } = await import('../src/transport/websocket')
+      const { WebSocketTransport } = await import('../transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.test.com',
@@ -222,7 +222,7 @@ describe('WebSocket Message Queue Bounds', () => {
     })
 
     it('should drop oldest message and resolve with error when using drop-oldest', async () => {
-      const { WebSocketTransport } = await import('../src/transport/websocket')
+      const { WebSocketTransport } = await import('../transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.test.com',
@@ -253,7 +253,7 @@ describe('WebSocket Message Queue Bounds', () => {
 
   describe('backpressure signals', () => {
     it('should emit backpressure event when queue nears limit', async () => {
-      const { WebSocketTransport } = await import('../src/transport/websocket')
+      const { WebSocketTransport } = await import('../transport/websocket')
 
       const events: TransportEvent[] = []
       const transport = new WebSocketTransport({
@@ -280,7 +280,7 @@ describe('WebSocket Message Queue Bounds', () => {
 
     it('should emit resume event when queue drains below threshold', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../src/transport/websocket')
+      const { WebSocketTransport } = await import('../transport/websocket')
 
       const events: TransportEvent[] = []
       const transport = new WebSocketTransport({
@@ -316,7 +316,7 @@ describe('WebSocket Message Queue Bounds', () => {
     })
 
     it('should use default backpressure threshold of 0.8', async () => {
-      const { WebSocketTransport } = await import('../src/transport/websocket')
+      const { WebSocketTransport } = await import('../transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.test.com',
@@ -333,7 +333,7 @@ describe('WebSocket Message Queue Bounds', () => {
 
   describe('queue metrics', () => {
     it('should expose current queue size', async () => {
-      const { WebSocketTransport } = await import('../src/transport/websocket')
+      const { WebSocketTransport } = await import('../transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.test.com',
@@ -352,7 +352,7 @@ describe('WebSocket Message Queue Bounds', () => {
     })
 
     it('should include queue info in getStateInfo()', async () => {
-      const { WebSocketTransport } = await import('../src/transport/websocket')
+      const { WebSocketTransport } = await import('../transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.test.com',
@@ -373,7 +373,7 @@ describe('WebSocket Message Queue Bounds', () => {
 
     it('should decrease queue size after messages are sent', async () => {
       vi.useFakeTimers()
-      const { WebSocketTransport } = await import('../src/transport/websocket')
+      const { WebSocketTransport } = await import('../transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.test.com',
@@ -405,7 +405,7 @@ describe('WebSocket Message Queue Bounds', () => {
 
   describe('memory safety', () => {
     it('should not allow queue to grow beyond maxQueueSize with default strategy', async () => {
-      const { WebSocketTransport } = await import('../src/transport/websocket')
+      const { WebSocketTransport } = await import('../transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.test.com',
@@ -435,7 +435,7 @@ describe('WebSocket Message Queue Bounds', () => {
     })
 
     it('should not allow queue to grow beyond maxQueueSize with drop-oldest strategy', async () => {
-      const { WebSocketTransport } = await import('../src/transport/websocket')
+      const { WebSocketTransport } = await import('../transport/websocket')
 
       const transport = new WebSocketTransport({
         url: 'wss://api.test.com',

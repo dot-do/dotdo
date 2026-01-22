@@ -8,7 +8,7 @@ import * as os from 'node:os'
 import { promises as fs } from 'node:fs'
 
 // Module under test (will be created in GREEN phase)
-import { LSPService, type LSPServiceOptions, type CompletionItem, type HoverInfo, type DiagnosticError, type SignatureInfo } from '../src/cli/lsp'
+import { LSPService, type LSPServiceOptions, type CompletionItem, type HoverInfo, type DiagnosticError, type SignatureInfo } from '../cli/lsp'
 
 // Sample type definitions for testing (simulates content of .do/$.d.ts)
 const SAMPLE_TYPES = `

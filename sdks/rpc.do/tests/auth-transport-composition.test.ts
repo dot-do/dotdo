@@ -3,8 +3,8 @@
 // Task: do-y5p2.6
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { Transport } from '../src/transport/types'
-import type { RPCMessage, RPCResponse } from '../src/types'
+import type { Transport } from '../transport/types'
+import type { RPCMessage, RPCResponse } from '../types'
 
 // ============================================================================
 // AuthTransport Composition (Decorator Pattern) Tests
@@ -33,7 +33,7 @@ describe('AuthTransport Composition', () => {
 
   describe('constructor', () => {
     it('should accept a wrapped transport (preferred API)', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
       const { FetchTransport } = await import('../src/transport/fetch')
 
       const baseTransport = new FetchTransport({ url: 'https://api.test.com' })
@@ -46,7 +46,7 @@ describe('AuthTransport Composition', () => {
     })
 
     it('should still accept url option for backward compatibility', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       const transport = new AuthTransport({
         url: 'https://api.test.com',
@@ -57,7 +57,7 @@ describe('AuthTransport Composition', () => {
     })
 
     it('should throw error if neither transport nor url is provided', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       expect(() => {
         new AuthTransport({
@@ -67,7 +67,7 @@ describe('AuthTransport Composition', () => {
     })
 
     it('should prefer transport option over url option when both are provided', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       const mockBaseTransport: Transport = {
         send: vi.fn().mockResolvedValue({ result: 'from-transport' }),
@@ -88,7 +88,7 @@ describe('AuthTransport Composition', () => {
 
   describe('send - delegation', () => {
     it('should delegate to wrapped transport with auth headers', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       const mockBaseTransport: Transport = {
         send: vi.fn().mockResolvedValue({ result: 'ok' }),
@@ -113,7 +113,7 @@ describe('AuthTransport Composition', () => {
     })
 
     it('should not add auth header when no token is available', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       mockTokenStore.getTokens.mockResolvedValue(null)
 
@@ -133,7 +133,7 @@ describe('AuthTransport Composition', () => {
     })
 
     it('should preserve existing message headers when adding auth', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       const mockBaseTransport: Transport = {
         send: vi.fn().mockResolvedValue({ result: 'ok' }),
@@ -158,7 +158,7 @@ describe('AuthTransport Composition', () => {
     })
 
     it('should return response from wrapped transport', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       const expectedResponse: RPCResponse<{ data: string }> = {
         result: { data: 'test-data' },
@@ -182,7 +182,7 @@ describe('AuthTransport Composition', () => {
 
   describe('401 retry with wrapped transport', () => {
     it('should retry with fresh token on 401 from wrapped transport', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       // First call returns 401 error
       const first401Response: RPCResponse<unknown> = {
@@ -251,7 +251,7 @@ describe('AuthTransport Composition', () => {
 
   describe('compose with different transports', () => {
     it('should compose with WebSocketTransport', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       // Mock WebSocket transport
       const mockWsTransport: Transport = {
@@ -272,7 +272,7 @@ describe('AuthTransport Composition', () => {
     })
 
     it('should compose with custom transport implementation', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       // Custom transport that transforms messages
       const customTransport: Transport = {
@@ -297,7 +297,7 @@ describe('AuthTransport Composition', () => {
 
   describe('backward compatibility', () => {
     it('should work with old URL-based API', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -327,7 +327,7 @@ describe('AuthTransport Composition', () => {
     })
 
     it('should work with all existing AuthTransport options', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -359,7 +359,7 @@ describe('AuthTransport Composition', () => {
 
   describe('proactive token refresh', () => {
     it('should proactively refresh expired token before delegating to transport', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       mockTokenStore.isTokenExpired.mockResolvedValue(true)
       mockTokenStore.getTokens
@@ -403,7 +403,7 @@ describe('AuthTransport Composition', () => {
 
   describe('state and lifecycle', () => {
     it('should delegate getState to wrapped transport if available', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
       const { TransportState } = await import('../src/transport/types')
 
       const mockBaseTransport: Transport = {
@@ -422,7 +422,7 @@ describe('AuthTransport Composition', () => {
     })
 
     it('should delegate close to wrapped transport if available', async () => {
-      const { AuthTransport } = await import('../src/auth/auth-transport')
+      const { AuthTransport } = await import('../auth/auth-transport')
 
       const mockBaseTransport: Transport = {
         send: vi.fn(),

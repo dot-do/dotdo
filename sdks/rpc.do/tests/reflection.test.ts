@@ -2,8 +2,8 @@
 // Tests reflection capabilities: _types(), _schema(), .md, and Symbol handlers
 
 import { describe, it, expect, vi } from 'vitest'
-import type { Transport } from '../src/transport/types'
-import type { RPCMessage, RPCResponse } from '../src/types'
+import type { Transport } from '../transport/types'
+import type { RPCMessage, RPCResponse } from '../types'
 
 // ============================================================================
 // Helper: Create a mock transport for testing

@@ -7,7 +7,7 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 
 // Module under test (will be created in GREEN phase)
-import { init, type InitOptions, type InitResult, type DoConfig } from '../src/cli/init'
+import { init, type InitOptions, type InitResult, type DoConfig } from '../cli/init'
 
 // ============================================================================
 // Helper: Create temp directory for testing file operations

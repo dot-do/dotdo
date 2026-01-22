@@ -8,8 +8,8 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 
 // Modules under test
-import { evalCommand, type EvalOptions } from '../src/cli/eval'
-import { pull } from '../src/cli/pull'
+import { evalCommand, type EvalOptions } from '../cli/eval'
+import { pull } from '../cli/pull'
 import {
   setLogLevel,
   getLogLevel,
@@ -17,7 +17,7 @@ import {
   LogLevel,
   createLogger,
   type Logger,
-} from '../src/cli/logger'
+} from '../cli/logger'
 
 // ============================================================================
 // Helper: Create temp directory for testing file operations

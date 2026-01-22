@@ -5,12 +5,12 @@
 // Code duplication refactored per do-1knp.4
 // Types moved to types.ts per do-stc2d.1 to break circular dependencies
 
-import type { JsonValue } from './types'
-import type { StorageAdapter } from './storage'
-import { generateEventId } from './id'
+import type { JsonValue } from '../utils/types'
+import type { StorageAdapter } from '../storage/storage'
+import { generateEventId } from '../utils/id'
 import { createLogger } from '../utils/logger'
-import { MemoryStorageAdapter } from './adapters/memory'
-import { applyCursorPagination } from './pagination'
+import { MemoryStorageAdapter } from '../adapters/memory'
+import { applyCursorPagination } from '../query/pagination'
 
 const logger = createLogger('[Events]')
 
@@ -23,7 +23,7 @@ export type {
   DLQEntry,
   EventQueryOptions,
   DurabilityConfig,
-} from './types'
+} from '../utils/types'
 
 // Import types for local use
 import type {
@@ -34,7 +34,7 @@ import type {
   DLQEntry,
   EventQueryOptions,
   DurabilityConfig,
-} from './types'
+} from '../utils/types'
 
 /**
  * Storage usage information

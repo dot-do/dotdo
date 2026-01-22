@@ -27,7 +27,7 @@ describe('TokenStore Security', () => {
 
   describe('file permissions', () => {
     it('should create tokens file with 0600 permissions (owner read/write only)', async () => {
-      const { TokenStore } = await import('../src/auth/token-store')
+      const { TokenStore } = await import('../auth/token-store')
 
       const tokenStore = new TokenStore(tokensPath)
       await tokenStore.saveTokens({
@@ -42,7 +42,7 @@ describe('TokenStore Security', () => {
     })
 
     it('should create directory with 0700 permissions (owner rwx only)', async () => {
-      const { TokenStore } = await import('../src/auth/token-store')
+      const { TokenStore } = await import('../auth/token-store')
 
       // Create a nested path to test directory creation
       const nestedDir = path.join(tempDir, 'nested', '.do')
@@ -61,7 +61,7 @@ describe('TokenStore Security', () => {
     })
 
     it('should maintain 0600 permissions when updating existing tokens', async () => {
-      const { TokenStore } = await import('../src/auth/token-store')
+      const { TokenStore } = await import('../auth/token-store')
 
       const tokenStore = new TokenStore(tokensPath)
 
@@ -87,7 +87,7 @@ describe('TokenStore Security', () => {
 
   describe('atomic writes', () => {
     it('should write atomically (no partial files on success)', async () => {
-      const { TokenStore } = await import('../src/auth/token-store')
+      const { TokenStore } = await import('../auth/token-store')
 
       const tokenStore = new TokenStore(tokensPath)
       await tokenStore.saveTokens({
@@ -105,7 +105,7 @@ describe('TokenStore Security', () => {
     })
 
     it('should not leave temp files after successful write', async () => {
-      const { TokenStore } = await import('../src/auth/token-store')
+      const { TokenStore } = await import('../auth/token-store')
 
       const tokenStore = new TokenStore(tokensPath)
       await tokenStore.saveTokens({
@@ -123,7 +123,7 @@ describe('TokenStore Security', () => {
 
   describe('error handling', () => {
     it('should throw descriptive error when reading invalid JSON', async () => {
-      const { TokenStore } = await import('../src/auth/token-store')
+      const { TokenStore } = await import('../auth/token-store')
 
       // Create a file with invalid JSON
       fs.writeFileSync(tokensPath, 'not valid json {{{')
@@ -133,7 +133,7 @@ describe('TokenStore Security', () => {
     })
 
     it('should throw descriptive error when reading malformed tokens', async () => {
-      const { TokenStore } = await import('../src/auth/token-store')
+      const { TokenStore } = await import('../auth/token-store')
 
       // Create a file with valid JSON but missing required fields
       fs.writeFileSync(tokensPath, JSON.stringify({ foo: 'bar' }))
@@ -143,7 +143,7 @@ describe('TokenStore Security', () => {
     })
 
     it('should include file path in error messages', async () => {
-      const { TokenStore } = await import('../src/auth/token-store')
+      const { TokenStore } = await import('../auth/token-store')
 
       // Create a file with invalid JSON
       fs.writeFileSync(tokensPath, 'invalid')
@@ -160,7 +160,7 @@ describe('TokenStore Security', () => {
     })
 
     it('should throw descriptive error when save fails due to permissions', async () => {
-      const { TokenStore } = await import('../src/auth/token-store')
+      const { TokenStore } = await import('../auth/token-store')
 
       // Skip on Windows where permission model is different
       if (process.platform === 'win32') {
@@ -191,7 +191,7 @@ describe('TokenStore Security', () => {
     })
 
     it('should return null for non-existent file (not throw)', async () => {
-      const { TokenStore } = await import('../src/auth/token-store')
+      const { TokenStore } = await import('../auth/token-store')
 
       const tokenStore = new TokenStore(path.join(tempDir, 'nonexistent.json'))
       const result = await tokenStore.getTokens()
@@ -202,7 +202,7 @@ describe('TokenStore Security', () => {
 
   describe('token validation', () => {
     it('should validate access_token is present', async () => {
-      const { TokenStore } = await import('../src/auth/token-store')
+      const { TokenStore } = await import('../auth/token-store')
 
       fs.writeFileSync(
         tokensPath,
@@ -217,7 +217,7 @@ describe('TokenStore Security', () => {
     })
 
     it('should validate refresh_token is present', async () => {
-      const { TokenStore } = await import('../src/auth/token-store')
+      const { TokenStore } = await import('../auth/token-store')
 
       fs.writeFileSync(
         tokensPath,
@@ -232,7 +232,7 @@ describe('TokenStore Security', () => {
     })
 
     it('should validate expires_at is a number', async () => {
-      const { TokenStore } = await import('../src/auth/token-store')
+      const { TokenStore } = await import('../auth/token-store')
 
       fs.writeFileSync(
         tokensPath,

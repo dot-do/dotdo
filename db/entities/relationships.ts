@@ -4,9 +4,9 @@
 // Branded types added per do-e3my
 // Types moved to types.ts per do-stc2d.1 to break circular dependencies
 
-import type { StorableData } from './types'
-import type { StorageAdapter } from './storage'
-import { applyCursorPagination } from './pagination'
+import type { StorableData } from '../utils/types'
+import type { StorageAdapter } from '../storage/storage'
+import { applyCursorPagination } from '../query/pagination'
 
 // Re-export types from types.ts for backward compatibility
 export type {
@@ -14,7 +14,7 @@ export type {
   Relationship,
   RelationshipInput,
   RelationshipQuery,
-} from './types'
+} from '../utils/types'
 
 // Import types for local use
 import type {
@@ -22,7 +22,7 @@ import type {
   Relationship,
   RelationshipInput,
   RelationshipQuery,
-} from './types'
+} from '../utils/types'
 
 /**
  * Cursor-based pagination result for relationships

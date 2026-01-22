@@ -5,16 +5,16 @@
 // Input validation added per do-c8s8
 // Types moved to types.ts per do-stc2d.1 to break circular dependencies
 
-import type { StorableData } from './types'
+import type { StorableData } from '../utils/types'
 import { createLogger } from '../utils/logger'
 
 // Create a scoped logger for Things store deprecation warnings (using local db logger)
 const logger = createLogger('[db/things]')
-import type { StorageAdapter } from './storage'
-import type { ThingId } from './branded-types'
-import { toThingId } from './branded-types'
-import { generateId } from './id'
-import { DbNotFoundError } from './errors'
+import type { StorageAdapter } from '../storage/storage'
+import type { ThingId } from '../utils/branded-types'
+import { toThingId } from '../utils/branded-types'
+import { generateId } from '../utils/id'
+import { DbNotFoundError } from '../utils/errors'
 import {
   validateThingInput,
   validateThingUpdate,
@@ -25,9 +25,9 @@ import {
   createValidationContext,
   type ValidationContext,
   type ValidationConfig,
-} from './validation'
-import { applyCursorPagination } from './pagination'
-import type { CursorPaginationOptions, CursorPaginatedResult } from './pagination'
+} from '../schema/validation'
+import { applyCursorPagination } from '../query/pagination'
+import type { CursorPaginationOptions, CursorPaginatedResult } from '../query/pagination'
 
 // Re-export types from types.ts for backward compatibility
 export type {
@@ -36,7 +36,7 @@ export type {
   ThingInput,
   ThingUpdate,
   BulkUpdateItem,
-} from './types'
+} from '../utils/types'
 
 // Import types for local use
 import type {
@@ -45,7 +45,7 @@ import type {
   ThingInput,
   ThingUpdate,
   BulkUpdateItem,
-} from './types'
+} from '../utils/types'
 
 /**
  * Cursor-based pagination result
