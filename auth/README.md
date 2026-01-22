@@ -1,57 +1,24 @@
 # @dotdo/auth
 
-> Lightweight authentication middleware for Hono
+Lightweight authentication middleware for Hono, designed for Cloudflare Workers and Durable Objects.
 
-[![npm version](https://img.shields.io/npm/v/@dotdo/auth.svg)](https://www.npmjs.com/package/@dotdo/auth)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
+## Overview
 
-## The Problem
+`@dotdo/auth` provides:
+- JWT Bearer token authentication
+- API key authentication
+- Role-based access control (RBAC)
+- Scope-based permissions
+- Composable permission guards
+- Resource ownership validation
 
-Adding authentication to Cloudflare Workers is tedious:
-
-- **JWT complexity** - Validating tokens, extracting claims, handling expiration
-- **Permission sprawl** - Roles, scopes, ownership checks scattered across routes
-- **Boilerplate everywhere** - The same auth checks repeated in every handler
-- **Testing friction** - Mocking auth state for tests is painful
-
-You end up with auth code duplicated across your codebase, each copy slightly different.
-
-## The Solution
-
-Composable auth middleware for Hono:
-
-```typescript
-import { authMiddleware, requireAuth, requireRole, requireScope } from '@dotdo/auth'
-
-const app = new Hono()
-
-// Apply auth globally
-app.use('/*', authMiddleware())
-
-// Protected routes
-app.get('/profile', requireAuth(), (c) => {
-  const user = c.get('user')
-  return c.json({ user })
-})
-
-// Role-based access
-app.delete('/users/:id', requireRole('admin'), (c) => {
-  return c.json({ deleted: true })
-})
-
-// Scope-based access
-app.get('/users', requireScope('users:read'), (c) => {
-  return c.json({ users: [] })
-})
-```
-
-## Quick Start
-
-### Installation
+## Installation
 
 ```bash
 npm install @dotdo/auth
 ```
+
+## Quick Start
 
 ### Basic Authentication
 
@@ -69,8 +36,6 @@ app.get('/profile', requireAuth(), (c) => {
   const user = c.get('user')
   return c.json({ user })
 })
-
-export default app
 ```
 
 ### With API Keys
@@ -89,12 +54,26 @@ app.get('/api/data', (c) => {
 })
 ```
 
-## Features
+## API Reference
 
-### JWT Bearer Authentication
+### Middleware
 
-Validate JWT tokens from the Authorization header:
+#### `authMiddleware(options?)`
 
+Main authentication middleware that validates JWT Bearer tokens.
+
+**Options:**
+```typescript
+interface AuthOptions {
+  issuer?: string         // JWT issuer to validate
+  audience?: string       // JWT audience to validate
+  secret?: string         // HMAC secret for validation
+  publicKey?: string      // RSA/ECDSA public key for validation
+  skipPaths?: string[]    // Paths to skip auth (e.g., ['/public'])
+}
+```
+
+**Example:**
 ```typescript
 app.use('/*', authMiddleware({
   issuer: 'https://auth.example.com',
@@ -103,131 +82,134 @@ app.use('/*', authMiddleware({
 }))
 ```
 
-### Role-Based Access Control
-
-Require specific roles to access routes:
-
-```typescript
-// Single role
-app.delete('/users/:id', requireRole('admin'), handler)
-
-// Multiple roles (OR logic - any role grants access)
-app.get('/dashboard', requireRole('admin', 'moderator'), handler)
-```
-
-### Scope-Based Permissions
-
-OAuth-style scope checking with wildcard support:
-
-```typescript
-// Exact scope
-app.get('/users', requireScope('users:read'), handler)
-
-// Multiple scopes (OR logic)
-app.post('/users', requireScope('users:write', 'users:admin'), handler)
-
-// Wildcard scopes
-// User with 'users:*' can access all users endpoints
-// User with '*' can access everything
-```
-
-### Ownership Validation
-
-Ensure users can only access their own resources:
-
-```typescript
-import { requireOwner } from '@dotdo/auth'
-
-app.get('/posts/:id', requireOwner(async (c) => {
-  const post = await db.getPost(c.req.param('id'))
-  return post.authorId  // Return the owner ID
-}), handler)
-
-// Admins bypass ownership checks automatically
-```
-
-### Composable Guards
-
-Combine guards with AND/OR logic:
-
-```typescript
-import { requireAll, requireAny } from '@dotdo/auth'
-
-// All guards must pass (AND)
-app.delete('/posts/:id',
-  requireAll(
-    requireAuth(),
-    requireRole('editor'),
-    requireScope('posts:delete')
-  ),
-  handler
-)
-
-// Any guard can pass (OR)
-app.get('/admin',
-  requireAny(
-    requireRole('admin'),
-    requireScope('admin:*')
-  ),
-  handler
-)
-```
-
-## API Reference
-
-### Middleware
-
-#### `authMiddleware(options?)`
-
-Main authentication middleware for JWT Bearer tokens.
-
-```typescript
-interface AuthOptions {
-  issuer?: string       // JWT issuer to validate
-  audience?: string     // JWT audience to validate
-  secret?: string       // HMAC secret for validation
-  publicKey?: string    // RSA/ECDSA public key
-  skipPaths?: string[]  // Paths to skip auth
-}
-```
-
-Sets context variables:
+**Sets context variables:**
 - `user` (AuthUser): Authenticated user object
 - `token` (string): Raw token string
 
+**AuthUser Interface:**
+```typescript
+interface AuthUser {
+  id: string           // User identifier (from 'sub' claim)
+  email?: string       // User email
+  roles?: string[]     // User roles (e.g., ['admin', 'user'])
+  scopes?: string[]    // OAuth-style scopes (e.g., ['users:read'])
+}
+```
+
 #### `apiKeyMiddleware(options?)`
 
-API key authentication from headers.
+Alternative authentication using API keys.
 
+**Options:**
 ```typescript
 interface APIKeyOptions {
   header?: string  // Header name (default: 'X-API-Key')
 }
 ```
 
-### Guards
-
-| Guard | Description |
-|-------|-------------|
-| `requireAuth()` | Ensures user is authenticated |
-| `requireRole(...roles)` | Requires one of the specified roles |
-| `requireScope(...scopes)` | Requires one of the specified scopes |
-| `requireOwner(getOwnerId)` | Validates resource ownership |
-| `requireAll(...guards)` | All guards must pass (AND) |
-| `requireAny(...guards)` | Any guard can pass (OR) |
-
-### AuthUser Interface
-
+**Example:**
 ```typescript
-interface AuthUser {
-  id: string           // User identifier (from 'sub' claim)
-  email?: string       // User email
-  roles?: string[]     // User roles (e.g., ['admin', 'user'])
-  scopes?: string[]    // OAuth scopes (e.g., ['users:read'])
-}
+app.use('/api/*', apiKeyMiddleware({ header: 'X-API-Key' }))
 ```
 
-## Examples
+### Guards
+
+Guards are composable middleware functions for permission checks.
+
+#### `requireAuth()`
+
+Ensures user is authenticated.
+
+```typescript
+app.get('/protected', requireAuth(), (c) => {
+  return c.json({ message: 'Authenticated!' })
+})
+```
+
+#### `requireRole(...roles)`
+
+Requires user to have one of the specified roles.
+
+```typescript
+// Single role
+app.delete('/users/:id', requireRole('admin'), (c) => {
+  return c.json({ message: 'Admin access granted' })
+})
+
+// Multiple roles (OR logic)
+app.get('/dashboard', requireRole('admin', 'moderator'), (c) => {
+  return c.json({ message: 'Access granted' })
+})
+```
+
+#### `requireScope(...scopes)`
+
+Requires user to have one of the specified scopes. Supports wildcard matching.
+
+```typescript
+// Exact scope
+app.get('/users', requireScope('users:read'), (c) => {
+  return c.json({ users: [] })
+})
+
+// Multiple scopes
+app.post('/users', requireScope('users:write', 'users:admin'), (c) => {
+  return c.json({ message: 'User created' })
+})
+```
+
+**Wildcard Scopes:**
+- `users:*` matches `users:read`, `users:write`, etc.
+- `*` matches all scopes
+
+#### `requireOwner(getResourceOwnerId)`
+
+Ensures user owns the resource (or is admin).
+
+```typescript
+app.get('/posts/:id', requireOwner(async (c) => {
+  const postId = c.req.param('id')
+  const post = await db.getPost(postId)
+  return post.authorId
+}), (c) => {
+  return c.json({ message: 'Access granted' })
+})
+```
+
+#### `requireAll(...guards)`
+
+Combines guards with AND logic (all must pass).
+
+```typescript
+app.delete('/posts/:id',
+  requireAll(
+    requireAuth(),
+    requireRole('editor'),
+    requireScope('posts:delete')
+  ),
+  (c) => {
+    return c.json({ message: 'Post deleted' })
+  }
+)
+```
+
+#### `requireAny(...guards)`
+
+Combines guards with OR logic (any must pass).
+
+```typescript
+app.get('/admin',
+  requireAny(
+    requireRole('admin'),
+    requireScope('admin:*')
+  ),
+  (c) => {
+    return c.json({ message: 'Admin access' })
+  }
+)
+```
+
+## Usage Examples
 
 ### Complete API
 
@@ -238,8 +220,7 @@ import {
   requireAuth,
   requireRole,
   requireScope,
-  requireOwner,
-  requireAny
+  requireOwner
 } from '@dotdo/auth'
 
 const app = new Hono()
@@ -266,35 +247,129 @@ app.delete('/users/:id', requireRole('admin'), async (c) => {
 })
 
 // Scope-based access
-app.get('/users', requireScope('users:read'), handler)
-app.post('/users', requireScope('users:write'), handler)
+app.get('/users', requireScope('users:read'), async (c) => {
+  const users = await db.listUsers()
+  return c.json({ users })
+})
+
+app.post('/users', requireScope('users:write'), async (c) => {
+  const body = await c.req.json()
+  const user = await db.createUser(body)
+  return c.json({ user })
+})
 
 // Resource ownership
 app.get('/posts/:id', requireOwner(async (c) => {
   const post = await db.getPost(c.req.param('id'))
   return post.authorId
-}), handler)
+}), async (c) => {
+  const post = await db.getPost(c.req.param('id'))
+  return c.json({ post })
+})
+
+export default app
+```
+
+### Role-Based Access Control
+
+```typescript
+import { Hono } from 'hono'
+import { authMiddleware, requireRole, requireAny } from '@dotdo/auth'
+
+const app = new Hono()
+app.use('/*', authMiddleware())
+
+// Only users with 'user' role
+app.get('/dashboard', requireRole('user'), (c) => {
+  return c.json({ message: 'User dashboard' })
+})
+
+// Only admins
+app.get('/admin', requireRole('admin'), (c) => {
+  return c.json({ message: 'Admin panel' })
+})
+
+// Admins OR moderators
+app.get('/moderate', requireRole('admin', 'moderator'), (c) => {
+  return c.json({ message: 'Moderation tools' })
+})
 
 // Complex permissions
 app.delete('/content/:id',
   requireAny(
-    requireRole('admin'),
+    requireRole('admin'),  // Admins can delete anything
     requireOwner(async (c) => {
       const content = await db.getContent(c.req.param('id'))
-      return content.authorId
+      return content.authorId  // Authors can delete their own
     })
   ),
-  handler
+  async (c) => {
+    await db.deleteContent(c.req.param('id'))
+    return c.json({ deleted: true })
+  }
 )
+
+export default app
+```
+
+### OAuth Scopes
+
+```typescript
+import { Hono } from 'hono'
+import { authMiddleware, requireScope } from '@dotdo/auth'
+
+const app = new Hono()
+app.use('/*', authMiddleware())
+
+// Read-only access
+app.get('/users', requireScope('users:read'), async (c) => {
+  const users = await db.listUsers()
+  return c.json({ users })
+})
+
+// Write access
+app.post('/users', requireScope('users:write'), async (c) => {
+  const user = await db.createUser(await c.req.json())
+  return c.json({ user })
+})
+
+// Delete requires special scope
+app.delete('/users/:id', requireScope('users:delete'), async (c) => {
+  await db.deleteUser(c.req.param('id'))
+  return c.json({ deleted: true })
+})
+
+// Wildcard scopes
+// User with scope 'users:*' can access all of the above
+// User with scope '*' can access everything
+
+export default app
+```
+
+### API Key Authentication
+
+```typescript
+import { Hono } from 'hono'
+import { apiKeyMiddleware } from '@dotdo/auth'
+
+const app = new Hono()
+
+// Use API keys for machine-to-machine auth
+app.use('/api/*', apiKeyMiddleware({ header: 'X-API-Key' }))
+
+app.get('/api/data', (c) => {
+  const user = c.get('user')
+  // user.id will be 'apikey:xxxxxxxx'
+  return c.json({ message: 'API access granted' })
+})
 
 export default app
 ```
 
 ### Mixed Authentication
 
-Support both JWT and API key authentication:
-
 ```typescript
+import { Hono } from 'hono'
 import { authMiddleware, apiKeyMiddleware, requireAny } from '@dotdo/auth'
 
 const app = new Hono()
@@ -309,6 +384,35 @@ app.get('/api/data', (c) => {
   const user = c.get('user')
   return c.json({ user })
 })
+
+export default app
+```
+
+## Integration with WorkOS (id.org.ai)
+
+```typescript
+import { Hono } from 'hono'
+import { authMiddleware } from '@dotdo/auth'
+
+const app = new Hono()
+
+// Configure for WorkOS JWT tokens
+app.use('/*', authMiddleware({
+  issuer: 'https://api.workos.com',
+  audience: 'project_xxxxx',
+  // WorkOS provides public keys via JWKS endpoint
+  // In production, fetch and cache these
+}))
+
+app.get('/profile', (c) => {
+  const user = c.get('user')
+  // user.id is WorkOS user ID
+  // user.email from WorkOS profile
+  // user.roles from WorkOS organization roles
+  return c.json({ user })
+})
+
+export default app
 ```
 
 ## Error Handling
@@ -316,8 +420,12 @@ app.get('/api/data', (c) => {
 All guards throw `HTTPException` from Hono:
 
 ```typescript
+import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 
+const app = new Hono()
+
+// Global error handler
 app.onError((err, c) => {
   if (err instanceof HTTPException) {
     return c.json({
@@ -325,6 +433,7 @@ app.onError((err, c) => {
       status: err.status
     }, err.status)
   }
+
   return c.json({ error: 'Internal server error' }, 500)
 })
 ```
@@ -333,13 +442,78 @@ app.onError((err, c) => {
 - `401` - Authentication required or invalid token
 - `403` - Insufficient permissions (role/scope/ownership)
 
+## Testing
+
+```typescript
+import { Hono } from 'hono'
+import { authMiddleware, requireRole } from '@dotdo/auth'
+import { describe, it, expect } from 'vitest'
+
+describe('Auth', () => {
+  const app = new Hono()
+  app.use('/*', authMiddleware({ skipPaths: ['/public'] }))
+  app.get('/protected', requireRole('admin'), (c) => c.json({ ok: true }))
+
+  it('allows authenticated admin', async () => {
+    const token = btoa(JSON.stringify({ sub: '123', roles: ['admin'] }))
+    const res = await app.request('/protected', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    expect(res.status).toBe(200)
+  })
+
+  it('blocks unauthenticated', async () => {
+    const res = await app.request('/protected')
+    expect(res.status).toBe(401)
+  })
+
+  it('blocks non-admin', async () => {
+    const token = btoa(JSON.stringify({ sub: '123', roles: ['user'] }))
+    const res = await app.request('/protected', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    expect(res.status).toBe(403)
+  })
+})
+```
+
+## Auth Flow
+
+```
+id.org.ai (WorkOS)
+    ↓ (OAuth/OIDC)
+org.ai/auth
+    ↓ (JWT)
+@dotdo/auth
+    ↓ (Validates & Extracts)
+oauth.do (CLI)
+    ↓ (Stores token)
+User's App
+```
+
+## Roadmap
+
+Current implementation is a lightweight placeholder. Future enhancements:
+
+- [x] Bearer token authentication
+- [x] API key authentication
+- [x] Role-based guards
+- [x] Scope-based guards
+- [x] Ownership guards
+- [ ] Full JWT validation (RS256, ES256)
+- [ ] JWKS endpoint support
+- [ ] Token refresh
+- [ ] Rate limiting per user/key
+- [ ] Audit logging
+
+See beads issues `do-7rf.3.*` for implementation progress.
+
 ## Related Packages
 
-| Package | Description |
-|---------|-------------|
-| [@dotdo/api](/api) | Self-describing API (uses auth guards) |
-| [@dotdo/do](/do) | Durable Object base class |
-| [@dotdo/rpc](/rpc) | Cap'n Web RPC transport |
+- [@dotdo/api](/api) - Self-describing API (uses auth guards)
+- [@dotdo/do](/do) - Durable Object base class
+- [org.ai/auth](https://org.ai/auth) - Auth provider layer
+- [oauth.do](https://oauth.do) - CLI OAuth helper
 
 ## License
 

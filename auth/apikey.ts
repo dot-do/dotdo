@@ -1,25 +1,16 @@
 // API Key Authentication for @dotdo/auth
 // Provides key generation, validation, scoping, rate limiting, and rotation
 //
-// Two manager implementations:
-// - ApiKeyManager: In-memory storage (fast, but keys lost on restart)
-// - DurableApiKeyManager: Persistent storage via StorageAdapter (survives restarts)
-//
 // Usage:
 //
 // ```typescript
-// import { ApiKeyManager, DurableApiKeyManager, createApiKeyMiddleware } from '@dotdo/auth'
-// import { MemoryStorageAdapter } from '@dotdo/db'
+// import { ApiKeyManager, createApiKeyMiddleware } from '@dotdo/auth'
 //
-// // In-memory manager (for testing or stateless use cases)
-// const memoryManager = new ApiKeyManager()
-//
-// // Durable manager (for production - keys persist across DO restarts)
-// const adapter = new MemoryStorageAdapter() // or createSQLiteStorageAdapter(state.storage.sql)
-// const durableManager = new DurableApiKeyManager(adapter)
+// // Create manager
+// const manager = new ApiKeyManager()
 //
 // // Generate a new API key
-// const { key, apiKey } = await durableManager.create({
+// const { key, apiKey } = await manager.create({
 //   name: 'Production API Key',
 //   scopes: ['users:read', 'posts:*'],
 //   rateLimit: { maxRequests: 1000, windowMs: 60000 },
@@ -27,30 +18,22 @@
 // })
 //
 // // Validate key
-// const result = await durableManager.validate(key)
+// const result = await manager.validate(key)
 // if (result.valid) {
 //   console.log('Valid key:', result.apiKey)
 // }
 //
-// // Use as Hono middleware (works with both manager types)
-// app.use('/api/*', createApiKeyMiddleware(durableManager, {
+// // Use as Hono middleware
+// app.use('/api/*', createApiKeyMiddleware(manager, {
 //   requireScopes: ['api:read']
 // }))
 //
 // // Rotate key
-// const { key: newKey } = await durableManager.rotate(apiKey.id)
+// const { key: newKey } = await manager.rotate(apiKey.id)
 //
 // // Revoke key
-// await durableManager.revoke(apiKey.id)
+// await manager.revoke(apiKey.id)
 // ```
-
-import type { Context, Next, MiddlewareHandler } from 'hono'
-import {
-  API_KEY_PREFIX_LENGTH,
-  API_KEY_SECRET_MIN_LENGTH,
-  API_KEY_RANDOM_BYTES_LENGTH,
-} from '@dotdo/utils'
-import type { StorageAdapter } from '@dotdo/db'
 
 export interface ApiKey {
   id: string
@@ -60,14 +43,14 @@ export interface ApiKey {
   scopes: string[]
   active: boolean
   createdAt: Date
-  expiresAt?: Date | undefined
-  revokedAt?: Date | undefined
-  lastUsedAt?: Date | undefined
-  metadata?: Record<string, unknown> | undefined
+  expiresAt?: Date
+  revokedAt?: Date
+  lastUsedAt?: Date
+  metadata?: Record<string, unknown>
   rateLimit?: {
     maxRequests: number
     windowMs: number
-  } | undefined
+  }
 }
 
 export interface ApiKeyCreateOptions {
@@ -92,40 +75,9 @@ export interface ApiKeyListOptions {
   active?: boolean
 }
 
-export interface ApiKeyUpdateOptions {
-  name?: string
-  scopes?: string[]
-  metadata?: Record<string, unknown>
-  rateLimit?: {
-    maxRequests: number
-    windowMs: number
-  }
-}
-
 export interface RateLimitWindow {
   count: number
   resetAt: Date
-}
-
-/**
- * Serialized form of ApiKey for storage (Date fields as ISO strings)
- */
-interface SerializedApiKey {
-  id: string
-  name: string
-  hashedKey: string
-  prefix: string
-  scopes: string[]
-  active: boolean
-  createdAt: string // ISO string
-  expiresAt?: string | undefined
-  revokedAt?: string | undefined
-  lastUsedAt?: string | undefined
-  metadata?: Record<string, unknown> | undefined
-  rateLimit?: {
-    maxRequests: number
-    windowMs: number
-  } | undefined
 }
 
 /**
@@ -151,7 +103,7 @@ export class ApiKeyManager {
       id: this.generateId(),
       name,
       hashedKey,
-      prefix: key.slice(0, API_KEY_PREFIX_LENGTH), // First N chars for display/identification
+      prefix: key.slice(0, 12), // First 12 chars for display/identification
       scopes,
       active: true,
       createdAt: new Date(),
@@ -274,9 +226,9 @@ export class ApiKeyManager {
       name: oldKey.name,
       prefix: oldKey.prefix.replace('_', ''),
       scopes: oldKey.scopes,
-      ...(oldKey.expiresAt !== undefined && { expiresAt: oldKey.expiresAt }),
-      ...(oldKey.metadata !== undefined && { metadata: oldKey.metadata }),
-      ...(oldKey.rateLimit !== undefined && { rateLimit: oldKey.rateLimit }),
+      expiresAt: oldKey.expiresAt,
+      metadata: oldKey.metadata,
+      rateLimit: oldKey.rateLimit
     })
 
     // Revoke old key
@@ -323,326 +275,10 @@ export class ApiKeyManager {
   }
 
   /**
-   * Generate a unique ID using cryptographically secure randomness
-   */
-  private generateId(): string {
-    return `key_${crypto.randomUUID()}`
-  }
-}
-
-/**
- * Durable API Key Manager - persists keys to storage adapter
- *
- * Unlike ApiKeyManager which stores keys in-memory, this manager uses a
- * StorageAdapter (SQLite, memory, etc.) for durable persistence. Keys survive
- * DO restarts and hibernation.
- *
- * @example
- * ```typescript
- * // In a Durable Object
- * import { DurableApiKeyManager } from '@dotdo/auth'
- * import { createSQLiteStorageAdapter } from '@dotdo/db'
- *
- * class MyDO {
- *   private apiKeys: DurableApiKeyManager
- *
- *   constructor(state: DurableObjectState) {
- *     const adapter = createSQLiteStorageAdapter(state.storage.sql)
- *     this.apiKeys = new DurableApiKeyManager(adapter)
- *   }
- * }
- * ```
- */
-export class DurableApiKeyManager {
-  private adapter: StorageAdapter
-  private rateLimits: Map<string, RateLimitWindow> = new Map() // In-memory rate limit tracking
-
-  // Storage key prefixes
-  private static readonly KEY_PREFIX = 'apikey:'
-  private static readonly HASH_PREFIX = 'apikey_hash:'
-
-  constructor(adapter: StorageAdapter) {
-    this.adapter = adapter
-  }
-
-  /**
-   * Serialize an ApiKey for storage (convert Date to ISO string)
-   */
-  private serializeKey(apiKey: ApiKey): SerializedApiKey {
-    return {
-      ...apiKey,
-      createdAt: apiKey.createdAt.toISOString(),
-      expiresAt: apiKey.expiresAt?.toISOString(),
-      revokedAt: apiKey.revokedAt?.toISOString(),
-      lastUsedAt: apiKey.lastUsedAt?.toISOString(),
-    }
-  }
-
-  /**
-   * Deserialize an ApiKey from storage (convert ISO string to Date)
-   */
-  private deserializeKey(serialized: SerializedApiKey): ApiKey {
-    return {
-      ...serialized,
-      createdAt: new Date(serialized.createdAt),
-      expiresAt: serialized.expiresAt ? new Date(serialized.expiresAt) : undefined,
-      revokedAt: serialized.revokedAt ? new Date(serialized.revokedAt) : undefined,
-      lastUsedAt: serialized.lastUsedAt ? new Date(serialized.lastUsedAt) : undefined,
-    }
-  }
-
-  /**
-   * Create a new API key and persist it
-   */
-  async create(options: ApiKeyCreateOptions): Promise<{ key: string; apiKey: ApiKey }> {
-    const { name, prefix = 'dotdo', scopes = ['*'], expiresAt, metadata, rateLimit } = options
-
-    // Generate key
-    const key = ApiKeyAuth.generateKey(prefix)
-    const hashedKey = await ApiKeyAuth.hashKey(key)
-
-    // Create API key record
-    const apiKey: ApiKey = {
-      id: this.generateId(),
-      name,
-      hashedKey,
-      prefix: key.slice(0, API_KEY_PREFIX_LENGTH),
-      scopes,
-      active: true,
-      createdAt: new Date(),
-      expiresAt,
-      metadata,
-      rateLimit
-    }
-
-    // Persist to storage
-    await this.adapter.transaction(async () => {
-      await this.adapter.put(`${DurableApiKeyManager.KEY_PREFIX}${apiKey.id}`, this.serializeKey(apiKey))
-      await this.adapter.put(`${DurableApiKeyManager.HASH_PREFIX}${hashedKey}`, apiKey.id)
-    })
-
-    return { key, apiKey }
-  }
-
-  /**
-   * Validate an API key
-   */
-  async validate(key: string): Promise<ApiKeyValidationResult> {
-    // Check format
-    if (!key || !key.includes('_')) {
-      return {
-        valid: false,
-        error: 'Invalid API key format'
-      }
-    }
-
-    // Hash and lookup
-    const hashedKey = await ApiKeyAuth.hashKey(key)
-    const id = await this.adapter.get<string>(`${DurableApiKeyManager.HASH_PREFIX}${hashedKey}`)
-
-    if (!id) {
-      return {
-        valid: false,
-        error: 'Invalid API key'
-      }
-    }
-
-    const serialized = await this.adapter.get<SerializedApiKey>(`${DurableApiKeyManager.KEY_PREFIX}${id}`)
-
-    if (!serialized) {
-      return {
-        valid: false,
-        error: 'Invalid API key'
-      }
-    }
-
-    const apiKey = this.deserializeKey(serialized)
-
-    // Check if active
-    if (!apiKey.active) {
-      return {
-        valid: false,
-        error: 'API key revoked'
-      }
-    }
-
-    // Check expiration
-    if (apiKey.expiresAt && apiKey.expiresAt < new Date()) {
-      return {
-        valid: false,
-        error: 'API key expired'
-      }
-    }
-
-    // Update last used
-    apiKey.lastUsedAt = new Date()
-    await this.adapter.put(`${DurableApiKeyManager.KEY_PREFIX}${id}`, this.serializeKey(apiKey))
-
-    return {
-      valid: true,
-      apiKey
-    }
-  }
-
-  /**
-   * Get an API key by ID
-   */
-  async get(id: string): Promise<ApiKey | undefined> {
-    const serialized = await this.adapter.get<SerializedApiKey>(`${DurableApiKeyManager.KEY_PREFIX}${id}`)
-    return serialized ? this.deserializeKey(serialized) : undefined
-  }
-
-  /**
-   * List all API keys
-   */
-  async list(options: ApiKeyListOptions = {}): Promise<ApiKey[]> {
-    const { active } = options
-    const result = await this.adapter.list<SerializedApiKey>({
-      prefix: DurableApiKeyManager.KEY_PREFIX,
-      includeValues: true
-    })
-
-    const keys = Array.from(result.entries.values())
-      .filter((v): v is SerializedApiKey => v !== undefined && v !== null)
-      .map(v => this.deserializeKey(v))
-
-    if (active !== undefined) {
-      return keys.filter(k => k.active === active)
-    }
-
-    return keys
-  }
-
-  /**
-   * Update an API key
-   */
-  async update(id: string, updates: ApiKeyUpdateOptions): Promise<ApiKey | undefined> {
-    const existing = await this.get(id)
-
-    if (!existing) {
-      return undefined
-    }
-
-    const updated: ApiKey = {
-      ...existing,
-      ...(updates.name !== undefined && { name: updates.name }),
-      ...(updates.scopes !== undefined && { scopes: updates.scopes }),
-      ...(updates.metadata !== undefined && { metadata: updates.metadata }),
-      ...(updates.rateLimit !== undefined && { rateLimit: updates.rateLimit }),
-    }
-
-    await this.adapter.put(`${DurableApiKeyManager.KEY_PREFIX}${id}`, this.serializeKey(updated))
-    return updated
-  }
-
-  /**
-   * Revoke an API key
-   */
-  async revoke(id: string): Promise<void> {
-    const apiKey = await this.get(id)
-
-    if (apiKey) {
-      apiKey.active = false
-      apiKey.revokedAt = new Date()
-      await this.adapter.put(`${DurableApiKeyManager.KEY_PREFIX}${id}`, this.serializeKey(apiKey))
-    }
-  }
-
-  /**
-   * Delete an API key permanently
-   */
-  async delete(id: string): Promise<void> {
-    const apiKey = await this.get(id)
-
-    if (apiKey) {
-      await this.adapter.transaction(async () => {
-        await this.adapter.delete(`${DurableApiKeyManager.KEY_PREFIX}${id}`)
-        await this.adapter.delete(`${DurableApiKeyManager.HASH_PREFIX}${apiKey.hashedKey}`)
-      })
-    }
-  }
-
-  /**
-   * Rotate an API key - creates a new key with same properties and revokes the old one
-   */
-  async rotate(id: string): Promise<{ key: string; apiKey: ApiKey }> {
-    const oldKey = await this.get(id)
-
-    if (!oldKey) {
-      throw new Error('API key not found')
-    }
-
-    // Create new key with same properties
-    const { key, apiKey } = await this.create({
-      name: oldKey.name,
-      prefix: oldKey.prefix.replace('_', ''),
-      scopes: oldKey.scopes,
-      ...(oldKey.expiresAt !== undefined && { expiresAt: oldKey.expiresAt }),
-      ...(oldKey.metadata !== undefined && { metadata: oldKey.metadata }),
-      ...(oldKey.rateLimit !== undefined && { rateLimit: oldKey.rateLimit }),
-    })
-
-    // Revoke old key
-    await this.revoke(id)
-
-    return { key, apiKey }
-  }
-
-  /**
-   * Check rate limit for an API key
-   * Note: Rate limit windows are kept in-memory and reset on DO restart.
-   * The rate limit configuration itself is persisted with the key.
-   */
-  async checkRateLimit(id: string): Promise<boolean> {
-    const apiKey = await this.get(id)
-
-    if (!apiKey || !apiKey.rateLimit) {
-      return true // No rate limit
-    }
-
-    const { maxRequests, windowMs } = apiKey.rateLimit
-    const now = new Date()
-
-    // Get or create window (in-memory)
-    let window = this.rateLimits.get(id)
-
-    if (!window || window.resetAt < now) {
-      // Start new window
-      window = {
-        count: 0,
-        resetAt: new Date(now.getTime() + windowMs)
-      }
-      this.rateLimits.set(id, window)
-    }
-
-    // Check limit
-    if (window.count >= maxRequests) {
-      return false
-    }
-
-    // Increment count
-    window.count++
-    this.rateLimits.set(id, window)
-
-    return true
-  }
-
-  /**
-   * Import an existing ApiKey (for migration from in-memory manager)
-   * Note: This imports the ApiKey metadata but not the plaintext key.
-   */
-  async importKey(apiKey: ApiKey): Promise<void> {
-    await this.adapter.transaction(async () => {
-      await this.adapter.put(`${DurableApiKeyManager.KEY_PREFIX}${apiKey.id}`, this.serializeKey(apiKey))
-      await this.adapter.put(`${DurableApiKeyManager.HASH_PREFIX}${apiKey.hashedKey}`, apiKey.id)
-    })
-  }
-
-  /**
    * Generate a unique ID
    */
   private generateId(): string {
-    return `key_${crypto.randomUUID()}`
+    return `key_${Math.random().toString(36).substring(2, 15)}_${Date.now()}`
   }
 }
 
@@ -654,7 +290,7 @@ export class ApiKeyAuth {
    * Generate a new API key
    */
   static generateKey(prefix = 'dotdo'): string {
-    const randomBytes = new Uint8Array(API_KEY_RANDOM_BYTES_LENGTH)
+    const randomBytes = new Uint8Array(32)
     crypto.getRandomValues(randomBytes)
 
     // Convert to base62 (alphanumeric)
@@ -740,9 +376,8 @@ export class ApiKeyAuth {
       return false
     }
 
-    // Secret should be alphanumeric and at least API_KEY_SECRET_MIN_LENGTH chars
-    const minLengthPattern = new RegExp(`^[a-zA-Z0-9]{${API_KEY_SECRET_MIN_LENGTH},}$`)
-    if (!minLengthPattern.test(secret)) {
+    // Secret should be alphanumeric and at least 16 chars
+    if (!/^[a-zA-Z0-9]{16,}$/.test(secret)) {
       return false
     }
 
@@ -751,25 +386,15 @@ export class ApiKeyAuth {
 }
 
 /**
- * Common interface for API key managers (both in-memory and durable)
- * Use this type when you need to accept either manager type.
+ * Hono middleware for API key authentication
  */
-export interface ApiKeyManagerInterface {
-  validate(key: string): Promise<ApiKeyValidationResult>
-  checkRateLimit(id: string): Promise<boolean>
-}
-
-/**
- * Hono middleware for API key authentication.
- * Works with both ApiKeyManager (in-memory) and DurableApiKeyManager (persistent).
- */
-export function createApiKeyMiddleware(manager: ApiKeyManagerInterface, options: {
+export function createApiKeyMiddleware(manager: ApiKeyManager, options: {
   header?: string
   requireScopes?: string[]
-} = {}): MiddlewareHandler {
+} = {}) {
   const { header = 'X-API-Key', requireScopes = [] } = options
 
-  return async (c: Context, next: Next) => {
+  return async (c: any, next: any) => {
     const key = c.req.header(header)
 
     if (!key) {

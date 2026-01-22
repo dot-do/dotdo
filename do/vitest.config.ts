@@ -20,13 +20,8 @@
  */
 
 import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
-import { workspaceAliases } from '../vitest.config'
 
 export default defineWorkersConfig({
-  // Inherit workspace aliases for package resolution
-  resolve: {
-    alias: workspaceAliases,
-  },
   test: {
     // Include ALL DO tests - they all benefit from real miniflare runtime
     include: [
@@ -66,10 +61,6 @@ export default defineWorkersConfig({
           // Enable DO SQL storage - in-memory for tests (faster)
           durableObjectsPersist: false,
 
-          // Enable unsafe-eval for _eval() tests
-          // This allows new Function() and eval() in the workers runtime
-          unsafeEvalBinding: 'UNSAFE_EVAL',
-
           // Add any additional bindings needed for tests
           bindings: {
             TEST_MODE: 'true',
@@ -85,7 +76,7 @@ export default defineWorkersConfig({
     // Coverage configuration
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html', 'lcov'],
+      reporter: ['text', 'json', 'html'],
       include: ['src/**/*.ts'],
       exclude: ['**/*.test.ts', '**/__tests__/**', '**/node_modules/**'],
       thresholds: {

@@ -16,15 +16,8 @@ export {
   type WorkflowContext,
   type $,
   type DoOptions,
-  type TryOptions,
   type DOStubFactory,
   type CreateContextOptions,
-  // Primitive capability types (do-ibsi)
-  type FsCapability,
-  type GitCapability,
-  type BashCapability,
-  type NpmCapability,
-  type PrimitivesConfig,
 } from './context'
 
 // Event handler DSL ($.on.Noun.verb)
@@ -66,66 +59,4 @@ export {
   getStubCount,
   type DOStubProxy,
   type CrossDORPCConfig,
-  // Circuit breaker configuration (do-fcxj)
-  type CircuitBreakerRPCConfig,
-  DEFAULT_CIRCUIT_BREAKER_CONFIG,
 } from './rpc'
-
-// Async context propagation (do-nexi)
-export {
-  runWithWorkflowContext,
-  runWithWorkflowContextSync,
-  getCurrentWorkflowContext,
-  getCurrentRequestContext,
-  getContextMetadata,
-  setContextMetadata,
-  getRequestId,
-  hasWorkflowContext,
-  wrapHandler,
-  initializeAsyncContext,
-  resetAsyncContext,
-  type RequestScopedContext,
-} from './async-context'
-
-// Entity proxy (do-lekf.2)
-export {
-  createEntityAccessor,
-  isEntityName,
-  isReservedProperty,
-  type EntitySchema,
-  type FieldDefinition,
-  type EntityListOptions,
-  type EntityInstance,
-  type EntityAccessor,
-  type EntityProxy,
-  type EntityProxyConfig,
-  // Typed entity accessor types with type narrowing (do-b1tuz)
-  type TypedEntityInstance,
-  type TypedEntityAccessor,
-  type TypedEntityProxy,
-  type EntityDefinitionsConstraint,
-  type EmptyEntityDefinitions,
-  type DefineEntities,
-  type EntitySchemaDefinition,
-  type EntityAccessors,
-  type TypedWorkflowContextWithEntities,
-  type CreateTypedEntityContext,
-} from './entity'
-
-// Saga pattern for cross-DO transactions (do-o9ix8)
-export {
-  createSaga,
-  executeSaga,
-  compensateSaga,
-  SagaError,
-  isSagaSuccess,
-  isSagaCompensated,
-  isSagaCompensationFailed,
-  type Saga,
-  type SagaStep,
-  type SagaConfig,
-  type SagaResult,
-  type SagaState,
-  type SagaStatus,
-  type CompensationError,
-} from './saga'

@@ -8,7 +8,7 @@ export interface Session {
   createdAt: number
   expiresAt: number
   lastAccessedAt: number
-  metadata?: SessionMetadata | undefined
+  metadata?: SessionMetadata
 }
 
 export interface SessionMetadata {
@@ -77,10 +77,7 @@ export async function createSession(
   if (!userSessions.has(userId)) {
     userSessions.set(userId, new Set())
   }
-  const userSessionSet = userSessions.get(userId)
-  if (userSessionSet) {
-    userSessionSet.add(session.id)
-  }
+  userSessions.get(userId)!.add(session.id)
 
   return session
 }
@@ -235,10 +232,7 @@ export async function refreshSession(
     if (!userSessions.has(newSession.userId)) {
       userSessions.set(newSession.userId, new Set())
     }
-    const newUserSessionSet = userSessions.get(newSession.userId)
-    if (newUserSessionSet) {
-      newUserSessionSet.add(newSession.id)
-    }
+    userSessions.get(newSession.userId)!.add(newSession.id)
 
     return newSession
   }
