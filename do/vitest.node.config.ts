@@ -26,6 +26,7 @@ export default defineConfig({
       'tests/miniflare-integration.test.ts',
       'tests/error-recovery-edge-cases.test.ts',
       'tests/saga.test.ts',
+      'tests/client.test.ts', // Client-side $Context tests (RED phase)
     ],
 
     // Standard exclusions
