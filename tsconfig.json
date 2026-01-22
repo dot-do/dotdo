@@ -19,7 +19,7 @@
       "@dotdo/observability": ["./observability/index.ts"],
       "@dotdo/integrations": ["./integrations/index.ts"],
       "@dotdo/business": ["./business/index.ts"],
-      "@dotdo/business-finance": ["./business/finance/index.ts"],
+      "@dotdo/finance": ["./business/finance/index.ts"],
       "@dotdo/clickhouse": ["./db/clickhouse/src/index.ts"],
       "dotdo": ["./dotdo/index.ts"]
     }
