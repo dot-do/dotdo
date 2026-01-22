@@ -9,15 +9,24 @@ packages:
   - auth/oauth
   - db
   - db/clickhouse
+  - db/sqlite
+  - db/postgres
+  - db/db4
+  - db/duckdb
   - ai
   - do
+  - do/business
+  - do/business/finance
+  - do/saas
+  - do/iaas
+  - do/paas
+  - do/sas
+  - do/startup
   - api
   - app
   - dotdo
   - integrations
   - utils
-  - business
-  - business/finance
   - observability
   - tests/testing
   - tests/utils

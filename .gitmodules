@@ -13,3 +13,18 @@
 [submodule "npmx"]
 	path = vm/npmx
 	url = https://github.com/dot-do/npmx.git
+[submodule "db/clickhouse"]
+	path = db/clickhouse
+	url = https://github.com/dot-do/clickhouse.git
+[submodule "db/sqlite"]
+	path = db/sqlite
+	url = https://github.com/dot-do/sqlite.git
+[submodule "db/postgres"]
+	path = db/postgres
+	url = https://github.com/dot-do/postgres.git
+[submodule "db/db4"]
+	path = db/db4
+	url = https://github.com/dot-do/db4.git
+[submodule "db/duckdb"]
+	path = db/duckdb
+	url = https://github.com/dot-do/duckdb-wasm-1.git
