@@ -3,13 +3,13 @@
 // Uses existing Zod schemas from schemas.ts and branded-types from branded-types.ts
 
 import { z } from 'zod'
-import { DbValidationError } from './errors'
-import { createLogger } from './logger'
+import { DbValidationError } from '../utils/errors'
+import { createLogger } from '../utils/logger'
 
 // Create a scoped logger for validation warnings (using local db logger)
 const logger = createLogger('[db/validation]')
-import { isThingId, type ThingId } from './branded-types'
-import type { StorableData, JsonValue } from './types'
+import { isThingId, type ThingId } from '../utils/branded-types'
+import type { StorableData, JsonValue } from '../utils/types'
 import {
   ThingInputSchema,
   ThingUpdateSchema,
@@ -25,7 +25,7 @@ import {
   MAX_ID_LENGTH,
   MAX_TYPE_NAME_LENGTH,
   MAX_PAGINATION_LIMIT,
-} from './constants'
+} from '../utils/constants'
 
 // =============================================================================
 // Validation Configuration

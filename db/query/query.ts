@@ -3,11 +3,11 @@
 // Implements JOIN support for relationship traversal (do-zt9t)
 // Implements bounded queries to prevent unbounded result sets (do-bgr1)
 
-import type { Thing, ThingsStore, BaseThing } from './things'
-import type { RelationshipsStore } from './relationships'
-import type { JsonValue, StorableData } from './types'
-import { toThingId } from './branded-types'
-import { DbValidationError } from './errors'
+import type { Thing, ThingsStore, BaseThing } from '../entities/things'
+import type { RelationshipsStore } from '../entities/relationships'
+import type { JsonValue, StorableData } from '../utils/types'
+import { toThingId } from '../utils/branded-types'
+import { DbValidationError } from '../utils/errors'
 
 // ============================================================
 // Query Limits Configuration (do-bgr1)

@@ -34,7 +34,7 @@ describe('AuthTransport Composition', () => {
   describe('constructor', () => {
     it('should accept a wrapped transport (preferred API)', async () => {
       const { AuthTransport } = await import('../auth/auth-transport')
-      const { FetchTransport } = await import('../src/transport/fetch')
+      const { FetchTransport } = await import('../transport/fetch')
 
       const baseTransport = new FetchTransport({ url: 'https://api.test.com' })
       const authTransport = new AuthTransport({
@@ -404,7 +404,7 @@ describe('AuthTransport Composition', () => {
   describe('state and lifecycle', () => {
     it('should delegate getState to wrapped transport if available', async () => {
       const { AuthTransport } = await import('../auth/auth-transport')
-      const { TransportState } = await import('../src/transport/types')
+      const { TransportState } = await import('../transport/types')
 
       const mockBaseTransport: Transport = {
         send: vi.fn(),

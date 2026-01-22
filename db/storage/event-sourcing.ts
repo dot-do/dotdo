@@ -1,12 +1,12 @@
 // Event Sourcing - Auto-emit events on CRUD operations (do-rljr.5)
 // Wraps stores to automatically emit events when entities change
 
-import type { StorableData, JsonValue, JsonObject } from './types'
-import type { ThingsStore, Thing, ThingUpdate, BulkUpdateItem } from './things'
-import type { RelationshipsStore, Relationship, RelationshipInput, RelationshipQuery, BaseRelationship } from './relationships'
-import type { EventsStore, EventInput } from './events'
-import type { AuditContext } from './audit'
-import type { ThingId } from './branded-types'
+import type { StorableData, JsonValue, JsonObject } from '../utils/types'
+import type { ThingsStore, Thing, ThingUpdate, BulkUpdateItem } from '../entities/things'
+import type { RelationshipsStore, Relationship, RelationshipInput, RelationshipQuery, BaseRelationship } from '../entities/relationships'
+import type { EventsStore, EventInput } from '../entities/events'
+import type { AuditContext } from '../integrations/audit'
+import type { ThingId } from '../utils/branded-types'
 
 /**
  * Event types for entity CRUD operations

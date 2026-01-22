@@ -9,6 +9,6 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["*.ts", "adapters/**/*.ts", "entities/**/*.ts", "query/**/*.ts", "schema/**/*.ts", "sqlite/**/*.ts", "storage/**/*.ts", "utils/**/*.ts", "integrations/**/*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts", "vitest.node.config.ts", "digital-objects.ts", "clickhouse/**", "db4/**", "duckdb/**", "postgres/**"]
+  "include": ["*.ts", "adapters/**/*.ts", "entities/**/*.ts", "query/**/*.ts", "schema/**/*.ts", "storage/**/*.ts", "utils/**/*.ts", "integrations/**/*.ts"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts", "vitest.node.config.ts", "digital-objects.ts", "clickhouse/**", "db4/**", "duckdb/**", "postgres/**", "sqlite/**", "evodb/**", "graphdb/**", "sdb/**", "sql/**", "icetype/**", "integrations/digital-objects.ts", "integrations/ai-integration.ts"]
 }

@@ -639,7 +639,7 @@ describe('REPL verbose support', () => {
   it('ReplServiceOptions should support verbose logging configuration', async () => {
     // This is a structural test - we're verifying the interface supports
     // verbose logging through the output callback
-    const { ReplService } = await import('../src/cli/repl')
+    const { ReplService } = await import('../cli/repl')
 
     // Create a mock transport
     const mockTransport = {

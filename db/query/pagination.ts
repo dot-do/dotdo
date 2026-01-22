@@ -1,8 +1,8 @@
 // Cursor-based pagination for @dotdo/db
 // Added per do-rljr.8
 
-import type { JsonValue } from './types'
-import { DEFAULT_PAGINATION_LIMIT } from './constants'
+import type { JsonValue } from '../utils/types'
+import { DEFAULT_PAGINATION_LIMIT } from '../utils/constants'
 
 /**
  * Cursor-based pagination options

@@ -32,12 +32,12 @@ afterEach(async () => {
 describe('CLI program structure', () => {
   it('exports main CLI commands', async () => {
     // Verify the CLI module structure
-    const initModule = await import('../src/cli/init')
-    const pullModule = await import('../src/cli/pull')
-    const evalModule = await import('../src/cli/eval')
-    const loginModule = await import('../src/cli/login')
-    const replModule = await import('../src/cli/repl')
-    const loggerModule = await import('../src/cli/logger')
+    const initModule = await import('../cli/init')
+    const pullModule = await import('../cli/pull')
+    const evalModule = await import('../cli/eval')
+    const loginModule = await import('../cli/login')
+    const replModule = await import('../cli/repl')
+    const loggerModule = await import('../cli/logger')
 
     expect(initModule.init).toBeDefined()
     expect(pullModule.pull).toBeDefined()
@@ -51,7 +51,7 @@ describe('CLI program structure', () => {
   })
 
   it('init command exports TEMPLATES constant', async () => {
-    const { TEMPLATES } = await import('../src/cli/init')
+    const { TEMPLATES } = await import('../cli/init')
 
     expect(TEMPLATES).toBeDefined()
     expect(Array.isArray(TEMPLATES)).toBe(true)
@@ -66,7 +66,7 @@ describe('CLI program structure', () => {
       getLogLevel,
       initLogLevelFromEnv,
       createLogger,
-    } = await import('../src/cli/logger')
+    } = await import('../cli/logger')
 
     expect(LogLevel).toBeDefined()
     expect(setLogLevel).toBeDefined()
@@ -618,7 +618,7 @@ describe('CLI error handling', () => {
 
 describe('CLI command function integration', () => {
   it('init function returns InitResult interface', async () => {
-    const { init } = await import('../src/cli/init')
+    const { init } = await import('../cli/init')
 
     const result = await init({
       endpoint: 'https://api.example.com',
@@ -636,7 +636,7 @@ describe('CLI command function integration', () => {
   })
 
   it('pull function returns PullResult interface', async () => {
-    const { pull } = await import('../src/cli/pull')
+    const { pull } = await import('../cli/pull')
 
     // Mock fetch for this test
     const mockFetch = vi.fn().mockResolvedValue({
@@ -659,7 +659,7 @@ describe('CLI command function integration', () => {
   })
 
   it('evalCommand function returns EvalResult interface', async () => {
-    const { evalCommand } = await import('../src/cli/eval')
+    const { evalCommand } = await import('../cli/eval')
 
     // Mock fetch for this test
     const mockFetch = vi.fn().mockResolvedValue({
@@ -679,7 +679,7 @@ describe('CLI command function integration', () => {
   })
 
   it('loginCommand function returns CommandResult interface', async () => {
-    const { loginCommand } = await import('../src/cli/login')
+    const { loginCommand } = await import('../cli/login')
 
     const mockDeviceFlow = {
       requestDeviceCode: vi.fn().mockResolvedValue({
@@ -711,7 +711,7 @@ describe('CLI command function integration', () => {
   })
 
   it('logoutCommand function returns CommandResult interface', async () => {
-    const { logoutCommand } = await import('../src/cli/login')
+    const { logoutCommand } = await import('../cli/login')
 
     const mockTokenStore = {
       getTokens: vi.fn().mockResolvedValue(null),
@@ -729,7 +729,7 @@ describe('CLI command function integration', () => {
   })
 
   it('whoamiCommand function returns WhoamiResult interface', async () => {
-    const { whoamiCommand } = await import('../src/cli/login')
+    const { whoamiCommand } = await import('../cli/login')
 
     const mockTokenStore = {
       getTokens: vi.fn().mockResolvedValue(null),
@@ -754,7 +754,7 @@ describe('CLI command function integration', () => {
 
 describe('CLI logger integration', () => {
   it('setLogLevel changes global log level', async () => {
-    const { setLogLevel, getLogLevel, LogLevel } = await import('../src/cli/logger')
+    const { setLogLevel, getLogLevel, LogLevel } = await import('../cli/logger')
 
     const originalLevel = getLogLevel()
 
@@ -769,7 +769,7 @@ describe('CLI logger integration', () => {
   })
 
   it('createLogger with options creates properly configured logger', async () => {
-    const { createLogger, setLogLevel, LogLevel } = await import('../src/cli/logger')
+    const { createLogger, setLogLevel, LogLevel } = await import('../cli/logger')
 
     const output: string[] = []
     const logger = createLogger({ output: (msg) => output.push(msg) })
@@ -785,7 +785,7 @@ describe('CLI logger integration', () => {
   })
 
   it('initLogLevelFromEnv reads environment variables', async () => {
-    const { getLogLevelFromEnv, LogLevel } = await import('../src/cli/logger')
+    const { getLogLevelFromEnv, LogLevel } = await import('../cli/logger')
 
     // Without env vars, should return NORMAL
     const originalDebug = process.env['RPC_DO_DEBUG']
@@ -811,7 +811,7 @@ describe('CLI logger integration', () => {
 
 describe('OAuth provider presets', () => {
   it('createDefaultLoginOptions accepts oauth.do provider', async () => {
-    const { createDefaultLoginOptions } = await import('../src/cli/login')
+    const { createDefaultLoginOptions } = await import('../cli/login')
 
     const options = createDefaultLoginOptions({
       clientId: 'test-client',
@@ -823,7 +823,7 @@ describe('OAuth provider presets', () => {
   })
 
   it('createDefaultLoginOptions accepts custom tokensPath', async () => {
-    const { createDefaultLoginOptions } = await import('../src/cli/login')
+    const { createDefaultLoginOptions } = await import('../cli/login')
 
     const customPath = path.join(testDir, 'custom-tokens.json')
     const options = createDefaultLoginOptions({
@@ -842,7 +842,7 @@ describe('OAuth provider presets', () => {
 
 describe('REPL service options', () => {
   it('ReplService accepts all configuration options', async () => {
-    const { ReplService } = await import('../src/cli/repl')
+    const { ReplService } = await import('../cli/repl')
 
     const mockTransport = {
       send: vi.fn().mockResolvedValue({ result: 'test', correlationId: 'test' }),
@@ -865,7 +865,7 @@ describe('REPL service options', () => {
   })
 
   it('ReplService without types still works', async () => {
-    const { ReplService } = await import('../src/cli/repl')
+    const { ReplService } = await import('../cli/repl')
 
     const mockTransport = {
       send: vi.fn().mockResolvedValue({ result: 'test', correlationId: 'test' }),
@@ -886,7 +886,7 @@ describe('REPL service options', () => {
 
 describe('LSP service options', () => {
   it('LSPService accepts types string', async () => {
-    const { LSPService } = await import('../src/cli/lsp')
+    const { LSPService } = await import('../cli/lsp')
 
     const lsp = new LSPService({
       types: 'export interface $ { test(): void }',
@@ -897,7 +897,7 @@ describe('LSP service options', () => {
   })
 
   it('LSPService accepts custom compiler options', async () => {
-    const { LSPService } = await import('../src/cli/lsp')
+    const { LSPService } = await import('../cli/lsp')
     const ts = await import('typescript')
 
     const lsp = new LSPService({

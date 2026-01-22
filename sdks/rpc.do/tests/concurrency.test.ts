@@ -483,8 +483,8 @@ describe('Concurrency Tests', () => {
 
   describe('State transitions', () => {
     it('should handle rapid connect/disconnect cycles for WebSocket transport', async () => {
-      const { WebSocketTransport } = await import('../src/transport/websocket')
-      const { TransportState } = await import('../src/transport/types')
+      const { WebSocketTransport } = await import('../transport/websocket')
+      const { TransportState } = await import('../transport/types')
 
       // Mock WebSocket with callbacks
       let mockOnOpen: (() => void) | null = null

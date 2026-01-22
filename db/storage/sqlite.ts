@@ -1,10 +1,10 @@
 // SQLite persistence layer for @dotdo/db
 // Compatible with Cloudflare Durable Objects SqlStorage API
 
-import { createLogger } from './logger'
-import type { Thing, ThingsStore } from './things'
-import type { StorableData, SqlStorage, SqlRunResult } from './types'
-import type { EventId } from './branded-types'
+import { createLogger } from '../utils/logger'
+import type { Thing, ThingsStore } from '../entities/things'
+import type { StorableData, SqlStorage, SqlRunResult } from '../utils/types'
+import type { EventId } from '../utils/branded-types'
 
 const logger = createLogger('[SQLite]')
 import type {
@@ -23,22 +23,22 @@ import type {
   DurabilityConfig,
   DLQStats,
   EventCursorResult
-} from './events'
-import type { Relationship, RelationshipsStore, BaseRelationship, RelationshipInput, RelationshipCursorOptions } from './relationships'
+} from '../entities/events'
+import type { Relationship, RelationshipsStore, BaseRelationship, RelationshipInput, RelationshipCursorOptions } from '../entities/relationships'
 import {
   type QueryOptions,
   buildWhereClause,
   buildOrderByClause,
   buildPaginationClause
-} from './query'
-import { applyCursorPagination, encodeCursor, decodeCursor } from './pagination'
-import { MigrationRunner, coreMigrations, type Migration } from './migrations'
-import { generateId, generateEventId } from './id'
+} from '../query/query'
+import { applyCursorPagination, encodeCursor, decodeCursor } from '../query/pagination'
+import { MigrationRunner, coreMigrations, type Migration } from '../utils/migrations'
+import { generateId, generateEventId } from '../utils/id'
 
 // SqlStorage and SqlRunResult interfaces are now imported from ./types to break
 // circular dependency: sqlite.ts <-> migrations.ts (do-x6ft)
 // Re-export for backward compatibility with existing consumers
-export type { SqlStorage, SqlRunResult } from './types'
+export type { SqlStorage, SqlRunResult } from '../utils/types'
 
 // ID generation moved to ./id.ts (do-y5ko)
 

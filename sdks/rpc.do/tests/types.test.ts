@@ -55,13 +55,13 @@ describe('rpc.do type compliance', () => {
   })
 
   it('TransportState enum has CONNECTED value', async () => {
-    const { TransportState } = await import('../src/transport')
+    const { TransportState } = await import('../transport')
 
     expect(TransportState.CONNECTED).toBe('CONNECTED')
   })
 
   it('TransportState enum has DISCONNECTED value', async () => {
-    const { TransportState } = await import('../src/transport')
+    const { TransportState } = await import('../transport')
 
     expect(TransportState.DISCONNECTED).toBe('DISCONNECTED')
   })

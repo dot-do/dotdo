@@ -1,7 +1,7 @@
 // Audit Logging - Comprehensive audit trail for security and compliance (do-xebw)
 
-import type { SqlStorage, SQLiteAdapter } from './sqlite'
-import { createMigration, type Migration } from './migrations'
+import type { SqlStorage, SQLiteAdapter } from '../storage/sqlite'
+import { createMigration, type Migration } from '../utils/migrations'
 
 /**
  * Audit log levels for categorizing log severity

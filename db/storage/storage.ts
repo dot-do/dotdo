@@ -1,7 +1,7 @@
 // Storage Adapter Interface for @dotdo/db
 // Provides an abstraction layer for different storage backends
 
-import type { JsonValue, StorableData } from './types'
+import type { JsonValue, StorableData } from '../utils/types'
 
 /**
  * Options for listing keys from storage

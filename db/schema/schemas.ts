@@ -29,7 +29,7 @@ import type {
   JsonPrimitive,
   JsonArray,
   JsonObject,
-} from './types'
+} from '../utils/types'
 
 // =============================================================================
 // JSON Value Schemas - Core building blocks
@@ -305,7 +305,7 @@ export type SafeParseResult<T> =
 /**
  * Validation error with formatted messages
  */
-export interface ValidationError {
+export interface ZodValidationError {
   message: string
   errors: Array<{
     path: (string | number)[]

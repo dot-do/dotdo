@@ -2,7 +2,7 @@
 // Lightweight Zod-like patterns for entity type safety
 // See do-qz6x
 
-import type { JsonValue, StorableData } from './types'
+import type { JsonValue, StorableData } from '../utils/types'
 
 // ============================================================================
 // Field Type Definitions
@@ -549,7 +549,7 @@ export function createSchemaRegistry(): SchemaRegistry {
 // Validated Store Wrapper
 // ============================================================================
 
-import type { ThingsStore, Thing, ThingInput, ThingUpdate } from './things'
+import type { ThingsStore, Thing, ThingInput, ThingUpdate } from '../entities/things'
 
 /**
  * Options for creating a validated store

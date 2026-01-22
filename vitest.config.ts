@@ -98,7 +98,7 @@ export default defineWorkersConfig({
       './business/vitest.config.ts',
       // RPC packages
       './rpc/vitest.config.ts',
-      './rpc.do/vitest.config.ts',
+      './sdks/rpc.do/vitest.config.ts',
       // Auth packages
       './auth/vitest.config.ts',
       './oauth/vitest.config.ts',
