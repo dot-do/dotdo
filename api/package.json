@@ -69,11 +69,11 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@dotdo/auth": "workspace:*",
-    "@dotdo/db": "workspace:*",
-    "@dotdo/do": "workspace:*",
-    "@dotdo/observability": "workspace:*",
-    "@dotdo/rpc": "workspace:*",
+    "@dotdo/auth": "workspace:^",
+    "@dotdo/db": "workspace:^",
+    "@dotdo/do": "workspace:^",
+    "@dotdo/observability": "workspace:^",
+    "@dotdo/rpc": "workspace:^",
     "hono": "^4.11.4"
   },
   "devDependencies": {

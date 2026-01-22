@@ -95,19 +95,19 @@ importers:
   api:
     dependencies:
       '@dotdo/auth':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../auth
       '@dotdo/db':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../db
       '@dotdo/do':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../do
       '@dotdo/observability':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../observability
       '@dotdo/rpc':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../rpc
       hono:
         specifier: ^4.11.4
@@ -181,10 +181,10 @@ importers:
   auth:
     dependencies:
       '@dotdo/db':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../db
       '@dotdo/utils':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../utils
       hono:
         specifier: ^4.11.4
@@ -331,28 +331,28 @@ importers:
   do:
     dependencies:
       '@dotdo/auth':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../auth
       '@dotdo/business-finance':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../business/finance
       '@dotdo/clickhouse':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../clickhouse
       '@dotdo/db':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../db
       '@dotdo/integrations':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../integrations
       '@dotdo/observability':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../observability
       '@dotdo/rpc':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../rpc
       '@dotdo/utils':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../utils
       hono:
         specifier: ^4.11.4
@@ -377,28 +377,28 @@ importers:
   dotdo:
     dependencies:
       '@dotdo/ai':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../ai
       '@dotdo/api':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../api
       '@dotdo/auth':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../auth
       '@dotdo/db':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../db
       '@dotdo/do':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../do
       '@dotdo/mcp':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../mcp
       '@dotdo/rpc':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../rpc
       '@dotdo/utils':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../utils
       commander:
         specifier: ^14.0.2
@@ -407,7 +407,7 @@ importers:
         specifier: ^4.11.4
         version: 4.11.4
       rpc.do:
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../rpc.do
     devDependencies:
       typescript:
@@ -857,13 +857,13 @@ importers:
   mcp:
     dependencies:
       '@dotdo/db':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../db
       '@dotdo/do':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../do
       '@dotdo/rpc':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../rpc
       hono:
         specifier: ^4.11.4
@@ -955,13 +955,13 @@ importers:
   rpc:
     dependencies:
       '@dotdo/auth':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../auth
       '@dotdo/db':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../db
       '@dotdo/utils':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../utils
       capnweb:
         specifier: ^0.4.0
