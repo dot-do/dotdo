@@ -1,9 +1,9 @@
 packages:
   - core
   - rpc
-  - rpc.do
-  - sdk.do
-  - platform.do
+  - sdks/rpc.do
+  - sdks/sdk.do
+  - sdks/platform.do
   - mcp
   - auth
   - oauth
@@ -19,11 +19,11 @@ packages:
   - business
   - business/finance
   - observability
-  - testing
-  - test-utils
-  - fsx
-  - npmx
-  - bashx
-  - gitx
-  - e2e
+  - tests/testing
+  - tests/test-utils
+  - tests/e2e
+  - vm/fsx
+  - vm/npmx
+  - vm/bashx
+  - vm/gitx
   - examples/*
