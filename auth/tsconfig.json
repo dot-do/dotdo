@@ -4,9 +4,5 @@
     "outDir": "./dist",
     "rootDir": "."
   },
-  "include": ["*.ts", "**/*.ts"],
-  "references": [
-    { "path": "../db" },
-    { "path": "../utils" }
-  ]
+  "include": ["*.ts", "**/*.ts"]
 }

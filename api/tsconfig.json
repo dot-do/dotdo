@@ -4,13 +4,5 @@
     "outDir": "./dist",
     "rootDir": "."
   },
-  "include": ["*.ts", "**/*.ts"],
-  "references": [
-    { "path": "../auth" },
-    { "path": "../db" },
-    { "path": "../do" },
-    { "path": "../observability" },
-    { "path": "../rpc" },
-    { "path": "../utils" }
-  ]
+  "include": ["*.ts", "**/*.ts"]
 }

@@ -4,10 +4,6 @@
 
 import { z } from 'zod'
 import { DbValidationError } from './errors'
-import { createLogger } from './logger'
-
-// Create a scoped logger for validation warnings (using local db logger)
-const logger = createLogger('[db/validation]')
 import { isThingId, type ThingId } from './branded-types'
 import type { StorableData, JsonValue } from './types'
 import {
@@ -65,8 +61,8 @@ function isTestEnvironment(): boolean {
 }
 
 function showDeprecationWarning(functionName: string): void {
-  if (!_deprecationWarningsShown.has(functionName) && !isTestEnvironment()) {
-    logger.warn(
+  if (!_deprecationWarningsShown.has(functionName) && typeof console !== 'undefined' && !isTestEnvironment()) {
+    console.warn(
       `[DEPRECATION] ${functionName}() is deprecated. ` +
       `Use createValidationContext() for context-based validation instead. ` +
       `Global validation config will be removed in v4.0.0.`
