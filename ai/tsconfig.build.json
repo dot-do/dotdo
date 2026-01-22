@@ -1,0 +1,25 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "paths": {}
+  },
+  "include": ["./**/*.ts", "types/**/*.d.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "tests/**",
+    "vitest.config.ts",
+    "vitest.workers.config.ts",
+    "test-entry.ts",
+    "providers/**",
+    "examples/**",
+    "stubs/**"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "dotdo-oauth",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-15",
+  "compatibility_flags": ["nodejs_compat"]
+}

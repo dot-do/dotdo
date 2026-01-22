@@ -1,0 +1,49 @@
+# Dockerfile.ci
+# CI/CD container for deploying dotdo applications to Cloudflare Workers
+#
+# This container includes Node.js and wrangler for automated deployments.
+# Use this in CI/CD pipelines (GitHub Actions, GitLab CI, Jenkins, etc.)
+#
+# Usage:
+#   docker build -f Dockerfile.ci -t dotdo-ci .
+#   docker run -e CLOUDFLARE_API_TOKEN=$CF_TOKEN dotdo-ci deploy
+
+FROM node:22-alpine AS base
+
+# Install dependencies for native modules
+RUN apk add --no-cache git curl
+
+# Set working directory
+WORKDIR /app
+
+# Install wrangler globally
+RUN npm install -g wrangler@latest
+
+# Copy package files
+COPY package*.json ./
+COPY pnpm-lock.yaml* ./
+
+# Install dependencies
+RUN npm ci --ignore-scripts
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# Default command: deploy to Cloudflare Workers
+# Override with environment-specific commands:
+#   docker run ... deploy --env staging
+#   docker run ... deploy --env production
+ENTRYPOINT ["npx", "wrangler"]
+CMD ["deploy"]
+
+# Health check for container orchestration
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD wrangler --version || exit 1
+
+# Labels for container management
+LABEL org.opencontainers.image.title="dotdo-ci"
+LABEL org.opencontainers.image.description="CI/CD container for dotdo Cloudflare Workers deployments"
+LABEL org.opencontainers.image.source="https://github.com/dotdo/dotdo"

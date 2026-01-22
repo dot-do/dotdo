@@ -4,5 +4,13 @@
     "outDir": "./dist",
     "rootDir": "."
   },
-  "include": ["*.ts", "**/*.ts"]
+  "include": ["*.ts", "**/*.ts", "types/**/*.d.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test-entry.ts",
+    "providers/**",
+    "examples/**",
+    "stubs/**"
+  ]
 }
