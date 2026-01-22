@@ -8,6 +8,7 @@
   "include": ["*.ts", "**/*.ts"],
   "references": [
     { "path": "../db" },
+    { "path": "../rpc" },
     { "path": "../utils" }
   ]
 }

@@ -7,7 +7,6 @@
   },
   "include": ["*.ts", "**/*.ts"],
   "references": [
-    { "path": "../auth" },
     { "path": "../db" },
     { "path": "../utils" }
   ]

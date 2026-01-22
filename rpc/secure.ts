@@ -2,12 +2,7 @@
  * @dotdo/rpc/secure - Secure DO-to-DO RPC with HMAC signing
  *
  * This module provides secure RPC stubs that include HMAC signatures for
- * DO-to-DO calls. It is a separate entrypoint because it depends on @dotdo/auth.
- *
- * Layer architecture:
- * - @dotdo/rpc (Layer 0): Core RPC functionality, no auth dependency
- * - @dotdo/rpc/secure (Layer 0.5): RPC + Auth integration
- * - @dotdo/auth (Layer 1): Authentication utilities
+ * DO-to-DO calls. The DO signing functionality is now part of @dotdo/rpc.
  *
  * @module @dotdo/rpc/secure
  *
@@ -32,7 +27,7 @@
 import { deserializeError, TransportError } from './errors'
 import type { SerializedError } from './errors'
 import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
-import { createDOToDoHeaders } from '@dotdo/auth'
+import { createDOToDoHeaders } from './do-signing'
 
 /**
  * Type guard to check if a value is a DurableObjectId.

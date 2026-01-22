@@ -82,6 +82,10 @@
     "./batch-rpc": {
       "types": "./dist/batch-rpc.d.ts",
       "import": "./dist/batch-rpc.js"
+    },
+    "./do-signing": {
+      "types": "./dist/do-signing.d.ts",
+      "import": "./dist/do-signing.js"
     }
   },
   "files": [
@@ -125,7 +129,6 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@dotdo/auth": "workspace:^",
     "@dotdo/db": "workspace:^",
     "@dotdo/utils": "workspace:^",
     "capnweb": "^0.4.0",

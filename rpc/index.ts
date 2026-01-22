@@ -132,3 +132,9 @@ export * from './websocket-events'
  * @see do-d1isn.2
  */
 export * from './connection-pool'
+
+/**
+ * DO-to-DO signing utilities for secure cross-DO communication.
+ * Provides HMAC-based signing and verification for DO-to-DO requests.
+ */
+export * from './do-signing'

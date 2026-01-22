@@ -213,6 +213,9 @@ importers:
       '@dotdo/db':
         specifier: workspace:^
         version: link:../db
+      '@dotdo/rpc':
+        specifier: workspace:^
+        version: link:../rpc
       '@dotdo/utils':
         specifier: workspace:^
         version: link:../utils
@@ -1039,9 +1042,6 @@ importers:
 
   rpc:
     dependencies:
-      '@dotdo/auth':
-        specifier: workspace:^
-        version: link:../auth
       '@dotdo/db':
         specifier: workspace:^
         version: link:../db
@@ -1086,9 +1086,6 @@ importers:
       commander:
         specifier: ^14.0.2
         version: 14.0.2
-      hono:
-        specifier: ^4.11.4
-        version: 4.11.4
     devDependencies:
       '@dotdo/do':
         specifier: workspace:*
@@ -1401,9 +1398,6 @@ importers:
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.30
-      '@types/semver':
-        specifier: ^7.7.0
-        version: 7.7.1
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(jiti@2.6.1)(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
