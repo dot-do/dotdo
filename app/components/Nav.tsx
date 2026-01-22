@@ -3,12 +3,12 @@ import { Link } from '@tanstack/react-router'
 export interface NavLink {
   href: string
   label: string
-  external?: boolean
+  external?: boolean | undefined
 }
 
 export interface NavProps {
-  links?: NavLink[]
-  className?: string
+  links?: NavLink[] | undefined
+  className?: string | undefined
 }
 
 const defaultLinks: NavLink[] = [

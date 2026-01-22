@@ -164,8 +164,21 @@ vite.config.ts.timestamp-*
 worker-configuration.d.ts
 sandbox/
 
+# TypeScript build artifacts in source directories
+# (should only be in dist/)
+*.d.ts
+*.d.ts.map
+*.js.map
+# Allow JS config files
+!*.config.js
+!vitest.*.js
+!eslint.config.js
+# Allow dist directories
+!dist/**
+
 # Parade database
 .parade/*.db
 .parade/*.db-*
 tests/benchmarks/results/2026-01-14-benchmarks.jsonl
 .worktrees
+.turbo/

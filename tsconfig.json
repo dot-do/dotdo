@@ -14,9 +14,37 @@
       "@dotdo/ai": ["./ai/index.ts"],
       "@dotdo/app": ["./app/index.ts"],
       "@dotdo/testing": ["./testing/index.ts"],
-      "@dotdo/fsx": ["./fsx/index.ts"],
       "@dotdo/test-utils": ["./test-utils/index.ts"],
+      "@dotdo/utils": ["./utils/index.ts"],
+      "@dotdo/observability": ["./observability/index.ts"],
+      "@dotdo/integrations": ["./integrations/index.ts"],
+      "@dotdo/business": ["./business/index.ts"],
+      "@dotdo/business-finance": ["./business/finance/index.ts"],
+      "@dotdo/clickhouse": ["./clickhouse/src/index.ts"],
       "dotdo": ["./dotdo/index.ts"]
     }
-  }
+  },
+  "include": [
+    "api/**/*.ts",
+    "auth/**/*.ts",
+    "db/**/*.ts",
+    "do/**/*.ts",
+    "rpc/**/*.ts",
+    "ai/**/*.ts",
+    "mcp/**/*.ts",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "business/**/*.ts",
+    "utils/**/*.ts",
+    "observability/**/*.ts",
+    "integrations/**/*.ts",
+    "dotdo/**/*.ts",
+    "testing/**/*.ts",
+    "test-utils/**/*.ts",
+    "clickhouse/**/*.ts",
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "vitest.config.ts",
+    "types/**/*.d.ts"
+  ]
 }

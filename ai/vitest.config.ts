@@ -1,8 +1,8 @@
 /**
  * Vitest Configuration for AI Package Tests
  *
- * This configuration runs AI tests in Node environment since they
- * don't require Durable Objects or Workers runtime.
+ * Uses @cloudflare/vitest-pool-workers to ensure AI code
+ * works correctly in the Cloudflare Workers runtime.
  *
  * IMPORTANT: Tests using this config get access to:
  * - Template literal AI processing
@@ -18,11 +18,34 @@
  * @module ai/vitest.config
  */
 
-import { defineConfig } from 'vitest/config'
+import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
+import { resolve } from 'path'
+import { workspaceAliases } from '../vitest.config'
 
-export default defineConfig({
+// Directory for this package
+const aiDir = __dirname
+const rootDir = resolve(aiDir, '..')
+
+export default defineWorkersConfig({
+  // Inherit workspace aliases and add stubs for optional AI dependencies
+  resolve: {
+    alias: {
+      ...workspaceAliases,
+      // Map @org.ai/core to primitives package for integration tests
+      '@org.ai/core': resolve(rootDir, 'primitives/packages/ai-core/src/index.ts'),
+      // Map optional AI packages to mock stubs that provide working implementations
+      // These stubs return mock responses instead of throwing errors
+      'ai-providers': resolve(aiDir, 'stubs/ai-providers.ts'),
+      'ai': resolve(aiDir, 'stubs/ai.ts'),
+      '@ai-sdk/openai': resolve(aiDir, 'stubs/@ai-sdk/openai.ts'),
+      '@ai-sdk/anthropic': resolve(aiDir, 'stubs/@ai-sdk/anthropic.ts'),
+      '@ai-sdk/google': resolve(aiDir, 'stubs/@ai-sdk/google.ts'),
+    },
+  },
   test: {
-    // Include ALL ai tests
+    name: 'ai',
+
+    // Include ALL AI tests (including do-integration.test.ts)
     include: [
       'tests/**/*.test.ts',
     ],
@@ -38,9 +61,26 @@ export default defineConfig({
     minWorkers: 1,
     fileParallelism: false,
 
-    // Reasonable timeouts for AI tests
-    testTimeout: 10000,
-    hookTimeout: 10000,
+    // Pool worker options
+    poolOptions: {
+      workers: {
+        wrangler: {
+          configPath: './wrangler.jsonc',
+        },
+        singleWorker: true,
+        isolatedStorage: false,
+        miniflare: {
+          durableObjectsPersist: false,
+          bindings: {
+            TEST_MODE: 'true',
+          },
+        },
+      },
+    },
+
+    // Test timeouts
+    testTimeout: 30000,
+    hookTimeout: 30000,
 
     // Coverage configuration
     coverage: {
