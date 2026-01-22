@@ -31,7 +31,7 @@ import { fetchTool } from './fetch'
 import { doTool } from './do'
 import { createReadStream, createWriteStream } from 'fs'
 import { createInterface } from 'readline'
-import { createScopedLogger, LogLevel } from '@dotdo/utils'
+import { createScopedLogger, LogLevel } from '../utils/logger'
 
 const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[mcp]' })
 

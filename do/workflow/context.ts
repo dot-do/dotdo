@@ -486,62 +486,8 @@ function createBaseContext(
         // Process handlers with retry logic
         await processEvent(emitted, event.type, payload)
       }).catch((err: unknown) => {
-        // Track error in fire-and-forget error store (do-l2kx4)
-        const errorInfo = extractErrorInfo(err)
-        const errorContext = typeof payload === 'object' && payload !== null
-          ? payload as Record<string, unknown>
-          : undefined
-        fireAndForgetErrors.track({
-          operation: 'event.send',
-          eventType: event.type,
-          message: errorInfo.message,
-          ...(errorInfo.stack !== undefined && { stack: errorInfo.stack }),
-          errorType: errorInfo.errorType,
-          retriable: errorInfo.retriable,
-          ...(errorContext !== undefined && { context: errorContext }),
-        })
-
-        // Log error for visibility
+        // Catch any errors from emit() or processEvent()
         logger.error(`Error processing event "${event.type}":`, err)
-
-        // Invoke configurable error handler if provided (do-l2kx4)
-        if (options?.onSendError) {
-          try {
-            options.onSendError(err, event)
-          } catch (handlerErr) {
-            logger.error('Error in onSendError handler:', handlerErr)
-          }
-        }
-
-        // Emit system event for observability (do-l2kx4)
-        // Note: We use setImmediate-style to avoid infinite recursion if System.sendFailed handler also fails
-        queueMicrotask(() => {
-          const systemHandlers = matchHandlers('System.sendFailed', handlers)
-          const systemEvent = {
-            $id: `send-failed-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-            type: 'System.sendFailed',
-            payload: {
-              originalEvent: event,
-              error: {
-                message: errorInfo.message,
-                type: errorInfo.errorType,
-                retriable: errorInfo.retriable,
-              },
-            },
-            $timestamp: Date.now(),
-            source: 'system',
-          }
-          for (const handler of systemHandlers) {
-            try {
-              // Fire-and-forget for system handlers - don't await
-              Promise.resolve(handler(systemEvent)).catch((sysErr) => {
-                logger.error('Error in System.sendFailed handler:', sysErr)
-              })
-            } catch (syncErr) {
-              logger.error('Error in System.sendFailed handler:', syncErr)
-            }
-          }
-        })
       })
     },
 

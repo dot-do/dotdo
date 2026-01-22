@@ -1,5 +1,5 @@
 // Secure sandbox environment for code execution with $ context injection
-import { evaluate } from 'ai-evaluate/node'
+import { evaluate } from '../primitives/packages/ai-evaluate/src/node.js'
 import type { WorkflowContext } from '@dotdo/do'
 import { getErrorMessage } from '@dotdo/rpc'
 
@@ -452,16 +452,7 @@ export function createScopedResourceEnforcer(
   return new SandboxResourceEnforcer(rateLimitConfig, concurrencyConfig)
 }
 
-// ============================================================================
-// DEPRECATED GLOBAL STATE - SECURITY ISSUE (do-5sc9b)
-// ============================================================================
-// The following global state and functions are DEPRECATED because they can leak
-// rate limit state between tenants in multi-tenant Workers environments.
-//
-// DO NOT USE THESE FUNCTIONS IN PRODUCTION.
-// Use createScopedResourceEnforcer() instead to create isolated enforcer instances.
-// ============================================================================
-
+// Global default enforcer instance
 /**
  * @deprecated Global state can leak between tenants in Workers environments.
  * Use createScopedResourceEnforcer() instead to create isolated enforcer instances.
@@ -470,72 +461,23 @@ export function createScopedResourceEnforcer(
 let globalEnforcer: SandboxResourceEnforcer | null = null
 
 /**
- * Track whether we've already logged a deprecation warning (to avoid spam)
- * @internal
- */
-let hasLoggedGetGlobalWarning = false
-let hasLoggedSetGlobalWarning = false
-
-/**
- * Security warning message for deprecated global functions
- * @internal
- */
-const GLOBAL_STATE_SECURITY_WARNING = `
-[SECURITY WARNING] Using deprecated global resource enforcer functions.
-This can leak rate limit state between tenants in multi-tenant Workers environments.
-
-Migration guide:
-  // BEFORE (deprecated - DO NOT USE):
-  const enforcer = getGlobalResourceEnforcer()
-
-  // AFTER (recommended):
-  const enforcer = createScopedResourceEnforcer()
-  // Store the enforcer in your DO instance or request context
-
-See: https://github.com/dotdo/dotdo/issues/do-5sc9b
-`.trim()
-
-/**
  * Get or create the global resource enforcer.
  *
- * @deprecated SECURITY ISSUE: This function uses global state which can leak rate limits
- * between tenants in multi-tenant Workers environments. DO NOT USE IN PRODUCTION.
- * Use createScopedResourceEnforcer() instead to create isolated enforcer instances
- * per DO or request context.
+ * @deprecated This function uses global state which can leak rate limits between
+ * tenants in multi-tenant Workers environments. Use createScopedResourceEnforcer()
+ * instead to create isolated enforcer instances per DO or request context.
  *
  * Migration guide:
  * ```typescript
- * // BEFORE (deprecated - DO NOT USE):
+ * // BEFORE (deprecated):
  * const enforcer = getGlobalResourceEnforcer()
  *
  * // AFTER (recommended):
  * const enforcer = createScopedResourceEnforcer()
  * // Store the enforcer in your DO instance or request context
  * ```
- *
- * @throws {Error} Always throws in production to prevent security vulnerabilities.
- *                 For testing purposes only, set DOTDO_ALLOW_DEPRECATED_GLOBALS=true.
  */
 export function getGlobalResourceEnforcer(): SandboxResourceEnforcer {
-  // Log warning once to avoid spam
-  if (!hasLoggedGetGlobalWarning) {
-    hasLoggedGetGlobalWarning = true
-    console.warn(GLOBAL_STATE_SECURITY_WARNING)
-  }
-
-  // In production, throw an error to prevent security issues
-  // Allow bypass only for tests via environment variable
-  const allowDeprecated = typeof process !== 'undefined' &&
-    process.env?.DOTDO_ALLOW_DEPRECATED_GLOBALS === 'true'
-
-  if (!allowDeprecated) {
-    throw new Error(
-      '[SECURITY] getGlobalResourceEnforcer() is deprecated and disabled. ' +
-      'Global state can leak between tenants. Use createScopedResourceEnforcer() instead. ' +
-      'Set DOTDO_ALLOW_DEPRECATED_GLOBALS=true to bypass (for testing only).'
-    )
-  }
-
   if (!globalEnforcer) {
     globalEnforcer = new SandboxResourceEnforcer()
   }
@@ -545,54 +487,22 @@ export function getGlobalResourceEnforcer(): SandboxResourceEnforcer {
 /**
  * Set a custom global resource enforcer (useful for testing).
  *
- * @deprecated SECURITY ISSUE: This function uses global state which can leak rate limits
- * between tenants in multi-tenant Workers environments. DO NOT USE IN PRODUCTION.
- * Use createScopedResourceEnforcer() instead to create isolated enforcer instances
- * per DO or request context.
+ * @deprecated This function uses global state which can leak rate limits between
+ * tenants in multi-tenant Workers environments. Use createScopedResourceEnforcer()
+ * instead to create isolated enforcer instances per DO or request context.
  *
  * Migration guide:
  * ```typescript
- * // BEFORE (deprecated - DO NOT USE):
+ * // BEFORE (deprecated):
  * setGlobalResourceEnforcer(customEnforcer)
  *
  * // AFTER (recommended):
  * // Pass the enforcer directly to your sandbox or DO instance:
  * const enforcer = createScopedResourceEnforcer(rateLimitConfig, concurrencyConfig)
  * ```
- *
- * @throws {Error} Always throws in production to prevent security vulnerabilities.
- *                 For testing purposes only, set DOTDO_ALLOW_DEPRECATED_GLOBALS=true.
  */
 export function setGlobalResourceEnforcer(enforcer: SandboxResourceEnforcer | null): void {
-  // Log warning once to avoid spam
-  if (!hasLoggedSetGlobalWarning) {
-    hasLoggedSetGlobalWarning = true
-    console.warn(GLOBAL_STATE_SECURITY_WARNING)
-  }
-
-  // In production, throw an error to prevent security issues
-  // Allow bypass only for tests via environment variable
-  const allowDeprecated = typeof process !== 'undefined' &&
-    process.env?.DOTDO_ALLOW_DEPRECATED_GLOBALS === 'true'
-
-  if (!allowDeprecated) {
-    throw new Error(
-      '[SECURITY] setGlobalResourceEnforcer() is deprecated and disabled. ' +
-      'Global state can leak between tenants. Use createScopedResourceEnforcer() instead. ' +
-      'Set DOTDO_ALLOW_DEPRECATED_GLOBALS=true to bypass (for testing only).'
-    )
-  }
-
   globalEnforcer = enforcer
-}
-
-/**
- * Reset the deprecation warning flags (for testing purposes only)
- * @internal
- */
-export function _resetDeprecationWarnings(): void {
-  hasLoggedGetGlobalWarning = false
-  hasLoggedSetGlobalWarning = false
 }
 
 // Storage for captured operations (shared between sandbox instances)

@@ -436,7 +436,7 @@ export function createDefaultAIGenerate(): AIGenerateFunction {
   return async (prompt: string, context: AIGenerationContext): Promise<string> => {
     try {
       // Dynamic import to avoid circular dependencies and allow optional AI module
-      const { ai } = await import('@dotdo/ai')
+      const { ai } = await import('../../ai')
 
       // Build the full prompt with context
       const fullPrompt = buildAIPrompt(prompt, context)

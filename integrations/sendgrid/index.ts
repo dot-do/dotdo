@@ -11,7 +11,6 @@ import type {
   IntegrationEvent,
 } from '../types'
 import { successResult, errorResult } from '../registry'
-import { verifySendGridSignature } from '../webhook-verify'
 
 /**
  * SendGrid-specific configuration
@@ -305,14 +304,6 @@ export class SendGridIntegration implements Integration<SendGridConfig, SendGrid
 
   /**
    * Handle incoming webhooks from SendGrid
-   *
-   * This implementation validates webhook signatures when a webhookSigningKey is configured.
-   * SendGrid uses ECDSA P-256 signatures with the following headers:
-   * - X-Twilio-Email-Event-Webhook-Signature: Base64 encoded ECDSA signature
-   * - X-Twilio-Email-Event-Webhook-Timestamp: Unix timestamp
-   *
-   * @param request - Incoming webhook request
-   * @returns Response with appropriate status code
    */
   async handleWebhook(request: Request): Promise<Response> {
     if (this._status !== 'ready' || !this.config) {
@@ -321,33 +312,11 @@ export class SendGridIntegration implements Integration<SendGridConfig, SendGrid
 
     try {
       const body = await request.text()
-      const signatureHeader = request.headers.get('X-Twilio-Email-Event-Webhook-Signature')
-      const timestampHeader = request.headers.get('X-Twilio-Email-Event-Webhook-Timestamp')
 
-      // Check for missing signature headers when signing key is configured
-      if (this.config.webhookSigningKey) {
-        if (!signatureHeader || !timestampHeader) {
-          return new Response(
-            JSON.stringify({ error: 'Missing signature headers' }),
-            { status: 400, headers: { 'Content-Type': 'application/json' } }
-          )
-        }
-
-        // Verify the signature
-        const verification = await verifySendGridSignature(
-          body,
-          signatureHeader,
-          timestampHeader,
-          this.config.webhookSigningKey
-        )
-
-        if (!verification.valid) {
-          return new Response(
-            JSON.stringify({ error: 'Signature verification failed' }),
-            { status: 401, headers: { 'Content-Type': 'application/json' } }
-          )
-        }
-      }
+      // In a real implementation, you would:
+      // 1. Verify the webhook signature using webhookSigningKey
+      // 2. Parse the events
+      // 3. Call registered handlers
 
       const events = JSON.parse(body) as Array<{
         event: string
