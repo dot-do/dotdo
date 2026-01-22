@@ -34,94 +34,65 @@
  * ```
  */
 
-// ============================================================================
-// Utils - Core types, errors, branded types, ID generation
-// ============================================================================
-
 /** Core types for storable data and JSON values */
-export * from './utils/types'
+export * from './types'
 
 /** Error classes for storage operations */
-export * from './utils/errors'
+export * from './errors'
 
 /** Branded types for type-safe IDs (ThingId, EventId, RelationshipId) */
-export * from './utils/branded-types'
+export * from './branded-types'
+
+/** Storage adapter interface and implementations */
+export * from './storage'
+
+/** Concrete storage adapters (SQLite, Memory) */
+export * from './adapters'
 
 /** ID generation utilities */
-export * from './utils/id'
-
-/** Logging utilities */
-export * from './utils/logger'
-
-/** Constants */
-export * from './utils/constants'
-
-/** Database migrations system */
-export * from './utils/migrations'
-
-// ============================================================================
-// Entities - Things, Events, Relationships
-// ============================================================================
+export * from './id'
 
 /**
  * Things store for generic entity storage.
  * Provides CRUD, bulk operations, and cursor-based pagination.
  */
-export * from './entities/things'
+export * from './things'
 
 /**
  * Relationships store for graph-like connections between entities.
  * Supports directional relationships with types.
  */
-export * from './entities/relationships'
+export * from './relationships'
 
 /**
  * Events store for event sourcing and audit logging.
  * Provides immutable event storage with timestamps.
  */
-export * from './entities/events'
-
-// ============================================================================
-// Query - Query builder and pagination
-// ============================================================================
+export * from './events'
 
 /**
  * Query builder for complex queries across stores.
  * Supports filtering, sorting, and joining.
  */
-export * from './query/query'
+export * from './query'
 
-/** Cursor-based pagination utilities */
-export * from './query/pagination'
-
-// ============================================================================
-// Storage - Storage adapters and implementations
-// ============================================================================
-
-/** Storage adapter interface and implementations */
-export * from './storage/storage'
+// Digital Objects integration excluded from build - requires primitives submodule
+// Import directly from ./digital-objects.ts for primitives integration
 
 /** SQLite-specific utilities and helpers */
-export * from './storage/sqlite'
+export * from './sqlite'
 
-/** Tiered storage for hot/warm/cold data */
-export * from './storage/tiered-storage'
+/** Database migrations system */
+export * from './migrations'
 
-/** Event sourcing utilities */
-export * from './storage/event-sourcing'
-
-/** Concrete storage adapters (SQLite, Memory) */
-export * from './adapters'
-
-// ============================================================================
-// Schema - Validation and schemas
-// ============================================================================
+/** Audit logging for compliance and debugging */
+export * from './audit'
 
 /** Schema validation and type inference */
-export * from './schema/schema'
+export * from './schema'
 
-/** Schema definitions */
-export * from './schema/schemas'
+/** Cursor-based pagination utilities */
+export * from './pagination'
 
 /** Input validation utilities */
 export {
@@ -153,17 +124,4 @@ export {
   validateBulkUpdateItems,
   // Note: ValidationResult is not exported here to avoid conflict with schema.ts
   // Use the ValidationResult from schema.ts instead, or import directly from validation.ts
-} from './schema/validation'
-
-// ============================================================================
-// Integrations - AI, Audit, Digital Objects
-// ============================================================================
-
-/** Audit logging for compliance and debugging */
-export * from './integrations/audit'
-
-// Digital Objects integration excluded from build - requires primitives submodule
-// Import directly from ./integrations/digital-objects.ts for primitives integration
-
-// AI integration excluded from default export - import directly if needed
-// export * from './integrations/ai-integration'
+} from './validation'
