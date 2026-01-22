@@ -32,13 +32,6 @@ interface GlobalWithEnv {
 }
 
 /**
- * Type for Node.js process.env (used for environment detection without @types/node)
- */
-declare const process: {
-  env: Record<string, string | undefined>
-} | undefined
-
-/**
  * Minimal interface for mock model generate options.
  * The actual AI SDK uses complex types, but our mock only needs basic compatibility.
  */
