@@ -414,7 +414,10 @@ describe('fire-and-forget-errors module', () => {
       await new Promise(r => setTimeout(r, 10))
 
       expect(consoleErrorSpy).toHaveBeenCalled()
-      expect(consoleErrorSpy.mock.calls[0][0]).toContain('test-op')
+      // The scoped logger logs with format: "[FireAndForget]" "[test-op] Fire-and-forget error:" <error>
+      // Check that any of the console.error calls contain the operation name
+      const allArgs = consoleErrorSpy.mock.calls.flatMap(call => call.map(String))
+      expect(allArgs.some(arg => arg.includes('test-op'))).toBe(true)
     })
 
     it('should not interfere with successful promises', async () => {

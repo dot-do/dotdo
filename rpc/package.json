@@ -76,9 +76,9 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@dotdo/auth": "workspace:*",
-    "@dotdo/db": "workspace:*",
-    "@dotdo/utils": "workspace:*",
+    "@dotdo/auth": "workspace:^",
+    "@dotdo/db": "workspace:^",
+    "@dotdo/utils": "workspace:^",
     "capnweb": "^0.4.0",
     "hono": "^4.11.4"
   },

@@ -2,7 +2,11 @@ import { defineConfig } from 'tsup'
 
 export default defineConfig({
   entry: {
+    index: 'src/index.ts',
     'cli/index': 'src/cli/index.ts',
+    'transport/index': 'src/transport/index.ts',
+    'transport/fetch': 'src/transport/fetch.ts',
+    'auth/index': 'src/auth/index.ts',
   },
   outDir: 'dist',
   format: ['esm'],
@@ -11,17 +15,10 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   clean: true,
+  // Generate types using tsc via the build script instead
   dts: false,
   shims: false,
-  // Externalize all dependencies - keep bundle small
-  external: [
-    'commander',
-    'hono',
-    'typescript',
-    // Node.js built-ins are automatically externalized
-  ],
-  // Don't add shebang via banner - source file already has it
-  // Make executable on Unix
+  external: ['commander', 'hono', 'typescript'],
   onSuccess: async () => {
     const { chmod } = await import('node:fs/promises')
     const { resolve } = await import('node:path')
