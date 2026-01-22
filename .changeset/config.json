@@ -17,7 +17,7 @@
       "@dotdo/observability",
       "@dotdo/integrations",
       "@dotdo/business",
-      "@dotdo/finance",
+      "@dotdo/business-finance",
       "@dotdo/clickhouse",
       "@dotdo/oauth",
       "@dotdo/testing",
