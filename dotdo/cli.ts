@@ -6,7 +6,7 @@ import { Command } from 'commander'
 import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { resolve, join } from 'path'
-import { createScopedLogger, LogLevel } from '@dotdo/utils'
+import { createScopedLogger, LogLevel } from '../utils/logger'
 
 const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[dotdo]' })
 
