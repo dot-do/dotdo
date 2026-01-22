@@ -1056,3 +1056,96 @@ export {
   type ColoInfo,
   type DOType,
 } from './factory'
+
+/**
+ * $Context - Tenant context factory for hierarchical tenant DOs
+ *
+ * Creates a tenant-specific context from a URL like https://crm.example.com.ai/acme.
+ * The tenant context provides isolated storage (things, relationships, events)
+ * with automatic event routing to the parent DO.
+ *
+ * @example
+ * ```typescript
+ * import { $Context } from '@dotdo/do'
+ *
+ * // Create tenant context
+ * const $ = $Context('https://crm.example.com.ai/acme')
+ *
+ * // CRUD operations with tenant isolation
+ * const lead = await $.things.create({ $type: 'Lead', name: 'Alice' })
+ *
+ * // Events automatically route to parent
+ * await $.emit({ $type: 'Lead.created', payload: { leadId: lead.$id } })
+ *
+ * // Access tenant metadata
+ * console.log($.$id)       // 'https://crm.example.com.ai/acme'
+ * console.log($.$type)     // 'tenant'
+ * console.log($.$colo)     // 'local' or colo code
+ * console.log($.$context)  // Parent context reference
+ * ```
+ */
+export {
+  $Context,
+  resetTenantStores,
+  type TenantContext,
+  type ParentContext,
+  type TenantEvent,
+  type TenantThing,
+  type ThingInput,
+  type TenantRelationship,
+  type RelationshipInput,
+  type TenantStoredEvent,
+  type TenantThingsStore,
+  type TenantRelationshipsStore,
+  type TenantEventsStore,
+} from './tenant-context'
+
+/**
+ * $Client - Client-side connection to Durable Objects (remote RPC)
+ *
+ * Provides remote access to DO contexts via Cap'n Web RPC and WebSocket.
+ * Use this for browser/edge clients connecting to DOs remotely.
+ *
+ * Features:
+ * - $.things CRUD operations (create, get, list, update, delete)
+ * - $.on.Noun.verb event subscriptions (via WebSocket)
+ * - $.Noun(id).method() RPC calls
+ * - $.events.emit() and $.events.subscribe()
+ * - WebSocket connection management and reconnection
+ * - Error handling and graceful degradation
+ *
+ * @example
+ * ```typescript
+ * import { $Client } from '@dotdo/do'
+ *
+ * // Connect to a tenant DO remotely
+ * const $ = $Client('https://crm.example.com.ai/acme')
+ *
+ * // CRUD operations via RPC
+ * const customer = await $.things.create({ $type: 'Customer', name: 'Alice' })
+ *
+ * // Event subscriptions via WebSocket
+ * $.on.Customer.created((event) => {
+ *   console.log('New customer:', event.payload)
+ * })
+ *
+ * // RPC calls
+ * const profile = await $.Customer('cust-123').getProfile()
+ * ```
+ */
+export {
+  $Context as $Client,
+  RPCError,
+  type ClientContext,
+  type ClientContextOptions,
+  type Thing as ClientThing,
+  type ListResult,
+  type EventPayload,
+  type EventHandler as ClientEventHandler,
+  type UnsubscribeFn,
+  type ThingsAPI,
+  type EventsAPI,
+  type EntityProxy,
+  type OnProxy as ClientOnProxy,
+  type OnNounProxy,
+} from './client'

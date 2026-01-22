@@ -162,18 +162,20 @@ interface TenantEventsStore {
 // ============================================================================
 
 /**
- * This import will fail because $Context is not yet implemented.
- * This is intentional - RED phase tests should fail.
+ * Import $Context and resetTenantStores from @dotdo/do
  */
-// @ts-expect-error - $Context not yet implemented
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { $Context } from '@dotdo/do'
+import { $Context, resetTenantStores } from '@dotdo/do'
 
 // ============================================================================
 // Test Suites
 // ============================================================================
 
 describe('Tenant DO', () => {
+  // Reset tenant stores before each test to ensure test isolation
+  beforeEach(() => {
+    resetTenantStores()
+  })
+
   describe('$Context creation', () => {
     it('should create a tenant context from URL', async () => {
       // This test will fail because $Context is not implemented
