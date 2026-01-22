@@ -1,8 +1,0 @@
-{
-  "name": "@dotdo/paas",
-  "version": "0.0.1",
-  "description": "PaaS patterns and utilities for dotdo",
-  "type": "module",
-  "main": "./index.ts",
-  "private": true
-}

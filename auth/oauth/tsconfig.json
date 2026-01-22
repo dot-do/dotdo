@@ -5,6 +5,5 @@
     "outDir": "dist",
     "noEmit": true
   },
-  "include": ["*.ts", "core/**/*.ts", "mcp/**/*.ts", "middleware/**/*.ts", "providers/**/*.ts", "storage/**/*.ts"],
-  "exclude": ["node_modules", "dist", "vitest.config.ts", "tests/**"]
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
 }

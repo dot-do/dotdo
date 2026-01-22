@@ -10,5 +10,5 @@
     "sourceMap": true
   },
   "include": ["./**/*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "**/tests/**", "vitest.config.ts", "**/vitest.config.ts", "oauth/vitest.config.ts"]
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts", "**/vitest.config.ts", "oauth/vitest.config.ts"]
 }

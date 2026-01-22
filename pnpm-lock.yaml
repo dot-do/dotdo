@@ -96,7 +96,7 @@ importers:
         version: link:../do
       '@dotdo/test-utils':
         specifier: workspace:*
-        version: link:../tests/utils
+        version: link:../tests/test-utils
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -130,7 +130,7 @@ importers:
     devDependencies:
       '@dotdo/test-utils':
         specifier: workspace:*
-        version: link:../tests/utils
+        version: link:../tests/test-utils
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -336,7 +336,7 @@ importers:
     devDependencies:
       '@dotdo/test-utils':
         specifier: workspace:*
-        version: link:../tests/utils
+        version: link:../tests/test-utils
       ai-evaluate:
         specifier: ^2.1.5
         version: 2.1.5
@@ -857,7 +857,7 @@ importers:
     devDependencies:
       '@dotdo/test-utils':
         specifier: workspace:*
-        version: link:../tests/utils
+        version: link:../tests/test-utils
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -940,6 +940,28 @@ importers:
         specifier: ^3.0.4
         version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.7)(jiti@2.6.1)(jsdom@27.4.0)(lightningcss@1.30.2)(msw@2.12.7(@types/node@22.19.7)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)
 
+  tests/test-utils:
+    dependencies:
+      '@dotdo/utils':
+        specifier: workspace:*
+        version: link:../../utils
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.0.0
+        version: 4.20260118.0
+      '@types/node':
+        specifier: ^22.15.27
+        version: 22.19.7
+      miniflare:
+        specifier: ^3.0.0
+        version: 3.20250718.3
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.7)(jiti@2.6.1)(jsdom@27.4.0)(lightningcss@1.30.2)(msw@2.12.7(@types/node@22.19.7)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)
+
   tests/testing:
     dependencies:
       '@dotdo/ai':
@@ -965,33 +987,7 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
-  tests/utils:
-    dependencies:
-      '@dotdo/utils':
-        specifier: workspace:*
-        version: link:../../utils
-    devDependencies:
-      '@cloudflare/workers-types':
-        specifier: ^4.0.0
-        version: 4.20260118.0
-      '@types/node':
-        specifier: ^22.15.27
-        version: 22.19.7
-      miniflare:
-        specifier: ^3.0.0
-        version: 3.20250718.3
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.7)(jiti@2.6.1)(jsdom@27.4.0)(lightningcss@1.30.2)(msw@2.12.7(@types/node@22.19.7)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)
-
   utils:
-    dependencies:
-      zod:
-        specifier: ^3.24.0
-        version: 3.25.76
     devDependencies:
       typescript:
         specifier: ^5.7.3
