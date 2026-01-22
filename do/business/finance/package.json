@@ -1,0 +1,64 @@
+{
+  "name": "@dotdo/finance",
+  "version": "0.0.1",
+  "description": "Finance module for dotdo Business-as-Code - Stripe integration and financial operations",
+  "type": "module",
+  "main": "./index.ts",
+  "module": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "import": "./index.ts",
+      "default": "./index.ts"
+    },
+    "./client": {
+      "types": "./client.ts",
+      "import": "./client.ts",
+      "default": "./client.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "dotdo",
+    "business",
+    "finance",
+    "stripe",
+    "payments"
+  ],
+  "author": "dot-do",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/dotdo",
+    "directory": "business/finance"
+  },
+  "homepage": "https://dotdo.dev",
+  "bugs": {
+    "url": "https://github.com/dot-do/dotdo/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "stripe": "^17.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.3"
+  }
+}

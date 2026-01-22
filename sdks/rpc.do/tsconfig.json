@@ -11,6 +11,6 @@
     "exactOptionalPropertyTypes": true,
     "types": ["@cloudflare/workers-types", "node"]
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "include": ["**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
