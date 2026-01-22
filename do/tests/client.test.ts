@@ -21,118 +21,32 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-// ============================================================================
-// STUB: $Context is not implemented yet - this file will fail to import
-// until the client module is created. For now, we define a stub that throws
-// to make the tests discoverable and demonstrate the expected API.
-// ============================================================================
-
-// Stub type definitions for the expected API
-interface ClientContextOptions {
-  token?: string
-  headers?: Record<string, string>
-  timeout?: number
-  maxReconnectAttempts?: number
-  reconnectInterval?: number
-  cache?: boolean
-  offlineSupport?: boolean
-  retries?: number
-}
-
-interface Thing {
-  $id: string
-  $type: string
-  $createdAt?: number
-  $updatedAt?: number
-  [key: string]: unknown
-}
-
-interface ListResult<T> {
-  items: T[]
-  total: number
-  hasMore: boolean
-  cursor?: string
-}
-
-interface EventPayload {
-  type: string
-  payload: unknown
-  $id: string
-  $timestamp: number
-}
-
-type EventHandler = (event: EventPayload) => void | Promise<void>
-type UnsubscribeFn = () => void
-
-interface ThingsAPI {
-  create(data: { $type: string; [key: string]: unknown }): Promise<Thing>
-  get(id: string): Promise<Thing | null>
-  list(options: { $type: string; limit?: number; offset?: number; where?: Record<string, unknown> }): Promise<ListResult<Thing>>
-  update(id: string, data: Record<string, unknown>): Promise<Thing>
-  delete(id: string): Promise<{ deleted: boolean }>
-}
-
-interface EventsAPI {
-  emit(event: { type: string; payload?: unknown }, options?: { fireAndForget?: boolean }): Promise<{ $id: string; $timestamp: number } | { queued: boolean }>
-  subscribe(event: string, handler: EventHandler): UnsubscribeFn
-  query(options: { type: string; since?: number }): Promise<{ items: EventPayload[]; total: number }>
-}
-
-interface EntityProxy {
-  update(data: Record<string, unknown>): Promise<Thing>
-  [method: string]: (...args: unknown[]) => Promise<unknown>
-}
-
-interface OnNounProxy {
-  [verb: string]: (handler: EventHandler) => UnsubscribeFn
-}
-
-interface OnProxy {
-  [noun: string]: OnNounProxy
-}
-
-interface ClientContext {
-  things: ThingsAPI
-  events: EventsAPI
-  on: OnProxy
-  connect(): Promise<void>
-  disconnect(): Promise<void>
-  isConnected(): boolean
-  onConnected(handler: () => void): void
-  onDisconnected(handler: () => void): void
-  onReconnecting(handler: () => void): void
-  onError(handler: (error: Error) => void): void
-  onHandlerError(handler: (error: Error, event: EventPayload) => void): void
-  use(middleware: (request: unknown) => unknown): void
-  useResponse(middleware: (response: unknown) => unknown): void
-  // Internal state (for testing)
-  _tenant?: string
-  _namespace?: string
-  _options: ClientContextOptions
-  _ws?: MockWebSocket
-  _handlers: Map<string, EventHandler[]>
-  _isOnline?: boolean
-  _offlineQueue?: unknown[]
-  _processOfflineQueue?: () => Promise<void>
-  // Entity proxy accessor
-  [noun: string]: ((id: string) => EntityProxy) | unknown
-}
-
-/**
- * Stub $Context factory - throws because it's not implemented yet.
- * This allows tests to be discovered and fail with a clear message.
- */
-function $Context(_url: string, _options?: ClientContextOptions): ClientContext {
-  throw new Error(
-    '$Context client is not implemented yet. ' +
-    'This is the RED phase of TDD - tests are expected to fail. ' +
-    'Implement the client in do/client.ts to make these tests pass.'
-  )
-}
+// Import from the real implementation
+import { $Context } from '../client'
+import type { ClientContext, EventPayload } from '../client'
 
 // ============================================================================
 // TEST SETUP
 // ============================================================================
+
+/**
+ * Polyfill CloseEvent for Node.js environment
+ */
+if (typeof CloseEvent === 'undefined') {
+  // @ts-expect-error - Polyfill for Node.js
+  globalThis.CloseEvent = class CloseEvent extends Event {
+    code: number
+    reason: string
+    wasClean: boolean
+
+    constructor(type: string, init?: { code?: number; reason?: string; wasClean?: boolean }) {
+      super(type)
+      this.code = init?.code ?? 1000
+      this.reason = init?.reason ?? ''
+      this.wasClean = init?.wasClean ?? true
+    }
+  }
+}
 
 /**
  * Mock fetch for testing HTTP-based RPC calls.
