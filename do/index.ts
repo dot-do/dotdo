@@ -985,3 +985,74 @@ export {
   type RateLimitTierConfig,
   type RateLimitHeaders,
 } from './rate-limit'
+
+/**
+ * DO Factory - Use DO as both a class and a factory function
+ *
+ * The DO export works in two modes:
+ *
+ * 1. As a class for extension:
+ * ```typescript
+ * import { DO } from '@dotdo/do'
+ *
+ * class MyDO extends DO {
+ *   // Custom methods
+ * }
+ * ```
+ *
+ * 2. As a factory function with schema:
+ * ```typescript
+ * import { DO } from '@dotdo/do'
+ *
+ * const MyDO = DO({
+ *   schema: {
+ *     Customer: { $type: 'Customer', name: 'string!', email: 'string#' },
+ *     Order: { $type: 'Order', total: 'decimal!', customer: '-> Customer' },
+ *   },
+ *   aiPriority: 'best',
+ *   experiments: true,
+ * })
+ * ```
+ *
+ * Also exports Business-as-Code foundation classes:
+ * - Business: Core business analytics (MRR, ARR, Churn, NRR)
+ * - SaaS: Software as a Service
+ * - IaaS: Infrastructure as a Service
+ * - PaaS: Platform as a Service
+ * - SaS: Services as Software
+ */
+export {
+  DO as DOFactory,
+  DOWithMobility,
+  Business,
+  SaaS,
+  IaaS,
+  PaaS,
+  SaS,
+  // Schema types (prefixed with DO to avoid conflicts)
+  type FieldModifier as DOFieldModifier,
+  type RelationOperator as DORelationOperator,
+  type BaseFieldType as DOBaseFieldType,
+  type DOFieldDefinition,
+  type DORelationDefinition,
+  type DOEntitySchemaDefinition,
+  type DOFactoryConfig,
+  type AgentConfig,
+  type ExperimentsConfig,
+  // Clone/Fork/Move types
+  type CloneMode,
+  type CloneOptions,
+  type CloneResult,
+  type StagedCloneResult,
+  type EventualCloneHandle,
+  type ResumableCloneHandle,
+  type ForkOptions,
+  type ForkResult,
+  type MoveOptions,
+  type MoveResult,
+  // Colo types
+  type ColoRegion,
+  type ColoCode,
+  type ColoInfo,
+  type DOType,
+} from './factory'
