@@ -6,6 +6,7 @@
     "noEmit": true
   },
   "include": ["*.ts", "**/*.ts"],
+  "exclude": ["node_modules", "dist", "primitives/**", "mixins/primitives.ts", "schema/ai-fields.ts", "business/**", "saas/**", "iaas/**", "paas/**", "sas/**", "startup/**"],
   "references": [
     { "path": "../auth" },
     { "path": "../db" },
