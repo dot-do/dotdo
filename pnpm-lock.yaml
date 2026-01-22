@@ -180,6 +180,9 @@ importers:
 
   auth:
     dependencies:
+      '@dotdo/db':
+        specifier: workspace:*
+        version: link:../db
       '@dotdo/utils':
         specifier: workspace:*
         version: link:../utils
@@ -388,6 +391,9 @@ importers:
       '@dotdo/rpc':
         specifier: workspace:*
         version: link:../rpc
+      '@dotdo/utils':
+        specifier: workspace:*
+        version: link:../utils
       commander:
         specifier: ^14.0.2
         version: 14.0.2
@@ -401,6 +407,21 @@ importers:
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
+
+  e2e:
+    devDependencies:
+      '@dotdo/api':
+        specifier: workspace:*
+        version: link:../api
+      '@playwright/test':
+        specifier: ^1.48.0
+        version: 1.57.0
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.4
+        version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.7(@types/node@22.19.7)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)
 
   examples/ai-agent:
     dependencies:
@@ -940,6 +961,9 @@ importers:
         specifier: ^4.11.4
         version: 4.11.4
     devDependencies:
+      '@dotdo/auth':
+        specifier: workspace:*
+        version: link:../auth
       '@dotdo/test-utils':
         specifier: workspace:*
         version: link:../test-utils
@@ -998,6 +1022,10 @@ importers:
         version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.7)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.7(@types/node@22.19.7)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)
 
   test-utils:
+    dependencies:
+      '@dotdo/utils':
+        specifier: workspace:*
+        version: link:../utils
     devDependencies:
       miniflare:
         specifier: ^3.0.0
@@ -1029,6 +1057,10 @@ importers:
         version: 5.9.3
 
   utils:
+    dependencies:
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
     devDependencies:
       typescript:
         specifier: ^5.7.3
