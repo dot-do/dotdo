@@ -525,10 +525,6 @@ export class CircuitBreakerIntegration<
     this.wrappedIntegration.onEvent?.(handler)
   }
 
-  setHooks(hooks: Parameters<NonNullable<Integration['setHooks']>>[0]): void {
-    this.wrappedIntegration.setHooks?.(hooks)
-  }
-
   // Circuit breaker specific methods
   /**
    * Get the current circuit state

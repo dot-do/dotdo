@@ -55,8 +55,9 @@ describe('Static Build Configuration', () => {
       expect(assetsExist).toBe(true)
 
       // Check for hashed filenames (format: name.[hash].ext)
+      // Hash can be alphanumeric (Base64-like), e.g., main.CdS4uZXo.css
       const files = readdirSync(ASSETS_DIR)
-      const hashedFiles = files.filter((f) => /\.[a-f0-9A-Z]{8,}\.(js|css)/.test(f))
+      const hashedFiles = files.filter((f) => /\.[a-zA-Z0-9]{8,}\.(js|css)$/.test(f))
 
       expect(hashedFiles.length).toBeGreaterThan(0)
     })
