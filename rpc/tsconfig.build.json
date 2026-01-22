@@ -5,15 +5,8 @@
     "rootDir": "./",
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
-    "composite": true,
-    "baseUrl": ".",
-    "paths": {}
+    "sourceMap": true
   },
   "include": ["./**/*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "examples/**", "vitest.config.ts"],
-  "references": [
-    { "path": "../utils/tsconfig.build.json" },
-    { "path": "../db/tsconfig.build.json" }
-  ]
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts"]
 }

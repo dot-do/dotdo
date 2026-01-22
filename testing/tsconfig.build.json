@@ -4,9 +4,7 @@
     "outDir": "./dist",
     "rootDir": ".",
     "declaration": true,
-    "declarationMap": true,
-    "baseUrl": ".",
-    "paths": {}
+    "declarationMap": true
   },
   "include": ["*.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "tests"]

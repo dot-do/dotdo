@@ -5,25 +5,8 @@
     "rootDir": "./",
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
-    "composite": true,
-    "paths": {}
+    "sourceMap": true
   },
-  "include": [
-    "index.ts",
-    "server.ts",
-    "types.ts",
-    "do.ts",
-    "fetch.ts",
-    "search.ts",
-    "sandbox.ts",
-    "discovery.ts",
-    "tools/**/*.ts"
-  ],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts", "vitest.node.config.ts", "cli.ts", "sandbox/**", "examples/**"],
-  "references": [
-    { "path": "../db/tsconfig.build.json" },
-    { "path": "../rpc/tsconfig.build.json" },
-    { "path": "../do/tsconfig.build.json" }
-  ]
+  "include": ["./**/*.ts"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts"]
 }

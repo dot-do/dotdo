@@ -21,7 +21,7 @@
  * @module testing/isolation
  */
 
-import type { UsageTracker, UsageRecord } from '@dotdo/ai'
+import type { UsageTracker, UsageRecord } from '../ai/tracking'
 
 /**
  * Snapshot of global state for isolation verification
@@ -100,13 +100,13 @@ let integrationRegistryModule: { integrationRegistry: { size: number; names: str
 async function getGlobalTracker(): Promise<UsageTracker | null> {
   if (!globalTrackerModule) {
     try {
-      globalTrackerModule = await import('@dotdo/ai')
+      globalTrackerModule = await import('../ai/tracking')
     } catch {
       // Module not available
       return null
     }
   }
-  return globalTrackerModule?.globalTracker ?? null
+  return globalTrackerModule.globalTracker
 }
 
 /**
@@ -115,7 +115,7 @@ async function getGlobalTracker(): Promise<UsageTracker | null> {
 async function getIntegrationRegistry(): Promise<{ size: number; names: string[]; clear: () => void } | null> {
   if (!integrationRegistryModule) {
     try {
-      integrationRegistryModule = await import('@dotdo/integrations')
+      integrationRegistryModule = await import('../integrations/registry')
     } catch {
       // Module not available
       return null

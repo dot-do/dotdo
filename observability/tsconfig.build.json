@@ -5,9 +5,7 @@
     "rootDir": "./",
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
-    "composite": true,
-    "paths": {}
+    "sourceMap": true
   },
   "include": ["./**/*.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "tests/**", "vitest.config.ts"]
