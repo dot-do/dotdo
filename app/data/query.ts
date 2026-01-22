@@ -178,7 +178,8 @@ export function optimisticUpdate<T>(
   queryKey: readonly unknown[],
   updateFn: (old: T) => T,
   setQueryData: (queryKey: readonly unknown[], updater: (old: T) => T) => void,
-  onError?: (error: Error, rollback: () => void) => void
+  // Error handler for future use when mutation integration is added
+  _onError?: (error: Error, rollback: () => void) => void
 ) {
   // Store previous value
   let previousValue: T | undefined

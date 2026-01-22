@@ -3,7 +3,7 @@
 // Key patterns: $.on.Noun.verb event handlers, $.every scheduling, WebSocket manager
 
 import { Hono } from 'hono'
-import { DO, type DOEnv, createContext, type WorkflowContext } from '../../do'
+import { DO, type DOEnv, createContext, type WorkflowContext } from '@dotdo/do'
 import type {
   Document,
   Collaborator,
@@ -29,8 +29,6 @@ function getRandomColor(): string {
 }
 
 export class CollaborationDO extends DO {
-  private $: WorkflowContext
-
   // In-memory state for active session
   private cursors: Map<string, CursorPosition> = new Map()
   private userConnections: Map<string, WebSocket> = new Map()
@@ -47,46 +45,31 @@ export class CollaborationDO extends DO {
 
     // Track document edits for analytics
     this.$.on.Document.edited(async (event) => {
-      const { documentId, userId, version, operationCount } = event.payload as {
-        documentId: string
-        userId: string
-        version: number
-        operationCount: number
-      }
+      const { documentId, userId, version, operationCount } = (event as { type: string; payload: { documentId: string; userId: string; version: number; operationCount: number } }).payload
       console.log(`[Event] Document ${documentId} edited by ${userId}, v${version} (${operationCount} ops)`)
     })
 
     // Track collaborator join/leave
     this.$.on.Collaborator.joined(async (event) => {
-      const { documentId, userId, userName } = event.payload as {
-        documentId: string
-        userId: string
-        userName: string
-      }
+      const { documentId, userId, userName } = (event as { type: string; payload: { documentId: string; userId: string; userName: string } }).payload
       console.log(`[Event] ${userName} (${userId}) joined document ${documentId}`)
     })
 
     this.$.on.Collaborator.left(async (event) => {
-      const { documentId, userId } = event.payload as {
-        documentId: string
-        userId: string
-      }
+      const { documentId, userId } = (event as { type: string; payload: { documentId: string; userId: string } }).payload
       console.log(`[Event] User ${userId} left document ${documentId}`)
     })
 
     // Track comments
     this.$.on.Comment.added(async (event) => {
-      const { documentId, commentId, userId } = event.payload as {
-        documentId: string
-        commentId: string
-        userId: string
-      }
+      const { documentId, commentId, userId } = (event as { type: string; payload: { documentId: string; commentId: string; userId: string } }).payload
       console.log(`[Event] Comment ${commentId} added to document ${documentId} by ${userId}`)
     })
 
     // Audit log all document events
     this.$.on.Document['*'](async (event) => {
-      console.log(`[Audit] Document event: ${event.type}`, event.payload)
+      const e = event as { type: string; payload: unknown }
+      console.log(`[Audit] Document event: ${e.type}`, e.payload)
     })
 
     // ========================================================================
@@ -206,11 +189,12 @@ export class CollaborationDO extends DO {
       for (const collab of allCollaborators) {
         const c = collab as unknown as Collaborator
         if (this.userConnections.has(c.userId)) {
+          const cursor = this.cursors.get(c.userId)
           collaborators.push({
             userId: c.userId,
             name: c.name,
             color: c.color,
-            cursor: this.cursors.get(c.userId),
+            ...(cursor !== undefined && { cursor }),
           })
         }
       }
@@ -461,7 +445,7 @@ export class CollaborationDO extends DO {
     this.cursors.set(userId, {
       userId,
       position,
-      selection,
+      ...(selection !== undefined && { selection }),
       updatedAt: new Date().toISOString(),
     })
 
@@ -514,11 +498,12 @@ export class CollaborationDO extends DO {
     for (const collab of allCollaborators) {
       const c = collab as unknown as Collaborator
       if (this.userConnections.has(c.userId)) {
+        const cursor = this.cursors.get(c.userId)
         collaborators.push({
           userId: c.userId,
           name: c.name,
           color: c.color,
-          cursor: this.cursors.get(c.userId),
+          ...(cursor !== undefined && { cursor }),
         })
       }
     }

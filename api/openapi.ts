@@ -2,6 +2,18 @@
 import type { Hono } from 'hono'
 import type { ZodTypeAny } from 'zod'
 import type { ResourceDefinition } from './resource'
+import type { StorableData } from '@dotdo/db'
+
+// Hono internal route type for extracting routes from Hono apps
+interface HonoRoute {
+  method?: string
+  path?: string
+}
+
+// Type for Hono app with routes (internal structure)
+interface HonoAppWithRoutes {
+  routes?: HonoRoute[]
+}
 
 // OpenAPI 3.0 types
 export interface OpenAPISpec {
@@ -17,10 +29,10 @@ export interface OpenAPISpec {
 export interface InfoObject {
   title: string
   version: string
-  description?: string
-  termsOfService?: string
-  contact?: ContactObject
-  license?: LicenseObject
+  description?: string | undefined
+  termsOfService?: string | undefined
+  contact?: ContactObject | undefined
+  license?: LicenseObject | undefined
 }
 
 export interface ContactObject {
@@ -55,14 +67,14 @@ export interface PathItemObject {
 }
 
 export interface OperationObject {
-  summary?: string
-  description?: string
-  tags?: string[]
-  operationId?: string
-  parameters?: ParameterObject[]
-  requestBody?: RequestBodyObject
+  summary?: string | undefined
+  description?: string | undefined
+  tags?: string[] | undefined
+  operationId?: string | undefined
+  parameters?: ParameterObject[] | undefined
+  requestBody?: RequestBodyObject | undefined
   responses: ResponsesObject
-  security?: SecurityRequirementObject[]
+  security?: SecurityRequirementObject[] | undefined
 }
 
 export interface ParameterObject {
@@ -140,26 +152,89 @@ export interface TagObject {
   description?: string
 }
 
+// Simplified operation configuration for user-facing API
+// Uses { schema: string } shorthand for requestBody instead of full RequestBodyObject
+type OperationConfig = Omit<Partial<OperationObject>, 'requestBody' | 'responses'> & {
+  requestBody?: { schema: string }
+  responses?: Record<string, { schema?: string; description?: string }>
+}
+
 // Generator configuration
 export interface GenerateOpenAPIOptions {
   app: Hono
   info?: Partial<InfoObject>
   servers?: ServerObject[]
   schemas?: Record<string, ZodTypeAny>
-  resources?: ResourceDefinition<any>[]
-  operations?: Record<string, Partial<OperationObject> & {
-    requestBody?: { schema: string }
-    responses?: Record<string, { schema?: string; description?: string }>
-  }>
+  resources?: ResourceDefinition<StorableData>[]
+  operations?: Record<string, OperationConfig>
   security?: Record<string, Omit<SecuritySchemeObject, 'type'> & { type: SecuritySchemeObject['type'] }>
   tags?: TagObject[]
 }
 
-// OpenAPI Generator class
+/**
+ * Generator class for converting Zod schemas and Hono routes to OpenAPI 3.0 specifications.
+ *
+ * This class provides utilities for:
+ * - Converting Zod schemas to OpenAPI schema objects
+ * - Transforming Hono route paths to OpenAPI path format
+ * - Extracting path parameters from route definitions
+ * - Managing schema registrations
+ *
+ * @example
+ * ```typescript
+ * import { OpenAPIGenerator } from '@dotdo/api'
+ * import { z } from 'zod'
+ *
+ * const generator = new OpenAPIGenerator()
+ *
+ * // Convert a Zod schema
+ * const userSchema = generator.zodToOpenAPI(z.object({
+ *   id: z.string(),
+ *   name: z.string(),
+ *   email: z.string().email()
+ * }))
+ *
+ * // Convert Hono path to OpenAPI format
+ * const openAPIPath = generator.honoPathToOpenAPI('/users/:id')
+ * // Returns: '/users/{id}'
+ * ```
+ */
 export class OpenAPIGenerator {
   private schemas: Record<string, SchemaObject> = {}
 
-  // Convert Zod schema to OpenAPI schema
+  /**
+   * Converts a Zod schema to an OpenAPI 3.0 schema object.
+   *
+   * Supports the following Zod types:
+   * - `ZodString` - with email, url, uuid, min, max, regex validations
+   * - `ZodNumber` - with min, max validations
+   * - `ZodBoolean`
+   * - `ZodObject` - with nested properties and required fields
+   * - `ZodArray` - with typed items
+   * - `ZodOptional` - marks fields as not required
+   * - `ZodDefault` - includes default values
+   * - `ZodEnum` - maps to string enum
+   * - `ZodLiteral` - maps to const/enum
+   *
+   * @param zodSchema - The Zod schema to convert
+   * @returns An OpenAPI SchemaObject representation
+   *
+   * @example
+   * ```typescript
+   * const generator = new OpenAPIGenerator()
+   *
+   * // String with email validation
+   * generator.zodToOpenAPI(z.string().email())
+   * // Returns: { type: 'string', format: 'email' }
+   *
+   * // Object with required and optional fields
+   * generator.zodToOpenAPI(z.object({
+   *   name: z.string(),
+   *   age: z.number().optional()
+   * }))
+   * // Returns: { type: 'object', properties: {...}, required: ['name'] }
+   * ```
+   */
   zodToOpenAPI(zodSchema: ZodTypeAny): SchemaObject {
     const def = zodSchema._def
 
@@ -274,40 +349,174 @@ export class OpenAPIGenerator {
     return { type: 'object' }
   }
 
-  // Convert Hono path format (/users/:id) to OpenAPI format (/users/{id})
+  /**
+   * Converts a Hono route path to OpenAPI path format.
+   *
+   * Transforms Hono's colon-prefixed parameters (`:param`) to
+   * OpenAPI's curly-brace format (`{param}`).
+   *
+   * @param honoPath - The Hono route path with `:param` syntax
+   * @returns The OpenAPI-formatted path with `{param}` syntax
+   *
+   * @example
+   * ```typescript
+   * const generator = new OpenAPIGenerator()
+   *
+   * generator.honoPathToOpenAPI('/users/:id')
+   * // Returns: '/users/{id}'
+   *
+   * generator.honoPathToOpenAPI('/users/:userId/orders/:orderId')
+   * // Returns: '/users/{userId}/orders/{orderId}'
+   * ```
+   */
   honoPathToOpenAPI(honoPath: string): string {
     return honoPath.replace(/:([^/]+)/g, '{$1}')
   }
 
-  // Extract path parameters from Hono route
+  /**
+   * Extracts path parameters from a Hono route definition.
+   *
+   * Parses the route path and creates OpenAPI ParameterObject entries
+   * for each path parameter found. All path parameters are marked as
+   * required with string type.
+   *
+   * @param honoPath - The Hono route path to extract parameters from
+   * @returns An array of OpenAPI ParameterObject definitions
+   *
+   * @example
+   * ```typescript
+   * const generator = new OpenAPIGenerator()
+   *
+   * generator.extractPathParams('/users/:userId/orders/:orderId')
+   * // Returns: [
+   * //   { name: 'userId', in: 'path', required: true, schema: { type: 'string' } },
+   * //   { name: 'orderId', in: 'path', required: true, schema: { type: 'string' } }
+   * // ]
+   * ```
+   */
   extractPathParams(honoPath: string): ParameterObject[] {
     const params: ParameterObject[] = []
     const matches = honoPath.matchAll(/:([^/]+)/g)
 
     for (const match of matches) {
-      params.push({
-        name: match[1],
-        in: 'path',
-        required: true,
-        schema: { type: 'string' }
-      })
+      const paramName = match[1]
+      if (paramName !== undefined) {
+        params.push({
+          name: paramName,
+          in: 'path',
+          required: true,
+          schema: { type: 'string' }
+        })
+      }
     }
 
     return params
   }
 
-  // Register a schema
+  /**
+   * Registers a Zod schema with a name for use in OpenAPI $ref references.
+   *
+   * The schema is converted to OpenAPI format and stored for later retrieval
+   * via `getSchemas()`. Registered schemas can be referenced in the spec
+   * using `#/components/schemas/{name}`.
+   *
+   * @param name - The unique name for the schema (used in $ref)
+   * @param zodSchema - The Zod schema to register
+   *
+   * @example
+   * ```typescript
+   * const generator = new OpenAPIGenerator()
+   *
+   * generator.registerSchema('User', z.object({
+   *   id: z.string(),
+   *   name: z.string()
+   * }))
+   *
+   * // Later used as: { $ref: '#/components/schemas/User' }
+   * ```
+   */
   registerSchema(name: string, zodSchema: ZodTypeAny): void {
     this.schemas[name] = this.zodToOpenAPI(zodSchema)
   }
 
-  // Get all registered schemas
+  /**
+   * Returns all registered schemas as an OpenAPI schemas object.
+   *
+   * The returned object is suitable for use in the `components.schemas`
+   * section of an OpenAPI specification.
+   *
+   * @returns A record mapping schema names to their OpenAPI schema objects
+   *
+   * @example
+   * ```typescript
+   * const generator = new OpenAPIGenerator()
+   * generator.registerSchema('User', userSchema)
+   * generator.registerSchema('Order', orderSchema)
+   *
+   * const schemas = generator.getSchemas()
+   * // Returns: { User: {...}, Order: {...} }
+   * ```
+   */
   getSchemas(): Record<string, SchemaObject> {
     return this.schemas
   }
 }
 
-// Main generation function
+/**
+ * Generates an OpenAPI 3.0 specification from a Hono app and configuration.
+ *
+ * This function analyzes Hono routes, converts Zod schemas, and builds
+ * a complete OpenAPI specification. It supports:
+ * - Automatic route extraction from Hono apps
+ * - Zod schema conversion to OpenAPI schemas
+ * - Resource definitions with CRUD operations
+ * - Custom operation metadata (summaries, descriptions, tags)
+ * - Security schemes (Bearer, API Key, OAuth2)
+ * - Server configurations
+ *
+ * @param options - Configuration options for spec generation
+ * @param options.app - The Hono app to extract routes from
+ * @param options.info - API metadata (title, version, description)
+ * @param options.servers - Server URLs and descriptions
+ * @param options.schemas - Zod schemas to include in components
+ * @param options.resources - Resource definitions for CRUD routes
+ * @param options.operations - Custom operation configurations
+ * @param options.security - Security scheme definitions
+ * @param options.tags - Tag definitions for grouping operations
+ * @returns A complete OpenAPI 3.0 specification object
+ *
+ * @example
+ * ```typescript
+ * import { generateOpenAPI } from '@dotdo/api'
+ * import { Hono } from 'hono'
+ * import { z } from 'zod'
+ *
+ * const app = new Hono()
+ * app.get('/users', (c) => c.json({ users: [] }))
+ * app.get('/users/:id', (c) => c.json({ id: c.req.param('id') }))
+ *
+ * const spec = generateOpenAPI({
+ *   app,
+ *   info: {
+ *     title: 'My API',
+ *     version: '1.0.0',
+ *     description: 'API documentation'
+ *   },
+ *   schemas: {
+ *     User: z.object({
+ *       id: z.string(),
+ *       name: z.string()
+ *     })
+ *   },
+ *   operations: {
+ *     'GET /users': {
+ *       summary: 'List all users',
+ *       tags: ['Users']
+ *     }
+ *   }
+ * })
+ * ```
+ */
 export function generateOpenAPI(options: GenerateOpenAPIOptions): OpenAPISpec {
   const {
     app,
@@ -334,7 +543,7 @@ export function generateOpenAPI(options: GenerateOpenAPIOptions): OpenAPISpec {
 
   // Extract routes from Hono app
   const paths: PathsObject = {}
-  const routes = (app as any).routes || []
+  const routes = (app as HonoAppWithRoutes).routes || []
 
   // Process routes from Hono
   for (const route of routes) {
@@ -511,13 +720,68 @@ export function generateOpenAPI(options: GenerateOpenAPIOptions): OpenAPISpec {
   return spec
 }
 
-// Convert OpenAPI spec to YAML format
+/**
+ * Converts an OpenAPI specification object to YAML format.
+ *
+ * This function serializes the OpenAPI spec to YAML without external
+ * dependencies. It handles:
+ * - Nested objects and arrays
+ * - Proper indentation
+ * - String quoting for special characters (colons, hashes, newlines)
+ * - Null and undefined values
+ *
+ * @param spec - The OpenAPI specification object to convert
+ * @returns The YAML-formatted string representation
+ *
+ * @example
+ * ```typescript
+ * import { generateOpenAPI, specToYAML } from '@dotdo/api'
+ *
+ * const spec = generateOpenAPI({ app, info: { title: 'API', version: '1.0.0' } })
+ * const yaml = specToYAML(spec)
+ *
+ * // Output:
+ * // openapi: 3.0.3
+ * // info:
+ * //   title: API
+ * //   version: 1.0.0
+ * // paths: {}
+ * // components:
+ * //   schemas: {}
+ * ```
+ */
 export function specToYAML(spec: OpenAPISpec): string {
+  // Input validation
+  if (spec === null || spec === undefined) {
+    throw new Error('Invalid OpenAPI spec: spec cannot be null or undefined')
+  }
+
+  if (typeof spec !== 'object' || Array.isArray(spec)) {
+    throw new Error('Invalid OpenAPI spec: spec must be an object')
+  }
+
+  // Validate required OpenAPI fields
+  if (!('openapi' in spec) || typeof spec.openapi !== 'string') {
+    throw new Error('Missing required field: openapi')
+  }
+
+  if (!('info' in spec) || typeof spec.info !== 'object' || spec.info === null) {
+    throw new Error('Missing required field: info')
+  }
+
+  if (!('paths' in spec) || typeof spec.paths !== 'object' || spec.paths === null) {
+    throw new Error('Missing required field: paths')
+  }
+
+  if (!('components' in spec) || typeof spec.components !== 'object' || spec.components === null) {
+    throw new Error('Missing required field: components')
+  }
+
   function indent(level: number): string {
     return '  '.repeat(level)
   }
 
-  function valueToYAML(value: any, level = 0): string {
+  function valueToYAML(value: unknown, level = 0): string {
     if (value === null || value === undefined) {
       return 'null'
     }
@@ -560,8 +824,46 @@ export function specToYAML(spec: OpenAPISpec): string {
   return valueToYAML(spec).trim()
 }
 
-// Create Swagger UI HTML page
+/**
+ * Generates an HTML page with Swagger UI for API documentation.
+ *
+ * The generated page loads Swagger UI from unpkg CDN and configures
+ * it to fetch the OpenAPI spec from the provided URL. The UI includes:
+ * - Interactive API exploration
+ * - Try-it-out functionality
+ * - Deep linking support
+ * - Download spec option
+ *
+ * @param specUrl - URL to the OpenAPI JSON specification (default: '/openapi.json')
+ * @returns Complete HTML string for the Swagger UI page
+ *
+ * @example
+ * ```typescript
+ * import { createSwaggerUI } from '@dotdo/api'
+ * import { Hono } from 'hono'
+ *
+ * const app = new Hono()
+ *
+ * app.get('/docs', (c) => {
+ *   const html = createSwaggerUI('/api/openapi.json')
+ *   return c.html(html)
+ * })
+ * ```
+ */
 export function createSwaggerUI(specUrl = '/openapi.json'): string {
+  // Escape the specUrl to prevent XSS attacks
+  // This escapes characters that could break out of the JavaScript string literal
+  // or inject HTML/script content
+  const escapedUrl = specUrl
+    .replace(/\\/g, '\\\\')  // Escape backslashes first
+    .replace(/'/g, "\\'")    // Escape single quotes
+    .replace(/"/g, '\\"')    // Escape double quotes
+    .replace(/</g, '\\x3c')  // Escape < to prevent </script> injection
+    .replace(/>/g, '\\x3e')  // Escape >
+    .replace(/&/g, '&amp;')  // Escape ampersands for HTML context
+    .replace(/\n/g, '\\n')   // Escape newlines
+    .replace(/\r/g, '\\r')   // Escape carriage returns
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -580,7 +882,7 @@ export function createSwaggerUI(specUrl = '/openapi.json'): string {
   <script>
     window.onload = () => {
       window.ui = SwaggerUIBundle({
-        url: '${specUrl}',
+        url: '${escapedUrl}',
         dom_id: '#swagger-ui',
         deepLinking: true,
         presets: [
@@ -598,7 +900,45 @@ export function createSwaggerUI(specUrl = '/openapi.json'): string {
 </html>`
 }
 
-// Add OpenAPI endpoints to a Hono app
+/**
+ * Adds OpenAPI documentation endpoints to a Hono app.
+ *
+ * This convenience function adds three endpoints:
+ * - `/docs` (or custom) - Swagger UI HTML page
+ * - `/openapi.json` (or custom) - JSON specification
+ * - `/openapi.yaml` (or custom) - YAML specification
+ *
+ * The spec is generated once when this function is called and cached
+ * for all subsequent requests.
+ *
+ * @param app - The Hono app to add endpoints to
+ * @param options - Generation options plus custom endpoint paths
+ * @param options.docsPath - Path for Swagger UI (default: '/docs')
+ * @param options.jsonPath - Path for JSON spec (default: '/openapi.json')
+ * @param options.yamlPath - Path for YAML spec (default: '/openapi.yaml')
+ * @returns The Hono app (for chaining)
+ *
+ * @example
+ * ```typescript
+ * import { addOpenAPIEndpoints } from '@dotdo/api'
+ * import { Hono } from 'hono'
+ *
+ * const app = new Hono()
+ * app.get('/users', (c) => c.json({ users: [] }))
+ *
+ * addOpenAPIEndpoints(app, {
+ *   info: { title: 'My API', version: '1.0.0' },
+ *   docsPath: '/api-docs',
+ *   jsonPath: '/api/spec.json',
+ *   yamlPath: '/api/spec.yaml'
+ * })
+ *
+ * // Now accessible at:
+ * // GET /api-docs - Swagger UI
+ * // GET /api/spec.json - JSON spec
+ * // GET /api/spec.yaml - YAML spec
+ * ```
+ */
 export function addOpenAPIEndpoints(
   app: Hono,
   options: Omit<GenerateOpenAPIOptions, 'app'> & {

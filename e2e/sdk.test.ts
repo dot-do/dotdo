@@ -96,36 +96,36 @@ function createManualClient(baseUrl: string, apiKey?: string) {
     // Things resource
     things: {
       list: async () => {
-        const res = await request<{ data: any[] } | any[]>('/things')
+        const res = await request<{ data: unknown[] } | unknown[]>('/things')
         return Array.isArray(res) ? res : res.data || []
       },
-      get: async (id: string) => request<any>(`/things/${id}`),
+      get: async (id: string) => request<unknown>(`/things/${id}`),
       create: async (data: { $type: string; name?: string; data?: unknown }) =>
-        request<any>('/things', 'POST', data),
+        request<unknown>('/things', 'POST', data),
       update: async (id: string, data: Partial<{ name?: string; data?: unknown }>) =>
-        request<any>(`/things/${id}`, 'PUT', data),
+        request<unknown>(`/things/${id}`, 'PUT', data),
       delete: async (id: string) => request<void>(`/things/${id}`, 'DELETE')
     },
 
     // Events resource
     events: {
       list: async () => {
-        const res = await request<{ data: any[] } | any[]>('/events')
+        const res = await request<{ data: unknown[] } | unknown[]>('/events')
         return Array.isArray(res) ? res : res.data || []
       },
-      get: async (id: string) => request<any>(`/events/${id}`),
+      get: async (id: string) => request<unknown>(`/events/${id}`),
       emit: async (data: { type: string; payload?: unknown; source?: string }) =>
-        request<any>('/events', 'POST', data)
+        request<unknown>('/events', 'POST', data)
     },
 
     // Relationships resource
     relationships: {
       list: async () => {
-        const res = await request<{ data: any[] } | any[]>('/relationships')
+        const res = await request<{ data: unknown[] } | unknown[]>('/relationships')
         return Array.isArray(res) ? res : res.data || []
       },
       add: async (data: { subject: string; predicate: string; object: string }) =>
-        request<any>('/relationships', 'POST', data),
+        request<unknown>('/relationships', 'POST', data),
       remove: async (data: { subject: string; predicate: string; object: string }) =>
         request<void>('/relationships', 'DELETE', data),
       find: async (query: { subject?: string; predicate?: string; object?: string }) => {
@@ -133,7 +133,7 @@ function createManualClient(baseUrl: string, apiKey?: string) {
         if (query.subject) params.set('subject', query.subject)
         if (query.predicate) params.set('predicate', query.predicate)
         if (query.object) params.set('object', query.object)
-        const res = await request<{ data: any[] } | any[]>(`/relationships?${params}`)
+        const res = await request<{ data: unknown[] } | unknown[]>(`/relationships?${params}`)
         return Array.isArray(res) ? res : res.data || []
       }
     },
@@ -260,7 +260,7 @@ describe.skipIf(skipIfNoWorker())('E2E: SDK against live Workers', () => {
       expect(all.length).toBeGreaterThanOrEqual(2)
 
       // Verify our items are in the list
-      const ids = all.map((t: any) => t.$id)
+      const ids = all.map((t: unknown) => (t as { $id: string }).$id)
       expect(ids).toContain(created1.$id)
       expect(ids).toContain(created2.$id)
     })
@@ -319,7 +319,7 @@ describe.skipIf(skipIfNoWorker())('E2E: SDK against live Workers', () => {
 
       expect(Array.isArray(found)).toBe(true)
       expect(found.length).toBeGreaterThanOrEqual(1)
-      expect(found.some((r: any) => r.object === order.$id)).toBe(true)
+      expect(found.some((r: unknown) => (r as { object: string }).object === order.$id)).toBe(true)
     })
   })
 
@@ -341,7 +341,7 @@ describe.skipIf(skipIfNoWorker())('E2E: SDK against live Workers', () => {
       const events = await client.events.list()
 
       expect(Array.isArray(events)).toBe(true)
-      expect(events.some((e: any) => e.$id === emitted.$id)).toBe(true)
+      expect(events.some((e: unknown) => (e as { $id: string }).$id === emitted.$id)).toBe(true)
     })
   })
 

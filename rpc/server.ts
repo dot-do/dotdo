@@ -1,7 +1,8 @@
 // RPC Server - exposes methods via HTTP/RPC
 // Includes Cap'n Proto-style promise pipelining support
+// Integrates with observability context for correlation ID propagation
 import { Hono } from 'hono'
-import { generateCorrelationId, CORRELATION_ID_HEADER } from './client'
+import { generateCorrelationId, CORRELATION_ID_HEADER } from './headers'
 import {
   NotFoundError,
   ValidationError,
@@ -15,6 +16,10 @@ import {
   getMethodSchema,
   isValidRPCMethod,
   type MethodSchemaRegistry,
+  validateZodArgs,
+  getZodMethodSchema,
+  isZodMethodSchema,
+  type ZodMethodSchemaRegistry,
 } from './validation'
 import {
   executePipeline,
@@ -25,16 +30,37 @@ import {
 // Re-export for convenience
 export { CORRELATION_ID_HEADER }
 
+/**
+ * RPC execution context passed to method handlers
+ * Contains correlation ID and other request-scoped metadata
+ */
+export interface RPCExecutionContext {
+  /** Correlation ID for request tracing */
+  correlationId: string
+  /** Source DO ID if this is a DO-to-DO call */
+  sourceDoId?: string
+  /** Whether this is an internal (trusted) request */
+  isInternal?: boolean
+}
+
+/**
+ * Symbol used to pass execution context to method handlers
+ * Methods can accept this as a parameter to access request context
+ */
+export const RPC_CONTEXT = Symbol('rpcContext')
+
 export interface RPCServerOptions {
   target: object
   /** Optional whitelist of allowed method names or glob patterns */
   whitelist?: string[]
-  /** Optional schema registry for argument validation */
-  schemas?: MethodSchemaRegistry
+  /** Optional schema registry for argument validation (supports both regular and Zod schemas) */
+  schemas?: MethodSchemaRegistry | ZodMethodSchemaRegistry
   /** Options for pipeline execution */
   pipeline?: PipelineExecutorOptions
   /** Enable pipeline support (default: true) */
   enablePipeline?: boolean
+  /** Pass execution context to method handlers */
+  passContext?: boolean
 }
 
 /**
@@ -42,7 +68,7 @@ export interface RPCServerOptions {
  */
 export interface RPCServerApp extends ReturnType<typeof createHonoApp> {
   updateWhitelist(whitelist: string[]): void
-  updateSchemas(schemas: MethodSchemaRegistry): void
+  updateSchemas(schemas: MethodSchemaRegistry | ZodMethodSchemaRegistry): void
 }
 
 function createHonoApp() {
@@ -199,10 +225,66 @@ function createMethodNotAllowedError(): AuthorizationError {
   return new AuthorizationError('Method not allowed')
 }
 
+/**
+ * Creates an RPC server that exposes methods via HTTP.
+ *
+ * The server provides JSON-RPC style method invocation over HTTP POST requests.
+ * Features include:
+ * - Method whitelisting with glob pattern support
+ * - Schema validation for arguments (supports both Zod and regular schemas)
+ * - Cap'n Proto-style promise pipelining for reduced round trips
+ * - Correlation ID propagation for distributed tracing
+ * - Execution context injection for method handlers
+ * - Protection against prototype pollution attacks
+ *
+ * @param options - Server configuration options
+ * @returns A Hono app configured as an RPC server
+ *
+ * @example
+ * ```typescript
+ * import { createServer } from '@dotdo/rpc'
+ *
+ * // Basic usage
+ * const api = {
+ *   greet(name: string) { return `Hello, ${name}!` },
+ *   users: {
+ *     create(user: User) { return { id: generateId(), ...user } }
+ *   }
+ * }
+ *
+ * const server = createServer({ target: api })
+ *
+ * // With whitelist (only expose specific methods)
+ * const server = createServer({
+ *   target: api,
+ *   whitelist: ['greet', 'users.*']  // Glob patterns supported
+ * })
+ *
+ * // With Zod schema validation
+ * import { z } from 'zod'
+ *
+ * const server = createServer({
+ *   target: api,
+ *   schemas: {
+ *     greet: { type: 'zod', schema: z.tuple([z.string()]) },
+ *     'users.create': { type: 'zod', schema: z.tuple([userSchema]) }
+ *   }
+ * })
+ *
+ * // With execution context (correlation ID, caller info)
+ * const server = createServer({
+ *   target: api,
+ *   passContext: true  // Methods receive execution context as last arg
+ * })
+ * ```
+ *
+ * @stable
+ * @since 1.0.0
+ */
 export function createServer(options: RPCServerOptions): RPCServerApp {
-  const { target, enablePipeline = true, pipeline: pipelineOptions } = options
+  const { target, enablePipeline = true, pipeline: pipelineOptions, passContext = false } = options
   let currentWhitelist: string[] | undefined = options.whitelist
-  let currentSchemas: MethodSchemaRegistry | undefined = options.schemas
+  let currentSchemas: MethodSchemaRegistry | ZodMethodSchemaRegistry | undefined = options.schemas
   const app = new Hono() as RPCServerApp
 
   // Add updateWhitelist method to the app
@@ -211,7 +293,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
   }
 
   // Add updateSchemas method to the app
-  app.updateSchemas = (newSchemas: MethodSchemaRegistry) => {
+  app.updateSchemas = (newSchemas: MethodSchemaRegistry | ZodMethodSchemaRegistry) => {
     currentSchemas = newSchemas
   }
 
@@ -320,8 +402,9 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       let current: Record<string, unknown> = target as Record<string, unknown>
 
       for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i]!
         // Only access own properties to prevent prototype chain traversal
-        if (!Object.prototype.hasOwnProperty.call(current, parts[i])) {
+        if (!Object.prototype.hasOwnProperty.call(current, part)) {
           // Return same error as whitelist rejection to prevent method enumeration
           if (currentWhitelist !== undefined) {
             const error = createMethodNotAllowedError()
@@ -330,7 +413,7 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
           const error = NotFoundError.forResource('Method', method)
           return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
         }
-        const next = current[parts[i]]
+        const next = current[part]
         if (!next || typeof next !== 'object') {
           // Return same error as whitelist rejection to prevent method enumeration
           if (currentWhitelist !== undefined) {
@@ -344,6 +427,12 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
       }
 
       const methodName = parts[parts.length - 1]
+      if (methodName === undefined) {
+        // This should never happen as validateMethodPath ensures non-empty method names,
+        // but TypeScript needs the explicit check for index safety
+        const error = new ValidationError('Invalid method path: empty method name', { method })
+        return c.json({ ...serializeError(error, { includeStack: false }), correlationId }, error.httpStatus)
+      }
 
       // For the final method, we need to check both own properties AND prototype methods
       // (class instances have methods on the prototype). The forbidden names check above
@@ -362,15 +451,45 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
 
       // Validate arguments if schema is defined for this method
       if (currentSchemas) {
-        const methodSchema = getMethodSchema(currentSchemas, method)
-        if (methodSchema) {
-          // validateArgs throws ValidationError if validation fails
-          validateArgs(args, methodSchema)
+        // First try Zod schemas
+        const zodSchema = getZodMethodSchema(currentSchemas as ZodMethodSchemaRegistry, method)
+        if (zodSchema && isZodMethodSchema(zodSchema)) {
+          // validateZodArgs throws ValidationError if validation fails
+          validateZodArgs(args, zodSchema)
+        } else {
+          // Fall back to regular schemas
+          const methodSchema = getMethodSchema(currentSchemas as MethodSchemaRegistry, method)
+          if (methodSchema) {
+            // validateArgs throws ValidationError if validation fails
+            validateArgs(args, methodSchema)
+          }
         }
       }
 
+      // Build execution context with correlation ID and other request metadata
+      const sourceDoId = c.req.header('X-DO-Source-ID')
+      const isInternalHeader = c.req.header('X-DO-Source') === 'true'
+      const executionContext: RPCExecutionContext = {
+        correlationId,
+        ...(sourceDoId && { sourceDoId }),
+        ...(isInternalHeader && { isInternal: isInternalHeader }),
+      }
+
+      // Prepare arguments - optionally append execution context
+      const invokeArgs = passContext ? [...args, { [RPC_CONTEXT]: executionContext }] : args
+
       // fn is now known to be a function, cast to callable type for apply()
-      const result = await (fn as (...args: unknown[]) => unknown).apply(current, args)
+      let result = await (fn as (...args: unknown[]) => unknown).apply(current, invokeArgs)
+
+      // Handle async generators by consuming them into an array
+      if (result && typeof result === 'object' && Symbol.asyncIterator in result) {
+        const items: unknown[] = []
+        for await (const item of result as AsyncIterable<unknown>) {
+          items.push(item)
+        }
+        result = items
+      }
+
       return c.json(result)
     } catch (error) {
       // If it's already an RPCError, serialize it with its proper status code
@@ -396,11 +515,67 @@ export function createServer(options: RPCServerOptions): RPCServerApp {
   return app
 }
 
-// Cloudflare Worker export helper
+/**
+ * Creates a Cloudflare Worker export from a target object.
+ *
+ * This helper wraps any object with RPC methods into a format
+ * suitable for Cloudflare Worker export.
+ *
+ * @param target - The object containing methods to expose via RPC
+ * @returns A Worker-compatible export with a fetch handler
+ *
+ * @example
+ * ```typescript
+ * import { createWorkerFromTarget } from '@dotdo/rpc'
+ *
+ * const api = {
+ *   greet(name: string) { return `Hello, ${name}!` }
+ * }
+ *
+ * export default createWorkerFromTarget(api)
+ * ```
+ *
+ * @stable
+ * @since 1.0.0
+ */
 export function createWorkerFromTarget(target: object) {
   const app = createServer({ target })
 
   return {
     fetch: app.fetch.bind(app)
   }
+}
+
+/**
+ * Extract execution context from method arguments.
+ * Use this in RPC methods when passContext is enabled.
+ *
+ * @example
+ * ```typescript
+ * class MyAPI {
+ *   async myMethod(arg1: string, arg2: number, ctxArg?: unknown) {
+ *     const ctx = getExecutionContext(ctxArg)
+ *     if (ctx) {
+ *       console.log('Correlation ID:', ctx.correlationId)
+ *     }
+ *     // ...
+ *   }
+ * }
+ * ```
+ */
+export function getExecutionContext(arg: unknown): RPCExecutionContext | undefined {
+  if (arg && typeof arg === 'object' && RPC_CONTEXT in arg) {
+    return (arg as { [RPC_CONTEXT]: RPCExecutionContext })[RPC_CONTEXT]
+  }
+  return undefined
+}
+
+/**
+ * Helper to get correlation ID from the last argument (for passContext mode)
+ */
+export function getCorrelationIdFromArgs(args: unknown[]): string | undefined {
+  if (args.length === 0) return undefined
+  const lastArg = args[args.length - 1]
+  const ctx = getExecutionContext(lastArg)
+  return ctx?.correlationId
 }

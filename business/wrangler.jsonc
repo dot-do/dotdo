@@ -1,0 +1,19 @@
+{
+  "name": "dotdo-business",
+  "main": "test-entry.ts",
+  "compatibility_date": "2025-01-15",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "BUSINESS", "class_name": "Business" }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Business"]
+    }
+  ]
+}

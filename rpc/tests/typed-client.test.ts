@@ -336,7 +336,12 @@ describe('Typed RPC Client', () => {
     })
 
     it('should create a typed client from DO binding with DurableObjectId', () => {
-      const mockDoId = { toString: () => 'direct-id' } as DurableObjectId
+      // Mock DurableObjectId must have: equals, toString (returning non-empty string), and name property
+      const mockDoId = {
+        toString: () => '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        equals: () => false,
+        name: undefined,
+      } as unknown as DurableObjectId
       const mockStub = { fetch: vi.fn() }
       const mockBinding = {
         idFromName: vi.fn(),

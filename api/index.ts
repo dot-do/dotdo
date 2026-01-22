@@ -1,6 +1,42 @@
-// @dotdo/api - Self-Describing Hono API
-// HATEOAS with clickable links, auto OpenAPI
-// Define once → SDK, CLI, API, MCP all auto-generated
+/**
+ * @dotdo/api - Self-Describing Hono API
+ *
+ * Provides a HATEOAS-compliant API layer with automatic OpenAPI generation,
+ * resource definitions, and self-describing endpoints. Define your API once
+ * and get SDK, CLI, API documentation, and MCP tools automatically generated.
+ *
+ * ## Key Features
+ *
+ * - **HATEOAS**: Hypermedia links for API discoverability
+ * - **Resource DSL**: Fluent API for defining REST resources
+ * - **OpenAPI**: Automatic OpenAPI 3.0 specification generation
+ * - **Code Generation**: SDK, MCP tools, and CLI from definitions
+ * - **Rate Limiting**: Built-in distributed rate limiting
+ *
+ * @module @dotdo/api
+ *
+ * @example
+ * ```typescript
+ * import { createAPI, defineResource, generateOpenAPI, getAllResources } from '@dotdo/api'
+ *
+ * // Define a resource
+ * const CustomerResource = defineResource('Customer')
+ *   .fields({
+ *     name: { type: 'string', required: true },
+ *     email: { type: 'string', format: 'email' }
+ *   })
+ *   .build()
+ *
+ * // Create API with HATEOAS support
+ * const api = createAPI({ baseUrl: 'https://api.example.com' })
+ *
+ * // Generate OpenAPI spec
+ * const spec = generateOpenAPI(getAllResources(), {
+ *   title: 'My API',
+ *   version: '1.0.0'
+ * })
+ * ```
+ */
 
 export { createAPI } from './app'
 
@@ -10,6 +46,10 @@ export {
   getResource,
   getAllResources,
   clearRegistry,
+  // Request-scoped resource context (do-73qn)
+  runWithResourceContext,
+  getCurrentResourceContext,
+  clearGlobalRegistry,
   type ResourceDefinition,
   type ResourceFields,
   type FieldDef,
@@ -26,9 +66,16 @@ export {
   generateCollectionLinks,
   withLinks,
   withCollectionLinks,
+  // API root and discoverability
+  generateAPIRootLinks,
+  generateAPIRoot,
+  // Error responses with links
+  generateErrorLinks,
+  // Types
   type Link,
   type HATEOASResponse,
   type ResourceConfig,
+  type APIRootConfig,
 } from './hateoas'
 export {
   generateOpenAPI,
@@ -74,3 +121,14 @@ export {
   type RateLimitTier,
   type RateLimitResult,
 } from './middleware/rate-limit'
+
+// Body size limit middleware
+export {
+  BodySizeValidator,
+  bodySizeLimitMiddleware,
+  createBodySizeValidator,
+  DEFAULT_MAX_BODY_SIZE,
+  MAX_ALLOWED_BODY_SIZE,
+  type BodySizeLimitConfig,
+  type BodySizeValidationResult,
+} from './middleware/body-size-limit'

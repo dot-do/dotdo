@@ -118,15 +118,92 @@ export interface Transport {
 }
 
 /**
+ * Transport type identifier for error context
+ */
+export type TransportType = 'fetch' | 'websocket' | 'stub'
+
+/**
+ * Error category for unified error handling across transports
+ *
+ * - 'network': Connection failures, DNS errors, socket errors
+ * - 'timeout': Request or connection timeouts
+ * - 'validation': Invalid request format or parameters
+ * - 'server': Server-side errors (4xx, 5xx)
+ * - 'transport': Transport-specific errors (WebSocket close, circuit open)
+ */
+export type ErrorCategory = 'network' | 'timeout' | 'validation' | 'server' | 'transport'
+
+/**
+ * Context provided to error interceptors for unified error handling
+ */
+export interface ErrorContext {
+  /** Type of transport that encountered the error */
+  transportType: TransportType
+  /** The RPC message that was being sent */
+  message: RPCMessage
+  /** Correlation ID for request tracing */
+  correlationId: string
+  /** Error category for simplified error handling */
+  category: ErrorCategory
+  /** Transport-specific endpoint (URL, DO ID, etc.) */
+  endpoint?: string
+  /** HTTP status code if applicable */
+  httpStatus?: number
+  /** Number of retry attempts (for transports with retry) */
+  attempt?: number
+  /** Duration of the request in milliseconds */
+  durationMs?: number
+  /** Whether the error is retryable */
+  retryable: boolean
+}
+
+/**
+ * Error interceptor function type
+ *
+ * Called when a transport encounters an error. Can be used for:
+ * - Logging and monitoring
+ * - Error transformation
+ * - Circuit breaker integration
+ * - Retry decisions
+ *
+ * @param error - The serialized error from the transport
+ * @param context - Additional context about the error
+ * @returns Optional transformed error, or undefined to use original
+ *
+ * @example
+ * ```typescript
+ * const transport = new FetchTransport({
+ *   url: 'https://api.example.com',
+ *   onError: (error, context) => {
+ *     // Log all errors
+ *     console.error(`[${context.transportType}] ${context.category}: ${error.message}`)
+ *
+ *     // Add correlation ID to all errors
+ *     return { ...error, correlationId: context.correlationId }
+ *   }
+ * })
+ * ```
+ */
+export type ErrorInterceptor = (
+  error: SerializedError,
+  context: ErrorContext
+) => SerializedError | undefined | void
+
+/**
  * Options common to all transports
  */
 export interface TransportOptions {
-  /** Request timeout in milliseconds (default: 30000) */
+  /** Request timeout in milliseconds (default: DEFAULT_RPC_TIMEOUT_MS = 30000 from @dotdo/utils) */
   timeout?: number
   /** Optional correlation ID to use for all requests */
   correlationId?: string
   /** Custom headers to include with requests (where applicable) */
   headers?: Record<string, string>
+  /**
+   * Error interceptor called when the transport encounters an error.
+   * Use for unified error logging, transformation, or monitoring.
+   */
+  onError?: ErrorInterceptor
 }
 
 /**
