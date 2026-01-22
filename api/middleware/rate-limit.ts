@@ -17,7 +17,15 @@
  */
 
 import type { Context, MiddlewareHandler, Next } from 'hono'
-import { RateLimitError, ValidationError } from '../../rpc/errors'
+import { RateLimitError, ValidationError } from '@dotdo/rpc'
+import {
+  DEFAULT_RATE_LIMIT_WINDOW_MS,
+  DEFAULT_FREE_TIER_REQUESTS,
+  DEFAULT_PRO_TIER_REQUESTS,
+  DEFAULT_ENTERPRISE_TIER_REQUESTS,
+  DEFAULT_MAX_STORE_ENTRIES,
+  DEFAULT_CLEANUP_INTERVAL_MS,
+} from '@dotdo/utils'
 
 // ============================================================================
 // TYPES
@@ -34,7 +42,7 @@ export interface RateLimitTier {
   /** Window duration in milliseconds */
   windowMs: number
   /** Optional burst capacity */
-  burstCapacity?: number
+  burstCapacity?: number | undefined
 }
 
 /**
@@ -43,20 +51,20 @@ export interface RateLimitTier {
 export const DEFAULT_TIERS: Record<string, RateLimitTier> = {
   free: {
     name: 'free',
-    requestsPerWindow: 100,
-    windowMs: 60000, // 1 minute
+    requestsPerWindow: DEFAULT_FREE_TIER_REQUESTS,
+    windowMs: DEFAULT_RATE_LIMIT_WINDOW_MS,
     burstCapacity: 20,
   },
   pro: {
     name: 'pro',
-    requestsPerWindow: 1000,
-    windowMs: 60000,
+    requestsPerWindow: DEFAULT_PRO_TIER_REQUESTS,
+    windowMs: DEFAULT_RATE_LIMIT_WINDOW_MS,
     burstCapacity: 100,
   },
   enterprise: {
     name: 'enterprise',
-    requestsPerWindow: 10000,
-    windowMs: 60000,
+    requestsPerWindow: DEFAULT_ENTERPRISE_TIER_REQUESTS,
+    windowMs: DEFAULT_RATE_LIMIT_WINDOW_MS,
     burstCapacity: 500,
   },
 }
@@ -81,6 +89,26 @@ export interface RateLimitConfig {
   windowStrategy?: 'sliding' | 'fixed'
   /** Skip rate limiting for specific paths */
   skipPaths?: string[]
+  /** Maximum number of entries before LRU eviction (default: 10000) */
+  maxEntries?: number
+  /** Cleanup interval in milliseconds (default: 300000 = 5 minutes) */
+  cleanupIntervalMs?: number
+}
+
+/**
+ * Rate limiter metrics
+ */
+export interface RateLimiterMetrics {
+  /** Number of sliding window entries */
+  slidingWindowCount: number
+  /** Number of fixed window entries */
+  fixedWindowCount: number
+  /** Total entries across both maps */
+  totalEntries: number
+  /** Timestamp of last cleanup (null if never cleaned) */
+  lastCleanup: number | null
+  /** Number of entries removed in last cleanup (0 if never cleaned) */
+  entriesRemoved: number
 }
 
 /**
@@ -100,9 +128,9 @@ export interface RateLimitResult {
   /** Rate limit headers to apply */
   headers: Record<string, string>
   /** Error details if rate limited */
-  error?: { code: string; message: string }
+  error?: { code: string; message: string } | undefined
   /** Retry after in seconds (only when rate limited) */
-  retryAfter?: number
+  retryAfter?: number | undefined
   /** The key used for rate limiting */
   key: string
   /** The tier applied */
@@ -124,6 +152,22 @@ interface FixedWindowState {
   windowStart: number
 }
 
+/**
+ * Internal config with all required fields
+ */
+interface InternalRateLimitConfig {
+  keyStrategy: 'tenant' | 'user' | 'tenant+user' | 'ip'
+  defaultTier: string
+  tiers: Record<string, RateLimitTier>
+  tenantOverrides: Record<string, Partial<RateLimitTier>>
+  userOverrides: Record<string, Partial<RateLimitTier>>
+  failOpen: boolean
+  windowStrategy: 'sliding' | 'fixed'
+  skipPaths: string[]
+  maxEntries: number
+  cleanupIntervalMs: number
+}
+
 // ============================================================================
 // RATE LIMITER CLASS
 // ============================================================================
@@ -132,12 +176,20 @@ interface FixedWindowState {
  * Rate Limiter using sliding window algorithm
  *
  * Tracks request timestamps per key and enforces limits based on tier configuration.
+ * Includes memory management via periodic cleanup and LRU eviction.
+ *
+ * @issue do-ti43.9 - [TDD] Rate limiter memory cleanup
  */
 export class RateLimiter {
-  private readonly config: Required<RateLimitConfig>
+  private readonly config: InternalRateLimitConfig
   private readonly slidingWindows: Map<string, SlidingWindowState> = new Map()
   private readonly fixedWindows: Map<string, FixedWindowState> = new Map()
+  /** LRU order tracking - most recently used keys at the end */
+  private readonly lruOrder: string[] = []
   private simulateStorageFailure = false
+  private lastCleanup: number | null = null
+  private lastEntriesRemoved: number = 0
+  private cleanupIntervalId: ReturnType<typeof setInterval> | null = null
 
   constructor(config: RateLimitConfig) {
     this.config = {
@@ -149,6 +201,8 @@ export class RateLimiter {
       failOpen: config.failOpen ?? true,
       windowStrategy: config.windowStrategy ?? 'sliding',
       skipPaths: config.skipPaths ?? [],
+      maxEntries: config.maxEntries ?? DEFAULT_MAX_STORE_ENTRIES,
+      cleanupIntervalMs: config.cleanupIntervalMs ?? DEFAULT_CLEANUP_INTERVAL_MS,
     }
 
     // Validate tiers
@@ -175,10 +229,43 @@ export class RateLimiter {
     const tierConfig = this.getEffectiveTierConfig(tier, context)
     const now = Date.now()
 
+    // Update LRU order for the key
+    this.touchLRU(key)
+
+    // Enforce maxEntries limit via LRU eviction
+    this.enforceLRULimit()
+
     if (this.config.windowStrategy === 'sliding') {
       return this.checkSlidingWindow(key, tierConfig, now, tier)
     } else {
       return this.checkFixedWindow(key, tierConfig, now, tier)
+    }
+  }
+
+  /**
+   * Update LRU order - move key to end (most recently used)
+   */
+  private touchLRU(key: string): void {
+    const index = this.lruOrder.indexOf(key)
+    if (index !== -1) {
+      // Remove from current position
+      this.lruOrder.splice(index, 1)
+    }
+    // Add to end (most recently used)
+    this.lruOrder.push(key)
+  }
+
+  /**
+   * Enforce LRU eviction when maxEntries exceeded
+   */
+  private enforceLRULimit(): void {
+    while (this.lruOrder.length > this.config.maxEntries) {
+      // Remove least recently used (first in array)
+      const lruKey = this.lruOrder.shift()
+      if (lruKey) {
+        this.slidingWindows.delete(lruKey)
+        this.fixedWindows.delete(lruKey)
+      }
     }
   }
 
@@ -219,7 +306,7 @@ export class RateLimiter {
         remaining: 0,
         limit: tierConfig.requestsPerWindow,
         resetAt: windowResetsAt,
-        headers: this.buildHeaders(tierConfig.requestsPerWindow, 0, windowResetsAt, retryAfterSec),
+        headers: this.buildHeaders(tierConfig.requestsPerWindow, 0, windowResetsAt, retryAfterSec, tierConfig.windowMs),
         error: {
           code: 'RATE_LIMIT_EXCEEDED',
           message: 'Too many requests. Please retry later.',
@@ -240,7 +327,7 @@ export class RateLimiter {
       remaining,
       limit: tierConfig.requestsPerWindow,
       resetAt: windowResetsAt,
-      headers: this.buildHeaders(tierConfig.requestsPerWindow, remaining, windowResetsAt),
+      headers: this.buildHeaders(tierConfig.requestsPerWindow, remaining, windowResetsAt, undefined, tierConfig.windowMs),
       key,
       tier: tierName,
     }
@@ -276,7 +363,7 @@ export class RateLimiter {
         remaining: 0,
         limit: tierConfig.requestsPerWindow,
         resetAt: windowResetsAt,
-        headers: this.buildHeaders(tierConfig.requestsPerWindow, 0, windowResetsAt, retryAfterSec),
+        headers: this.buildHeaders(tierConfig.requestsPerWindow, 0, windowResetsAt, retryAfterSec, tierConfig.windowMs),
         error: {
           code: 'RATE_LIMIT_EXCEEDED',
           message: 'Too many requests. Please retry later.',
@@ -297,7 +384,7 @@ export class RateLimiter {
       remaining,
       limit: tierConfig.requestsPerWindow,
       resetAt: windowResetsAt,
-      headers: this.buildHeaders(tierConfig.requestsPerWindow, remaining, windowResetsAt),
+      headers: this.buildHeaders(tierConfig.requestsPerWindow, remaining, windowResetsAt, undefined, tierConfig.windowMs),
       key,
       tier: tierName,
     }
@@ -427,18 +514,53 @@ export class RateLimiter {
   }
 
   /**
-   * Build rate limit headers
+   * Build rate limit headers.
+   *
+   * Returns both legacy X-RateLimit-* headers (widely supported) and the newer
+   * standardized RateLimit-* headers as per IETF draft-ietf-httpapi-ratelimit-headers.
+   *
+   * Headers included:
+   * - X-RateLimit-Limit: Total requests allowed per window (legacy)
+   * - X-RateLimit-Remaining: Requests remaining in current window (legacy)
+   * - X-RateLimit-Reset: Unix timestamp when window resets (legacy)
+   * - RateLimit-Limit: Total requests allowed per window (standard)
+   * - RateLimit-Remaining: Requests remaining in current window (standard)
+   * - RateLimit-Reset: Seconds until window resets (standard)
+   * - RateLimit-Policy: Policy description with limit and window (standard)
+   * - Retry-After: Seconds to wait before retrying (only when rate limited)
+   *
+   * @param limit - Total requests allowed per window
+   * @param remaining - Requests remaining in current window
+   * @param resetAt - Unix timestamp when the window resets (seconds)
+   * @param retryAfterSec - Seconds until retry is allowed (only for 429 responses)
+   * @param windowMs - Window duration in milliseconds (for policy header)
+   * @returns Record of header name to value
    */
   private buildHeaders(
     limit: number,
     remaining: number,
     resetAt: number,
-    retryAfterSec?: number
+    retryAfterSec?: number,
+    windowMs?: number
   ): Record<string, string> {
+    // Calculate seconds until reset for the standard RateLimit-Reset header
+    const nowSeconds = Math.floor(Date.now() / 1000)
+    const resetInSeconds = Math.max(0, resetAt - nowSeconds)
+
+    // Window duration in seconds for the policy header
+    const windowSeconds = windowMs ? Math.floor(windowMs / 1000) : 60
+
     const headers: Record<string, string> = {
+      // Legacy headers (widely supported)
       'X-RateLimit-Limit': String(limit),
       'X-RateLimit-Remaining': String(remaining),
       'X-RateLimit-Reset': String(resetAt),
+      // Standard headers (IETF draft)
+      'RateLimit-Limit': String(limit),
+      'RateLimit-Remaining': String(remaining),
+      'RateLimit-Reset': String(resetInSeconds),
+      // Policy header describing the rate limit (e.g., "100;w=60" means 100 requests per 60 seconds)
+      'RateLimit-Policy': `${limit};w=${windowSeconds}`,
     }
 
     if (retryAfterSec !== undefined && retryAfterSec > 0) {
@@ -511,6 +633,100 @@ export class RateLimiter {
   _simulateStorageFailure(fail: boolean): void {
     this.simulateStorageFailure = fail
   }
+
+  /**
+   * Clean up expired entries from both window maps
+   * Removes entries where all requests have expired beyond the window duration
+   *
+   * @returns Number of entries removed during cleanup
+   */
+  async cleanup(): Promise<number> {
+    const now = Date.now()
+    const defaultTier = this.config.tiers[this.config.defaultTier] ?? DEFAULT_TIERS['free']!
+    const windowMs = defaultTier.windowMs
+    let entriesRemoved = 0
+
+    // Clean sliding windows - remove entries with all requests expired
+    for (const [key, state] of this.slidingWindows) {
+      // Filter out expired requests
+      const cutoff = now - windowMs
+      state.requests = state.requests.filter((ts) => ts > cutoff)
+
+      // If no requests remain, delete the entry
+      if (state.requests.length === 0) {
+        this.slidingWindows.delete(key)
+        this.removeLRU(key)
+        entriesRemoved++
+      }
+    }
+
+    // Clean fixed windows - remove entries past their window
+    for (const [key, state] of this.fixedWindows) {
+      if (now >= state.windowStart + windowMs) {
+        this.fixedWindows.delete(key)
+        this.removeLRU(key)
+        entriesRemoved++
+      }
+    }
+
+    this.lastCleanup = now
+    this.lastEntriesRemoved = entriesRemoved
+    return entriesRemoved
+  }
+
+  /**
+   * Remove key from LRU tracking
+   */
+  private removeLRU(key: string): void {
+    const index = this.lruOrder.indexOf(key)
+    if (index !== -1) {
+      this.lruOrder.splice(index, 1)
+    }
+  }
+
+  /**
+   * Get metrics about the rate limiter's memory usage
+   */
+  async getMetrics(): Promise<RateLimiterMetrics> {
+    return {
+      slidingWindowCount: this.slidingWindows.size,
+      fixedWindowCount: this.fixedWindows.size,
+      totalEntries: this.slidingWindows.size + this.fixedWindows.size,
+      lastCleanup: this.lastCleanup,
+      entriesRemoved: this.lastEntriesRemoved,
+    }
+  }
+
+  /**
+   * Get the current configuration
+   */
+  getConfig(): InternalRateLimitConfig {
+    return { ...this.config }
+  }
+
+  /**
+   * Start automatic periodic cleanup
+   */
+  startAutoCleanup(): void {
+    // Don't start multiple intervals
+    if (this.cleanupIntervalId !== null) {
+      return
+    }
+
+    this.cleanupIntervalId = setInterval(async () => {
+      await this.cleanup()
+    }, this.config.cleanupIntervalMs)
+  }
+
+  /**
+   * Stop automatic periodic cleanup
+   */
+  stopAutoCleanup(): void {
+    if (this.cleanupIntervalId !== null) {
+      clearInterval(this.cleanupIntervalId)
+      this.cleanupIntervalId = null
+    }
+  }
 }
 
 // ============================================================================
@@ -554,12 +770,16 @@ export function rateLimitMiddleware(config: RateLimitConfig): MiddlewareHandler 
       return next()
     }
 
-    // Extract context from Hono context (if available)
-    const tenantId = c.get('tenantId') as string | undefined
-    const userId = c.get('userId') as string | undefined
+    // Extract context from Hono context or request headers (for overrides to work)
+    const tenantId = c.get('tenantId') as string | undefined ?? c.req.header('X-Tenant-ID')
+    const userId = c.get('userId') as string | undefined ?? c.req.header('X-User-ID')
     const tier = c.get('tier') as string | undefined
 
-    const result = await rateLimiter.check(c.req.raw, { tenantId, userId, tier })
+    const result = await rateLimiter.check(c.req.raw, {
+      ...(tenantId !== undefined && { tenantId }),
+      ...(userId !== undefined && { userId }),
+      ...(tier !== undefined && { tier }),
+    })
 
     // Set rate limit headers on context
     for (const [key, value] of Object.entries(result.headers)) {
@@ -571,7 +791,7 @@ export function rateLimitMiddleware(config: RateLimitConfig): MiddlewareHandler 
       const rateLimitError = RateLimitError.exceeded({
         limit: result.limit,
         window: `${Math.round(60000 / 1000)}s`, // Assumes 60s window, could be configurable
-        retryAfter: result.retryAfter,
+        ...(result.retryAfter !== undefined && { retryAfter: result.retryAfter }),
       })
       return c.json(rateLimitError.toJSON(), rateLimitError.httpStatus)
     }

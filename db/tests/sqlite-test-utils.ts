@@ -52,7 +52,7 @@ export function createMockSqlStorage(): MockSqlStorage {
               if (lowerSql.startsWith('select')) {
                 // Extract table name
                 const tableMatch = sql.match(/from\s+(\w+)/i)
-                if (!tableMatch) return null
+                if (!tableMatch || !tableMatch[1]) return null
 
                 const tableName = tableMatch[1]
                 const rows = tables.get(tableName)
@@ -90,7 +90,7 @@ export function createMockSqlStorage(): MockSqlStorage {
 
               if (lowerSql.startsWith('select')) {
                 const tableMatch = sql.match(/from\s+(\w+)/i)
-                if (!tableMatch) return { results: [] }
+                if (!tableMatch || !tableMatch[1]) return { results: [] }
 
                 const tableName = tableMatch[1]
                 const tableRows = tables.get(tableName)
@@ -170,55 +170,60 @@ export function createMockSqlStorage(): MockSqlStorage {
 
                     // Check for timestamp range
                     if (sql.includes('timestamp >= ?')) {
-                      const sinceValue = boundValues[filterIndex++]
+                      const sinceValue = boundValues[filterIndex++] as number
                       rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp >= sinceValue)
                     }
 
                     if (sql.includes('timestamp <= ?')) {
-                      const untilValue = boundValues[filterIndex++]
+                      const untilValue = boundValues[filterIndex++] as number
                       rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp <= untilValue)
                     }
                   }
                 } else if (lowerSql.includes('where 1=1')) {
                   // "WHERE 1=1" with AND conditions - apply filters in order they appear in SQL
+                  // This pattern is used by createSQLiteRelationshipsStore.find()
                   let valueIndex = 0
 
-                  if (sql.includes('AND type = ?')) {
+                  // Count number of filter conditions (excluding LIMIT/OFFSET at the end)
+                  // Parameters for filters come before LIMIT/OFFSET params
+                  const filterParamCount = boundValues.length
+
+                  if (sql.includes('AND type = ?') && valueIndex < filterParamCount) {
                     const typeValue = boundValues[valueIndex++]
                     rows = rows.filter((r: any) => r.type === typeValue)
                   }
 
-                  if (sql.includes('AND source = ?')) {
+                  if (sql.includes('AND source = ?') && valueIndex < filterParamCount) {
                     const sourceValue = boundValues[valueIndex++]
                     rows = rows.filter((r: any) => r.source === sourceValue)
                   }
 
-                  if (sql.includes('AND correlation_id = ?')) {
+                  if (sql.includes('AND correlation_id = ?') && valueIndex < filterParamCount) {
                     const corrValue = boundValues[valueIndex++]
                     rows = rows.filter((r: any) => r.correlation_id === corrValue)
                   }
 
-                  if (sql.includes('AND timestamp >= ?')) {
-                    const sinceValue = boundValues[valueIndex++]
+                  if (sql.includes('AND timestamp >= ?') && valueIndex < filterParamCount) {
+                    const sinceValue = boundValues[valueIndex++] as number
                     rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp >= sinceValue)
                   }
 
-                  if (sql.includes('AND timestamp <= ?')) {
-                    const untilValue = boundValues[valueIndex++]
+                  if (sql.includes('AND timestamp <= ?') && valueIndex < filterParamCount) {
+                    const untilValue = boundValues[valueIndex++] as number
                     rows = rows.filter((r: any) => typeof r.timestamp === 'number' && r.timestamp <= untilValue)
                   }
 
-                  if (sql.includes('AND subject = ?')) {
+                  if (sql.includes('AND subject = ?') && valueIndex < filterParamCount) {
                     const subjectValue = boundValues[valueIndex++]
                     rows = rows.filter((r: any) => r.subject === subjectValue)
                   }
 
-                  if (sql.includes('AND predicate = ?')) {
+                  if (sql.includes('AND predicate = ?') && valueIndex < filterParamCount) {
                     const predicateValue = boundValues[valueIndex++]
                     rows = rows.filter((r: any) => r.predicate === predicateValue)
                   }
 
-                  if (sql.includes('AND object = ?')) {
+                  if (sql.includes('AND object = ?') && valueIndex < filterParamCount) {
                     const objectValue = boundValues[valueIndex++]
                     rows = rows.filter((r: any) => r.object === objectValue)
                   }
@@ -236,18 +241,26 @@ export function createMockSqlStorage(): MockSqlStorage {
                 }
 
                 // Handle LIMIT/OFFSET with bound parameters
-                let limit = rows.length
-                let offset = 0
+                // Only apply if SQL actually has LIMIT clause
+                if (lowerSql.includes('limit')) {
+                  let limit = rows.length
+                  let offset = 0
 
-                // Find limit and offset values from bound parameters
-                const questionMarks = (sql.match(/\?/g) || []).length
-                if (questionMarks >= 2) {
-                  // Last two params are typically LIMIT and OFFSET
-                  limit = boundValues[boundValues.length - 2] as number || limit
-                  offset = boundValues[boundValues.length - 1] as number || offset
+                  // LIMIT is typically the second-to-last param, OFFSET is last
+                  // But only if we have bound params after the filter params
+                  if (lowerSql.includes('offset')) {
+                    // Both LIMIT and OFFSET - last two params
+                    limit = boundValues[boundValues.length - 2] as number || limit
+                    offset = boundValues[boundValues.length - 1] as number || offset
+                  } else {
+                    // Just LIMIT - last param
+                    limit = boundValues[boundValues.length - 1] as number || limit
+                  }
+
+                  return { results: rows.slice(offset, offset + limit) }
                 }
 
-                return { results: rows.slice(offset, offset + limit) }
+                return { results: rows }
               }
 
               return { results: [] }
@@ -258,7 +271,7 @@ export function createMockSqlStorage(): MockSqlStorage {
 
               if (lowerSql.startsWith('insert')) {
                 const tableMatch = sql.match(/insert into\s+(\w+)/i)
-                if (!tableMatch) return
+                if (!tableMatch || !tableMatch[1]) return
 
                 const tableName = tableMatch[1]
                 const rows = tables.get(tableName)
@@ -268,7 +281,7 @@ export function createMockSqlStorage(): MockSqlStorage {
                 const columnsMatch = sql.match(/\(([^)]+)\)/i)
                 if (!columnsMatch) return
 
-                const columns = columnsMatch[1].split(',').map(c => c.trim())
+                const columns = columnsMatch[1]!.split(',').map(c => c.trim())
 
                 // Create row object
                 const row: Record<string, unknown> = {}
@@ -279,7 +292,7 @@ export function createMockSqlStorage(): MockSqlStorage {
                 rows.push(row)
               } else if (lowerSql.startsWith('update')) {
                 const tableMatch = sql.match(/update\s+(\w+)/i)
-                if (!tableMatch) return
+                if (!tableMatch || !tableMatch[1]) return
 
                 const tableName = tableMatch[1]
                 const rows = tables.get(tableName)
@@ -294,16 +307,16 @@ export function createMockSqlStorage(): MockSqlStorage {
                   // This is simplified - real implementation would parse SET clause
                   const setMatch = sql.match(/set\s+(.+?)\s+where/i)
                   if (setMatch) {
-                    const setPairs = setMatch[1].split(',')
+                    const setPairs = setMatch[1]!.split(',')
                     setPairs.forEach((pair, idx) => {
                       const [col] = pair.trim().split('=')
-                      rows[rowIndex][col.trim()] = boundValues[idx]
+                      if (col) rows[rowIndex]![col.trim()] = boundValues[idx]
                     })
                   }
                 }
               } else if (lowerSql.startsWith('delete')) {
                 const tableMatch = sql.match(/delete from\s+(\w+)/i)
-                if (!tableMatch) return
+                if (!tableMatch || !tableMatch[1]) return
 
                 const tableName = tableMatch[1]
                 const rows = tables.get(tableName)

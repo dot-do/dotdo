@@ -3,30 +3,33 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "vinxi dev",
-    "build": "vinxi build",
-    "build:static": "vinxi build --preset=cloudflare-pages-static",
-    "start": "vinxi start",
+    "dev": "vite dev --port 3000",
+    "build": "vite build",
+    "build:static": "vite build",
+    "start": "node .output/server/index.mjs",
     "test": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tanstack/react-router": "^1.95.0",
-    "@tanstack/start": "^1.95.0",
+    "@tanstack/react-router": "^1.154.0",
+    "@tanstack/react-start": "^1.154.0",
     "fumadocs-core": "^16.4.7",
     "fumadocs-mdx": "^14.2.6",
     "fumadocs-ui": "^16.4.7",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "vinxi": "^0.5.0"
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
+    "@dotdo/db": "workspace:*",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4.0.0",
-    "typescript": "^5.7.0",
+    "typescript": "^5.7.3",
+    "undici": "^7.18.2",
+    "vite": "^7.0.0",
+    "vite-tsconfig-paths": "^5.0.0",
     "vitest": "^3.0.0"
   }
 }

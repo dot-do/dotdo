@@ -288,4 +288,113 @@ describe('Digital Objects Integration', () => {
       expect(result).toBeNull()
     })
   })
+
+  describe('Bulk Operations', () => {
+    it('should bulk create multiple things', async () => {
+      const things = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' },
+        { $type: 'Customer', name: 'Bob' },
+        { $type: 'Customer', name: 'Charlie' },
+      ])
+
+      expect(things).toHaveLength(3)
+      expect(things[0].$id).toBeDefined()
+      expect(things[0].$type).toBe('Customer')
+      expect(things[0].name).toBe('Alice')
+      expect(things[1].name).toBe('Bob')
+      expect(things[2].name).toBe('Charlie')
+      expect(things.every(t => t.$createdAt && t.$updatedAt)).toBe(true)
+    })
+
+    it('should bulk create things of different types', async () => {
+      const things = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' },
+        { $type: 'Order', total: 100 },
+      ])
+
+      expect(things).toHaveLength(2)
+      expect(things[0].$type).toBe('Customer')
+      expect(things[0].name).toBe('Alice')
+      expect(things[1].$type).toBe('Order')
+      expect(things[1].total).toBe(100)
+    })
+
+    it('should return empty array for empty bulk create', async () => {
+      const things = await store.bulkCreate([])
+      expect(things).toEqual([])
+    })
+
+    it('should bulk update multiple things', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice', age: 25 },
+        { $type: 'Customer', name: 'Bob', age: 30 },
+        { $type: 'Customer', name: 'Charlie', age: 35 },
+      ])
+
+      const updated = await store.bulkUpdate([
+        { id: created[0].$id, data: { age: 26 } },
+        { id: created[1].$id, data: { age: 31 } },
+        { id: created[2].$id, data: { name: 'Charles', age: 36 } },
+      ])
+
+      expect(updated).toHaveLength(3)
+      expect(updated[0].age).toBe(26)
+      expect(updated[0].name).toBe('Alice')
+      expect(updated[1].age).toBe(31)
+      expect(updated[2].name).toBe('Charles')
+      expect(updated[2].age).toBe(36)
+    })
+
+    it('should return empty array for empty bulk update', async () => {
+      const updated = await store.bulkUpdate([])
+      expect(updated).toEqual([])
+    })
+
+    it('should bulk delete multiple things', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' },
+        { $type: 'Customer', name: 'Bob' },
+        { $type: 'Customer', name: 'Charlie' },
+      ])
+
+      await store.bulkDelete([created[0].$id, created[1].$id])
+
+      const remaining = await store.list({ type: 'Customer' })
+      expect(remaining).toHaveLength(1)
+      expect(remaining[0].name).toBe('Charlie')
+    })
+
+    it('should do nothing for empty bulk delete', async () => {
+      await store.bulkDelete([])
+      // Should not throw
+    })
+
+    it('should verify bulk created things are retrievable', async () => {
+      const things = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' },
+        { $type: 'Customer', name: 'Bob' },
+      ])
+
+      for (const thing of things) {
+        const retrieved = await store.get(thing.$id)
+        expect(retrieved).toBeDefined()
+        expect(retrieved?.$id).toBe(thing.$id)
+      }
+    })
+
+    it('should bulk update preserve immutable fields', async () => {
+      const created = await store.bulkCreate([
+        { $type: 'Customer', name: 'Alice' },
+      ])
+
+      const updated = await store.bulkUpdate([
+        { id: created[0].$id, data: { name: 'Bob' } },
+      ])
+
+      expect(updated[0].$id).toBe(created[0].$id)
+      expect(updated[0].$type).toBe('Customer')
+      expect(updated[0].$createdAt).toBe(created[0].$createdAt)
+      expect(updated[0].$updatedAt).toBeGreaterThanOrEqual(created[0].$updatedAt)
+    })
+  })
 })

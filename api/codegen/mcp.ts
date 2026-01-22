@@ -114,7 +114,8 @@ export class MCPGenerator {
       description,
       inputSchema,
       handler: async (params: unknown) => {
-        return await actionDef.handler(params)
+        // ActionDef.handler expects a Hono Context, but MCP provides raw params
+        return await actionDef.handler(params as Parameters<typeof actionDef.handler>[0])
       }
     }
   }
@@ -240,8 +241,21 @@ export class MCPGenerator {
   }
 
   /**
-   * Create a handler function for a CRUD operation
-   * Note: These handlers are placeholders that would be connected to actual API calls
+   * Create a default handler function for a CRUD operation.
+   *
+   * DESIGN NOTE: These handlers return mock data for demonstration/testing purposes.
+   * In production use, replace these handlers with actual API calls by:
+   *
+   * 1. Overriding the handler property on generated tools:
+   *    ```ts
+   *    const tools = generator.generateTools(resources)
+   *    tools.forEach(tool => {
+   *      tool.handler = createRealHandler(tool.name, apiClient)
+   *    })
+   *    ```
+   *
+   * 2. Or using the MCP tool definitions without handlers and implementing
+   *    your own tool execution logic in your MCP server.
    */
   private createHandler(
     resource: ResourceDefinition,
@@ -257,14 +271,16 @@ export class MCPGenerator {
         throw new Error(`Invalid input: ${result.error.message}`)
       }
 
-      // Placeholder response - in real implementation, this would call the API
+      // Default mock responses for demonstration/testing
+      // Replace with actual API calls in production (see DESIGN NOTE above)
+      const paramsObj = params as Record<string, unknown>
       switch (operation) {
         case 'create':
-          return { id: 'generated-id', ...params }
+          return { id: 'generated-id', ...paramsObj }
         case 'get':
-          return { id: (params as { id: string }).id, ...params }
+          return { id: (params as { id: string }).id, ...paramsObj }
         case 'update':
-          return { id: 'existing-id', ...params }
+          return { id: 'existing-id', ...paramsObj }
         case 'delete':
           return { success: true, id: (params as { id: string }).id }
         case 'list':

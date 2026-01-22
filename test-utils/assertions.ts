@@ -1,12 +1,82 @@
-// Custom test assertion helpers for @dotdo
-// See do-xewn - Add custom assertion helpers for testing
+/**
+ * Custom test assertion helpers for @dotdo
+ *
+ * This module provides assertion helpers for validating entities, events,
+ * relationships, responses, and other common test patterns.
+ *
+ * Uses local type definitions to keep the package self-contained.
+ *
+ * @module test-utils/assertions
+ */
 
 import { expect } from 'vitest'
-import type { Thing, BaseThing } from '../db/things'
-import type { Event, BaseEvent } from '../db/events'
-import type { Relationship, BaseRelationship } from '../db/relationships'
-import type { RPCError, RPCErrorCode } from '../rpc/errors'
-import type { HATEOASResponse, Link } from '../api/hateoas'
+
+// ============================================================================
+// Local Type Definitions (to keep package self-contained)
+// ============================================================================
+
+/**
+ * A Thing entity with system fields.
+ */
+export interface Thing {
+  $id: string
+  $type: string
+  $createdAt: number
+  $updatedAt: number
+  [key: string]: unknown
+}
+
+/**
+ * An Event with system fields.
+ */
+export interface Event {
+  $id: string
+  type: string
+  payload: unknown
+  $timestamp: number
+}
+
+/**
+ * A Relationship between entities.
+ */
+export interface Relationship {
+  subject: string
+  predicate: string
+  object: string
+  $createdAt: number
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * An RPC error with standard properties.
+ */
+export interface RPCError extends Error {
+  code: string
+  details?: unknown
+  httpStatus?: number
+}
+
+/**
+ * A HATEOAS link.
+ */
+export interface Link {
+  href: string
+  rel: string
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  type?: string
+  title?: string
+}
+
+/**
+ * A HATEOAS response wrapper.
+ */
+export interface HATEOASResponse<T = unknown> {
+  data: T
+  _links: {
+    self: Link
+    [key: string]: Link | undefined
+  }
+}
 
 // ============================================================================
 // Entity Assertions
@@ -38,24 +108,24 @@ export function expectValidEntity(thing: unknown): asserts thing is Thing {
   const obj = thing as Record<string, unknown>
 
   // Required system fields
-  expect(obj.$id).toBeDefined()
-  expect(typeof obj.$id).toBe('string')
-  expect((obj.$id as string).length).toBeGreaterThan(0)
+  expect(obj['$id']).toBeDefined()
+  expect(typeof obj['$id']).toBe('string')
+  expect((obj['$id'] as string).length).toBeGreaterThan(0)
 
-  expect(obj.$type).toBeDefined()
-  expect(typeof obj.$type).toBe('string')
-  expect((obj.$type as string).length).toBeGreaterThan(0)
+  expect(obj['$type']).toBeDefined()
+  expect(typeof obj['$type']).toBe('string')
+  expect((obj['$type'] as string).length).toBeGreaterThan(0)
 
-  expect(obj.$createdAt).toBeDefined()
-  expect(typeof obj.$createdAt).toBe('number')
-  expect(obj.$createdAt).toBeGreaterThan(0)
+  expect(obj['$createdAt']).toBeDefined()
+  expect(typeof obj['$createdAt']).toBe('number')
+  expect(obj['$createdAt']).toBeGreaterThan(0)
 
-  expect(obj.$updatedAt).toBeDefined()
-  expect(typeof obj.$updatedAt).toBe('number')
-  expect(obj.$updatedAt).toBeGreaterThan(0)
+  expect(obj['$updatedAt']).toBeDefined()
+  expect(typeof obj['$updatedAt']).toBe('number')
+  expect(obj['$updatedAt']).toBeGreaterThan(0)
 
   // $updatedAt should be >= $createdAt
-  expect(obj.$updatedAt).toBeGreaterThanOrEqual(obj.$createdAt as number)
+  expect(obj['$updatedAt']).toBeGreaterThanOrEqual(obj['$createdAt'] as number)
 }
 
 /**
@@ -82,17 +152,17 @@ export function expectValidEvent(event: unknown): asserts event is Event {
   const obj = event as Record<string, unknown>
 
   // Required system fields
-  expect(obj.$id).toBeDefined()
-  expect(typeof obj.$id).toBe('string')
-  expect((obj.$id as string).length).toBeGreaterThan(0)
+  expect(obj['$id']).toBeDefined()
+  expect(typeof obj['$id']).toBe('string')
+  expect((obj['$id'] as string).length).toBeGreaterThan(0)
 
-  expect(obj.type).toBeDefined()
-  expect(typeof obj.type).toBe('string')
-  expect((obj.type as string).length).toBeGreaterThan(0)
+  expect(obj['type']).toBeDefined()
+  expect(typeof obj['type']).toBe('string')
+  expect((obj['type'] as string).length).toBeGreaterThan(0)
 
-  expect(obj.$timestamp).toBeDefined()
-  expect(typeof obj.$timestamp).toBe('number')
-  expect(obj.$timestamp).toBeGreaterThan(0)
+  expect(obj['$timestamp']).toBeDefined()
+  expect(typeof obj['$timestamp']).toBe('number')
+  expect(obj['$timestamp']).toBeGreaterThan(0)
 
   // Payload must be present (can be any JSON value including null)
   expect('payload' in obj).toBe(true)
@@ -122,21 +192,21 @@ export function expectValidRelationship(rel: unknown): asserts rel is Relationsh
   const obj = rel as Record<string, unknown>
 
   // Required fields
-  expect(obj.subject).toBeDefined()
-  expect(typeof obj.subject).toBe('string')
-  expect((obj.subject as string).length).toBeGreaterThan(0)
+  expect(obj['subject']).toBeDefined()
+  expect(typeof obj['subject']).toBe('string')
+  expect((obj['subject'] as string).length).toBeGreaterThan(0)
 
-  expect(obj.predicate).toBeDefined()
-  expect(typeof obj.predicate).toBe('string')
-  expect((obj.predicate as string).length).toBeGreaterThan(0)
+  expect(obj['predicate']).toBeDefined()
+  expect(typeof obj['predicate']).toBe('string')
+  expect((obj['predicate'] as string).length).toBeGreaterThan(0)
 
-  expect(obj.object).toBeDefined()
-  expect(typeof obj.object).toBe('string')
-  expect((obj.object as string).length).toBeGreaterThan(0)
+  expect(obj['object']).toBeDefined()
+  expect(typeof obj['object']).toBe('string')
+  expect((obj['object'] as string).length).toBeGreaterThan(0)
 
-  expect(obj.$createdAt).toBeDefined()
-  expect(typeof obj.$createdAt).toBe('number')
-  expect(obj.$createdAt).toBeGreaterThan(0)
+  expect(obj['$createdAt']).toBeDefined()
+  expect(typeof obj['$createdAt']).toBe('number')
+  expect(obj['$createdAt']).toBeGreaterThan(0)
 }
 
 // ============================================================================
@@ -274,18 +344,18 @@ export async function expectHATEOASResponse<T = unknown>(
 
   // Must have _links property
   expect('_links' in hateoasBody).toBe(true)
-  expect(typeof hateoasBody._links).toBe('object')
+  expect(typeof hateoasBody['_links']).toBe('object')
 
-  const links = hateoasBody._links as Record<string, unknown>
+  const links = hateoasBody['_links'] as Record<string, unknown>
 
   // Should have at least a self link
   expect('self' in links).toBe(true)
 
-  const selfLink = links.self as Record<string, unknown>
-  expect(selfLink.href).toBeDefined()
-  expect(typeof selfLink.href).toBe('string')
+  const selfLink = links['self'] as Record<string, unknown>
+  expect(selfLink['href']).toBeDefined()
+  expect(typeof selfLink['href']).toBe('string')
 
-  return hateoasBody as HATEOASResponse<T>
+  return hateoasBody as unknown as HATEOASResponse<T>
 }
 
 /**
@@ -305,7 +375,7 @@ export async function expectHATEOASResponse<T = unknown>(
 export async function expectErrorResponse(
   response: Response,
   expectedStatus: number
-): Promise<{ code?: string; message: string; details?: unknown }> {
+): Promise<{ code: string | undefined; message: string; details: unknown }> {
   expect(response).toBeDefined()
   expect(response.status).toBe(expectedStatus)
 
@@ -316,18 +386,18 @@ export async function expectErrorResponse(
     expect(typeof body).toBe('object')
 
     const errorBody = body as Record<string, unknown>
-    expect(errorBody.message || errorBody.error).toBeDefined()
+    expect(errorBody['message'] || errorBody['error']).toBeDefined()
 
     return {
-      code: errorBody.code as string | undefined,
-      message: (errorBody.message || errorBody.error) as string,
-      details: errorBody.details
+      code: errorBody['code'] as string | undefined,
+      message: (errorBody['message'] || errorBody['error']) as string,
+      details: errorBody['details']
     }
   }
 
   // Plain text error
   const text = await response.text()
-  return { message: text }
+  return { code: undefined, message: text, details: undefined }
 }
 
 // ============================================================================
@@ -427,20 +497,20 @@ export function expectValidLink(
   const linkObj = link as Record<string, unknown>
 
   // href is required
-  expect(linkObj.href).toBeDefined()
-  expect(typeof linkObj.href).toBe('string')
-  expect((linkObj.href as string).length).toBeGreaterThan(0)
+  expect(linkObj['href']).toBeDefined()
+  expect(typeof linkObj['href']).toBe('string')
+  expect((linkObj['href'] as string).length).toBeGreaterThan(0)
 
   // rel is required
-  expect(linkObj.rel).toBeDefined()
-  expect(typeof linkObj.rel).toBe('string')
+  expect(linkObj['rel']).toBeDefined()
+  expect(typeof linkObj['rel']).toBe('string')
 
   if (expectedRel) {
-    expect(linkObj.rel).toBe(expectedRel)
+    expect(linkObj['rel']).toBe(expectedRel)
   }
 
   if (expectedMethod) {
-    expect(linkObj.method).toBe(expectedMethod)
+    expect(linkObj['method']).toBe(expectedMethod)
   }
 }
 
