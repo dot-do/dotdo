@@ -1,0 +1,30 @@
+{
+  "name": "@dotdo/billing",
+  "version": "4.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@dotdo/types": "workspace:*",
+    "@dotdo/do": "workspace:*",
+    "@dotdo/models": "workspace:*",
+    "stripe": "^17.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250115.0",
+    "@cloudflare/vitest-pool-workers": "^0.8.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
