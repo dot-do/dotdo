@@ -3,3 +3,4 @@
 
 export * from './sqlite'
 export * from './memory'
+export * from './parquet'
