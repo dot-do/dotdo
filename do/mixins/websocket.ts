@@ -275,5 +275,7 @@ export {
   type WebSocketHandler,
   type BroadcastResult,
   type ConnectionMetadata,
-  type ConnectionHandler
+  type ConnectionHandler,
+  type BackpressureConfig,
+  type ConnectionRateLimitConfig,
 }

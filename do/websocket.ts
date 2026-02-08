@@ -33,6 +33,15 @@ const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[WebSocketMan
 export const MAX_WEBSOCKET_MESSAGE_SIZE = 1024 * 1024 // 1 MB
 
 /**
+ * Default backpressure threshold in bytes (64 KB).
+ *
+ * When a WebSocket connection's bufferedAmount exceeds this threshold,
+ * outbound messages will be dropped (for broadcast) or return false (for send)
+ * to prevent unbounded memory growth from slow consumers.
+ */
+export const DEFAULT_BACKPRESSURE_THRESHOLD = 64 * 1024 // 64 KB
+
+/**
  * WebSocket close codes for message size violations
  */
 export const WEBSOCKET_CLOSE_CODES = {
@@ -72,6 +81,37 @@ export interface ConnectionMetadata {
 export interface BroadcastResult {
   sent: number
   failed: number
+  /** Number of messages skipped due to backpressure (slow consumers) */
+  skipped: number
+}
+
+/**
+ * Configuration for WebSocket backpressure handling.
+ */
+export interface BackpressureConfig {
+  /**
+   * Maximum bufferedAmount (in bytes) before messages are skipped.
+   * Default: DEFAULT_BACKPRESSURE_THRESHOLD (64 KB)
+   */
+  threshold?: number
+}
+
+/**
+ * Per-connection rate limit configuration.
+ */
+export interface ConnectionRateLimitConfig {
+  /** Maximum number of outbound messages per window */
+  maxMessages: number
+  /** Window duration in milliseconds */
+  windowMs: number
+}
+
+/**
+ * Internal rate limit tracking state per connection.
+ */
+interface RateLimitState {
+  messageCount: number
+  windowStart: number
 }
 
 // ============================================================================
@@ -102,12 +142,81 @@ export class WebSocketManager {
   // Legacy compatibility - tracks last connected WebSocket for RPC scenarios
   private lastConnectionId: string | null = null
 
+  // Backpressure threshold in bytes
+  private backpressureThreshold: number
+
+  // Per-connection rate limit configuration (optional)
+  private rateLimitConfig: ConnectionRateLimitConfig | null = null
+
+  // Per-connection rate limit state
+  private rateLimitStates = new Map<WebSocket, RateLimitState>()
+
+  constructor(options?: { backpressure?: BackpressureConfig; rateLimit?: ConnectionRateLimitConfig }) {
+    this.backpressureThreshold = options?.backpressure?.threshold ?? DEFAULT_BACKPRESSURE_THRESHOLD
+    this.rateLimitConfig = options?.rateLimit ?? null
+  }
+
   /**
    * Generate a unique connection ID
    */
   private generateConnectionId(): string {
     this.connectionCounter++
     return `conn_${Date.now().toString(36)}_${this.connectionCounter.toString(36)}`
+  }
+
+  /**
+   * Check if a WebSocket connection is under backpressure.
+   * Returns true if the connection's bufferedAmount exceeds the threshold.
+   */
+  private isBackpressured(ws: WebSocket): boolean {
+    // Cloudflare WebSocket extensions expose bufferedAmount (RFC 6455)
+    const buffered = (ws as unknown as { bufferedAmount?: number }).bufferedAmount
+    if (buffered === undefined) return false
+    return buffered > this.backpressureThreshold
+  }
+
+  /**
+   * Check if a WebSocket connection has exceeded its rate limit.
+   * Returns true if the connection should be throttled.
+   */
+  private isRateLimited(ws: WebSocket): boolean {
+    if (!this.rateLimitConfig) return false
+
+    const now = Date.now()
+    let state = this.rateLimitStates.get(ws)
+
+    if (!state) {
+      state = { messageCount: 0, windowStart: now }
+      this.rateLimitStates.set(ws, state)
+    }
+
+    // Reset window if expired
+    if (now - state.windowStart >= this.rateLimitConfig.windowMs) {
+      state.messageCount = 0
+      state.windowStart = now
+    }
+
+    if (state.messageCount >= this.rateLimitConfig.maxMessages) {
+      return true
+    }
+
+    state.messageCount++
+    return false
+  }
+
+  /**
+   * Check if sending to a WebSocket should be skipped due to
+   * backpressure or rate limiting.
+   * Returns a reason string if skipped, or null if send is allowed.
+   */
+  private shouldSkipSend(ws: WebSocket): string | null {
+    if (this.isBackpressured(ws)) {
+      return 'backpressure'
+    }
+    if (this.isRateLimited(ws)) {
+      return 'rate-limited'
+    }
+    return null
   }
 
   /**
@@ -326,24 +435,36 @@ export class WebSocketManager {
   broadcast(ctx: DurableObjectState, tag: string, message: unknown): BroadcastResult {
     let sent = 0
     let failed = 0
+    let skipped = 0
     const sockets = ctx.getWebSockets(tag)
+    const messageStr = JSON.stringify(message)
 
     for (const ws of sockets) {
+      // Skip connections under backpressure or rate-limited
+      const skipReason = this.shouldSkipSend(ws)
+      if (skipReason) {
+        skipped++
+        logger.debug('Broadcast skipped:', 'reason:', skipReason, 'tag:', tag)
+        continue
+      }
+
       try {
-        ws.send(JSON.stringify(message))
+        ws.send(messageStr)
         sent++
       } catch (err) {
         failed++
         logger.warn(
-          'Broadcast send failed:',
+          'Broadcast send failed, cleaning up connection:',
           'error:', err instanceof Error ? err.message : String(err),
           'tag:', tag,
           'readyState:', ws.readyState
         )
+        // Clean up the dead connection from our tracking
+        this.cleanupWebSocket(ws)
       }
     }
 
-    return { sent, failed }
+    return { sent, failed, skipped }
   }
 
   /**
@@ -368,6 +489,9 @@ export class WebSocketManager {
           this.clientConnections.delete(metadata.clientId)
         }
       }
+
+      // Clean up rate limit state
+      this.rateLimitStates.delete(ws)
 
       // Notify disconnect handlers (fire-and-forget, but errors are logged)
       // We do this AFTER removing from connections to prevent race conditions
@@ -599,6 +723,13 @@ export class WebSocketManager {
    * @returns true if sent successfully, false otherwise
    */
   send(ws: WebSocket, message: unknown): boolean {
+    // Check backpressure before sending
+    const skipReason = this.shouldSkipSend(ws)
+    if (skipReason) {
+      logger.debug('Send skipped:', 'reason:', skipReason, 'connectionId:', this.connections.get(ws)?.connectionId)
+      return false
+    }
+
     try {
       ws.send(JSON.stringify(message))
       return true
@@ -636,23 +767,35 @@ export class WebSocketManager {
   broadcastAll(ctx: DurableObjectState, message: unknown): BroadcastResult {
     let sent = 0
     let failed = 0
+    let skipped = 0
     const sockets = ctx.getWebSockets()
+    const messageStr = JSON.stringify(message)
 
     for (const ws of sockets) {
+      // Skip connections under backpressure or rate-limited
+      const skipReason = this.shouldSkipSend(ws)
+      if (skipReason) {
+        skipped++
+        logger.debug('BroadcastAll skipped:', 'reason:', skipReason)
+        continue
+      }
+
       try {
-        ws.send(JSON.stringify(message))
+        ws.send(messageStr)
         sent++
       } catch (err) {
         failed++
         logger.warn(
-          'Broadcast send failed:',
+          'BroadcastAll send failed, cleaning up connection:',
           'error:', err instanceof Error ? err.message : String(err),
           'readyState:', ws.readyState
         )
+        // Clean up the dead connection from our tracking
+        this.cleanupWebSocket(ws)
       }
     }
 
-    return { sent, failed }
+    return { sent, failed, skipped }
   }
 
   /**

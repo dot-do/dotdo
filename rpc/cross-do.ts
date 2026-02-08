@@ -1,9 +1,11 @@
 // Cross-DO RPC - Durable Object to Durable Object communication
 // Provides typed RPC between DOs with stub caching and connection pooling
 // Integrates with observability context for automatic correlation ID propagation
+// Includes exponential backoff retry for transient errors (do-bkkfj)
 
 import { RPCError, RPCErrorCode, isSerializedError, deserializeError, TransportError, NotFoundError, ValidationError } from './errors'
 import { generateCorrelationId, CORRELATION_ID_HEADER, DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER } from './headers'
+import { getCircuitBreaker } from '@dotdo/utils'
 
 // Re-export for convenience
 export { generateCorrelationId, CORRELATION_ID_HEADER }
@@ -24,6 +26,90 @@ export { DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER }
 // 4. Tree-shaking issues with dynamic imports
 
 /**
+ * Retry configuration for cross-DO RPC calls (do-bkkfj)
+ */
+export interface CrossDORetryOptions {
+  /** Maximum number of retry attempts (default: 3) */
+  maxRetries?: number
+  /** Base delay in milliseconds for exponential backoff (default: 100) */
+  baseDelay?: number
+  /** Maximum delay in milliseconds (default: 5000) */
+  maxDelay?: number
+}
+
+/**
+ * Default retry configuration for cross-DO RPC (do-bkkfj)
+ */
+export const DEFAULT_CROSS_DO_RETRY: Required<CrossDORetryOptions> = {
+  maxRetries: 3,
+  baseDelay: 100,
+  maxDelay: 5000,
+}
+
+/**
+ * Check if an error is transient and should be retried.
+ * Transport/network errors and 5xx responses are transient.
+ * 4xx errors (validation, auth, not found, etc.) are permanent.
+ */
+function isTransientError(error: unknown): boolean {
+  // Transport errors (network failures, DNS, etc.) are always transient
+  if (error instanceof TransportError) {
+    return true
+  }
+
+  // RPCError with status info — check HTTP status
+  if (error instanceof RPCError) {
+    // 4xx errors are permanent — do not retry
+    if (error.httpStatus >= 400 && error.httpStatus < 500) {
+      return false
+    }
+    // 5xx errors are transient
+    if (error.httpStatus >= 500) {
+      return true
+    }
+  }
+
+  // Unknown errors are treated as transient (safe default)
+  return true
+}
+
+/**
+ * Execute a function with exponential backoff retry for transient errors (do-bkkfj).
+ * Only retries on transient errors (5xx, network). Permanent errors (4xx) are thrown immediately.
+ *
+ * @param fn - The async function to execute
+ * @param retryConfig - Retry configuration
+ * @returns The result of the function
+ */
+async function executeWithRetry<T>(
+  fn: () => Promise<T>,
+  retryConfig: Required<CrossDORetryOptions>
+): Promise<T> {
+  const { maxRetries, baseDelay, maxDelay } = retryConfig
+  let lastError: unknown
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn()
+    } catch (error) {
+      lastError = error
+
+      // Don't retry permanent errors or if we've exhausted retries
+      if (!isTransientError(error) || attempt >= maxRetries) {
+        throw error
+      }
+
+      // Exponential backoff with full jitter: random[0, min(maxDelay, baseDelay * 2^attempt)]
+      const exponentialDelay = Math.min(maxDelay, baseDelay * Math.pow(2, attempt))
+      const jitteredDelay = Math.random() * exponentialDelay
+      await new Promise((resolve) => setTimeout(resolve, jitteredDelay))
+    }
+  }
+
+  throw lastError
+}
+
+/**
  * Options for cross-DO RPC calls
  */
 export interface CrossDORPCOptions {
@@ -31,6 +117,8 @@ export interface CrossDORPCOptions {
   correlationId?: string | undefined
   /** Source DO ID for trust chain (do-nuwe) */
   sourceDoId?: string | undefined
+  /** Retry configuration for transient errors (do-bkkfj). Set to false to disable. Default: enabled with DEFAULT_CROSS_DO_RETRY. */
+  retry?: CrossDORetryOptions | false
 }
 
 /**
@@ -225,6 +313,21 @@ export function createCrossDOClient<T extends object>(
   const baseCorrelationId = options?.correlationId
   const sourceDoId = options?.sourceDoId
 
+  // Resolve retry configuration (do-bkkfj)
+  // Default: enabled with DEFAULT_CROSS_DO_RETRY
+  const retryConfig: Required<CrossDORetryOptions> | null =
+    options?.retry === false
+      ? null
+      : { ...DEFAULT_CROSS_DO_RETRY, ...(options?.retry ?? {}) }
+
+  /**
+   * Execute an async operation, optionally wrapping with retry logic.
+   */
+  const maybeRetry = <R>(fn: () => Promise<R>): Promise<R> => {
+    if (!retryConfig) return fn()
+    return executeWithRetry(fn, retryConfig)
+  }
+
   return new Proxy({} as T, {
     get(_, prop: string | symbol) {
       // Don't intercept symbols or promise methods
@@ -239,20 +342,80 @@ export function createCrossDOClient<T extends object>(
       // Special method for raw fetch access
       if (prop === 'fetch') {
         return async (url: string, init?: RequestInit) => {
+          return maybeRetry(async () => {
+            // Use provided correlation ID or generate new one
+            const correlationId = baseCorrelationId || generateCorrelationId()
+            const headers = new Headers(init?.headers)
+            headers.set(CORRELATION_ID_HEADER, correlationId)
+
+            // Add DO source headers for trust chain (do-nuwe)
+            if (sourceDoId) {
+              headers.set(DO_SOURCE_HEADER, 'true')
+              headers.set(DO_SOURCE_ID_HEADER, sourceDoId)
+            }
+
+            let response: Response
+            try {
+              response = await stub.fetch(url, { ...init, headers })
+            } catch (error) {
+              // Handle transport-level errors (DO stub failures, network issues, etc.)
+              throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
+            }
+
+            if (!response.ok) {
+              const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
+              const errorBody = await response.json().catch(() => null) as { message?: string } | null
+
+              // If the response is a structured error, deserialize it
+              if (errorBody && isSerializedError(errorBody)) {
+                const deserializedError = deserializeError(errorBody)
+                // Add correlation ID to error details if it's an RPCError
+                if (deserializedError instanceof RPCError) {
+                  throw new RPCError(
+                    deserializedError.code,
+                    deserializedError.message,
+                    { ...deserializedError.details, correlationId: responseCorrelationId }
+                  )
+                }
+                throw deserializedError
+              }
+
+              // Fallback: create an RPCError with the HTTP status
+              throw new RPCError(
+                RPCErrorCode.INTERNAL_ERROR,
+                errorBody?.message || `Cross-DO fetch error: ${response.status}`,
+                { status: response.status, correlationId: responseCorrelationId, ...errorBody }
+              )
+            }
+            return response.json()
+          })
+        }
+      }
+
+      // Return method invoker
+      return async (...args: unknown[]) => {
+        return maybeRetry(async () => {
           // Use provided correlation ID or generate new one
           const correlationId = baseCorrelationId || generateCorrelationId()
-          const headers = new Headers(init?.headers)
-          headers.set(CORRELATION_ID_HEADER, correlationId)
 
-          // Add DO source headers for trust chain (do-nuwe)
+          // Build headers with DO source info for trust chain (do-nuwe)
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            [CORRELATION_ID_HEADER]: correlationId,
+          }
+
           if (sourceDoId) {
-            headers.set(DO_SOURCE_HEADER, 'true')
-            headers.set(DO_SOURCE_ID_HEADER, sourceDoId)
+            headers[DO_SOURCE_HEADER] = 'true'
+            headers[DO_SOURCE_ID_HEADER] = sourceDoId
           }
 
           let response: Response
           try {
-            response = await stub.fetch(url, { ...init, headers })
+            response = await stub.fetch('https://do/rpc', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ method: prop, args }),
+            })
           } catch (error) {
             // Handle transport-level errors (DO stub failures, network issues, etc.)
             throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
@@ -279,69 +442,13 @@ export function createCrossDOClient<T extends object>(
             // Fallback: create an RPCError with the HTTP status
             throw new RPCError(
               RPCErrorCode.INTERNAL_ERROR,
-              errorBody?.message || `Cross-DO fetch error: ${response.status}`,
-              { status: response.status, correlationId: responseCorrelationId, ...errorBody }
+              errorBody?.message || `Cross-DO RPC error: ${response.status}`,
+              { status: response.status, correlationId: responseCorrelationId, method: prop, ...errorBody }
             )
           }
+
           return response.json()
-        }
-      }
-
-      // Return method invoker
-      return async (...args: unknown[]) => {
-        // Use provided correlation ID or generate new one
-        const correlationId = baseCorrelationId || generateCorrelationId()
-
-        // Build headers with DO source info for trust chain (do-nuwe)
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          [CORRELATION_ID_HEADER]: correlationId,
-        }
-
-        if (sourceDoId) {
-          headers[DO_SOURCE_HEADER] = 'true'
-          headers[DO_SOURCE_ID_HEADER] = sourceDoId
-        }
-
-        let response: Response
-        try {
-          response = await stub.fetch('https://do/rpc', {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ method: prop, args }),
-          })
-        } catch (error) {
-          // Handle transport-level errors (DO stub failures, network issues, etc.)
-          throw TransportError.stubFailed(error instanceof Error ? error : new Error(String(error)))
-        }
-
-        if (!response.ok) {
-          const responseCorrelationId = response.headers.get(CORRELATION_ID_HEADER) || correlationId
-          const errorBody = await response.json().catch(() => null) as { message?: string } | null
-
-          // If the response is a structured error, deserialize it
-          if (errorBody && isSerializedError(errorBody)) {
-            const deserializedError = deserializeError(errorBody)
-            // Add correlation ID to error details if it's an RPCError
-            if (deserializedError instanceof RPCError) {
-              throw new RPCError(
-                deserializedError.code,
-                deserializedError.message,
-                { ...deserializedError.details, correlationId: responseCorrelationId }
-              )
-            }
-            throw deserializedError
-          }
-
-          // Fallback: create an RPCError with the HTTP status
-          throw new RPCError(
-            RPCErrorCode.INTERNAL_ERROR,
-            errorBody?.message || `Cross-DO RPC error: ${response.status}`,
-            { status: response.status, correlationId: responseCorrelationId, method: prop, ...errorBody }
-          )
-        }
-
-        return response.json()
+        })
       }
     }
   })
@@ -355,6 +462,13 @@ export interface CrossDOContextOptions {
   correlationId?: string
   /** Source DO ID for trust chain (do-nuwe) - identifies the calling DO */
   sourceDoId?: string
+  /** Retry configuration for transient errors (do-bkkfj). Set to false to disable. Default: enabled. */
+  retry?: CrossDORetryOptions | false
+  /**
+   * Whether to enable circuit breaker for all calls through this context (do-bkkfj).
+   * Default: true. Set to false to disable circuit breaker protection.
+   */
+  circuitBreaker?: boolean
 }
 
 /**
@@ -388,15 +502,23 @@ export class CrossDOContext {
   private env: Record<string, DurableObjectNamespace>
   private correlationId?: string
   private sourceDoId?: string
+  private retryConfig?: CrossDORetryOptions | false
+  /** Circuit breaker enabled by default (do-bkkfj) */
+  private useCircuitBreaker: boolean
 
   constructor(env: Record<string, DurableObjectNamespace>, options?: CrossDOContextOptions) {
     this.env = env
     this.cache = new CrossDOStubCache()
+    // Circuit breaker is default-on (do-bkkfj)
+    this.useCircuitBreaker = options?.circuitBreaker !== false
     if (options?.correlationId !== undefined) {
       this.correlationId = options.correlationId
     }
     if (options?.sourceDoId !== undefined) {
       this.sourceDoId = options.sourceDoId
+    }
+    if (options?.retry !== undefined) {
+      this.retryConfig = options.retry
     }
 
     // Return proxy for namespace access
@@ -418,6 +540,87 @@ export class CrossDOContext {
   }
 
   /**
+   * Build CrossDORPCOptions from context state
+   */
+  private buildOptions(): CrossDORPCOptions {
+    const options: CrossDORPCOptions = {}
+    if (this.correlationId) {
+      options.correlationId = this.correlationId
+    }
+    if (this.sourceDoId) {
+      options.sourceDoId = this.sourceDoId
+    }
+    if (this.retryConfig !== undefined) {
+      options.retry = this.retryConfig
+    }
+    return options
+  }
+
+  /**
+   * Wrap a client proxy with circuit breaker protection (do-bkkfj).
+   * If circuit breaker is disabled, returns the client as-is.
+   */
+  private wrapWithCircuitBreaker<T extends object>(
+    client: T,
+    namespace: string,
+    id: string | DurableObjectId
+  ): T {
+    if (!this.useCircuitBreaker) {
+      return client
+    }
+
+    const idStr = typeof id === 'string' ? id : id.toString()
+    const shortId = idStr.length > 32 ? idStr.slice(0, 32) : idStr
+    const circuitName = `do-rpc:${namespace}:${shortId}`
+    const circuit = getCircuitBreaker(circuitName, {
+      failureThreshold: 5,
+      resetTimeoutMs: 30000,
+      successThreshold: 3,
+      timeoutMs: 10000,
+      halfOpenRequestRatio: 0.1,
+    })
+
+    return new Proxy({} as T, {
+      get(_, prop: string | symbol) {
+        if (typeof prop === 'symbol') return undefined
+        if (prop === 'then' || prop === 'catch' || prop === 'finally') return undefined
+
+        // Special property to access circuit breaker stats
+        if (prop === '$circuit') {
+          return {
+            getState: () => circuit.getState(),
+            getStats: () => circuit.getStats(),
+            forceOpen: () => circuit.forceOpen(),
+            forceClose: () => circuit.forceClose(),
+            reset: () => circuit.reset(),
+          }
+        }
+
+        // Wrap method call with circuit breaker
+        return async (...args: unknown[]) => {
+          const result = await circuit.execute(async () => {
+            const method = client[prop as keyof T]
+            if (typeof method !== 'function') {
+              throw new Error(`Method ${String(prop)} is not a function`)
+            }
+            return (method as (...a: unknown[]) => Promise<unknown>)(...args)
+          })
+
+          if (result.success) {
+            return result.value
+          }
+
+          if (result.rejected) {
+            throw TransportError.circuitOpen(circuitName)
+          }
+
+          throw result.error
+        }
+      },
+    })
+  }
+
+  /**
    * Get accessor for a specific DO namespace
    */
   private getNamespaceAccessor(namespace: string) {
@@ -428,8 +631,7 @@ export class CrossDOContext {
     }
 
     const cache = this.cache
-    const contextCorrelationId = this.correlationId
-    const contextSourceDoId = this.sourceDoId
+    const self = this
 
     // Return a function that creates typed DO clients
     return <T extends object>(id?: string | DurableObjectId) => {
@@ -442,14 +644,13 @@ export class CrossDOContext {
             ...args: T[K] extends (...args: infer A) => unknown ? A : never[]
           ): Promise<Awaited<ReturnType<T[K] extends (...args: unknown[]) => infer R ? () => R : never>>[]> => {
             // Use context correlation ID or generate a shared one for the broadcast
-            const correlationId = contextCorrelationId || generateCorrelationId()
-            const options: CrossDORPCOptions = {
-              correlationId,
-              sourceDoId: contextSourceDoId,
-            }
+            const correlationId = self.correlationId || generateCorrelationId()
+            const options = self.buildOptions()
+            options.correlationId = correlationId
 
             const promises = ids.map(async (doId) => {
-              const client = createCrossDOClient<T>(binding, doId, cache, options)
+              const rawClient = createCrossDOClient<T>(binding, doId, cache, options)
+              const client = self.wrapWithCircuitBreaker(rawClient, namespace, doId)
               // Access the method using keyof T - client is typed as T
               const methodFn = client[method]
               if (typeof methodFn !== 'function') {
@@ -465,16 +666,9 @@ export class CrossDOContext {
         }
       }
 
-      // Create options with correlation ID and source DO ID if available
-      const options: CrossDORPCOptions = {}
-      if (contextCorrelationId) {
-        options.correlationId = contextCorrelationId
-      }
-      if (contextSourceDoId) {
-        options.sourceDoId = contextSourceDoId
-      }
-
-      return createCrossDOClient<T>(binding, id, cache, Object.keys(options).length > 0 ? options : undefined)
+      const options = self.buildOptions()
+      const rawClient = createCrossDOClient<T>(binding, id, cache, Object.keys(options).length > 0 ? options : undefined)
+      return self.wrapWithCircuitBreaker(rawClient, namespace, id)
     }
   }
 

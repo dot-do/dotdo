@@ -472,11 +472,15 @@ export {
   // Message size limits (do-nyah)
   MAX_WEBSOCKET_MESSAGE_SIZE,
   WEBSOCKET_CLOSE_CODES,
+  // Backpressure (do-3ywit)
+  DEFAULT_BACKPRESSURE_THRESHOLD,
   type WebSocketMessage,
   type WebSocketHandler,
   type BroadcastResult,
   type ConnectionMetadata,
-  type ConnectionHandler
+  type ConnectionHandler,
+  type BackpressureConfig,
+  type ConnectionRateLimitConfig,
 } from './websocket'
 
 /**

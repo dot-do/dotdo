@@ -162,11 +162,14 @@ export {
 // WebSocket management
 export {
   WebSocketManager,
+  DEFAULT_BACKPRESSURE_THRESHOLD,
   type WebSocketMessage,
   type WebSocketHandler,
   type BroadcastResult,
   type ConnectionMetadata,
   type ConnectionHandler,
+  type BackpressureConfig,
+  type ConnectionRateLimitConfig,
 } from '@dotdo/do'
 
 // WebSocket hibernation

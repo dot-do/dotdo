@@ -20,6 +20,7 @@ import {
   type ConnectionHandler,
   MAX_WEBSOCKET_MESSAGE_SIZE,
   WEBSOCKET_CLOSE_CODES,
+  DEFAULT_BACKPRESSURE_THRESHOLD,
 } from '../websocket'
 import { generateTestId } from '@dotdo/test-utils/helpers'
 
@@ -410,13 +411,15 @@ describe('WebSocketManager - Broadcast', () => {
 
     expect(result.sent).toBe(2)
     expect(result.failed).toBe(0)
+    expect(result.skipped).toBe(0)
     expect(ws1._sentMessages).toContain(JSON.stringify({ type: 'hello', message: 'world' }))
     expect(ws2._sentMessages).toContain(JSON.stringify({ type: 'hello', message: 'world' }))
   })
 
-  it('should handle failed broadcasts gracefully', () => {
+  it('should handle failed broadcasts gracefully and clean up dead connections', () => {
     const ws = createTestWebSocket()
     testState.acceptWebSocket(ws, ['chat'])
+    registerConnection(manager, ws, { tags: ['chat'] })
 
     // Close the socket to simulate failure
     ws.close()
@@ -425,6 +428,8 @@ describe('WebSocketManager - Broadcast', () => {
 
     expect(result.failed).toBe(1)
     expect(result.sent).toBe(0)
+    // Dead connection should be cleaned up from tracking
+    expect(manager.hasConnection(ws)).toBe(false)
   })
 
   it('should broadcast to correct tag only', () => {
@@ -450,8 +455,31 @@ describe('WebSocketManager - Broadcast', () => {
     const result = manager.broadcastAll(testState, { type: 'global', data: 'announcement' })
 
     expect(result.sent).toBe(2)
+    expect(result.skipped).toBe(0)
     expect(ws1._sentMessages.length).toBe(1)
     expect(ws2._sentMessages.length).toBe(1)
+  })
+
+  it('should clean up dead connections during broadcastAll', () => {
+    const ws1 = createTestWebSocket()
+    const ws2 = createTestWebSocket()
+
+    testState.acceptWebSocket(ws1, ['room:1'])
+    testState.acceptWebSocket(ws2, ['room:2'])
+    registerConnection(manager, ws1, { tags: ['room:1'] })
+    registerConnection(manager, ws2, { tags: ['room:2'] })
+
+    // Close ws1 to simulate dead connection
+    ws1.close()
+
+    const result = manager.broadcastAll(testState, { type: 'test' })
+
+    expect(result.sent).toBe(1)
+    expect(result.failed).toBe(1)
+    // Dead connection should be cleaned up
+    expect(manager.hasConnection(ws1)).toBe(false)
+    // Live connection should still be tracked
+    expect(manager.hasConnection(ws2)).toBe(true)
   })
 })
 
@@ -1175,5 +1203,281 @@ describe('WebSocketManager - Legacy Compatibility', () => {
     registerConnection(manager, ws, { tags: ['test'], hibernatable: true })
 
     expect(manager.isHibernatable(ws)).toBe(true)
+  })
+})
+
+// ============================================================================
+// Backpressure Tests
+// ============================================================================
+
+describe('WebSocketManager - Backpressure', () => {
+  /**
+   * Create a test WebSocket with a configurable bufferedAmount property.
+   */
+  function createBackpressuredWebSocket(bufferedAmount: number): WebSocket & {
+    _sentMessages: string[]
+    _closed: boolean
+    closeCode?: number
+    closeReason?: string
+  } {
+    const sentMessages: string[] = []
+    let readyState = 1 // OPEN
+    let closeCode: number | undefined
+    let closeReason: string | undefined
+    let closed = false
+
+    return {
+      get readyState() { return readyState },
+      get bufferedAmount() { return bufferedAmount },
+      send(data: string) {
+        if (readyState !== 1) {
+          throw new Error('WebSocket is not open')
+        }
+        sentMessages.push(data)
+      },
+      close(code?: number, reason?: string) {
+        readyState = 3 // CLOSED
+        closeCode = code
+        closeReason = reason
+        closed = true
+      },
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent() { return true },
+      _sentMessages: sentMessages,
+      _closed: closed,
+      get closeCode() { return closeCode },
+      get closeReason() { return closeReason },
+    } as unknown as WebSocket & {
+      _sentMessages: string[]
+      _closed: boolean
+      closeCode?: number
+      closeReason?: string
+    }
+  }
+
+  function createTestState(): DurableObjectState {
+    const websockets = new Map<string, Set<WebSocket>>()
+    const allWebsockets = new Set<WebSocket>()
+
+    return {
+      id: { toString: () => 'test-backpressure-state' } as DurableObjectId,
+      acceptWebSocket(ws: WebSocket, tags?: string[]) {
+        allWebsockets.add(ws)
+        const tagList = tags || []
+        for (const tag of tagList) {
+          if (!websockets.has(tag)) {
+            websockets.set(tag, new Set())
+          }
+          websockets.get(tag)!.add(ws)
+        }
+      },
+      getWebSockets(tag?: string) {
+        if (tag) {
+          return Array.from(websockets.get(tag) || [])
+        }
+        return Array.from(allWebsockets)
+      },
+    } as unknown as DurableObjectState
+  }
+
+  it('should skip sending to backpressured connections during broadcast', () => {
+    const manager = new WebSocketManager({ backpressure: { threshold: 1024 } })
+    const testState = createTestState()
+
+    const normalWs = createTestWebSocket()
+    const slowWs = createBackpressuredWebSocket(2048) // Above threshold
+
+    testState.acceptWebSocket(normalWs, ['chat'])
+    testState.acceptWebSocket(slowWs, ['chat'])
+
+    const result = manager.broadcast(testState, 'chat', { type: 'test' })
+
+    expect(result.sent).toBe(1)
+    expect(result.skipped).toBe(1)
+    expect(result.failed).toBe(0)
+    expect(normalWs._sentMessages.length).toBe(1)
+    expect(slowWs._sentMessages.length).toBe(0)
+  })
+
+  it('should skip sending to backpressured connections during broadcastAll', () => {
+    const manager = new WebSocketManager({ backpressure: { threshold: 1024 } })
+    const testState = createTestState()
+
+    const normalWs = createTestWebSocket()
+    const slowWs = createBackpressuredWebSocket(2048)
+
+    testState.acceptWebSocket(normalWs, ['room:1'])
+    testState.acceptWebSocket(slowWs, ['room:2'])
+
+    const result = manager.broadcastAll(testState, { type: 'test' })
+
+    expect(result.sent).toBe(1)
+    expect(result.skipped).toBe(1)
+  })
+
+  it('should return false when sending to a backpressured connection', () => {
+    const manager = new WebSocketManager({ backpressure: { threshold: 1024 } })
+    const slowWs = createBackpressuredWebSocket(2048)
+
+    const result = manager.send(slowWs, { type: 'test' })
+
+    expect(result).toBe(false)
+    expect(slowWs._sentMessages.length).toBe(0)
+  })
+
+  it('should allow sending when bufferedAmount is below threshold', () => {
+    const manager = new WebSocketManager({ backpressure: { threshold: 1024 } })
+    const ws = createBackpressuredWebSocket(512) // Below threshold
+
+    const result = manager.send(ws, { type: 'test' })
+
+    expect(result).toBe(true)
+    expect(ws._sentMessages.length).toBe(1)
+  })
+
+  it('should allow sending when bufferedAmount is exactly at threshold', () => {
+    const manager = new WebSocketManager({ backpressure: { threshold: 1024 } })
+    const ws = createBackpressuredWebSocket(1024) // At threshold
+
+    const result = manager.send(ws, { type: 'test' })
+
+    expect(result).toBe(true)
+    expect(ws._sentMessages.length).toBe(1)
+  })
+
+  it('should use default threshold when none configured', () => {
+    const manager = new WebSocketManager()
+    // bufferedAmount of 0 should always pass
+    const ws = createBackpressuredWebSocket(0)
+
+    const result = manager.send(ws, { type: 'test' })
+
+    expect(result).toBe(true)
+  })
+})
+
+// ============================================================================
+// Per-Connection Rate Limiting Tests
+// ============================================================================
+
+describe('WebSocketManager - Rate Limiting', () => {
+  function createTestState(): DurableObjectState {
+    const websockets = new Map<string, Set<WebSocket>>()
+    const allWebsockets = new Set<WebSocket>()
+
+    return {
+      id: { toString: () => 'test-ratelimit-state' } as DurableObjectId,
+      acceptWebSocket(ws: WebSocket, tags?: string[]) {
+        allWebsockets.add(ws)
+        const tagList = tags || []
+        for (const tag of tagList) {
+          if (!websockets.has(tag)) {
+            websockets.set(tag, new Set())
+          }
+          websockets.get(tag)!.add(ws)
+        }
+      },
+      getWebSockets(tag?: string) {
+        if (tag) {
+          return Array.from(websockets.get(tag) || [])
+        }
+        return Array.from(allWebsockets)
+      },
+    } as unknown as DurableObjectState
+  }
+
+  it('should enforce per-connection rate limits on send', () => {
+    const manager = new WebSocketManager({
+      rateLimit: { maxMessages: 3, windowMs: 60000 },
+    })
+
+    const ws = createTestWebSocket()
+
+    // First 3 should succeed
+    expect(manager.send(ws, { n: 1 })).toBe(true)
+    expect(manager.send(ws, { n: 2 })).toBe(true)
+    expect(manager.send(ws, { n: 3 })).toBe(true)
+
+    // 4th should be rate-limited
+    expect(manager.send(ws, { n: 4 })).toBe(false)
+
+    expect(ws._sentMessages.length).toBe(3)
+  })
+
+  it('should enforce rate limits per connection independently', () => {
+    const manager = new WebSocketManager({
+      rateLimit: { maxMessages: 2, windowMs: 60000 },
+    })
+
+    const ws1 = createTestWebSocket()
+    const ws2 = createTestWebSocket()
+
+    // ws1: 2 messages
+    expect(manager.send(ws1, { n: 1 })).toBe(true)
+    expect(manager.send(ws1, { n: 2 })).toBe(true)
+    expect(manager.send(ws1, { n: 3 })).toBe(false) // rate-limited
+
+    // ws2 should still have its own allowance
+    expect(manager.send(ws2, { n: 1 })).toBe(true)
+    expect(manager.send(ws2, { n: 2 })).toBe(true)
+    expect(manager.send(ws2, { n: 3 })).toBe(false) // rate-limited
+  })
+
+  it('should skip rate-limited connections during broadcast', () => {
+    const manager = new WebSocketManager({
+      rateLimit: { maxMessages: 1, windowMs: 60000 },
+    })
+    const testState = createTestState()
+
+    const ws1 = createTestWebSocket()
+    const ws2 = createTestWebSocket()
+
+    testState.acceptWebSocket(ws1, ['chat'])
+    testState.acceptWebSocket(ws2, ['chat'])
+
+    // First broadcast - both should receive
+    const result1 = manager.broadcast(testState, 'chat', { type: 'first' })
+    expect(result1.sent).toBe(2)
+    expect(result1.skipped).toBe(0)
+
+    // Second broadcast - both should be rate-limited
+    const result2 = manager.broadcast(testState, 'chat', { type: 'second' })
+    expect(result2.sent).toBe(0)
+    expect(result2.skipped).toBe(2)
+  })
+
+  it('should clean up rate limit state on connection cleanup', () => {
+    const manager = new WebSocketManager({
+      rateLimit: { maxMessages: 2, windowMs: 60000 },
+    })
+
+    const ws = createTestWebSocket()
+    registerConnection(manager, ws, { tags: ['test'] })
+
+    // Use up rate limit
+    manager.send(ws, { n: 1 })
+    manager.send(ws, { n: 2 })
+    expect(manager.send(ws, { n: 3 })).toBe(false) // rate-limited
+
+    // Cleanup connection
+    manager.cleanupWebSocket(ws)
+
+    // Rate limit state should be gone - accessing internal state for verification
+    const rateLimitStates = (manager as unknown as { rateLimitStates: Map<WebSocket, unknown> }).rateLimitStates
+    expect(rateLimitStates.has(ws)).toBe(false)
+  })
+
+  it('should not rate-limit when no rate limit is configured', () => {
+    const manager = new WebSocketManager()
+
+    const ws = createTestWebSocket()
+
+    // Should be able to send many messages with no rate limit
+    for (let i = 0; i < 100; i++) {
+      expect(manager.send(ws, { n: i })).toBe(true)
+    }
+
+    expect(ws._sentMessages.length).toBe(100)
   })
 })
