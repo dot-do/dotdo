@@ -798,6 +798,53 @@ export {
 } from './circuit-breaker'
 
 /**
+ * Cloudflare Durable Object Storage Limits and Guards (do-mlkbj).
+ *
+ * Constants for all CF DO storage/memory limits plus a StorageGuard utility
+ * that validates operations before they execute. Use this to prevent runtime
+ * errors from oversized values, overly long keys, and unpaginated list() calls.
+ *
+ * @example
+ * ```typescript
+ * import { StorageGuard, MAX_VALUE_SIZE, StorageLimitError } from '@dotdo/do'
+ *
+ * const guard = new StorageGuard()
+ *
+ * // Validate value size before put()
+ * guard.checkValueSize(myValue) // throws if > 128KB
+ *
+ * // Paginated list (handles >1000 keys automatically)
+ * const all = await StorageGuard.paginatedList(state.storage)
+ *
+ * // Check both key and value
+ * guard.checkPut('my-key', myValue)
+ * ```
+ */
+export {
+  // Constants
+  MAX_MEMORY_MB,
+  MAX_STORAGE_GB,
+  MAX_VALUE_SIZE,
+  MAX_LIST_BATCH,
+  MAX_KEY_SIZE,
+  MAX_KEYS_PER_GET,
+  MAX_KEYS_PER_PUT,
+  DEFAULT_WARN_THRESHOLD,
+  WARN_VALUE_SIZE,
+  // Guard class
+  StorageGuard,
+  StorageLimitError,
+  // Helpers
+  estimateValueSize,
+  formatBytes,
+  // Types
+  type LimitBehavior,
+  type StorageGuardConfig,
+  type StorageGuardResult,
+  type PaginatedListOptions,
+} from './storage-limits'
+
+/**
  * Graceful Degradation for DO unavailability (do-ejab).
  *
  * Provides: health checking, response caching, write queue for retry,

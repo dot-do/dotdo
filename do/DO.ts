@@ -57,6 +57,9 @@ import {
   DEFAULT_EXPOSE_HEADERS
 } from './utils/cors'
 
+// Import storage limit utilities for paginated list (CF DO list() returns max 1000 keys)
+import { StorageGuard } from './storage-limits'
+
 // Import observability for metrics collection
 import {
   createDOObservability,
@@ -86,6 +89,21 @@ const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[DO]' })
  *
  * Uses composition over inheritance by delegating to specialized handlers.
  *
+ * ## Cloudflare Durable Object Limits
+ *
+ * All DOs are subject to the following hard limits:
+ * - **128 MB** memory per isolate (exceeding terminates the instance)
+ * - **10 GB** persistent storage per DO
+ * - **128 KB** max value size per `state.storage.put()` call
+ * - **2 KB** max key size
+ * - **1000** max entries per `state.storage.list()` call
+ * - **128** max keys per batch `get()`/`put()` call
+ *
+ * Use the {@link StorageGuard} utility to validate storage operations
+ * and {@link StorageGuard.paginatedList} for list() calls that may
+ * exceed the 1000-entry batch limit.
+ *
+ * @see https://developers.cloudflare.com/durable-objects/platform/limits/
  * @stable
  * @since 1.0.0
  */
@@ -343,8 +361,9 @@ export class DO implements DurableObject {
     this.rpcHandler.setupRoutes(this.app, { target: this as unknown as Record<string, unknown> })
 
     // Storage info
+    // Uses paginated list to handle DOs with >1000 keys (CF DO list() limit)
     this.app.get('/info', async (c) => {
-      const stored = await this.state.storage.list()
+      const stored = await StorageGuard.paginatedList(this.state.storage)
       return c.json({
         id: this.state.id.toString(),
         keys: stored.size,

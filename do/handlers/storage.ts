@@ -8,6 +8,20 @@
  * - Audit logging
  * - Query building
  *
+ * ## Cloudflare DO Storage Limits
+ *
+ * All storage operations are subject to Cloudflare Durable Object limits:
+ * - **128 MB** memory per DO instance (isolate terminated if exceeded)
+ * - **10 GB** total persistent storage per DO
+ * - **128 KB** maximum value size per `state.storage.put()` call
+ * - **2 KB** maximum key size
+ * - **1000** max entries per `state.storage.list()` call (paginate with `startAfter`)
+ * - **128** max keys per batch `get()` or `put()` call
+ *
+ * Use {@link StorageGuard} from `../storage-limits` to validate operations
+ * before they execute.
+ *
+ * @see https://developers.cloudflare.com/durable-objects/platform/limits/
  * @module do/handlers/storage
  */
 

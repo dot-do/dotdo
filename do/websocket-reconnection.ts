@@ -36,6 +36,7 @@
  */
 
 import { createScopedLogger, LogLevel } from '@dotdo/utils'
+import { StorageGuard } from './storage-limits'
 
 const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[WebSocket-Reconnection]' })
 
@@ -803,12 +804,23 @@ export class SessionManager {
   /**
    * Restore all sessions from hibernation.
    * Call this in blockConcurrencyWhile during DO wake.
+   *
+   * Uses paginated list to handle DOs with >1000 sessions, since
+   * CF DO `state.storage.list()` returns at most 1000 entries per call
+   * (MAX_LIST_BATCH). See {@link StorageGuard.paginatedList}.
+   *
+   * Note: Each session is stored as a single KV entry. Individual session
+   * values must stay under the 128 KB CF DO value size limit. Session
+   * event buffers should be bounded to prevent exceeding this limit.
+   *
+   * @see https://developers.cloudflare.com/durable-objects/platform/limits/
    */
   async restoreFromHibernation(): Promise<void> {
     try {
-      // Get all session keys from storage
+      // Get all session keys from storage using paginated list
+      // CF DO list() returns at most 1000 entries per call (MAX_LIST_BATCH)
       const prefix = this.config.storageKeyPrefix
-      const stored = await this.ctx.storage.list({ prefix })
+      const stored = await StorageGuard.paginatedList(this.ctx.storage, { prefix })
 
       for (const [key, value] of stored) {
         const session = value as SessionState

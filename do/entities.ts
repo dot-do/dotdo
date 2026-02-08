@@ -49,9 +49,21 @@ export interface EntityManagerOptions {
 }
 
 /**
- * Entity Manager wraps the base stores and adds event emission on entity changes
- * Also provides audit logging for all CRUD operations (do-xebw)
- * Supports atomic multi-operation transactions via withTransaction() (do-9mrsg)
+ * Entity Manager wraps the base stores and adds event emission on entity changes.
+ * Also provides audit logging for all CRUD operations (do-xebw).
+ * Supports atomic multi-operation transactions via withTransaction() (do-9mrsg).
+ *
+ * ## Cloudflare DO Storage Limits
+ *
+ * When backed by real DO storage, entity data is subject to CF limits:
+ * - Individual entity values must be < **128 KB** (MAX_VALUE_SIZE)
+ * - Total storage per DO must be < **10 GB** (MAX_STORAGE_GB)
+ * - Batch get/put operations limited to **128** keys per call
+ * - list() operations return at most **1000** entries per call
+ *
+ * Use {@link StorageGuard} to validate large entities before writing.
+ *
+ * @see https://developers.cloudflare.com/durable-objects/platform/limits/
  */
 export class EntityManager {
   private _things: ThingsStore

@@ -138,3 +138,16 @@ export * from './connection-pool'
  * Provides HMAC-based signing and verification for DO-to-DO requests.
  */
 export * from './do-signing'
+
+/**
+ * $Context - Request-scoped context for RPC and WebSocket calls (do-99vxp).
+ * Carries tenant, auth, and request metadata through the entire call chain.
+ * Immutable once created.
+ */
+export * from './context'
+
+/**
+ * Hono middleware for extracting $Context from incoming requests (do-99vxp).
+ * Makes $Context available via c.get('$context') in all downstream handlers.
+ */
+export * from './context-middleware'

@@ -1003,7 +1003,14 @@ export class BusinessDO extends DO {
   // ==========================================================================
 
   /**
-   * Get variant for a user in an experiment
+   * Get variant for a user in an experiment.
+   *
+   * Uses `state.storage.get()` to read experiment assignments.
+   * Each assignment is stored as a single KV entry under the key
+   * `experiment:{experimentKey}:{userId}`. These values are small
+   * (strings), well within the 128 KB CF DO value size limit.
+   *
+   * @see https://developers.cloudflare.com/durable-objects/platform/limits/
    */
   async getVariant(userId: string, experimentKey: string): Promise<{ key: string; value: unknown } | null> {
     if (!this.config.analytics?.enabled) {

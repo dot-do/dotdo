@@ -40,6 +40,7 @@ export default defineConfig({
       'tests/saga.test.ts',
       'tests/client.test.ts', // Client-side $Context tests (RED phase)
       'tests/with-transaction.test.ts', // Atomic multi-operation transactions (do-9mrsg)
+      'tests/storage-limits.test.ts', // CF DO storage limits and guards (do-mlkbj)
     ],
 
     // Standard exclusions

@@ -6,6 +6,7 @@
 import { RPCError, RPCErrorCode, isSerializedError, deserializeError, TransportError, NotFoundError, ValidationError } from './errors'
 import { generateCorrelationId, CORRELATION_ID_HEADER, DO_SOURCE_HEADER, DO_SOURCE_ID_HEADER } from './headers'
 import { getCircuitBreaker } from '@dotdo/utils'
+import { contextToHeaders, type $Context } from './context'
 
 // Re-export for convenience
 export { generateCorrelationId, CORRELATION_ID_HEADER }
@@ -119,6 +120,8 @@ export interface CrossDORPCOptions {
   sourceDoId?: string | undefined
   /** Retry configuration for transient errors (do-bkkfj). Set to false to disable. Default: enabled with DEFAULT_CROSS_DO_RETRY. */
   retry?: CrossDORetryOptions | false
+  /** $Context to propagate through the call chain (do-99vxp) */
+  $context?: $Context | undefined
 }
 
 /**
@@ -312,6 +315,10 @@ export function createCrossDOClient<T extends object>(
 
   const baseCorrelationId = options?.correlationId
   const sourceDoId = options?.sourceDoId
+  const $ctx = options?.$context
+
+  // Pre-compute $Context headers if a context is provided (do-99vxp)
+  const contextHeaders: Record<string, string> | null = $ctx ? contextToHeaders($ctx) : null
 
   // Resolve retry configuration (do-bkkfj)
   // Default: enabled with DEFAULT_CROSS_DO_RETRY
@@ -347,6 +354,13 @@ export function createCrossDOClient<T extends object>(
             const correlationId = baseCorrelationId || generateCorrelationId()
             const headers = new Headers(init?.headers)
             headers.set(CORRELATION_ID_HEADER, correlationId)
+
+            // Add $Context headers for context propagation (do-99vxp)
+            if (contextHeaders) {
+              for (const [key, value] of Object.entries(contextHeaders)) {
+                headers.set(key, value)
+              }
+            }
 
             // Add DO source headers for trust chain (do-nuwe)
             if (sourceDoId) {
@@ -402,6 +416,11 @@ export function createCrossDOClient<T extends object>(
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
             [CORRELATION_ID_HEADER]: correlationId,
+          }
+
+          // Add $Context headers for context propagation (do-99vxp)
+          if (contextHeaders) {
+            Object.assign(headers, contextHeaders)
           }
 
           if (sourceDoId) {
@@ -469,6 +488,8 @@ export interface CrossDOContextOptions {
    * Default: true. Set to false to disable circuit breaker protection.
    */
   circuitBreaker?: boolean
+  /** $Context to propagate through all calls (do-99vxp) */
+  $context?: $Context
 }
 
 /**
@@ -505,6 +526,8 @@ export class CrossDOContext {
   private retryConfig?: CrossDORetryOptions | false
   /** Circuit breaker enabled by default (do-bkkfj) */
   private useCircuitBreaker: boolean
+  /** $Context for propagation through all calls (do-99vxp) */
+  private $context?: $Context
 
   constructor(env: Record<string, DurableObjectNamespace>, options?: CrossDOContextOptions) {
     this.env = env
@@ -519,6 +542,9 @@ export class CrossDOContext {
     }
     if (options?.retry !== undefined) {
       this.retryConfig = options.retry
+    }
+    if (options?.$context !== undefined) {
+      this.$context = options.$context
     }
 
     // Return proxy for namespace access
@@ -552,6 +578,9 @@ export class CrossDOContext {
     }
     if (this.retryConfig !== undefined) {
       options.retry = this.retryConfig
+    }
+    if (this.$context) {
+      options.$context = this.$context
     }
     return options
   }

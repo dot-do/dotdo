@@ -117,6 +117,13 @@ export class AlarmHandler implements DOHandler {
 
   /**
    * Persist alarm state to storage.
+   *
+   * Note: The serialized alarm state must stay under the CF DO value size
+   * limit of 128 KB (MAX_VALUE_SIZE). If you have many one-time alarms,
+   * monitor the size. Use {@link StorageGuard.checkValueSize} to validate
+   * before writing.
+   *
+   * @see https://developers.cloudflare.com/durable-objects/platform/limits/
    */
   async persistAlarmState(): Promise<void> {
     if (!this.state) {
