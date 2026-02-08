@@ -15,8 +15,20 @@
  */
 
 import { defineConfig } from 'vitest/config'
+import { resolve } from 'path'
+
+const root = resolve(__dirname, '..')
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@dotdo/db': resolve(root, 'db/index.ts'),
+      '@dotdo/do': resolve(root, 'do/index.ts'),
+      '@dotdo/utils': resolve(root, 'utils/index.ts'),
+      '@dotdo/integrations': resolve(root, 'integrations/index.ts'),
+      '@dotdo/observability': resolve(root, 'observability/index.ts'),
+    },
+  },
   test: {
     // Include persistence tests that use Miniflare directly AND
     // pure logic tests that don't need cloudflare:test runtime
@@ -27,6 +39,7 @@ export default defineConfig({
       'tests/error-recovery-edge-cases.test.ts',
       'tests/saga.test.ts',
       'tests/client.test.ts', // Client-side $Context tests (RED phase)
+      'tests/with-transaction.test.ts', // Atomic multi-operation transactions (do-9mrsg)
     ],
 
     // Standard exclusions

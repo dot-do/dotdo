@@ -443,7 +443,9 @@ export {
   type FireAndForgetError,
   type FireAndForgetErrorStore,
   type ErrorQueryOptions,
-  type ErrorStats
+  type ErrorStats,
+  type RetryConfig,
+  type RetryPendingResult,
 } from './fire-and-forget-errors'
 
 /**

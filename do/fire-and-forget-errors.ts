@@ -123,6 +123,32 @@ export interface ErrorStats {
 }
 
 /**
+ * Configuration for retry behavior
+ */
+export interface RetryConfig {
+  /** Maximum retry attempts before giving up (default: 3) */
+  maxRetries?: number
+  /** Base delay in ms for exponential backoff (default: 100) */
+  baseDelay?: number
+  /** Maximum delay in ms for exponential backoff (default: 60000) */
+  maxDelay?: number
+}
+
+/**
+ * Result of a retryPending() call
+ */
+export interface RetryPendingResult {
+  /** Number of errors that were retried */
+  attempted: number
+  /** Number of errors that were recovered (retry succeeded) */
+  recovered: number
+  /** Number of errors that failed again */
+  failed: number
+  /** Number of errors that exhausted max retries and were abandoned */
+  abandoned: number
+}
+
+/**
  * Fire-and-Forget Error Store Interface
  */
 export interface FireAndForgetErrorStore {
@@ -166,6 +192,31 @@ export interface FireAndForgetErrorStore {
    * Count errors matching criteria
    */
   count(options?: ErrorQueryOptions): number
+
+  /**
+   * Retry pending retriable errors that haven't exhausted their max attempts.
+   *
+   * Queries for unrecovered, retriable errors where attempts < maxRetries,
+   * and whose next retry time (based on exponential backoff) has elapsed.
+   * For each eligible error, calls the provided retryFn. On success, marks
+   * the error as recovered. On failure, increments the attempt count.
+   *
+   * @param retryFn - Function that attempts to retry the failed operation.
+   *                  Receives the error record and should throw if retry fails.
+   * @param config - Optional retry configuration overrides
+   * @returns Result summary of the retry pass
+   */
+  retryPending(
+    retryFn: (error: FireAndForgetError) => Promise<void>,
+    config?: RetryConfig
+  ): Promise<RetryPendingResult>
+
+  /**
+   * Get the next retry time for pending retriable errors.
+   * Returns null if there are no pending retriable errors.
+   * Used by alarm scheduling to determine when to next run retryPending().
+   */
+  getNextRetryTime(config?: RetryConfig): number | null
 }
 
 /**
@@ -421,7 +472,79 @@ export function createInMemoryErrorStore(options: InMemoryErrorStoreOptions = {}
 
     count(options = {}) {
       return this.query({ ...options, limit: Infinity }).length
-    }
+    },
+
+    async retryPending(retryFn, config = {}) {
+      const {
+        maxRetries = DEFAULT_MAX_RETRY_ATTEMPTS,
+        baseDelay = DEFAULT_RETRY_BASE_DELAY_MS,
+        maxDelay = DEFAULT_MAX_BACKOFF_MS,
+      } = config
+
+      const now = Date.now()
+      const result: RetryPendingResult = { attempted: 0, recovered: 0, failed: 0, abandoned: 0 }
+
+      // Find retriable, unrecovered errors that haven't exhausted retries
+      const candidates = errors.filter(e => {
+        if (e.recovered || !e.retriable) return false
+        const attempts = e.attempts ?? 0
+        if (attempts >= maxRetries) return false
+
+        // Check exponential backoff: delay = min(baseDelay * 2^attempts, maxDelay)
+        const delay = Math.min(baseDelay * Math.pow(2, attempts), maxDelay)
+        const nextRetryAt = e.timestamp + delay
+        return nextRetryAt <= now
+      })
+
+      for (const error of candidates) {
+        result.attempted++
+        try {
+          await retryFn(error)
+          // Success: mark as recovered
+          error.recovered = true
+          error.recoveredAt = Date.now()
+          result.recovered++
+          logger.info(`[retryPending] Error ${error.id} recovered after retry`)
+        } catch (retryError) {
+          // Failure: increment attempt count
+          error.attempts = (error.attempts ?? 0) + 1
+          if (error.attempts >= maxRetries) {
+            result.abandoned++
+            logger.warn(`[retryPending] Error ${error.id} abandoned after ${error.attempts} attempts`)
+          } else {
+            result.failed++
+            logger.debug(`[retryPending] Error ${error.id} failed retry attempt ${error.attempts}/${maxRetries}`)
+          }
+        }
+      }
+
+      return result
+    },
+
+    getNextRetryTime(config = {}) {
+      const {
+        maxRetries = DEFAULT_MAX_RETRY_ATTEMPTS,
+        baseDelay = DEFAULT_RETRY_BASE_DELAY_MS,
+        maxDelay = DEFAULT_MAX_BACKOFF_MS,
+      } = config
+
+      let nextTime: number | null = null
+
+      for (const error of errors) {
+        if (error.recovered || !error.retriable) continue
+        const attempts = error.attempts ?? 0
+        if (attempts >= maxRetries) continue
+
+        const delay = Math.min(baseDelay * Math.pow(2, attempts), maxDelay)
+        const retryAt = error.timestamp + delay
+
+        if (nextTime === null || retryAt < nextTime) {
+          nextTime = retryAt
+        }
+      }
+
+      return nextTime
+    },
   }
 }
 
@@ -612,7 +735,102 @@ export function createSQLiteErrorStore(sql: SyncSqlStorage): FireAndForgetErrorS
 
       const result = sql.prepare(query).bind(...params).first()
       return (result?.['count'] as number) || 0
-    }
+    },
+
+    async retryPending(retryFn, config = {}) {
+      const {
+        maxRetries = DEFAULT_MAX_RETRY_ATTEMPTS,
+        baseDelay = DEFAULT_RETRY_BASE_DELAY_MS,
+        maxDelay = DEFAULT_MAX_BACKOFF_MS,
+      } = config
+
+      const now = Date.now()
+      const retryResult: RetryPendingResult = { attempted: 0, recovered: 0, failed: 0, abandoned: 0 }
+
+      // Query retriable, unrecovered errors that haven't exhausted retries
+      // We fetch all candidates and filter by backoff timing in code since
+      // the backoff calculation (baseDelay * 2^attempts) is complex for SQL
+      const candidateRows = sql.prepare(`
+        SELECT * FROM fire_and_forget_errors
+        WHERE recovered = 0
+          AND retriable = 1
+          AND (attempts IS NULL OR attempts < ?)
+        ORDER BY timestamp ASC
+      `).bind(maxRetries).all()
+
+      const candidates = candidateRows.results.map(mapRowToError)
+
+      for (const error of candidates) {
+        const attempts = error.attempts ?? 0
+        const delay = Math.min(baseDelay * Math.pow(2, attempts), maxDelay)
+        const nextRetryAt = error.timestamp + delay
+
+        if (nextRetryAt > now) continue // Not yet time to retry
+
+        retryResult.attempted++
+        try {
+          await retryFn(error)
+          // Success: mark as recovered
+          sql.prepare(`
+            UPDATE fire_and_forget_errors
+            SET recovered = 1, recovered_at = ?
+            WHERE id = ?
+          `).bind(Date.now(), error.id).run()
+          retryResult.recovered++
+          logger.info(`[retryPending] Error ${error.id} recovered after retry`)
+        } catch (retryError) {
+          // Failure: increment attempt count
+          const newAttempts = attempts + 1
+          sql.prepare(`
+            UPDATE fire_and_forget_errors
+            SET attempts = ?
+            WHERE id = ?
+          `).bind(newAttempts, error.id).run()
+
+          if (newAttempts >= maxRetries) {
+            retryResult.abandoned++
+            logger.warn(`[retryPending] Error ${error.id} abandoned after ${newAttempts} attempts`)
+          } else {
+            retryResult.failed++
+            logger.debug(`[retryPending] Error ${error.id} failed retry attempt ${newAttempts}/${maxRetries}`)
+          }
+        }
+      }
+
+      return retryResult
+    },
+
+    getNextRetryTime(config = {}) {
+      const {
+        maxRetries = DEFAULT_MAX_RETRY_ATTEMPTS,
+        baseDelay = DEFAULT_RETRY_BASE_DELAY_MS,
+        maxDelay = DEFAULT_MAX_BACKOFF_MS,
+      } = config
+
+      // Query all pending retriable errors
+      const rows = sql.prepare(`
+        SELECT timestamp, attempts FROM fire_and_forget_errors
+        WHERE recovered = 0
+          AND retriable = 1
+          AND (attempts IS NULL OR attempts < ?)
+        ORDER BY timestamp ASC
+      `).bind(maxRetries).all()
+
+      let nextTime: number | null = null
+
+      for (const row of rows.results) {
+        const timestamp = row['timestamp'] as number
+        const attempts = (row['attempts'] as number) ?? 0
+        const delay = Math.min(baseDelay * Math.pow(2, attempts), maxDelay)
+        const retryAt = timestamp + delay
+
+        if (nextTime === null || retryAt < nextTime) {
+          nextTime = retryAt
+        }
+      }
+
+      return nextTime
+    },
   }
 }
 

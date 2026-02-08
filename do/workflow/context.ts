@@ -168,13 +168,30 @@ function initializeContextState(options?: CreateContextOptions): ContextState {
   const evaluator = options?.evaluator
 
   // Initialize async context system (do-nexi)
+  // Route initialization errors to fire-and-forget error store (do-k9te3)
   initializeAsyncContext().catch((err) => {
+    const errorInfo = extractErrorInfo(err)
+    fireAndForgetErrors.track({
+      operation: 'context.init',
+      message: errorInfo.message,
+      ...(errorInfo.stack !== undefined && { stack: errorInfo.stack }),
+      errorType: errorInfo.errorType,
+      retriable: errorInfo.retriable,
+    })
     logger.error('Failed to initialize async context:', err)
   })
 
   // Initialize integrations if configs provided
   if (options?.integrationConfigs) {
     integrations.initAll(options.integrationConfigs).catch((err) => {
+      const errorInfo = extractErrorInfo(err)
+      fireAndForgetErrors.track({
+        operation: 'integrations.init',
+        message: errorInfo.message,
+        ...(errorInfo.stack !== undefined && { stack: errorInfo.stack }),
+        errorType: errorInfo.errorType,
+        retriable: errorInfo.retriable,
+      })
       logger.error('Failed to initialize integrations:', err)
     })
   }
@@ -249,7 +266,7 @@ function createEventProcessor(
     updateRetryMetrics(combinedResult, emitted, eventType, payload, events)
 
     // Emit recovery events for handlers that succeeded after retries
-    await emitRecoveryEvents(result, emitted, eventType, handlers)
+    await emitRecoveryEvents(result, emitted, eventType, handlers, fireAndForgetErrors)
   }
 }
 
@@ -344,7 +361,8 @@ async function emitRecoveryEvents(
   result: { succeeded: Array<{ attempts: number }> },
   emitted: Event,
   eventType: string,
-  handlers: Map<string, EventHandler[]>
+  handlers: Map<string, EventHandler[]>,
+  fireAndForgetErrors: FireAndForgetErrorStore
 ): Promise<void> {
   for (const success of result.succeeded) {
     if (success.attempts > 1) {
@@ -362,6 +380,17 @@ async function emitRecoveryEvents(
         try {
           await handler(recoveryEvent)
         } catch (err) {
+          // Track recovery handler errors in fire-and-forget error store (do-k9te3)
+          const errorInfo = extractErrorInfo(err)
+          fireAndForgetErrors.track({
+            operation: 'event.recovery-handler',
+            eventType: 'System.recovered',
+            handlerIndex: recoveryHandlers.indexOf(handler),
+            message: errorInfo.message,
+            ...(errorInfo.stack !== undefined && { stack: errorInfo.stack }),
+            errorType: errorInfo.errorType,
+            retriable: errorInfo.retriable,
+          })
           logger.error('Error in recovery handler:', err)
         }
       }
@@ -384,7 +413,17 @@ function setupEventSubscription(
     }
 
     // Process replayed events with retry logic
+    // Route errors to fire-and-forget error store (do-k9te3)
     processEvent(event, event.type, event.payload).catch((err) => {
+      const errorInfo = extractErrorInfo(err)
+      state.fireAndForgetErrors.track({
+        operation: 'event.dlq-replay',
+        eventType: event.type,
+        message: errorInfo.message,
+        ...(errorInfo.stack !== undefined && { stack: errorInfo.stack }),
+        errorType: errorInfo.errorType,
+        retriable: errorInfo.retriable,
+      })
       logger.error(`Error processing replayed event "${event.type}":`, err)
     })
   })
@@ -531,7 +570,7 @@ function createThingsAPI(things?: ThingsStore): ThingsAPI {
  * Create the $.events API that wraps EventsStore.
  * Provides a unified interface matching the client-side $.events.
  */
-function createEventsAPI(events: EventsStore, handlers: Map<string, EventHandler[]>): EventsAPI {
+function createEventsAPI(events: EventsStore, handlers: Map<string, EventHandler[]>, fireAndForgetErrors: FireAndForgetErrorStore): EventsAPI {
   return {
     async emit(event: { type: string; payload?: unknown }, options?: { fireAndForget?: boolean }) {
       const emitted = await events.emit({
@@ -543,15 +582,37 @@ function createEventsAPI(events: EventsStore, handlers: Map<string, EventHandler
       // If fire-and-forget, return queued status
       if (options?.fireAndForget) {
         // Process handlers asynchronously (fire-and-forget)
-        queueMicrotask(async () => {
+        // Wrap the entire async block with .catch() to capture unhandled rejections (do-k9te3)
+        Promise.resolve().then(async () => {
           const matchingHandlers = matchHandlers(event.type, handlers)
           for (const handler of matchingHandlers) {
-            try {
-              await handler(emitted)
-            } catch (err) {
-              logger.error(`Error in handler for event "${event.type}":`, err)
-            }
+            // Wrap each handler invocation with error boundary (do-k9te3)
+            Promise.resolve(handler(emitted)).catch((err) => {
+              const errorInfo = extractErrorInfo(err)
+              fireAndForgetErrors.track({
+                operation: 'event.handler',
+                eventType: event.type,
+                handlerIndex: matchingHandlers.indexOf(handler),
+                message: errorInfo.message,
+                ...(errorInfo.stack !== undefined && { stack: errorInfo.stack }),
+                errorType: errorInfo.errorType,
+                retriable: errorInfo.retriable,
+              })
+              logger.error(`Error in fire-and-forget handler for event "${event.type}":`, err)
+            })
           }
+        }).catch((err) => {
+          // Catch errors from matchHandlers or other top-level failures (do-k9te3)
+          const errorInfo = extractErrorInfo(err)
+          fireAndForgetErrors.track({
+            operation: 'event.dispatch',
+            eventType: event.type,
+            message: errorInfo.message,
+            ...(errorInfo.stack !== undefined && { stack: errorInfo.stack }),
+            errorType: errorInfo.errorType,
+            retriable: errorInfo.retriable,
+          })
+          logger.error(`Error dispatching fire-and-forget event "${event.type}":`, err)
         })
         return { queued: true }
       }
@@ -562,6 +623,17 @@ function createEventsAPI(events: EventsStore, handlers: Map<string, EventHandler
         try {
           await handler(emitted)
         } catch (err) {
+          // Track handler errors in fire-and-forget error store (do-k9te3)
+          const errorInfo = extractErrorInfo(err)
+          fireAndForgetErrors.track({
+            operation: 'event.handler',
+            eventType: event.type,
+            handlerIndex: matchingHandlers.indexOf(handler),
+            message: errorInfo.message,
+            ...(errorInfo.stack !== undefined && { stack: errorInfo.stack }),
+            errorType: errorInfo.errorType,
+            retriable: errorInfo.retriable,
+          })
           logger.error(`Error in handler for event "${event.type}":`, err)
         }
       }
@@ -728,7 +800,7 @@ function createBaseContext(
     things: createThingsAPI(things),
 
     // Events API - wraps EventsStore for shared interface compatibility
-    events: createEventsAPI(events, handlers),
+    events: createEventsAPI(events, handlers, fireAndForgetErrors),
 
     // Extended primitives (fsx, gitx, bashx, npmx) - wired via options (do-ibsi)
     fs: options?.fs,

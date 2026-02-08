@@ -360,24 +360,22 @@ describe('do/workflow/events.ts - Event Handler Functions', () => {
         expect(result.succeeded).toHaveLength(1)
       })
 
-      it('should invoke handlers in parallel', async () => {
+      it('should invoke handlers sequentially in FIFO order', async () => {
         const on = createOnProxy(handlers)
-        const startTimes: number[] = []
-        const endTimes: number[] = []
+        const executionOrder: number[] = []
 
         for (let i = 0; i < 3; i++) {
-          on.Parallel.test(async () => {
-            startTimes.push(Date.now())
-            await new Promise((r) => setTimeout(r, 50))
-            endTimes.push(Date.now())
+          const index = i
+          on.Sequential.test(async () => {
+            executionOrder.push(index)
+            await new Promise((r) => setTimeout(r, 10))
           })
         }
 
-        await invokeHandlers('Parallel.test', {}, handlers)
+        await invokeHandlers('Sequential.test', {}, handlers)
 
-        // All handlers should have started at roughly the same time
-        const maxStartDiff = Math.max(...startTimes) - Math.min(...startTimes)
-        expect(maxStartDiff).toBeLessThan(20) // Less than 20ms difference
+        // Handlers should execute in registration order (FIFO)
+        expect(executionOrder).toEqual([0, 1, 2])
       })
 
       it('should continue processing other handlers after one fails', async () => {

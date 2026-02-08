@@ -12,6 +12,9 @@
  */
 
 import { EntityManager, type EntityManagerOptions } from '../entities'
+import {
+  MemoryStorageAdapter,
+} from '@dotdo/db'
 import type {
   ThingsStore,
   EventsStore,
@@ -34,6 +37,9 @@ export interface StorageHandlerOptions extends EntityManagerOptions {}
  * Delegates to EntityManager for actual storage operations.
  * Provides a clean interface for the DO class.
  *
+ * By default, creates a shared MemoryStorageAdapter for all stores,
+ * enabling atomic multi-operation transactions via withTransaction() (do-9mrsg).
+ *
  * @example
  * ```typescript
  * const handler = new StorageHandler({ state })
@@ -44,11 +50,15 @@ export interface StorageHandlerOptions extends EntityManagerOptions {}
  *   name: 'Alice'
  * })
  *
- * // Query things
- * const results = handler.query()
- *   .where('$type', '=', 'Customer')
- *   .limit(10)
- *   .execute()
+ * // Atomic transaction across stores
+ * await handler.withTransaction(async () => {
+ *   const customer = await handler.things.create({ $type: 'Customer', name: 'Alice' })
+ *   await handler.relationships.add({
+ *     subject: customer.$id,
+ *     predicate: 'belongs_to',
+ *     object: orgId
+ *   })
+ * })
  * ```
  */
 export class StorageHandler implements DOHandler {
@@ -56,7 +66,13 @@ export class StorageHandler implements DOHandler {
   private entityManager: EntityManager
 
   constructor(options: StorageHandlerOptions = {}) {
-    this.entityManager = new EntityManager(options)
+    // Default to a shared MemoryStorageAdapter if no adapter provided (do-9mrsg)
+    // This enables withTransaction() to work out of the box
+    const effectiveOptions: EntityManagerOptions = {
+      ...options,
+      adapter: options.adapter ?? new MemoryStorageAdapter(),
+    }
+    this.entityManager = new EntityManager(effectiveOptions)
   }
 
   /**
@@ -148,5 +164,37 @@ export class StorageHandler implements DOHandler {
    */
   query<T extends StorableData = StorableData>(): QueryBuilder<T> {
     return this.entityManager.query<T>()
+  }
+
+  /**
+   * Execute a function within an atomic transaction (do-9mrsg).
+   *
+   * All store operations (things, events, relationships) performed inside the
+   * callback will either all succeed or all be rolled back if an error occurs.
+   *
+   * @param fn - The function to execute within the transaction
+   * @returns The result of the function
+   *
+   * @example
+   * ```typescript
+   * await handler.withTransaction(async () => {
+   *   const customer = await handler.things.create({ $type: 'Customer', name: 'Alice' })
+   *   await handler.relationships.add({
+   *     subject: customer.$id,
+   *     predicate: 'belongs_to',
+   *     object: orgId
+   *   })
+   * })
+   * ```
+   */
+  async withTransaction<T>(fn: () => Promise<T>): Promise<T> {
+    return this.entityManager.withTransaction(fn)
+  }
+
+  /**
+   * Check if a transaction is currently in progress.
+   */
+  get inTransaction(): boolean {
+    return this.entityManager.inTransaction
   }
 }

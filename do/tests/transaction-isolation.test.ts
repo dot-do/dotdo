@@ -1,19 +1,16 @@
 /**
  * Transaction Isolation Tests for Event Handlers
  *
- * This test file demonstrates the LACK of transaction isolation between
- * concurrent event handlers. When multiple handlers execute in parallel
- * via Promise.all, they can interleave and create inconsistent state.
+ * These tests verify that event handlers execute sequentially (FIFO),
+ * preventing interleaving and race conditions on shared state.
  *
- * The issue: invokeHandlers() uses Promise.all to run handlers concurrently,
- * but doesn't provide any transaction isolation. Handlers that perform
- * read-modify-write operations on shared state can experience race conditions.
+ * The fix (do-glz3x): invokeHandlers() now uses a sequential for-loop
+ * instead of Promise.all, guaranteeing handlers execute in registration
+ * order without interleaving. EventSystem.emit() also queues events
+ * so that events emitted during handler execution are processed after
+ * the current event completes.
  *
- * Expected behavior (after fix): Handlers should execute with serializable
- * isolation, ensuring consistent state even under concurrent execution.
- *
- * Current behavior (this test should FAIL): Handlers interleave, causing
- * lost updates and inconsistent state.
+ * All tests in this file should PASS with the sequential execution fix.
  *
  * @module do/tests/transaction-isolation.test
  */
@@ -39,7 +36,7 @@ describe('Transaction Isolation Between Event Handlers', () => {
    */
   const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-  describe('Concurrent Handler Interleaving (FAILING - demonstrates missing isolation)', () => {
+  describe('Sequential Handler Execution (PASSING - FIFO ordering via do-glz3x)', () => {
     it('should NOT allow lost updates when handlers perform read-modify-write', async () => {
       /**
        * This test demonstrates the classic "lost update" problem:
@@ -53,7 +50,7 @@ describe('Transaction Isolation Between Event Handlers', () => {
        * Expected: counter = 2 (each handler increments once)
        * Actual without isolation: counter = 1 (one update lost)
        *
-       * This test SHOULD FAIL until transaction isolation is implemented.
+       * This test PASSES with sequential FIFO handler execution (do-glz3x).
        */
       const sharedState = { counter: 0 }
 
@@ -100,7 +97,7 @@ describe('Transaction Isolation Between Event Handlers', () => {
        * With isolation: Handler B should never see the intermediate -100 state
        * Without isolation: Handler B CAN see the intermediate state
        *
-       * This test SHOULD FAIL until transaction isolation is implemented.
+       * This test PASSES with sequential FIFO handler execution (do-glz3x).
        */
       const accounts = {
         checking: 100,
@@ -144,7 +141,7 @@ describe('Transaction Isolation Between Event Handlers', () => {
        * With isolation: Handler B should see complete records only
        * Without isolation: Handler B may see incomplete data
        *
-       * This test SHOULD FAIL until transaction isolation is implemented.
+       * This test PASSES with sequential FIFO handler execution (do-glz3x).
        */
       const records: Record<string, { name?: string; email?: string; complete?: boolean }> = {}
 
@@ -187,7 +184,7 @@ describe('Transaction Isolation Between Event Handlers', () => {
        * With 10 handlers each incrementing once, final count should be 10.
        * Without isolation, lost updates will cause count < 10.
        *
-       * This test SHOULD FAIL until transaction isolation is implemented.
+       * This test PASSES with sequential FIFO handler execution (do-glz3x).
        */
       const sharedState = { counter: 0 }
       const HANDLER_COUNT = 10
@@ -221,7 +218,7 @@ describe('Transaction Isolation Between Event Handlers', () => {
        *
        * Without isolation, concurrent handlers can violate this invariant.
        *
-       * This test SHOULD FAIL until transaction isolation is implemented.
+       * This test PASSES with sequential FIFO handler execution (do-glz3x).
        */
       const order = {
         items: [] as { price: number }[],
@@ -264,16 +261,13 @@ describe('Transaction Isolation Between Event Handlers', () => {
   })
 
   describe('Sequential Execution Verification', () => {
-    it('should record execution order to prove interleaving occurs', async () => {
+    it('should record execution order to prove sequential FIFO execution', async () => {
       /**
-       * This test records the execution order to demonstrate that handlers
-       * DO interleave when using Promise.all (the current implementation).
+       * This test records the execution order to verify that handlers
+       * execute sequentially in FIFO order (do-glz3x fix).
        *
-       * Expected sequence WITHOUT isolation (interleaved):
-       * A-start, B-start, A-end, B-end (or similar interleaved pattern)
-       *
-       * Expected sequence WITH isolation (serialized):
-       * A-start, A-end, B-start, B-end (or B then A)
+       * Expected sequence with FIFO ordering (serialized):
+       * A-start, A-end, B-start, B-end
        */
       const executionLog: string[] = []
 
@@ -299,7 +293,7 @@ describe('Transaction Isolation Between Event Handlers', () => {
       const isSerializedB = executionLog[0] === 'B-start' && executionLog[1] === 'B-end'
       const isSerialized = isSerializedA || isSerializedB
 
-      // This assertion SHOULD FAIL until isolation is implemented
+      // This assertion PASSES with sequential FIFO handler execution (do-glz3x)
       expect(isSerialized).toBe(true)
     })
   })

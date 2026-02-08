@@ -3,6 +3,8 @@
 
 import {
   createThingsStoreWithAdapter,
+  createEventsStoreWithAdapter,
+  createRelationshipsStoreWithAdapter,
   createEventsStore,
   createRelationshipsStore,
   createQuery,
@@ -11,6 +13,7 @@ import {
   defaultAuditConfig,
   maskSensitiveFields,
   toJsonObject,
+  TransactionError,
 } from '@dotdo/db'
 import type {
   ThingsStore,
@@ -26,6 +29,7 @@ import type {
   RelationshipInput,
   QueryBuilder,
   StorableData,
+  StorageAdapter,
   BulkUpdateItem,
 } from '@dotdo/db'
 
@@ -35,11 +39,19 @@ import type {
 export interface EntityManagerOptions {
   /** Audit logging configuration */
   auditConfig?: Partial<AuditLogConfig>
+  /**
+   * Optional shared storage adapter for all stores.
+   * When provided, all stores (things, events, relationships) share this adapter,
+   * enabling atomic multi-operation transactions via withTransaction().
+   * If not provided, each store gets its own MemoryStorageAdapter (legacy behavior).
+   */
+  adapter?: StorageAdapter
 }
 
 /**
  * Entity Manager wraps the base stores and adds event emission on entity changes
  * Also provides audit logging for all CRUD operations (do-xebw)
+ * Supports atomic multi-operation transactions via withTransaction() (do-9mrsg)
  */
 export class EntityManager {
   private _things: ThingsStore
@@ -48,12 +60,26 @@ export class EntityManager {
   private _auditLogs: AuditLogStore
   private _auditConfig: AuditLogConfig
   private _auditContext: AuditContext
+  /** Shared adapter for transactional operations (do-9mrsg) */
+  private _adapter: StorageAdapter | null
+  /** Track whether a transaction is currently in progress */
+  private _inTransaction = false
 
   constructor(options: EntityManagerOptions = {}) {
-    // Use adapter-based store (do-xjmbd migration from deprecated createThingsStore)
-    this._things = createThingsStoreWithAdapter(new MemoryStorageAdapter())
-    this._events = createEventsStore()
-    this._relationships = createRelationshipsStore()
+    const adapter = options.adapter ?? null
+    this._adapter = adapter
+
+    if (adapter) {
+      // Use shared adapter for all stores (do-9mrsg) - enables atomic transactions
+      this._things = createThingsStoreWithAdapter(adapter)
+      this._events = createEventsStoreWithAdapter(adapter)
+      this._relationships = createRelationshipsStoreWithAdapter(adapter)
+    } else {
+      // Legacy behavior: each store gets its own MemoryStorageAdapter
+      this._things = createThingsStoreWithAdapter(new MemoryStorageAdapter())
+      this._events = createEventsStore()
+      this._relationships = createRelationshipsStore()
+    }
     this._auditLogs = createAuditLogStore()
     this._auditConfig = { ...defaultAuditConfig, ...options.auditConfig }
     this._auditContext = { actor: 'system' }
@@ -72,6 +98,79 @@ export class EntityManager {
    */
   getAuditContext(): AuditContext {
     return this._auditContext
+  }
+
+  /**
+   * Execute a function within an atomic transaction (do-9mrsg).
+   *
+   * All store operations (things, events, relationships) performed inside the
+   * callback will either all succeed or all be rolled back if an error occurs.
+   *
+   * Requires a shared StorageAdapter to be provided in the constructor options.
+   * Without a shared adapter, throws a TransactionError.
+   *
+   * ## Important: Cloudflare Durable Objects
+   *
+   * In Cloudflare DOs, this uses the adapter's transaction() method:
+   * - MemoryStorageAdapter: Snapshot/restore for atomicity
+   * - SQLiteStorageAdapter: transactionSync() for synchronous operations,
+   *   or automatic atomicity for consecutive writes without await
+   *
+   * Nesting is not supported -- calling withTransaction() inside another
+   * withTransaction() will throw a TransactionError.
+   *
+   * @param fn - The function to execute within the transaction
+   * @returns The result of the function
+   * @throws TransactionError if no shared adapter is configured or if nesting is attempted
+   *
+   * @example
+   * ```typescript
+   * await entityManager.withTransaction(async () => {
+   *   const customer = await things.create({ $type: 'Customer', name: 'Alice' })
+   *   await relationships.add({ subject: customer.$id, predicate: 'belongs_to', object: orgId })
+   *   await events.emit({ type: 'Customer.created', payload: { id: customer.$id } })
+   * })
+   * ```
+   */
+  async withTransaction<T>(fn: () => Promise<T>): Promise<T> {
+    if (!this._adapter) {
+      throw new TransactionError(
+        'withTransaction() requires a shared StorageAdapter. ' +
+        'Create EntityManager with { adapter: new MemoryStorageAdapter() } to enable transactions.'
+      )
+    }
+
+    if (this._inTransaction) {
+      throw new TransactionError(
+        'Nested transactions are not supported. ' +
+        'withTransaction() was called while another transaction is already in progress.'
+      )
+    }
+
+    this._inTransaction = true
+    try {
+      const result = await this._adapter.transaction(fn)
+      return result
+    } catch (error) {
+      // The adapter.transaction() handles rollback internally.
+      // Re-throw as TransactionError if it isn't one already.
+      if (error instanceof TransactionError) {
+        throw error
+      }
+      throw new TransactionError(
+        `Transaction failed: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      )
+    } finally {
+      this._inTransaction = false
+    }
+  }
+
+  /**
+   * Check if a transaction is currently in progress.
+   */
+  get inTransaction(): boolean {
+    return this._inTransaction
   }
 
   /**

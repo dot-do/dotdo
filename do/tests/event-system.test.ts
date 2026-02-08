@@ -752,7 +752,7 @@ describe('EventSystem - Standalone Event Handling Module', () => {
 
       await eventSystem.emit({ type: 'Test.event' })
 
-      // All handlers should have been attempted (executed in parallel)
+      // All handlers should have been attempted (executed sequentially in FIFO order)
       expect(results).toContain('handler-1')
       expect(results).toContain('handler-3')
     })

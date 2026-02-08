@@ -22,6 +22,7 @@ import {
 } from '../workflow/alarm'
 import type { ScheduleRegistration } from '../workflow/schedule'
 import type { DOHandler } from './registry'
+import type { FireAndForgetErrorStore, RetryPendingResult } from '../fire-and-forget-errors'
 
 const logger = createScopedLogger({ level: LogLevel.INFO, prefix: '[AlarmHandler]' })
 
@@ -138,21 +139,38 @@ export class AlarmHandler implements DOHandler {
   }
 
   /**
-   * Schedule the next alarm based on registered schedules.
+   * Schedule the next alarm based on registered schedules and pending retries.
+   *
+   * @param schedules - The registered schedules
+   * @param fireAndForgetErrors - Optional error store to check for pending retries
    */
-  async scheduleNextAlarm(schedules: Map<string, ScheduleRegistration>): Promise<void> {
+  async scheduleNextAlarm(
+    schedules: Map<string, ScheduleRegistration>,
+    fireAndForgetErrors?: FireAndForgetErrorStore
+  ): Promise<void> {
     if (!this.state) {
       throw new Error('AlarmHandler: state not set. Call setState() first.')
     }
 
-    if (schedules.size === 0 && this.alarmStore.oneTimeAlarms.size === 0) {
-      return // No schedules to set alarm for
-    }
-
-    const nextTime = calculateNextAlarmTime(
+    // Calculate next alarm from schedules and one-time alarms
+    let nextTime = calculateNextAlarmTime(
       schedules,
       this.alarmStore
     )
+
+    // Also consider pending retry timing from the error store
+    if (fireAndForgetErrors) {
+      const nextRetryTime = fireAndForgetErrors.getNextRetryTime()
+      if (nextRetryTime !== null) {
+        if (nextTime === null || nextRetryTime < nextTime) {
+          nextTime = nextRetryTime
+        }
+      }
+    }
+
+    if (schedules.size === 0 && this.alarmStore.oneTimeAlarms.size === 0 && nextTime === null) {
+      return // Nothing to schedule
+    }
 
     if (nextTime !== null) {
       try {
@@ -173,18 +191,34 @@ export class AlarmHandler implements DOHandler {
   /**
    * Process an alarm - execute schedules and one-time alarms.
    *
+   * Uses a crash-safe pattern for alarm persistence:
+   * 1. Calculate and persist next alarm time BEFORE executing handlers
+   * 2. Execute the current handlers
+   * 3. Recalculate and persist final alarm time after execution
+   *
+   * This ensures that if the DO crashes during handler execution, the
+   * next alarm is already set and won't be lost.
+   *
    * @param schedules - The registered schedules from WorkflowContext
+   * @param fireAndForgetErrors - Optional error store for auto-retry integration
    * @returns Results of schedule and one-time alarm execution
    */
   async processAlarm(
-    schedules: Map<string, ScheduleRegistration>
+    schedules: Map<string, ScheduleRegistration>,
+    fireAndForgetErrors?: FireAndForgetErrorStore
   ): Promise<{
     scheduleResults: Array<{ id: string; success: boolean; error?: Error }>
     oneTimeResults: Array<{ id: string; success: boolean; error?: Error }>
+    retryResults?: RetryPendingResult
   }> {
     await this.initializeAlarms()
 
-    // Execute all registered schedules
+    // STEP 1: Calculate and persist next alarm time BEFORE executing handlers.
+    // This guarantees that if the DO crashes during handler execution,
+    // the alarm is already set for the next run.
+    await this.scheduleNextAlarm(schedules)
+
+    // STEP 2: Execute all registered schedules
     const scheduleResults = await executeSchedules(schedules, this.alarmStore)
 
     // Log any errors
@@ -203,13 +237,38 @@ export class AlarmHandler implements DOHandler {
       }
     }
 
+    // STEP 2b: Auto-retry pending fire-and-forget errors if store is provided
+    let retryResults: RetryPendingResult | undefined
+    if (fireAndForgetErrors) {
+      try {
+        retryResults = await fireAndForgetErrors.retryPending(async (error) => {
+          // Default retry strategy: re-emit the event if we have event type info.
+          // The retryFn can be overridden by callers for custom behavior.
+          // For now, we simply re-throw to indicate the error needs a handler-level retry.
+          // The error store retryPending will increment the attempt count on failure.
+          throw new Error(`No automatic retry handler for operation "${error.operation}" (${error.eventType || 'unknown'})`)
+        })
+
+        if (retryResults.attempted > 0) {
+          logger.info(
+            `[retryPending] Processed ${retryResults.attempted} errors: ` +
+            `${retryResults.recovered} recovered, ${retryResults.failed} failed, ${retryResults.abandoned} abandoned`
+          )
+        }
+      } catch (retryErr) {
+        logger.error('Error during retryPending:', retryErr)
+      }
+    }
+
     // Persist alarm state
     await this.persistAlarmState()
 
-    // Schedule next alarm
-    await this.scheduleNextAlarm(schedules)
+    // STEP 3: Recalculate and persist final alarm time after execution.
+    // Handler execution may have changed alarm state (new one-time alarms,
+    // updated schedule metadata, retry timing, etc.), so recalculate.
+    await this.scheduleNextAlarm(schedules, fireAndForgetErrors)
 
-    return { scheduleResults, oneTimeResults }
+    return { scheduleResults, oneTimeResults, retryResults }
   }
 
   /**

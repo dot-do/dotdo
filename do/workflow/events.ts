@@ -344,23 +344,23 @@ export async function invokeHandlers(
 ): Promise<InvokeHandlersResult> {
   const matched = matchHandlers(eventType, handlers)
 
-  const results = await Promise.all(
-    matched.map(async (handler, index) => {
-      const result = await executeWithRetry(handler, event, options)
+  const succeeded: HandlerResult[] = []
+  const failed: HandlerResult[] = []
 
-      if (!result.succeeded) {
-        logger.error(
-          `Handler ${index + 1}/${matched.length} for "${eventType}" failed after ${result.attempts} attempt(s):`,
-          result.error
-        )
-      }
+  for (let index = 0; index < matched.length; index++) {
+    const handler = matched[index]
+    const result = await executeWithRetry(handler, event, options)
 
-      return result
-    })
-  )
-
-  const succeeded = results.filter(r => r.succeeded)
-  const failed = results.filter(r => !r.succeeded)
+    if (result.succeeded) {
+      succeeded.push(result)
+    } else {
+      logger.error(
+        `Handler ${index + 1}/${matched.length} for "${eventType}" failed after ${result.attempts} attempt(s):`,
+        result.error
+      )
+      failed.push(result)
+    }
+  }
 
   return { succeeded, failed }
 }
@@ -660,12 +660,17 @@ export async function invokeRemoteHandlers(
     return { succeeded: [], failed: [] }
   }
 
-  const results = await Promise.all(
-    matched.map(handler => executeRemoteHandler(handler, event, options))
-  )
+  const succeeded: RemoteHandlerResult[] = []
+  const failed: RemoteHandlerResult[] = []
 
-  const succeeded = results.filter(r => r.succeeded)
-  const failed = results.filter(r => !r.succeeded)
+  for (const handler of matched) {
+    const result = await executeRemoteHandler(handler, event, options)
+    if (result.succeeded) {
+      succeeded.push(result)
+    } else {
+      failed.push(result)
+    }
+  }
 
   return { succeeded, failed }
 }

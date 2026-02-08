@@ -302,6 +302,36 @@ export class DO implements DurableObject {
     return this.storageHandler.query()
   }
 
+  /**
+   * Execute a function within an atomic transaction (do-9mrsg).
+   *
+   * All store operations (things, events, relationships) performed inside the
+   * callback will either all succeed or all be rolled back if an error occurs.
+   * If the DO crashes mid-transaction or the callback throws, all changes are
+   * reverted to the pre-transaction state.
+   *
+   * @param fn - The function to execute within the transaction
+   * @returns The result of the function
+   * @throws TransactionError on failure (changes are rolled back)
+   *
+   * @example
+   * ```typescript
+   * // Inside a DO subclass:
+   * await this.withTransaction(async () => {
+   *   const customer = await this.things.create({ $type: 'Customer', name: 'Alice' })
+   *   await this.relationships.add({
+   *     subject: customer.$id,
+   *     predicate: 'belongs_to',
+   *     object: orgId
+   *   })
+   *   await this.things.update(existingId, { status: 'active' })
+   * })
+   * ```
+   */
+  async withTransaction<T>(fn: () => Promise<T>): Promise<T> {
+    return this.storageHandler.withTransaction(fn)
+  }
+
   private setupRoutes() {
     // Health check
     this.app.get('/', (c) => c.json({
@@ -388,19 +418,20 @@ export class DO implements DurableObject {
     return 'local'
   }
 
-  // Alarm handler (for scheduling)
+  // Alarm handler (for scheduling and auto-retry)
   async alarm(): Promise<void> {
     const startTime = Date.now()
     let success = true
 
     try {
       // Execute alarm processing with optional metrics wrapping
+      // Pass fire-and-forget error store for auto-retry integration
       if (this.observability) {
         await this.observability.wrapMethod('alarm', async () => {
-          await this.alarmHandler.processAlarm(this.$._schedules)
+          await this.alarmHandler.processAlarm(this.$._schedules, this.$._fireAndForgetErrors)
         })
       } else {
-        await this.alarmHandler.processAlarm(this.$._schedules)
+        await this.alarmHandler.processAlarm(this.$._schedules, this.$._fireAndForgetErrors)
       }
     } catch (error) {
       success = false

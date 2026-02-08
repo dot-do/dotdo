@@ -98,6 +98,12 @@ export class EventSystem {
   /** Listeners for event emissions */
   private emitListeners: EventEmitListener[] = []
 
+  /** Queue for cross-event FIFO ordering */
+  private eventQueue: { event: EventPayload; retryOptions?: RetryOptions; resolve: (result: InvokeHandlersResult) => void; reject: (error: Error) => void }[] = []
+
+  /** Whether the event queue is currently being processed */
+  private processing = false
+
   /**
    * Create a new EventSystem instance
    *
@@ -115,6 +121,13 @@ export class EventSystem {
 
   /**
    * Emit an event and invoke all matching handlers
+   *
+   * Events are processed sequentially in FIFO order. If a handler emits
+   * another event during execution, the new event is queued and processed
+   * after the current event's handlers complete. This guarantees:
+   * 1. Handlers for a given event execute in registration order
+   * 2. Events emitted during handler execution are processed after the
+   *    current event completes (cross-event FIFO)
    *
    * @param event - Event to emit
    * @param retryOptions - Optional retry options (overrides defaults)
@@ -135,22 +148,57 @@ export class EventSystem {
     event: EventPayload,
     retryOptions?: RetryOptions
   ): Promise<InvokeHandlersResult> {
-    // Notify emit listeners
-    for (const listener of this.emitListeners) {
-      try {
-        listener(event)
-      } catch {
-        // Listeners should not prevent event processing
-      }
+    return new Promise<InvokeHandlersResult>((resolve, reject) => {
+      this.eventQueue.push({ event, retryOptions, resolve, reject })
+      this.processQueue()
+    })
+  }
+
+  /**
+   * Process the event queue sequentially
+   *
+   * Only one instance of processQueue runs at a time. If a handler emits
+   * a new event, it is appended to the queue and processed after the
+   * current event finishes.
+   */
+  private async processQueue(): Promise<void> {
+    if (this.processing) {
+      return
     }
 
-    // Invoke handlers with retry logic
-    return invokeHandlers(
-      event.type,
-      event,
-      this.handlers,
-      retryOptions ?? this.defaultRetryOptions
-    )
+    this.processing = true
+
+    try {
+      while (this.eventQueue.length > 0) {
+        const entry = this.eventQueue.shift()!
+        const { event, retryOptions, resolve, reject } = entry
+
+        try {
+          // Notify emit listeners
+          for (const listener of this.emitListeners) {
+            try {
+              listener(event)
+            } catch {
+              // Listeners should not prevent event processing
+            }
+          }
+
+          // Invoke handlers with retry logic (sequential FIFO within this event)
+          const result = await invokeHandlers(
+            event.type,
+            event,
+            this.handlers,
+            retryOptions ?? this.defaultRetryOptions
+          )
+
+          resolve(result)
+        } catch (error) {
+          reject(error instanceof Error ? error : new Error(String(error)))
+        }
+      }
+    } finally {
+      this.processing = false
+    }
   }
 
   /**
