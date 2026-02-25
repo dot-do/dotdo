@@ -159,7 +159,11 @@ export abstract class DO implements DurableObject {
    * Flush pending events before hibernation
    */
   async alarm(): Promise<void> {
-    await this.events.flush()
+    try {
+      await this.events.flush()
+    } catch (err) {
+      console.error('[DotdoDO] Alarm flush failed:', err)
+    }
   }
 
   // ============================================================================
